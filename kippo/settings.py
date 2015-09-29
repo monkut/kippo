@@ -39,6 +39,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'reversion',
     'tagging',
+    'rest_framework',
     'projectmgt',
 )
 
@@ -74,6 +75,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'kippo.wsgi.application'
 
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAdminUser',),
+    'PAGE_SIZE': 25
+}
 
 # Database
 # https://docs.djangoproject.com/en/1.8/ref/settings/#databases

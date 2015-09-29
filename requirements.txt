@@ -1,0 +1,5 @@
+django
+django-reversion
+django-tagging
+django-admin-sortable
+djangorestframework
