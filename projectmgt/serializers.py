@@ -4,9 +4,12 @@ from .models import Project, Release, Task, TaskComment
 
 
 class UserSerializer(serializers.HyperlinkedModelSerializer):
+    tasks = serializers.PrimaryKeyRelatedField(many=True,
+                                               queryset=Task.objects.all())
+
     class Meta:
         model = User
-        fields = ('url', 'username', 'email', 'groups')
+        fields = ('id', 'username', 'email', 'tasks')
 
 
 class ProjectSerializer(serializers.HyperlinkedModelSerializer):

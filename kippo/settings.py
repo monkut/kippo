@@ -40,6 +40,7 @@ INSTALLED_APPS = (
     'reversion',
     'tagging',
     'rest_framework',
+    'rest_framework.authtoken',
     'projectmgt',
 )
 
@@ -77,7 +78,8 @@ WSGI_APPLICATION = 'kippo.wsgi.application'
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAdminUser',),
-    'PAGE_SIZE': 25
+    'PAGE_SIZE': 25,
+    'TEST_REQUEST_DEFAULT_FORMAT': 'json'
 }
 
 # Database
