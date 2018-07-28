@@ -1,0 +1,6 @@
+coverage
+flake8
+pylint
+pydocstyle
+mypy
+Sphinx
