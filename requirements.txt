@@ -1,9 +1,0 @@
-Django >=2.0, <2.1
-social-auth-app-django
-django-reversion
-psycopg2-binary
-bokeh
-requests
-git+https://github.com/monkut/github-org-manager.git
-agithub
-git+https://github.com/monkut/qlu-scheduler.git

@@ -9,32 +9,29 @@
 2. clone project from github
     https://github.com/monkut/kippo.git
 
-3. enter the kippo (project) directory and create venv enviornment
-    ```
-    $ python -m venv env
-    ```
-
-4. Activate the venv (virtual environment)
-    On Windows:
-    ```
-    > .\env\Scripts\activate.bat
-    ```
-
-    On Linux:
-    ```
-    $ source env/bin/activate
-    ```
-
-5. Once activated the "(env)" text should prefix your command line, with the virtual environment, "(env)", activated, install the requirements.
+3. Create the virtualenv and install the requirements:
 
     > Note:
-    > This will use the 'pip' created and added in the virtual environment, "env", directory.
+    > This will use the 'pipenv' created and added in the virtual environment
 
     ```
-    $ pip install -r requirements.txt
+    $ pipenv install
     ```
 
+## Local Development
 
+Prequisites
 
+- docker
+- python 3.6 with pipenv
 
+1. Install development requirements:
 
+    ```
+    pipenv install --dev
+
+    # enter environment
+    pipenv shell
+    ```
+
+2.

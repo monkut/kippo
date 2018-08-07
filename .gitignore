@@ -1,5 +1,4 @@
-projectmgt/migrations/
-db.sqlite3
+kippo/kippo/db.sqlite3
 .idea
 
 # Byte-compiled / optimized / DLL files

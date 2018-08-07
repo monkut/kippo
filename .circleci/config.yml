@@ -1,0 +1,51 @@
+# Python CircleCI 2.0 configuration file
+#
+# Check https://circleci.com/docs/2.0/language-python/ for more details
+#
+version: 2
+jobs:
+  build:
+    docker:
+      # specify the version you desire here
+      - image: circleci/python:3.6.5
+
+    working_directory: ~/repo
+
+    steps:
+      - checkout
+      - run: sudo chown -R circleci:circleci /usr/local/bin
+      - run: sudo chown -R circleci:circleci /usr/local/lib/python3.6/site-packages
+
+      # Download and cache dependencies
+      - restore_cache:
+          keys:
+          - v1-dependencies-{{ .Branch }}-{{ checksum "requirements.txt" }}-{{ checksum "requirements-dev.txt" }}
+          # fallback to using the latest cache if no exact match is found
+          - v1-dependencies-{{ .Branch }}-
+
+      - run:
+          name: install dependencies
+          command: |
+            sudo python3.6 -m pip install -r requirements.txt
+            sudo python3.6 -m pip install -r requirements-dev.txt
+
+      - save_cache:
+          key: v1-dependencies-{{ .Branch }}-{{ checksum "requirements.txt" }}-{{ checksum "requirements-dev.txt" }}
+          paths:
+            - ./venv
+            - /usr/local/bin
+            - /usr/local/bin/lib/python3.6/site-packages
+      - run:
+          name: run code checks
+          command: |
+            make check
+
+
+      - run:
+          name: run tests
+          command: |
+            make coverage
+
+      - store_artifacts:
+          path: test-reports
+          destination: test-reports
