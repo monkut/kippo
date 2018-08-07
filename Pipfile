@@ -1,0 +1,26 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+django = "<2.1,>=2.0"
+social-auth-app-django = "*"
+django-reversion = "*"
+"psycopg2-binary" = "*"
+bokeh = "*"
+requests = "*"
+"django-bootstrap4" = "*"
+ghorgs = {git="https://github.com/monkut/github-org-manager.git", editable=true}
+qlu = {git="https://github.com/monkut/qlu-scheduler.git", editable=true}
+pandas = "*"
+
+[dev-packages]
+coverage = "*"
+flake8 = "*"
+pylint = "*"
+pydocstyle = "*"
+mypy = "*"
+
+[requires]
+python_version = "3.6"
