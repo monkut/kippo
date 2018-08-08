@@ -129,7 +129,7 @@ ja_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
 
 STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+    BASE_DIR / '..' / 'accounts' / 'static',
 ]
 
 # NOTE:
@@ -149,7 +149,7 @@ STATICFILES_DIRS = [
 STATIC_URL = ''
 
 # -- for data backup/dump
-DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket'
+DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket-123xyz'
 
 # Authentication
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends

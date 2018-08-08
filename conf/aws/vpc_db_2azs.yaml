@@ -18,7 +18,7 @@ Parameters:
     Description: 'Password for RDS database'
     Type: 'String'
     MinLength: '12'
-    Default: 'kippo-xqqw7777w9e8u-wqejqwjqweq'
+    Default: '9292992j2jj2j2jj2lk2kl2l2l0'
   ClassB:
     Description: 'Class B of VPC (10.XXX.0.0/16)'
     Type: Number
@@ -299,7 +299,7 @@ Resources:
   DBInstance:
     Type: 'AWS::RDS::DBInstance'
     Properties:
-      DBName: 'telos'
+      DBName: 'kippo'
       Engine: postgres
       MultiAZ: false
       MasterUsername: !Ref DBUser
@@ -310,9 +310,6 @@ Resources:
         - !GetAtt DBSecurityGroup.GroupId
       DBSubnetGroupName: !Ref DbSubnetGroup
 Outputs:
-  TemplateID:
-    Description: 'cloudonaut.io template id'
-    Value: 'vpc/vpc-2azs'
   AZs:
     Description: 'AZs'
     Value: 2
@@ -397,4 +394,4 @@ Outputs:
     Description: 'Route table B private.'
     Value: !Ref RouteTableBPrivate
     Export:
-Name: !Sub '${AWS::StackName}-RouteTableBPrivate'
+      Name: !Sub '${AWS::StackName}-RouteTableBPrivate'

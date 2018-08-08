@@ -1,5 +1,6 @@
 from .base import *
 
+INSTALLED_APPS.append('storages')  # add django storages so serving static files from s3
 
 # refer to:
 # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
@@ -15,4 +16,16 @@ AWS_S3_CUSTOM_DOMAIN = '{}.s3.amazonaws.com'.format(AWS_STORAGE_BUCKET_NAME)
 STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 
 # zappa deploy url prefix
-URL_PREFIX = '/dev'
+URL_PREFIX = '/production'
+
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'kippo',
+        'HOST': os.getenv('DJANGO_DB_HOST'),
+        'PORT': 5432,
+        'USER': os.getenv('DJANGO_DB_USER'),
+        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD'),
+    }
+}
