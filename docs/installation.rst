@@ -85,12 +85,10 @@ This is a standard django application, so you can also install it to a standard 
 3. Create buckets for serving static and media files::
 
     aws s3api create-bucket --bucket kippo-zappa-static-abc123 --create-bucket-configuration LocationConstraint=us-west-2
-    aws s3api create-bucket --bucket kippo-zappa-media-abc123 --create-bucket-configuration LocationConstraint=us-west-2
 
     # Apply CORs (Cross-Origin Resoure Sharing)
     # NOTE: this is intended for development only!!!
     aws s3api put-bucket-cors --bucket kippo-zappa-static-abc123 --cors-configuration file://./conf/aws/static-s3-cors.json
-    aws s3api put-bucket-cors --bucket kippo-zappa-media-abc123 --cors-configuration file://./conf/aws/static-s3-cors.json
 
 
 4. Obtain the Database endpoint for updating the :file:`zappa_settings.json`::
@@ -107,8 +105,19 @@ This is a standard django application, so you can also install it to a standard 
             "DJANGO_DB_USER": "django",
             "DJANGO_DB_PASSWORD": "{USER DEFINED ON STACK CREATION}",
             "DJANGO_DB_HOST": "{USER DEFINED ON STACK CREATION}",
+            "GOOGLE_OAUTH2_KEY": "{CLIENT ID}",
+            "GOOGLE_OAUTH2_SECRET": "{CLIENT SECRET}",
+            "S3_BUCKET_NAME": "{STATIC BUCKET NAME DEFINED ABOVE}"
         },
 
+
+7. Create database tables::
+
+    zappa manage production migrate
+
+8. Collect static files to s3 bucket::
+
+    zappa manage production "collectstatic --noinput"
 
 X. After deploy, update the API with the "Authorized Javascript origins" and "Authorized redirect URIs"
 
