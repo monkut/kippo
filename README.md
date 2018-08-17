@@ -22,8 +22,10 @@
 
 Prequisites
 
-- docker
-- python 3.6 with pipenv
+- [docker](https://store.docker.com/search?type=edition&offering=community)
+- [pgcli](https://www.pgcli.com/) (for local db creation)
+- python 3.6
+- [pipenv](https://docs.pipenv.org/)
 
 1. Install development requirements:
 
@@ -34,4 +36,24 @@ Prequisites
     pipenv shell
     ```
 
-2.
+2. Setup database:
+
+    ```
+    # From the repository root run the following
+    docker run --name kippo-postgres -e POSTGRES_PASSWORD=mysecretpassword -e POSTGRES_USER=postgres -p 5432:5432 -d postgres
+    
+    # create the database in the container
+    pgcli -h localhost -p 5432 -U postgres -W
+    
+    # Create the database (make sure it matches the name defined in your kippo.settings.local configuration)
+    > CREATE DATABASE kippo;
+    > \q
+    
+    # Make migrations and migrate (create tables in the database)
+    cd kippo
+    python manage.py makemigrations
+    python manage.py migrate
+    
+    # Load initial fixtures
+    python manage.py loaddata initial_data
+    ```
