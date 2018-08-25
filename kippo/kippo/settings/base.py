@@ -34,18 +34,19 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     'social_django',
-    'common.apps.CommonConfig',
-    'projects.apps.ProjectsConfig',
-    'tasks.apps.TasksConfig',
-    'octocat.apps.OctocatConfig',
+    'common',
+    'projects',
+    'tasks',
+    'octocat',
     'reversion',
+    'bootstrap4',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'accounts.apps.AccountsConfig',  # must be listed AFTER social_django and django.contrib.auth
+    'accounts',  # must be listed AFTER social_django and django.contrib.auth
 ]
 
 MIDDLEWARE = [
