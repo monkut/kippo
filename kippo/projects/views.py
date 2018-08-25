@@ -106,7 +106,8 @@ def view_inprogress_projects_status(request):
     user_effort_totals = Counter()
     for task in unique_tasks:
         if task.assignee:
-            user_effort_totals[task.assignee.username] += task.hours_spent_sum_over_days()
+            days_remaining = task.effort_days_remaining() if task.effort_days_remaining() else 0
+            user_effort_totals[task.assignee.username] += days_remaining
 
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=project_assignee_keyfunc)
@@ -119,4 +120,4 @@ def view_inprogress_projects_status(request):
         'warning': warning,
     }
 
-    return render(request, 'projects/show_inprogress_project_status.html', context)
+    return render(request, 'projects/view_inprogress_projects_status.html', context)
