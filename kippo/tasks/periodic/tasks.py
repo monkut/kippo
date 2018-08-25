@@ -136,7 +136,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
                                 )
                                 existing_task.save()
                                 new_task_count += 1
-                                logger.info(f'--> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
+                                logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
 
                             # only update status if active or done (want to pick up
                             # -- this condition is only met when the task is open, closed tasks will not be updated.
@@ -168,9 +168,9 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
                                 try:
                                     status.save()
                                     new_taskstatus_objects.append(status)
-                                    logger.info(f'--> KippoTaskStatus Added: {issue.title} ({status_effort_date})')
+                                    logger.info(f'--> KippoTaskStatus Added: ({status_effort_date}) {issue.title}')
                                 except IntegrityError as e:
-                                    logger.warning(f'--> KippoTaskStatus Already Exists: {issue.title} ({status_effort_date})')
+                                    logger.warning(f'--> KippoTaskStatus Already Exists: ({status_effort_date}) {issue.title} ')
                                     logger.warning(str(e))
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
 
