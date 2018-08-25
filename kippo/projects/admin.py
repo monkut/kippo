@@ -32,7 +32,7 @@ class KippoMilestoneReadOnlyInline(admin.TabularInline):
         'description',
     )
 
-    def has_add_permission(self, request):  # No Add button
+    def has_add_permission(self, request, obj):  # No Add button
         return False
 
     def get_queryset(self, request):
