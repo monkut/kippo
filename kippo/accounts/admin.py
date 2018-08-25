@@ -28,10 +28,7 @@ class EmailDomainAdminReadOnlyInline(admin.TabularInline):
     )
 
     def has_add_permission(self, request, obj):  # so that 'add button' is not available in admin
-        has_permission = False
-        if request.user.is_superuser:
-            has_permission = True
-        return has_permission
+        return False
 
     def get_queryset(self, request):
         # update so that Milestones are displayed in expected delivery order
@@ -78,8 +75,8 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
         qs = super().get_queryset(request).none()
         return qs
 
-    def has_add_permission(self, request, obj):  # not working...
-        return False
+    def has_add_permission(self, request, obj):
+        return True
 
     # def get_max_num(self, request, obj=None, **kwargs):
     #     # seems to work sporatically...
