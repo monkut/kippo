@@ -3,6 +3,7 @@ from collections import Counter
 from django.shortcuts import render
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
 
 from projects.models import KippoProject
@@ -48,9 +49,15 @@ def view_inprogress_task_status(request):
         done_column_names.extend(project.columnset.get_done_column_names())
     done_column_names = list(set(done_column_names))
 
+    task_state_counts = {r['state']: r['state__count'] for r in KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate).values('state').order_by('state').annotate(Count('state'))}
+
+    # debug
+    print(KippoTaskStatus.objects.filter(state='in-progress'))
+
+    # Removed Exclude Categories
     active_taskstatus = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
                                                        task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-                                                       task__assignee__is_developer=True).exclude(task__category__in=EXCLUDE_TASK_CATEGORIES).exclude(task__project__is_closed=True).exclude(state__in=done_column_names)
+                                                       task__assignee__is_developer=True).exclude(task__project__is_closed=True).exclude(state__in=done_column_names)
     if github_login:
         active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
 
@@ -66,8 +73,11 @@ def view_inprogress_task_status(request):
     user_effort_totals = Counter()
     for task in unique_tasks:
         if task.assignee:
-            user_effort_totals[task.assignee.username] += task.hours_spent_sum_over_days()
+            days_remaining = task.effort_days_remaining() if task.effort_days_remaining() else 0
+            user_effort_totals[task.assignee.username] += days_remaining
 
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=assignee_project_keyfunc)
-    return render(request, 'tasks/view_inprogress_task_status.html', {'tasks': sorted_tasks, 'user_effort_totals': dict(user_effort_totals)})
+    return render(request, 'tasks/view_inprogress_task_status.html', {'tasks': sorted_tasks,
+                                                                      'user_effort_totals': dict(user_effort_totals),
+                                                                      'task_state_counts': task_state_counts})
