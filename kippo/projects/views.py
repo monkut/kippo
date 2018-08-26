@@ -3,6 +3,7 @@ from collections import Counter
 
 from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
+from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 
 from tasks.models import KippoTask, KippoTaskStatus
@@ -65,12 +66,18 @@ def view_inprogress_projects_overview(request):
 def view_inprogress_projects_status(request):
     warning = None
     slug = request.GET.get('slug', None)
+    if slug:
+        project = get_object_or_404(KippoProject, slug=slug)
+        projects = [project]
+    else:
+        projects = KippoProject.objects.filter(is_closed=False)
+
     # Collect tasks with TaskStatus updated this last 2 weeks
     two_weeks_ago = timezone.timedelta(days=14)
     active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
 
     active_taskstatus = []
-    for project in KippoProject.objects.filter(is_closed=False):
+    for project in projects:
         done_column_names = project.columnset.get_done_column_names()
         results = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
                                                  task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
@@ -81,17 +88,18 @@ def view_inprogress_projects_status(request):
     script = None
     div = None
     if slug:
-        project = get_object_or_404(KippoProject, slug=slug)
-        active_taskstatus = active_taskstatus.filter(task__project__slug=slug)
-
+        assert len(projects) == 1
+        project = projects[0]
         # generate burndown chart
         try:
             script, div = prepare_burndown_chart_components(project)
         except TaskStatusError as e:
             warning = f'Data not available for project({project.name}): {e.args}'
+            messages.add_message(request, messages.WARNING, warning)
             logger.warning(warning)
         except ProjectDatesError as e:
             warning = f'start_date or target_date not set for project: {e.args}'
+            messages.add_message(request, messages.WARNING, warning)
             logger.warning(warning)
 
     # collect unique Tasks
@@ -117,7 +125,7 @@ def view_inprogress_projects_status(request):
         'user_effort_totals': dict(user_effort_totals),
         'chart_script': script,
         'chart_div': div,
-        'warning': warning,
+        'messages': messages.get_messages(request),
     }
 
     return render(request, 'projects/view_inprogress_projects_status.html', context)
