@@ -35,11 +35,12 @@ class KippoTask(UserCreatedBaseModel):
     description = models.TextField(null=True,
                                    blank=True)
 
-    def latest_kippotaskstatus_comment(self, days: int=14):
-        raise NotImplementedError()
-
     def latest_kippotaskstatus(self, days: int=None):
-        raise NotImplementedError()
+        return KippoTaskStatus.objects.filter(task=self).latest()
+
+    def effort_days_remaining(self):
+        latest_task_status = KippoTaskStatus.objects.filter(task=self).latest()
+        return latest_task_status.estimate_days
 
     def save(self, *args, **kwargs):
         if self.is_closed and not self.closed_datetime:
@@ -94,3 +95,4 @@ class KippoTaskStatus(UserCreatedBaseModel):
             'effort_date',
         )
         ordering = ('-effort_date', )
+        get_latest_by = 'effort_date'
