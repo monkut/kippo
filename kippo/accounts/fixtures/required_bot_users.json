@@ -62,7 +62,7 @@
         "date_joined": "2018-08-07T02:43:29Z",
         "organization": null,
         "is_project_manager": false,
-        "is_developer": false,
+        "is_developer": true,
         "github_login": "unassigned",
         "groups": [
 
