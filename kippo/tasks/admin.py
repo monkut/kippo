@@ -39,7 +39,7 @@ class KippoTaskAdmin(UserCreatedBaseModelAdmin):
 
     def get_github_issue_html_url(self, obj):
         url = ''
-        if obj.html_url:
+        if obj.github_issue_html_url:
             url = format_html('<a href="{url}">{url}</a>', url=obj.github_issue_html_url)
         return url
     get_github_issue_html_url.short_description = _('Github Issue URL')
