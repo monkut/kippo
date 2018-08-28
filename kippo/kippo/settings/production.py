@@ -1,5 +1,6 @@
 from .base import *
 
+INSTALLED_APPS.append('storages')
 
 # refer to:
 # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html

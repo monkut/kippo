@@ -1,4 +1,5 @@
 import datetime
+import logging
 from collections import defaultdict
 from typing import Dict, List
 
@@ -11,6 +12,10 @@ from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 from accounts.models import KippoUser
 from projects.models import KippoProject, KippoMilestone
 from .models import KippoTask, KippoTaskStatus
+
+
+logger = logging.getLogger(__name__)
+TUESDAY_WEEKDAY = 2
 
 
 def get_github_issue_estimate_label(issue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX) -> int:

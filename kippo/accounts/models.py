@@ -23,6 +23,9 @@ class KippoOrganization(UserCreatedBaseModel):
                                              null=True,
                                              blank=True,
                                              help_text=_('Default category to apply to KippoTask objects'))
+    default_task_display_state = models.CharField(max_length=150,
+                                                  default='in-progress',
+                                                  help_text=_('Default Task STATE to show on initial task view'))
     default_columnset = models.ForeignKey('projects.ProjectColumnSet',
                                           on_delete=models.DO_NOTHING,
                                           null=True,

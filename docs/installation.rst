@@ -58,3 +58,21 @@ Prepare Lambda Environment
 This procedure defines how to setup this project with lambda (zappa).
 This is a standard django application, so you can also install it to a standard instance or server.
 
+
+
+Prepare Initial Database
+==============================
+
+WHen the system is setup and connected the database needs to be prepared.
+
+1. Run initial migrate::
+
+    zappa manage migrate
+
+2. Load initial data fixtures::
+
+    zappa manage "loaddata required_bot_users"
+
+
+
+Now your infrastructure is prepared and you are now ready to proceed to :ref:`initial-setup`.

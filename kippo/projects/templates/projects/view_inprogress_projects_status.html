@@ -2,13 +2,12 @@
 
 {% block title %}Kippo: Active Projects{% endblock %}
 {% if chart_script %}
-    {% block extra_css %}
+    {% block bootstrap4_extra_head %}
       <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.css" type="text/css" />
     {% endblock %}
 {% endif %}
 
-{% block content %}
-
+{% block bootstrap4_content %}
 <h1>
     <a href="{{URL_PREFIX}}/projects/">Active Projects</a>
     {% if project %}
@@ -18,26 +17,26 @@
 
   {% if project %}
     <center>
-        <table>
+        <table class="table table-sm">
             <caption>Project Details</caption>
             <tr>
-                <th>category</th>
+                <th scope="row">category</th>
                 <td>{{ project.category }}</td>
             </tr>
             <tr>
-                <th>allocated_staff_days</th>
+                <th scope="row">allocated_staff_days</th>
                 <td>{{ project.allocated_staff_days }}</td>
             </tr>
             <tr>
-                <th>start-date</th>
+                <th scope="row">start-date</th>
                 <td>{{ project.start_date }}</td>
             </tr>
             <tr>
-                <th>target-date</th>
+                <th scope="row">target-date</th>
                 <td>{{ project.target_date }}</td>
             </tr>
             <tr>
-                <th>goals</th>
+                <th scope="row">goals</th>
                 <td>{{ project.goals }}</td>
             </tr>
         </table>
@@ -50,17 +49,19 @@
      </center>
   {% endif %}
 
-  <table>
+  <table class="table table-striped">
       <caption>Active Project Tasks for Last 2 Weeks</caption>
-    <tr>
-        <th>Assignee</th>
-        <th>Project</th>
-        <th>Last 2 weeks Effort (hours)</th>
-        <th>State</th>
-        <th>Task</th>
-        <th>Estimate (staff days)</th>
-        <th>Latest Status</th>
-    </tr>
+      <thead  class="thead-dark">
+        <tr>
+            <th scope="col">Assignee</th>
+            <th scope="col">Project</th>
+            <th scope="col">Last 2 weeks Effort (hours)</th>
+            <th scope="col">State</th>
+            <th scope="col">Task</th>
+            <th scope="col">Estimate <br/> (staff days)</th>
+            <th scope="col">Latest Status</th>
+        </tr>
+      </thead>
     {% for task in tasks %}
         <tr>
             {% if task.assignee %}
@@ -109,10 +110,10 @@
     {% endfor %}
   </table>
 
-{% endblock content %}
+{% endblock bootstrap4_content %}
 
 {% if chart_script %}
-    {% block extra_js %}
+    {% block bootstrap4_extra_script %}
       <script type="text/javascript" src="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.js"></script>
       {{ chart_script|safe }}
     {% endblock %}

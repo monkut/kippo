@@ -149,6 +149,12 @@ STATICFILES_DIRS = [
 # STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 STATIC_URL = ''
 
+BOOTSTRAP4 = {
+    'include_jquery': True,
+    # The Bootstrap base URL
+    'base_url': '//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/',
+}
+
 # -- for data backup/dump
 DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket'
 
@@ -184,6 +190,7 @@ SITE_TITLE = SITE_HEADER
 
 DEFAULT_KIPPOPROJECT_CATEGORY = 'poc'
 DEFAULT_KIPPOTASK_CATEGORY = 'study'
+DEFAULT_TASK_DISPLAY_STATE = 'in-progress'
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
 URL_PREFIX = ''
 

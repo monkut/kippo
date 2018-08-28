@@ -1,3 +1,6 @@
+
+.. _initial-setup::
+
 ===============================================
 Initial Setup
 ===============================================
@@ -15,10 +18,6 @@ Basic Setup
     - Add Github orginization name (Name used in github)
     - `Add personal access token <https://help.github.com/articles/creating-a-personal-access-token-for-the-command-line/>`_
     - Add valid email domains (All sub-domains used for user emails for validation)
-
-2.
-
-
 
 Load Existing Github Projects
 ===============================

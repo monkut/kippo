@@ -2,27 +2,29 @@
 
 {% block title %}Kippo: In-Progress Tasks{% endblock %}
 
-{% block extra_css %}
+{% block bootstrap4_extra_head %}
     <link rel="stylesheet" href="css/styles.css?v=1.0">
 {% endblock %}
 
-{% block content %}
+{% block bootstrap4_content %}
   <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
 
-    {# TODO: fix this #}
+    {# TODO: Add chart of available status #}
     {{ task_state_counts }}
 
-  <table>
+  <table class="table table-striped">
       <caption>Active Member Tasks for Last 2 Weeks</caption>
-    <tr>
-        <th>Assignee</th>
-        <th>Project</th>
-        <th>Last 2 weeks Effort (hours)</th>
-        <th>State</th>
-        <th>Task</th>
-        <th>Estimate (Staff Days)</th>
-        <th>Latest Status</th>
-    </tr>
+      <thead class="thead-dark">
+        <tr>
+            <th scope="col">Assignee</th>
+            <th scope="col">Project</th>
+            <th scope="col">Last 2 weeks Effort (hours)</th>
+            <th scope="col">State</th>
+            <th scope="col">Task</th>
+            <th scope="col">Estimate (Staff Days)</th>
+            <th scope="col">Latest Status</th>
+        </tr>
+      </thead>
     {% for task in tasks %}
         <tr>
             {% if task.assignee %}
@@ -57,9 +59,9 @@
             {% endfor %}
             <td>{{ task.latest_kippotaskstatus.state }}</td>
             {% if task.github_issue_html_url %}
-                <td><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
+                <td class="w-50"><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
             {% else %}
-                <td>{{ task.title }}</td>
+                <td class="w-50">{{ task.title }}</td>
             {% endif %}
             <td>{{ task.latest_kippotaskstatus.estimate_days }}</td>
             {% if task.latest_kippotaskstatus.comment %}

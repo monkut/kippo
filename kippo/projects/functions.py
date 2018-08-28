@@ -8,6 +8,8 @@ from .models import KippoProject
 
 logger = logging.getLogger(__name__)
 
+TUESDAY_WEEKDAY = 2
+
 
 def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser):
 

@@ -71,6 +71,7 @@ def view_inprogress_projects_status(request):
         projects = [project]
     else:
         projects = KippoProject.objects.filter(is_closed=False)
+    active_projects = KippoProject.objects.filter(is_closed=False).order_by('name')
 
     # Collect tasks with TaskStatus updated this last 2 weeks
     two_weeks_ago = timezone.timedelta(days=14)
@@ -125,6 +126,7 @@ def view_inprogress_projects_status(request):
         'user_effort_totals': dict(user_effort_totals),
         'chart_script': script,
         'chart_div': div,
+        'active_projects': active_projects,
         'messages': messages.get_messages(request),
     }
 

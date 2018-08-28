@@ -8,7 +8,7 @@
 {% load bootstrap4 %}
 {% bootstrap_javascript jquery='full' %}
 {% bootstrap_css %}
-{% block extra_css %}{% endblock %}
+{% block bootstrap4_extra_head %}{% endblock %}
 
 
 {% block bootstrap4_title %}
@@ -24,18 +24,43 @@
   {% endfor %}
 {% endblock %}
 
-{% block bootstrap4_content %}
+{% block bootstrap4_before_content %}
+    <nav class="navbar navbar-expand-sm navbar-dark bg-dark">
+      <a class="navbar-brand" href="#">Kippo</a>
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarsExample03" aria-controls="navbarsExample03" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbar">
+        <ul class="navbar-nav mr-auto">
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="https://example.com" id="dropdown02" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Projects</a>
+            <div class="dropdown-menu" aria-labelledby="dropdown02">
+              <a class="dropdown-item" href="{% url 'view_project_status' %}">Active</a>
+                {% for project in active_projects %}
+                    <a class="dropdown-item" href="{{ project.get_absolute_url }}">{{ project.name }}</a>
+                {% endfor %}
+            </div>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="https://example.com" id="dropdown03" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Tasks</a>
+            <div class="dropdown-menu" aria-labelledby="dropdown03">
+              <a class="dropdown-item" href="{% url 'view_task_status' %}">Active</a>
+                {% for column_state in project_states %}
+                    <a class="dropdown-item" href="#">{{ column_state }}</a>
+                {% endfor %}
+            </div>
+          </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#"><title>{{ user.username}}</title></a>
+            </li>
+
+        </ul>
+      </div>
+    </nav>
+    {% endblock bootstrap4_before_content %}
+    {% autoescape off %}{% bootstrap_messages %}{% endautoescape %}
   <div class="container">
-       <p>
-            <a href="{% url 'project_status' %}">Projects</a>
-            <a href="{% url 'task_status' %}">Tasks</a>
-        </p>
-
-        {% autoescape off %}{% bootstrap_messages %}{% endautoescape %}
-
-        {% block content %}(no content){% endblock %}
+    {% block bootstrap4_content %}(no content){% endblock %}
   </div>
-{% endblock %}
-
-
-{% block extra_js %}{% endblock %}
+{% block bootstrap4_extra_script %}{% endblock %}
