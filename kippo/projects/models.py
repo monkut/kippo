@@ -105,7 +105,10 @@ class ProjectColumn(models.Model):
         return f'{self.__class__.__name__}({self.columnset.name}-{self.name})'
 
     class Meta:
-        unique_together = ('columnset', 'name')
+        unique_together = (
+            ('columnset', 'name'),
+            ('columnset', 'index')
+        )
 
 
 @reversion.register()
