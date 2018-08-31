@@ -97,8 +97,10 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
                 return
 
             columns = kippo_project.get_column_names()
-            github_manager = GithubOrganizationManager(organization=kippo_project.github_organization_name,
-                                                       token=kippo_project.githubaccesstoken.token)
+            github_organization_name = kippo_project.organization.github_organization_name
+            githubaccesstoken = kippo_project.organization.githubaccesstoken
+            github_manager = GithubOrganizationManager(organization=github_organization_name,
+                                                       token=githubaccesstoken.token)
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
             url, _ = github_manager.create_organizational_project(
@@ -108,7 +110,7 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             )
             kippo_project.github_project_url = url
             kippo_project.save()
-            successful_creation_projects.append((kippo_project.name, url))
+            successful_creation_projects.append((kippo_project.name, url, columns))
     if skipping:
         for m in skipping:
             modeladmin.message_user(
