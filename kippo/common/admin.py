@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.conf import settings
 
 
 class UserCreatedBaseModelAdmin(admin.ModelAdmin):
@@ -24,4 +25,10 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
         formset.save_m2m()
 
 
+class KippoAdminSite(admin.AdminSite):
+    # update displayed header/title
+    site_header = settings.SITE_HEADER
+    site_title = settings.SITE_TITLE
 
+
+admin_site = KippoAdminSite(name='kippoadmin')
