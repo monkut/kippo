@@ -8,9 +8,9 @@ GITHUB_MILESTONE_CLOSE_STATE = 'closed'
 GITHUB_REPOSITORY_NAME_MAX_LENGTH = 100
 
 
-class GithubRepositoryLabelsDefinition(models.Model):
+class GithubRepositoryLabelSet(models.Model):
     name = models.CharField(max_length=120,
-                            help_text=_('Reference Name For Labels Definiition'))
+                            help_text=_('Reference Name For LabelSet'))
     labels = JSONField(
                        help_text='Labels defined in the format: [{"name": "category:X", "description": "", "color": "AED6F1"},]')
     created_datetime = models.DateTimeField(auto_now_add=True,
@@ -27,11 +27,11 @@ class GithubRepository(UserCreatedBaseModel):
                                 on_delete=models.CASCADE)
     name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH,
                             verbose_name=_('Github Repository Name'))
-    labels = models.ForeignKey(GithubRepositoryLabelsDefinition,
-                               on_delete=models.DO_NOTHING,
-                               null=True,
-                               blank=True,
-                               help_text=_('Github Repository Labels'))
+    label_set = models.ForeignKey(GithubRepositoryLabelSet,
+                                  on_delete=models.DO_NOTHING,
+                                  null=True,
+                                  blank=True,
+                                  help_text=_('Github Repository LabelSet'))
     api_url = models.URLField(help_text=_('Github Repository API URL'))
     html_url = models.URLField(help_text=_('Github Repository HTML URL'))
 
