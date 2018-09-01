@@ -31,6 +31,13 @@ Existing github organizational projects can be loaded into the system with the f
     zappa manage prod "collect_github_organization_projects --github-organization-name ${GITHUB_ORGANIZATION_NAME}"
 
 
+Register Users
+==============================
+
+The kippo system requires that Task assignees are registered as KippoUser's.
+This is done in order to allow mapping of PersonalHoliday objects to a specific assignee for more accurate project schedule calculation.
+
+
 Collect Project Updates
 ==============================
 

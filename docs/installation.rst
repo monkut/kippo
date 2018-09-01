@@ -41,7 +41,7 @@ In order to support login via google Oauth2, a project needs to be created in th
         This downloaded file contains all the necessary OAuth connection information, including the *client-id* and *client-secret*.
 
 
-10. Update your local ENVIRONMENT VARIABLES with the '' and '' values from the downloaded *client_id.json* file.
+10. Update your local ENVIRONMENT VARIABLES with the 'GOOGLE_OAUTH2_KEY' and 'GOOGLE_OAUTH2_SECRET' values from the downloaded *client_id.json* file.
 
 11. Update the `zappa_settings.json` by adding the GOOGLE_OAUTH2_KEY and GOOGLE_OAUTH2_SECRET `environment variables <https://github.com/Miserlou/Zappa#setting-environment-variables>`_.
 
@@ -72,7 +72,8 @@ WHen the system is setup and connected the database needs to be prepared.
 2. Load initial data fixtures::
 
     zappa manage "loaddata required_bot_users"
-
+    zappa manage "loaddata default_labelset"
+    zappa manage "loaddata default_columnset"
 
 
 Now your infrastructure is prepared and you are now ready to proceed to :ref:`initial-setup`.
