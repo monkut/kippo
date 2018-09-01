@@ -1,0 +1,57 @@
+[
+{
+    "model": "projects.projectcolumnset",
+    "pk": 1,
+    "fields": {
+        "name": "Standard Four Column Set",
+        "created_datetime": "2018-08-31T22:31:06.468Z",
+        "updated_datetime": "2018-08-31T22:31:06.468Z",
+        "label_category_prefixes": "[\"category:\", \"cat:\"]",
+        "label_estimate_prefixes": "[\"estimate:\", \"est:\"]"
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 1,
+    "fields": {
+        "columnset": 1,
+        "index": 0,
+        "name": "backlog",
+        "is_active": false,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 2,
+    "fields": {
+        "columnset": 1,
+        "index": 1,
+        "name": "planning",
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 3,
+    "fields": {
+        "columnset": 1,
+        "index": 2,
+        "name": "in-progress",
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 4,
+    "fields": {
+        "columnset": 1,
+        "index": 3,
+        "name": "done",
+        "is_active": false,
+        "is_done": true
+    }
+}
+]
