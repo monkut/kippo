@@ -5,10 +5,11 @@ from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from accounts.admin import UserCreatedBaseModelAdmin
-from .models import GithubRepository, GithubMilestone, GithubAccessToken, GithubRepositoryLabelsDefinition
+from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet
 
 
 logger = logging.getLogger(__name__)
+
 
 class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
     list_display = (
@@ -26,8 +27,8 @@ class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
         created_labels = []
         deleted_labels = []
         for kippo_repository in queryset:
-            if not kippo_repository.labels:
-                msg = f'No GithubRepositoryLabelsDefinition set for ({kippo_repository.name}) cannot update labels!'
+            if not kippo_repository.label_set:
+                msg = f'No GithubRepositoryLabelSet defined for ({kippo_repository.name}) cannot update labels!'
                 self.message_user(request, msg, level=messages.ERROR)
             else:
                 github_organization_name = kippo_repository.project.organization.github_organization_name
@@ -40,8 +41,8 @@ class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
                     existing_label_names = [label['name']for label in ghorgs_repository.labels]
 
                     # get label definitions
-                    defined_label_names = [l['name'] for l in kippo_repository.labels.labels]
-                    for label_definition in kippo_repository.labels.labels:
+                    defined_label_names = [l['name'] for l in kippo_repository.label_set.labels]
+                    for label_definition in kippo_repository.label_set.labels:
                         ghorgs_repository.create_label(label_definition['name'],
                                                        label_definition['description'],
                                                        label_definition['color'])
@@ -52,7 +53,7 @@ class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
                         for label_name in undefined_label_names:
                             ghorgs_repository.delete_label(label_name)
                             deleted_labels.append(label_name)
-                msg = f'Labels updated for: {kippo_repository.name}'
+                msg = f'({kippo_repository.name}) Labels updated using: {kippo_repository.label_set.name}'
                 self.message_user(request, msg, level=messages.INFO)
     update_labels.short_description = "Update Repository Labels"
 
@@ -93,7 +94,7 @@ class GithubMilestoneAdmin(UserCreatedBaseModelAdmin):
     get_html_url.short_description = _('Milestone URL')
 
 
-class GithubRepositoryLabelsDefinitionAdmin(admin.ModelAdmin):
+class GithubRepositoryLabelSetAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'get_label_count',
@@ -111,4 +112,4 @@ class GithubRepositoryLabelsDefinitionAdmin(admin.ModelAdmin):
 
 admin.site.register(GithubRepository, GithubRepositoryAdmin)
 admin.site.register(GithubMilestone, GithubMilestoneAdmin)
-admin.site.register(GithubRepositoryLabelsDefinition, GithubRepositoryLabelsDefinitionAdmin)
+admin.site.register(GithubRepositoryLabelSet, GithubRepositoryLabelSetAdmin)
