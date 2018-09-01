@@ -107,8 +107,8 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
 
                     # check if issue exists
                     existing_task = existing_tasks_by_html_url.get(issue.html_url, None)
-                    assignees = [issue_assignee.login for issue_assignee in issue.assignees if issue_assignee.login in github_users]
 
+                    assignees = [issue_assignee.login for issue_assignee in issue.assignees if issue_assignee.login in github_users]
                     if not assignees:
                         # assign task to special 'unassigned' user if task is not assigned to anyone
                         assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
@@ -138,6 +138,11 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
                                 existing_task.save()
                                 new_task_count += 1
                                 logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
+                            elif existing_task.assignee.github_login not in assignees:
+                                # TODO: review, should multiple KippoTask objects be created for a single Github Task?
+                                logger.debug(f'Updating task.assignee: {existing_task.assignee.github_login} -> {issue_assigned_user.github_login}')
+                                existing_task.assignee = issue_assigned_user
+                                existing_task.save()
 
                             # only update status if active or done (want to pick up
                             # -- this condition is only met when the task is open, closed tasks will not be updated.
