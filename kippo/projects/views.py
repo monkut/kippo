@@ -77,13 +77,20 @@ def view_inprogress_projects_status(request):
     two_weeks_ago = timezone.timedelta(days=14)
     active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
 
+    has_estimates = False
     active_taskstatus = []
     for project in projects:
         done_column_names = project.columnset.get_done_column_names()
         results = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
                                                  task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
                                                  task__project=project).exclude(state__in=done_column_names)
-        active_taskstatus.extend(list(results))
+        taskstatus_results = list(results)
+        if any(status.estimate_days for status in taskstatus_results):
+            has_estimates = True
+        active_taskstatus.extend(taskstatus_results)
+    if not has_estimates:
+        msg = f'No Estimates defined in tasks (Expect "estimate labels")'
+        messages.add_message(request, messages.WARNING, msg)
 
     project = None
     script = None
