@@ -63,6 +63,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
     processed_projects = 0
     new_task_count = 0
     new_taskstatus_objects = []
+    updated_taskstatus_objects = []
     for github_project in manager.projects():
         logger.info('Processing github project ({})...'.format(github_project.name))
 
@@ -155,26 +156,26 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
                                     # -- divides task load by the number of assignees
                                     adjusted_issue_estimate = unadjusted_issue_estimate/estimate_denominator
 
-                                # create KippoTaskStatus with updated estimate
-                                status = KippoTaskStatus(
-                                    task=existing_task,
-                                    created_by=GITHUB_MANAGER_USER,
-                                    updated_by=GITHUB_MANAGER_USER,
-                                    state=issue.project_column,
-                                    estimate_days=adjusted_issue_estimate,
-                                    effort_date=status_effort_date,
-                                    comment=latest_comment
-                                )
-                                try:
-                                    status.save()
+                                # create or update KippoTaskStatus with updated estimate
+                                status, created = KippoTaskStatus.objects.get_or_create(task=existing_task,
+                                                                                        effort_date=status_effort_date,
+                                                                                        defaults={
+                                                                                            'created_by': GITHUB_MANAGER_USER,
+                                                                                            'updated_by': GITHUB_MANAGER_USER,
+                                                                                            'state': issue.project_column,
+                                                                                            'estimate_days': adjusted_issue_estimate,
+                                                                                            'effort_date': status_effort_date,
+                                                                                            'comment': latest_comment
+                                                                                        })
+                                if created:
                                     new_taskstatus_objects.append(status)
                                     logger.info(f'--> KippoTaskStatus Added: ({status_effort_date}) {issue.title}')
-                                except IntegrityError as e:
-                                    logger.warning(f'--> KippoTaskStatus Already Exists: ({status_effort_date}) {issue.title} ')
-                                    logger.warning(str(e))
+                                else:
+                                    logger.info(f'--> KippoTaskStatus Already Exists, updated: ({status_effort_date}) {issue.title} ')
+                                    updated_taskstatus_objects.append(status)
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
 
-    return processed_projects, new_task_count, len(new_taskstatus_objects)
+    return processed_projects, new_task_count, len(new_taskstatus_objects), len(updated_taskstatus_objects)
 
 
 def run_collect_github_project_issues(event, context):
