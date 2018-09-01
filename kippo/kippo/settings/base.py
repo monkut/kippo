@@ -40,7 +40,7 @@ INSTALLED_APPS = [
     'octocat',
     'reversion',
     'bootstrap4',
-    'django.contrib.admin',
+    'common.apps.KippoAdminConfig',  # 'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -125,6 +125,51 @@ USE_TZ = True
 TIME_ZONE = 'Asia/Tokyo'
 en_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
 ja_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
+
+DJANGO_LOG_LEVEL = 'DEBUG'
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '{asctime} [{levelname:5}] ({name}) {funcName}: {message}',
+            'style': '{',
+        }
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',  # Change to DEBUG to see db queries
+        },
+        'projects': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'tasks': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'accounts': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'octocat': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        }
+    },
+}
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
