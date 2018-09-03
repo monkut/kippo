@@ -1,5 +1,6 @@
 import datetime
 import logging
+from typing import List
 from django.conf import settings
 from django.utils import timezone
 from django.db import IntegrityError
@@ -31,7 +32,7 @@ class KippoConfigurationError(Exception):
     pass
 
 
-def collect_github_project_issues(kippo_organization: KippoOrganization, status_effort_date: datetime.date=None) -> tuple:
+def collect_github_project_issues(kippo_organization: KippoOrganization, status_effort_date: datetime.date=None, github_project_urls: List[str]=None) -> tuple:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
@@ -39,6 +40,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
 
     :param kippo_organization: KippoOrganization
     :param status_effort_date: Date to get tasks from
+    :param github_project_urls: If only specific projects are desired, the related github_project_urls may be provided
     :return: processed_projects_count, created_task_count, created_taskstatus_count
     """
     # TODO: support non-update of done tasks
@@ -54,7 +56,13 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
     manager = GithubOrganizationManager(organization=kippo_organization.github_organization_name,
                                         token=kippo_organization.githubaccesstoken.token)
     existing_tasks_by_html_url = {t.github_issue_html_url: t for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url}
-    existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__isnull=False))
+
+    if github_project_urls:
+        logger.info(f'Using Filtered github_project_urls: {github_project_urls}')
+        existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__in=github_project_urls))
+    else:
+        existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__isnull=False))
+
     github_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False)}
     if settings.UNASSIGNED_USER_GITHUB_LOGIN not in github_users:
         raise KippoConfigurationError(f'"{settings.UNASSIGNED_USER_GITHUB_LOGIN}" must be created as a User to manage unassigned tasks')
@@ -69,12 +77,12 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
 
         # get the related KippoProject
         # --- For some reason standard filtering was not working as expected, so this method is being used...
-        # --- The following was only returning a single project, 'Project(SB Mujin)'.
+        # --- The following was only returning a single project
         # --- Project.objects.filter(is_closed=False, github_project_url__isnull=False)
         kippo_project = None
-        for candiate_kippo_project in existing_open_projects:
-            if candiate_kippo_project.github_project_url == github_project.html_url:
-                kippo_project = candiate_kippo_project
+        for candidate_kippo_project in existing_open_projects:
+            if candidate_kippo_project.github_project_url == github_project.html_url:
+                kippo_project = candidate_kippo_project
                 break
 
         if not kippo_project:

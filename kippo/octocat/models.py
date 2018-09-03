@@ -1,4 +1,6 @@
 from django.db import models
+from django.contrib.postgres import fields
+from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.postgres.fields import JSONField
 from common.models import UserCreatedBaseModel
@@ -83,3 +85,35 @@ class GithubAccessToken(UserCreatedBaseModel):
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.organization.name} [{self.organization.github_organization_name}])'
+
+
+class GithubOrganizationalWebhook(UserCreatedBaseModel):
+    organization = models.ForeignKey('accounts.KippoOrganization',
+                                     on_delete=models.CASCADE)
+    hook_id = models.PositiveSmallIntegerField(null=True,
+                                               blank=True)
+    events = fields.ArrayField(default=['project', 'project_card'],
+                               base_field=models.CharField(max_length=15),
+                               help_text=_('Github webhook event(s)'))
+    url = models.URLField(default=settings.WEBHOOK_URL,
+                          help_text=_('The endpoint which github will send webhook events to'))
+
+
+WEBHOOK_EVENT_STATES = (
+    ('unprocessed', 'unprocessed'),
+    ('processing', 'processing'),
+    ('processed', 'processed'),
+)
+
+
+class GithubWebhookEvent(models.Model):
+    created_datetime = models.DateTimeField(auto_now_add=True,
+                                            editable=False)
+    updated_datetime = models.DateTimeField(auto_now=True,
+                                            editable=False)
+    state = models.CharField(max_length=15,
+                             default='unprocessed',
+                             choices=WEBHOOK_EVENT_STATES)
+    related_project = models.ForeignKey('projects.KippoProject',
+                                        on_delete=models.CASCADE)
+    event = fields.JSONField()

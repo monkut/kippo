@@ -252,3 +252,6 @@ DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX = 'estimate:'
 GITHUB_MILESTONE_CLOSE_STATE = 'closed'
 
 LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'  # defaults to /accounts/profile/#
+HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
+WEBHOOK_ENDPOINT = '/octocat/webhook/'
+WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'
