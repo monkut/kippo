@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import resolve
 from social_django.models import Association, Nonce, UserSocialAuth
 from django.contrib.auth.models import Permission, Group
-from common.admin import UserCreatedBaseModelAdmin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
 from .models import EmailDomain, KippoOrganization, KippoUser, PersonalHoliday
 
@@ -124,7 +124,7 @@ class KippoUserAdmin(admin.ModelAdmin):
     )
 
 
-class PersonalHolidayAdmin(admin.ModelAdmin):
+class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'user',
         'is_half',

@@ -4,14 +4,14 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
-from accounts.admin import UserCreatedBaseModelAdmin
+from accounts.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet
 
 
 logger = logging.getLogger(__name__)
 
 
-class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
+class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
         'project',
@@ -65,7 +65,7 @@ class GithubRepositoryAdmin(UserCreatedBaseModelAdmin):
     get_html_url.short_description = _('Repository URL')
 
 
-class GithubMilestoneAdmin(UserCreatedBaseModelAdmin):
+class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'number',
         'get_kippomilestone_title',
@@ -94,7 +94,7 @@ class GithubMilestoneAdmin(UserCreatedBaseModelAdmin):
     get_html_url.short_description = _('Milestone URL')
 
 
-class GithubRepositoryLabelSetAdmin(admin.ModelAdmin):
+class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'name',
         'get_label_count',

@@ -25,7 +25,7 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
         formset.save_m2m()
 
 
-class StaffRequiredAdminMixin(object):
+class AllowIsStaffAdminMixin(object):
 
     def check_perm(self, user_obj):
         if not user_obj.is_active or user_obj.is_anonymous:
