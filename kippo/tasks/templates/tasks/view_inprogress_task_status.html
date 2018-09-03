@@ -4,13 +4,25 @@
 
 {% block bootstrap4_extra_head %}
     <link rel="stylesheet" href="css/styles.css?v=1.0">
+    {% if chart_script %}
+        <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.css" type="text/css" />
+    {% endif %}
 {% endblock %}
 
 {% block bootstrap4_content %}
-  <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
+    {% if chart_div %}
+        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a> ( <a href="{{URL_PREFIX}}/tasks/?github_login={{ tasks.0.assignee.github_login }}">{{ tasks.0.assignee.github_login }}</a>) </h1>
+    {% else %}
+        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
+    {% endif %}
 
-    {# TODO: Add chart of available status #}
-    {{ task_state_counts }}
+  {% if chart_div %}
+    <center>
+        {{ chart_div |safe }}
+     </center>
+  {% endif %}
+
+  {{ task_state_counts }}
 
   <table class="table table-striped">
       <caption>Active Member Tasks for Last 2 Weeks</caption>
@@ -73,3 +85,10 @@
     {% endfor %}
   </table>
 {% endblock %}
+
+{% if chart_script %}
+    {% block bootstrap4_extra_script %}
+      <script type="text/javascript" src="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.js"></script>
+      {{ chart_script|safe }}
+    {% endblock %}
+{% endif %}

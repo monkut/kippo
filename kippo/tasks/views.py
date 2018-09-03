@@ -2,13 +2,15 @@ from collections import Counter
 
 from django.shortcuts import render
 from django.utils import timezone
+from django.http import HttpResponseBadRequest
 from django.conf import settings
 from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
 
+from accounts.models import KippoUser
 from projects.models import KippoProject
 from .models import KippoTask, KippoTaskStatus
-
+from .functions import prepare_project_engineering_load_plot_data
 
 # TODO: Fix support
 # -- Initially used to separate general meeting tasks from development tasks
@@ -38,6 +40,7 @@ def assignee_project_keyfunc(task_object: KippoTask) -> tuple:
 def view_inprogress_task_status(request):
     github_login = request.GET.get('github_login', None)
     display_state_filter = request.GET.get('state', None)
+
     # Collect tasks with TaskStatus updated this last 2 weeks
     two_weeks_ago = timezone.timedelta(days=14)
     active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
@@ -57,22 +60,29 @@ def view_inprogress_task_status(request):
     total_state_count = sum(task_state_counts.values())
     task_state_counts['total'] = total_state_count
 
-    # debug
-    print(KippoTaskStatus.objects.filter(state='in-progress'))
-
     # Removed Exclude Categories
-    if not display_state_filter:
-        display_state_filter = DEFAULT_TASK_DISPLAY_STATE
+    if display_state_filter:
+        display_state_filter = [display_state_filter]
+    else:
+        display_state_filter = done_column_names
 
     # NOTE: done can not be
     active_taskstatus = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
-                                                       state=display_state_filter,
+                                                       state__in=display_state_filter,
                                                        task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
                                                        task__assignee__is_developer=True).exclude(task__project__is_closed=True)
 
     # apply specific user filter if defined
+    script = None
+    div = None
     if github_login:
         active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
+
+        # TODO: integrate into display
+        organization = request.user.organization
+        if not organization:
+            return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
+        script, div = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
 
     # collect unique Tasks
     collected_task_ids = []
@@ -91,7 +101,13 @@ def view_inprogress_task_status(request):
 
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=assignee_project_keyfunc)
-    return render(request, 'tasks/view_inprogress_task_status.html', {'tasks': sorted_tasks,
-                                                                      'active_projects': active_projects,
-                                                                      'user_effort_totals': dict(user_effort_totals),
-                                                                      'task_state_counts': task_state_counts})
+    context = {
+        'tasks': sorted_tasks,
+        'active_projects': active_projects,
+        'user_effort_totals': dict(user_effort_totals),
+        'task_state_counts': task_state_counts,
+        'chart_script': script,
+        'chart_div': div,
+    }
+
+    return render(request, 'tasks/view_inprogress_task_status.html', context)
