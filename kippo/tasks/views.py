@@ -78,7 +78,6 @@ def view_inprogress_task_status(request):
     if github_login:
         active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
 
-        # TODO: integrate into display
         organization = request.user.organization
         if not organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
