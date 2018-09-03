@@ -21,6 +21,7 @@ from .exceptions import ProjectColumnSetError
 logger = logging.getLogger(__name__)
 
 UNASSIGNED_USER_GITHUB_LOGIN = settings.UNASSIGNED_USER_GITHUB_LOGIN
+UNPROCESSABLE_ENTITY_422 = 422
 
 
 def get_target_date_default():
@@ -205,7 +206,7 @@ class KippoProject(UserCreatedBaseModel):
     def github_project_description(self):
         description = (f"""project_manager: {self.project_manager.display_name}<br/>"""
                        f"""start_date: {self.start_date}                       <br/>"""
-                       f"""end_date:   {self.target_date}                      <br/>""")
+                       f"""end_date  : {self.target_date}                      <br/>""")
         return description
 
     def save(self, *args, **kwargs):
@@ -234,6 +235,10 @@ class ActiveKippoProject(KippoProject):
 
     class Meta:
         proxy = True
+
+
+class GithubMilestoneAlreadyExists(Exception):
+    pass
 
 
 @reversion.register()
@@ -289,13 +294,16 @@ class KippoMilestone(UserCreatedBaseModel):
         if (self.start_date and self.target_date) and self.target_date < self.start_date:
             raise ValidationError(f'start_date({self.start_date}) > target_date({self.target_date})')
 
+    def get_absolute_url(self):
+        return f'{settings.URL_PREFIX}/admin/projects/kippomilestone/{self.id}/change/'
+
     @property
     def is_delayed(self):
         if not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date():
             return True
         return False
 
-    def update_github_milestones(self, close=False) -> List[Tuple[bool, object]]:
+    def update_github_milestones(self, user=None, close=False) -> List[Tuple[bool, object]]:
         """
         Create or Update related github milestones belonging to github repositories attached to the related project.
         :return:
@@ -330,20 +338,24 @@ class KippoMilestone(UserCreatedBaseModel):
         else:
             for repository in manager.repositories():
                 if repository.html_url in related_repository_html_urls:
-                    print(f'Updating {repository.name} Milestones...')
+                    logger.info(f'Updating {repository.name} Milestones...')
                     created = False
                     github_state = self.github_state
                     if close:
                         github_state = GITHUB_MILESTONE_CLOSE_STATE
                     if repository.html_url in existing_github_milestones_by_repo_html_url:
                         github_milestone = existing_github_milestones_by_repo_html_url[repository.html_url]
+                        logger.debug(f'Updating Existing Github Milestone for Repository({repository.name}) ...')
                         _ = repository.update_milestone(title=self.title,
                                                         description=self.description,
                                                         due_on=self.target_date,
                                                         state=github_state,
                                                         number=github_milestone.number)
+                        # mark as updated
+                        github_milestone.updated_by = user
+                        github_milestone.save()
                     else:
-                        # create
+                        logger.debug(f'Creating NEW Github Milestone for Repository({repository.name}) ...')
                         response = repository.create_milestone(title=self.title,
                                                                description=self.description,
                                                                due_on=self.target_date,
@@ -352,12 +364,18 @@ class KippoMilestone(UserCreatedBaseModel):
                         # get number and create GithubMilestone entry
                         # milestone_content defined at:
                         # https://developer.github.com/v3/issues/milestones/#create-a-milestone
-                        _, milestone_content = response
+                        status_code, milestone_content = response
+                        if status_code == UNPROCESSABLE_ENTITY_422:
+                            # indicates milestone already exists on github
+                            raise GithubMilestoneAlreadyExists(f'422 response from github, milestone may already exist for repository: {repository.name}')
+
                         number = milestone_content['number']
                         api_url = milestone_content['url']
                         html_url = milestone_content['html_url']
                         github_repository = existing_github_repositories_by_html_url[repository.html_url]
                         github_milestone = GithubMilestone(milestone=self,
+                                                           created_by=user,
+                                                           updated_by=user,
                                                            number=number,
                                                            repository=github_repository,
                                                            api_url=api_url,
@@ -365,7 +383,7 @@ class KippoMilestone(UserCreatedBaseModel):
                         github_milestone.save()
                         created = True
                     action = 'create' if created else 'update'
-                    print(f'+ {action} Github Milestone: ({repository.name}) {self.title}')
+                    logger.info(f'+ {action} Github Milestone: ({repository.name}) {self.title}')
                     github_milestones.append((created, github_milestone))
         return github_milestones
 
@@ -396,13 +414,9 @@ class KippoMilestone(UserCreatedBaseModel):
 
         super().save(*args, **kwargs)
 
-        if not settings.TESTING:
-            # update related github milestones
-            self.update_github_milestones()
-
-        # update project on_target value on save
-        # > Needs to be after save, since Project will query DB and used saved values for calculation
-        self.project.update_ontarget_status()  # NOTE: May want to remove cron job that periodically updates this.
+#        if not settings.TESTING:
+#            # update related github milestones
+#            self.update_github_milestones()
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.title})'

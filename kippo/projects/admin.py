@@ -6,13 +6,13 @@ from django.utils.translation import ugettext_lazy as _
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
 from .functions import collect_existing_github_projects
-from .models import KippoProject, ActiveKippoProject, KippoMilestone, ProjectColumnSet, ProjectColumn
+from .models import KippoProject, ActiveKippoProject, KippoMilestone, ProjectColumnSet, ProjectColumn, GithubMilestoneAlreadyExists
 
 
 logger = logging.getLogger(__name__)
 
 
-class KippoMilestoneReadOnlyInline(admin.TabularInline):
+class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoMilestone
     extra = 0
     fields = (
@@ -41,7 +41,7 @@ class KippoMilestoneReadOnlyInline(admin.TabularInline):
         return qs
 
 
-class KippoMilestoneAdminInline(admin.TabularInline):
+class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoMilestone
     extra = 0
     fields = (
@@ -127,6 +127,31 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
 create_github_organizational_project_action.short_description = _('Create Github Organizational Project(s) for selected')  # noqa
 
 
+def create_github_repository_milestones_action(modeladmin, request, queryset) -> None:
+    """
+    Admin Action command to create a github repository milestones for ALL
+    repositories linked to the selected KippoProject(s).
+    """
+    for kippo_project in queryset:
+        milestones = kippo_project.active_milestones()
+        for milestone in milestones:
+            try:
+                created_octocat_milestones = milestone.update_github_milestones(request.user)
+                for created, created_octocat_milestone in created_octocat_milestones:
+                    modeladmin.message_user(
+                        request,
+                        message=f'({kippo_project.name}) {created_octocat_milestone.repository.name} created milestone: {milestone.title} ({milestone.start_date} - {milestone.target_date})',
+                        level=messages.INFO,
+                    )
+            except GithubMilestoneAlreadyExists as e:
+                modeladmin.message_user(
+                    request,
+                    message=f'({kippo_project.name}) Failed to create milestone for related repository(ies): {e.args}',
+                    level=messages.ERROR,
+                )
+create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')
+
+
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'id',
@@ -151,6 +176,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     actions = [
         create_github_organizational_project_action,
+        create_github_repository_milestones_action,
+    ]
+    inlines = [
+        KippoMilestoneReadOnlyInline,
+        KippoMilestoneAdminInline,
     ]
 
     def show_github_project_url(self, obj):
@@ -173,11 +203,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         super().save_model(request, obj, form, change)
 
 
-class KippoMilestoneAdmin(UserCreatedBaseModelAdmin):
+class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'title',
         'get_project_name',
-        'is_complete',
+        'is_completed',
         'start_date',
         'target_date',
         'actual_date',
@@ -226,3 +256,4 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
 admin.site.register(KippoProject, KippoProjectAdmin)
 admin.site.register(ActiveKippoProject, KippoProjectAdmin)
 admin.site.register(ProjectColumnSet, ProjectColumnSetAdmin)
+admin.site.register(KippoMilestone, KippoMilestoneAdmin)
