@@ -79,7 +79,7 @@ class KippoUser(AbstractUser):
         return f'{self.last_name}, {self.first_name} ({self.github_login})'
 
     def personal_holiday_dates(self):
-        for holiday in PersonalHoliday.objects.filter(self=self):
+        for holiday in PersonalHoliday.objects.filter(user=self):
             holiday_start_date = holiday.day
             for days in range(holiday.duration):
                 date = holiday_start_date + timezone.timedelta(days=days)
