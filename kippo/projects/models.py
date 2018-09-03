@@ -185,6 +185,11 @@ class KippoProject(UserCreatedBaseModel):
             raise ValueError(_(f'{self}.columnset not defined!'))
         return self.columnset.get_column_names()
 
+    def get_active_column_names(self):
+        if not self.columnset:
+            raise ValueError(_(f'{self}.columnset not defined!'))
+        return self.columnset.get_active_column_names()
+
     def active_milestones(self):
         today = timezone.now().date()
         return KippoMilestone.objects.filter(project=self, target_date__gte=today).order_by('-target_date')

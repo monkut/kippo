@@ -2,11 +2,14 @@ import logging
 from collections import Counter
 
 from django.shortcuts import render, get_object_or_404
+from django.http import HttpResponseBadRequest
 from django.utils import timezone
 from django.contrib import messages
+from django.db.models import Q
 from django.contrib.admin.views.decorators import staff_member_required
 
 from tasks.models import KippoTask, KippoTaskStatus
+from tasks.functions import prepare_project_engineering_load_plot_data
 from .charts.functions import prepare_burndown_chart_components
 from .models import ActiveKippoProject, KippoProject
 from .exceptions import TaskStatusError, ProjectDatesError
@@ -98,7 +101,7 @@ def view_inprogress_projects_status(request):
     if slug:
         assert len(projects) == 1
         project = projects[0]
-        # generate burndown chart
+        # generate burn-down chart
         try:
             script, div = prepare_burndown_chart_components(project)
         except TaskStatusError as e:
@@ -109,6 +112,20 @@ def view_inprogress_projects_status(request):
             warning = f'start_date or target_date not set for project: {e.args}'
             messages.add_message(request, messages.WARNING, warning)
             logger.warning(warning)
+    else:
+        # show project schedule chart
+        organization = request.user.organization
+        if not organization:
+            return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
+
+        # check projects for start_date, target_date
+        projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
+        if projects_missing_dates:
+            for p in projects_missing_dates:
+                warning = f'Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! (Will not be displayed in chart) '
+                messages.add_message(request, messages.WARNING, warning)
+                logger.warning(warning)
+        script, div = prepare_project_engineering_load_plot_data(organization)
 
     # collect unique Tasks
     collected_task_ids = []

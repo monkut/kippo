@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.utils.translation import ugettext_lazy as _
-from common.admin import UserCreatedBaseModelAdmin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
 from .functions import collect_existing_github_projects
 from .models import KippoProject, ActiveKippoProject, KippoMilestone, ProjectColumnSet, ProjectColumn
@@ -127,8 +127,9 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
 create_github_organizational_project_action.short_description = _('Create Github Organizational Project(s) for selected')  # noqa
 
 
-class KippoProjectAdmin(UserCreatedBaseModelAdmin):
+class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
+        'id',
         'name',
         'category',
         'project_manager',
@@ -138,6 +139,10 @@ class KippoProjectAdmin(UserCreatedBaseModelAdmin):
         'target_date',
         'updated_by',
         'updated_datetime',
+    )
+    list_display_links = (
+        'id',
+        'name',
     )
     search_fields = (
         'name',
