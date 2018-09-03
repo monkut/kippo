@@ -5,7 +5,11 @@ import os
 import json
 import boto3
 
-def find_zappasettings_filepath(root='..'):
+
+DEFAULT_AWS_REGION = 'us-west-2'
+
+
+def find_zappasettings_filepath(root=os.getcwd()):
     filepath = None
     root_directory = os.path.abspath(root)
     for p, dirs, files in os.walk(root_directory):
@@ -20,7 +24,7 @@ def find_zappasettings_filepath(root='..'):
 DEFAULT_ZAPPASETTINGS_FILEPATH = find_zappasettings_filepath()
 
 
-def get_vpc_privatesubents_and_sgid(stackname, region='us-west-2'):
+def get_vpc_privatesubents_and_sgid(stackname, region=DEFAULT_AWS_REGION):
     """
     Query AWS to obtain the related VPC private subnet ids and Security Group ID
     for granting a lambda function access to the VPC
@@ -51,7 +55,7 @@ def get_vpc_privatesubents_and_sgid(stackname, region='us-west-2'):
     return private_subnet_ids, securitygroup_group_id
 
 
-def update_zappa_settings(stackname, stage, filepath=DEFAULT_ZAPPASETTINGS_FILEPATH):
+def update_zappa_settings(stackname, stage, region=DEFAULT_AWS_REGION, filepath=DEFAULT_ZAPPASETTINGS_FILEPATH):
     """
     Update the 'zappa_settings.json' file with required VPC configuration values
     :param stackname: (str) Stackname used
@@ -61,7 +65,7 @@ def update_zappa_settings(stackname, stage, filepath=DEFAULT_ZAPPASETTINGS_FILEP
     """
     if not os.path.exists(filepath):
         raise FileNotFoundError('zappa_settings.json not found at: {}'.format(filepath))
-    private_subnet_ids, securitygroup_group_id = get_vpc_privatesubents_and_sgid(stackname)
+    private_subnet_ids, securitygroup_group_id = get_vpc_privatesubents_and_sgid(stackname, region)
 
     with open(filepath, 'r', encoding='utf8') as zappa_in:
         zappa_settings = json.load(zappa_in)
@@ -94,9 +98,14 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--stage',
                         default='dev',
                         help='Stage to update VPC configuration for [DEFAULT=dev]')
+    parser.add_argument('-r', '--region',
+                        default='us-west-1',
+                        help='AWS Region stack exists in')
     args = parser.parse_args()
 
     print('Found: {}'.format(DEFAULT_ZAPPASETTINGS_FILEPATH))
-    result = update_zappa_settings(args.stackname, args.stage)
+    result = update_zappa_settings(args.stackname,
+                                   args.stage,
+                                   args.region)
     print('Updated "zappa_settings.json" for ({}): '.format(args.stackname))
     print(json.dumps(result, indent=4))

@@ -43,7 +43,7 @@ Prerequisites:
     docker run --name postgres -e POSTGRES_PASSWORD=mysecretpassword -e POSTGRES_USER=postgres -p 5432:5432 -d postgres
     
     # create the database in the container
-    pgcli -h localhost -p 5432 -U posgres -W
+    pgcli -h localhost -p 5432 -U postgres -W
     
     # Create the database (make sure it matches the name defined in your kippo.settings.local configuration)
     > CREATE DATABASE kippo;

@@ -179,7 +179,7 @@ LOGGING = {
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
 
 STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+    BASE_DIR / '..' / 'accounts' / 'static',
 ]
 
 # NOTE:
@@ -205,7 +205,7 @@ BOOTSTRAP4 = {
 }
 
 # -- for data backup/dump
-DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket'
+DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket-123xyz'
 
 # Authentication
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends
