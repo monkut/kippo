@@ -91,28 +91,18 @@ class KippoUser(AbstractUser):
         # --> Will not have an ID on initial save
         if self.id is None:
             is_initial = True
+            self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
+            self.is_superuser = False
             if not settings.DEBUG:  # allow manually created users in development
                 # find the organization for the given user
                 try:
                     email_domain = EmailDomain.objects.get(domain=self.email_domain)
                     self.organization = email_domain.organization
-                    self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
-                    self.is_superuser = False
                 except EmailDomain.DoesNotExist:
                     raise PermissionDenied('Invalid Email Domain')
             else:
                 logger.warning('')
         super().save(*args, **kwargs)
-
-        if is_initial and not self.is_superuser:
-            if self.is_developer or self.is_project_manager:
-                # m2m needs ID to save, add after initial save
-                # Add default permission group
-                # --> Must be defined in fixtures/initial.json
-                # Need to be manually loaded via:
-                # python manage.py loaddata fixtures/initial.json
-                group = Group.objects.get(name='standard-users')
-                self.groups.add(group)
 
 
 class PersonalHoliday(models.Model):
