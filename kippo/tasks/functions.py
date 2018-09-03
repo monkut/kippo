@@ -407,19 +407,20 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
     logger.debug(f'organization: {organization}')
     projects_results = get_projects_load(organization, schedule_start_date)
 
+    project_data = {}
     # prepare data for plotting
-    data = {
-        'project_ids': [],
-        'project_names': [],
-        'assignees': [],
-        'project_assignee_grouped': [],
-        'task_ids': [],
-        'task_titles': [],
-        'task_estimate_days': [],
-        'task_start_dates': [],
-        'task_end_dates': [],
-    }
     for project_id in projects_results:
+        data = {
+            'project_ids': [],
+            'project_names': [],
+            'assignees': [],
+            'project_assignee_grouped': [],
+            'task_ids': [],
+            'task_titles': [],
+            'task_estimate_days': [],
+            'task_start_dates': [],
+            'task_end_dates': [],
+        }
         for assignee in projects_results[project_id]:
             if assignee_filter and assignee not in assignee_filter:
                 logger.debug(f'assignee_filter({assignee_filter}) applied, skipping: {assignee}')
@@ -435,7 +436,21 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['task_estimate_days'].append(estimate.days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
+        project_data[project_id] = data
 
-    script, div = prepare_project_schedule_chart_components(data)
+    # prepare project milestone info
+    project_milestones = defaultdict(list)
+    project_ids = projects_results.keys()
+    for milestone in KippoMilestone.objects.filter(project__id__in=project_ids).order_by('target_date'):
+        milestone_info = {
+            'project_id': milestone.project.id,
+            'start_date': milestone.start_date,
+            'target_date': milestone.target_date,
+            'title': milestone.title,
+            'description': milestone.description,
+        }
+        project_milestones[milestone.project.id].append(milestone_info)
+
+    script, div = prepare_project_schedule_chart_components(project_data, project_milestones)
     return script, div
 
