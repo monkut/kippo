@@ -1,59 +1,42 @@
-<!doctype html>
+{% extends "projects/base.html" %}
 
-<html lang="en">
-<head>
-  <meta charset="utf-8">
+{% block title %}Kippo: In-Progress Tasks{% endblock %}
 
-  <title>Kippo: In-Progress Tasks</title>
-  <meta name="description" content="inprogress tasks">
-  <meta name="author" content="bizlabs">
-    <style>
-        table tr:nth-child(odd) td{
-            background-color: #D6EAF8;
-        }
-    </style>
+{% block bootstrap4_extra_head %}
+    <link rel="stylesheet" href="css/styles.css?v=1.0">
+    {% if chart_script %}
+        <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.css" type="text/css" />
+    {% endif %}
+{% endblock %}
 
-  <link rel="stylesheet" href="css/styles.css?v=1.0">
+{% block bootstrap4_content %}
+    {% if chart_div %}
+        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a> ( <a href="{{URL_PREFIX}}/tasks/?github_login={{ tasks.0.assignee.github_login }}">{{ tasks.0.assignee.github_login }}</a>) </h1>
+    {% else %}
+        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
+    {% endif %}
 
-  <!--[if lt IE 9]>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.js"></script>
-  <![endif]-->
-</head>
-<body>
+  {% if chart_div %}
+    <center>
+        {{ chart_div |safe }}
+     </center>
+  {% endif %}
 
-<!--
-  <table>
-    <caption>Member Total Effort for Last 2 Weeks</caption>
-    <tr>
-        <th>Member</th>
-        <th>Last 2 weeks Effort Total (hours)</th>
-    </tr>
-    {% for username, effort_total in user_effort_totals.items %}
-        <tr>
-            <td>{{ username }}</td>
-            <td>
-                <progress value="{{ effort_total }}" max="80"></progress>
-                <font color="#e6e6e6">
-                    <i>{{ effort_total }}/80</i>
-                </font>
-            </td>
-        </tr>
-    {% endfor %}
-  </table>
--->
-  <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
+  {{ task_state_counts }}
 
-  <table>
+  <table class="table table-striped">
       <caption>Active Member Tasks for Last 2 Weeks</caption>
-    <tr>
-        <th>Assignee</th>
-        <th>Project</th>
-        <th>Last 2 weeks Effort (hours)</th>
-        <th>State</th>
-        <th>Task</th>
-        <th>Estimate (Staff Days)</th>
-        <th>Latest Status</th>
-    </tr>
+      <thead class="thead-dark">
+        <tr>
+            <th scope="col">Assignee</th>
+            <th scope="col">Project</th>
+            <th scope="col">Last 2 weeks Effort (hours)</th>
+            <th scope="col">State</th>
+            <th scope="col">Task</th>
+            <th scope="col">Estimate (Staff Days)</th>
+            <th scope="col">Latest Status</th>
+        </tr>
+      </thead>
     {% for task in tasks %}
         <tr>
             {% if task.assignee %}
@@ -80,26 +63,32 @@
                         <td>
                             <progress value="{{ task.hours_spent_sum_over_days }}" max="{{ effort_total }}"></progress>
                             <font color="#e6e6e6">
-                                <i>{{ task.hours_spent_sum_over_days }}/{{ effort_total }}</i>
+                                <i>{{ task.effort_days_remaining }}/{{ effort_total }}</i>
                             </font>
                         </td>
                     {% endif %}
                 {% endif %}
             {% endfor %}
-            <td>{{ task.latest_taskstatus.state }}</td>
+            <td>{{ task.latest_kippotaskstatus.state }}</td>
             {% if task.github_issue_html_url %}
-                <td><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
+                <td class="w-50"><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
             {% else %}
-                <td>{{ task.title }}</td>
+                <td class="w-50">{{ task.title }}</td>
             {% endif %}
-            <td>{{ task.latest_taskstatus.estimate_days }}</td>
-            {% if task.latest_comment %}
-                <td>{{ task.latest_comment  | linebreaks |urlize }}</td>
+            <td>{{ task.latest_kippotaskstatus.estimate_days }}</td>
+            {% if task.latest_kippotaskstatus.comment %}
+                <td>{{ task.latest_kippotaskstatus.comment  | linebreaks |urlize }}</td>
             {% else %}
                 <td></td>
             {% endif %}
         </tr>
     {% endfor %}
   </table>
-</body>
-</html>
+{% endblock %}
+
+{% if chart_script %}
+    {% block bootstrap4_extra_script %}
+      <script type="text/javascript" src="https://cdn.pydata.org/bokeh/release/bokeh-0.13.0.min.js"></script>
+      {{ chart_script|safe }}
+    {% endblock %}
+{% endif %}

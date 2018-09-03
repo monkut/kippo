@@ -1,0 +1,73 @@
+[
+{
+    "model": "accounts.kippouser",
+    "pk": 4,
+    "fields": {
+        "password": "v3432c32szq2aasd",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "github-manager",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2018-08-07T01:31:04Z",
+        "organization": null,
+        "is_project_manager": false,
+        "is_developer": false,
+        "github_login": null,
+        "groups": [
+        ],
+        "user_permissions": []
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": 5,
+    "fields": {
+        "password": "asdf889189u12j118518512csa;k;h",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "cli-manager",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2018-08-07T01:34:31Z",
+        "organization": null,
+        "is_project_manager": false,
+        "is_developer": false,
+        "github_login": null,
+        "groups": [
+
+        ],
+        "user_permissions": []
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": 6,
+    "fields": {
+        "password": "akdjfoailj909292h2h2hh1h1h$$dq",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "github-unassigned",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2018-08-07T02:43:29Z",
+        "organization": null,
+        "is_project_manager": false,
+        "is_developer": true,
+        "github_login": "unassigned",
+        "groups": [
+
+        ],
+        "user_permissions": []
+    }
+}
+]

@@ -20,6 +20,9 @@ from ..exceptions import ProjectDatesError, TaskStatusError
 from ..models import KippoProject
 
 
+TUESDAY_WEEKDAY = 2
+
+
 def get_project_weekly_effort(project: KippoProject, current_date: datetime.date=None):
     """
     Obtain the project weekly effort

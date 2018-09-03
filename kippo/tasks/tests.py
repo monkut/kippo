@@ -36,3 +36,10 @@ class KippoTaskUpdateTestCase(TestCase):
 
     def test_normal_scheduled_update(self):
         raise NotImplementedError()
+
+
+class ChartTestCase(TestCase):
+
+    def test_functions_get_projects_load(self):
+        raise NotImplementedError()
+

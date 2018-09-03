@@ -1,28 +1,24 @@
-<!doctype html>
-<html class="no-js" lang="">
-
-<head>
-  <meta charset="utf-8">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
-  <title>Telos: Projects Overview</title>
-  <meta name="description" content="">
-  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  {% block title %}Kippo: Projects Overview{% endblock %}
 
-  <link rel="manifest" href="site.webmanifest">
-  <link rel="apple-touch-icon" href="icon.png">
-  <!-- Place favicon.ico in the root directory -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Oswald" rel="stylesheet">
+  {% block bootstrap4_extra_head %}
+      <meta name="description" content="">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-  <link rel="stylesheet" href="{{STATIC_URL}}css/normalize.css">
-  <link rel="stylesheet" href="{{STATIC_URL}}css/main.css">
-</head>
+      <link rel="manifest" href="site.webmanifest">
+      <link rel="apple-touch-icon" href="icon.png">
+      <!-- Place favicon.ico in the root directory -->
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Oswald" rel="stylesheet">
+      <link rel="stylesheet" href="{{STATIC_URL}}css/normalize.css">
+      <link rel="stylesheet" href="{{STATIC_URL}}css/main.css">
+  {% endblock %}
 
 <body>
   <!--[if lte IE 9]>
     <p class="browserupgrade">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience and security.</p>
   <![endif]-->
 
-
+  {% block bootstrap4_content %}
   <main>
     <h1 id="inprogress-header" class="project-state-header">In-Progress</h1>
     <section id="project-status-inprogress" class="project-state">
@@ -264,9 +260,9 @@
       </section>
     </section>
   </main>
-  <script src="{{STATIC_URL}}js/vendor/modernizr-3.6.0.min.js"></script>
-  <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
-  <script>window.jQuery || document.write('<script src="js/vendor/jquery-3.3.1.min.js"><\/script>')</script>
-</body>
-
-</html>
+  {% endblock %}
+  {% block bootstrap4_extra_script %}
+      <script src="{{STATIC_URL}}js/vendor/modernizr-3.6.0.min.js"></script>
+      <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+      <script>window.jQuery || document.write('<script src="js/vendor/jquery-3.3.1.min.js"><\/script>')</script>
+  {% endblock %}

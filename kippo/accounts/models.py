@@ -23,6 +23,9 @@ class KippoOrganization(UserCreatedBaseModel):
                                              null=True,
                                              blank=True,
                                              help_text=_('Default category to apply to KippoTask objects'))
+    default_task_display_state = models.CharField(max_length=150,
+                                                  default='in-progress',
+                                                  help_text=_('Default Task STATE to show on initial task view'))
     default_columnset = models.ForeignKey('projects.ProjectColumnSet',
                                           on_delete=models.DO_NOTHING,
                                           null=True,
@@ -76,7 +79,7 @@ class KippoUser(AbstractUser):
         return f'{self.last_name}, {self.first_name} ({self.github_login})'
 
     def personal_holiday_dates(self):
-        for holiday in PersonalHoliday.objects.filter(self=self):
+        for holiday in PersonalHoliday.objects.filter(user=self):
             holiday_start_date = holiday.day
             for days in range(holiday.duration):
                 date = holiday_start_date + timezone.timedelta(days=days)
@@ -88,28 +91,18 @@ class KippoUser(AbstractUser):
         # --> Will not have an ID on initial save
         if self.id is None:
             is_initial = True
+            self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
+            self.is_superuser = False
             if not settings.DEBUG:  # allow manually created users in development
                 # find the organization for the given user
                 try:
                     email_domain = EmailDomain.objects.get(domain=self.email_domain)
                     self.organization = email_domain.organization
-                    self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
-                    self.is_superuser = False
                 except EmailDomain.DoesNotExist:
-                    raise PermissionDenied('Invalid Email Domain')
+                    raise PermissionDenied('Organization does not exist for given Email Domain!')
             else:
                 logger.warning('')
         super().save(*args, **kwargs)
-
-        if is_initial and not self.is_superuser:
-            if self.is_developer or self.is_project_manager:
-                # m2m needs ID to save, add after initial save
-                # Add default permission group
-                # --> Must be defined in fixtures/initial.json
-                # Need to be manually loaded via:
-                # python manage.py loaddata fixtures/initial.json
-                group = Group.objects.get(name='standard-users')
-                self.groups.add(group)
 
 
 class PersonalHoliday(models.Model):

@@ -14,6 +14,6 @@ coverage:
 	cd kippo && coverage run --source='.' manage.py test && cd ..
 
 loadinitial:
-	cd kippo && python manage.py loaddata default_columnsets
+	cd kippo && python manage.py loaddata initial_data
 
 pullrequestcheck: check coverage

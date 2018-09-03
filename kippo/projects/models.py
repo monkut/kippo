@@ -9,6 +9,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.db.models import Max
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+from django.contrib.postgres.fields import ArrayField
 import reversion
 from ghorgs.managers import GithubOrganizationManager
 from common.models import UserCreatedBaseModel
@@ -27,13 +28,31 @@ def get_target_date_default():
     return timezone.now() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)
 
 
-class ProjectColumnSet(models.Model):  # not using userdefined model in order to make model definitions more portablep
+def category_prefixes_default():
+    return ['category:', 'cat:']
+
+
+def estimate_prefixes_default():
+    return ['estimate:', 'est:']
+
+
+class ProjectColumnSet(models.Model):  # not using userdefined model in order to make model definitions more portable
     name = models.CharField(max_length=256,
                             verbose_name=_('Project Column Set Name'))
     created_datetime = models.DateTimeField(auto_now_add=True,
                                             editable=False)
     updated_datetime = models.DateTimeField(auto_now=True,
                                             editable=False)
+    label_category_prefixes = ArrayField(models.CharField(max_length=10, blank=True),
+                                         null=True,
+                                         blank=True,
+                                         default=category_prefixes_default,
+                                         help_text=_('Github Issue Labels Category Prefixes'))
+    label_estimate_prefixes = ArrayField(models.CharField(max_length=10, blank=True),
+                                         null=True,
+                                         blank=True,
+                                         default=estimate_prefixes_default,
+                                         help_text=_('Github Issue Labels Estimate Prefixes'))
 
     def get_column_names(self):
         return [c.name for c in ProjectColumn.objects.filter(columnset=self).order_by('index')]
@@ -86,7 +105,10 @@ class ProjectColumn(models.Model):
         return f'{self.__class__.__name__}({self.columnset.name}-{self.name})'
 
     class Meta:
-        unique_together = ('columnset', 'name')
+        unique_together = (
+            ('columnset', 'name'),
+            ('columnset', 'index')
+        )
 
 
 @reversion.register()
@@ -149,7 +171,7 @@ class KippoProject(UserCreatedBaseModel):
                                                      assignee__is_developer=True).exclude(assignee__github_login=UNASSIGNED_USER_GITHUB_LOGIN)}
 
     def get_admin_url(self):
-        return f'{settings.URL_PREFIX}/admin/projects/project/{self.id}/change'
+        return f'{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change'
 
     def get_absolute_url(self):
         return f'{settings.URL_PREFIX}/projects/?slug={self.slug}'
@@ -162,6 +184,11 @@ class KippoProject(UserCreatedBaseModel):
         if not self.columnset:
             raise ValueError(_(f'{self}.columnset not defined!'))
         return self.columnset.get_column_names()
+
+    def get_active_column_names(self):
+        if not self.columnset:
+            raise ValueError(_(f'{self}.columnset not defined!'))
+        return self.columnset.get_active_column_names()
 
     def active_milestones(self):
         today = timezone.now().date()

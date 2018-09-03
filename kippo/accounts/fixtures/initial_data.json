@@ -124,7 +124,7 @@
     "pk": 16,
     "fields": {
         "app_label": "octocat",
-        "model": "githubrepositorylabelsdefinition"
+        "model": "githubrepositorylabelset"
     }
 },
 {
@@ -626,7 +626,7 @@
     "fields": {
         "name": "Can add github repository labels definition",
         "content_type": 16,
-        "codename": "add_githubrepositorylabelsdefinition"
+        "codename": "add_githubrepositorylabelset"
     }
 },
 {
@@ -635,7 +635,7 @@
     "fields": {
         "name": "Can change github repository labels definition",
         "content_type": 16,
-        "codename": "change_githubrepositorylabelsdefinition"
+        "codename": "change_githubrepositorylabelset"
     }
 },
 {
@@ -644,7 +644,7 @@
     "fields": {
         "name": "Can delete github repository labels definition",
         "content_type": 16,
-        "codename": "delete_githubrepositorylabelsdefinition"
+        "codename": "delete_githubrepositorylabelset"
     }
 },
 {

@@ -4,5 +4,5 @@ from . import views
 
 
 urlpatterns = [
-    url('$', views.view_inprogress_task_status, name='view_inprogress_task_status')
+    url('$', views.view_inprogress_task_status, name='view_task_status')
 ]

@@ -34,18 +34,19 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     'social_django',
-    'common.apps.CommonConfig',
-    'projects.apps.ProjectsConfig',
-    'tasks.apps.TasksConfig',
-    'octocat.apps.OctocatConfig',
+    'common',
+    'projects',
+    'tasks',
+    'octocat',
     'reversion',
-    'django.contrib.admin',
+    'bootstrap4',
+    'common.apps.KippoAdminConfig',  # 'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'accounts.apps.AccountsConfig',  # must be listed AFTER social_django and django.contrib.auth
+    'accounts',  # must be listed AFTER social_django and django.contrib.auth
 ]
 
 MIDDLEWARE = [
@@ -56,6 +57,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'social_django.middleware.SocialAuthExceptionMiddleware',
+
 ]
 
 ROOT_URLCONF = 'kippo.urls'
@@ -71,6 +74,8 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'social_django.context_processors.backends',
+                'social_django.context_processors.login_redirect',
                 'kippo.context_processors.global_view_additional_context',  # PROVIDES settings.URL_PREFIX to context
             ],
         },
@@ -125,6 +130,51 @@ TIME_ZONE = 'Asia/Tokyo'
 en_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
 ja_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
 
+DJANGO_LOG_LEVEL = 'DEBUG'
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '{asctime} [{levelname:5}] ({name}) {funcName}: {message}',
+            'style': '{',
+        }
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',  # Change to DEBUG to see db queries
+        },
+        'projects': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'tasks': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'accounts': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        },
+        'octocat': {
+            'handlers': ['console'],
+            'level': DJANGO_LOG_LEVEL,
+            'propagate': True,
+        }
+    },
+}
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
 
@@ -148,6 +198,12 @@ STATICFILES_DIRS = [
 # STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 STATIC_URL = ''
 
+BOOTSTRAP4 = {
+    'include_jquery': True,
+    # The Bootstrap base URL
+    'base_url': '//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/',
+}
+
 # -- for data backup/dump
 DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket-123xyz'
 
@@ -159,7 +215,7 @@ AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
 )
 
-
+SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_KEY', None)  # client ID
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_OAUTH2_SECRET', None)
 
@@ -183,6 +239,7 @@ SITE_TITLE = SITE_HEADER
 
 DEFAULT_KIPPOPROJECT_CATEGORY = 'poc'
 DEFAULT_KIPPOTASK_CATEGORY = 'study'
+DEFAULT_TASK_DISPLAY_STATE = 'in-progress'
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
 URL_PREFIX = ''
 

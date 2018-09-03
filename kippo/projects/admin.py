@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.http import HttpResponseRedirect
 from django.utils.translation import ugettext_lazy as _
-from common.admin import UserCreatedBaseModelAdmin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
 from .functions import collect_existing_github_projects
 from .models import KippoProject, ActiveKippoProject, KippoMilestone, ProjectColumnSet, ProjectColumn
@@ -32,7 +32,7 @@ class KippoMilestoneReadOnlyInline(admin.TabularInline):
         'description',
     )
 
-    def has_add_permission(self, request):  # No Add button
+    def has_add_permission(self, request, obj):  # No Add button
         return False
 
     def get_queryset(self, request):
@@ -97,8 +97,10 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
                 return
 
             columns = kippo_project.get_column_names()
-            github_manager = GithubOrganizationManager(organization=kippo_project.github_organization_name,
-                                                       token=kippo_project.githubaccesstoken.token)
+            github_organization_name = kippo_project.organization.github_organization_name
+            githubaccesstoken = kippo_project.organization.githubaccesstoken
+            github_manager = GithubOrganizationManager(organization=github_organization_name,
+                                                       token=githubaccesstoken.token)
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
             url, _ = github_manager.create_organizational_project(
@@ -108,7 +110,7 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             )
             kippo_project.github_project_url = url
             kippo_project.save()
-            successful_creation_projects.append((kippo_project.name, url))
+            successful_creation_projects.append((kippo_project.name, url, columns))
     if skipping:
         for m in skipping:
             modeladmin.message_user(
@@ -125,8 +127,9 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
 create_github_organizational_project_action.short_description = _('Create Github Organizational Project(s) for selected')  # noqa
 
 
-class KippoProjectAdmin(UserCreatedBaseModelAdmin):
+class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
+        'id',
         'name',
         'category',
         'project_manager',
@@ -136,6 +139,10 @@ class KippoProjectAdmin(UserCreatedBaseModelAdmin):
         'target_date',
         'updated_by',
         'updated_datetime',
+    )
+    list_display_links = (
+        'id',
+        'name',
     )
     search_fields = (
         'name',
@@ -160,7 +167,9 @@ class KippoProjectAdmin(UserCreatedBaseModelAdmin):
         return form
 
     def save_model(self, request, obj, form, change):
-        obj.organization = request.user.organization
+        if not obj.organization:
+            # expect only not not exist IF creating a new Project via ADMIN
+            obj.organization = request.user.organization
         super().save_model(request, obj, form, change)
 
 

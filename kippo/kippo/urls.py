@@ -9,9 +9,6 @@ from django.contrib import admin
 from django.views.generic.base import RedirectView
 from django.conf import settings
 
-# update displayed header/title
-admin.site.site_header = settings.SITE_HEADER
-admin.site.site_title = settings.SITE_TITLE
 
 urlpatterns = [
     url('', include('social_django.urls', namespace='social')),

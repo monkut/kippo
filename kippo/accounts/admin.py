@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import resolve
 from social_django.models import Association, Nonce, UserSocialAuth
 from django.contrib.auth.models import Permission, Group
-from common.admin import UserCreatedBaseModelAdmin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
 from .models import EmailDomain, KippoOrganization, KippoUser, PersonalHoliday
 
@@ -27,7 +27,7 @@ class EmailDomainAdminReadOnlyInline(admin.TabularInline):
         'created_datetime',
     )
 
-    def has_add_permission(self, request):  # so that 'add button' is not available in admin
+    def has_add_permission(self, request, obj):  # so that 'add button' is not available in admin
         return False
 
     def get_queryset(self, request):
@@ -62,7 +62,7 @@ class GithubAccessTokenAdminReadOnlyInline(admin.StackedInline):
         'created_datetime',
     )
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request, obj):
         return False
 
 
@@ -75,8 +75,8 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
         qs = super().get_queryset(request).none()
         return qs
 
-    def has_add_permission(self, request):  # not working...
-        return False
+    def has_add_permission(self, request, obj):
+        return True
 
     # def get_max_num(self, request, obj=None, **kwargs):
     #     # seems to work sporatically...
@@ -124,7 +124,7 @@ class KippoUserAdmin(admin.ModelAdmin):
     )
 
 
-class PersonalHolidayAdmin(admin.ModelAdmin):
+class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'user',
         'is_half',

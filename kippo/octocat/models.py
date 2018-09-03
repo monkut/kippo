@@ -8,24 +8,9 @@ GITHUB_MILESTONE_CLOSE_STATE = 'closed'
 GITHUB_REPOSITORY_NAME_MAX_LENGTH = 100
 
 
-class GithubRepository(UserCreatedBaseModel):
-    project = models.ForeignKey('projects.KippoProject',
-                                on_delete=models.CASCADE)
-    name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH,
-                            verbose_name=_('Github Repository Name'))
-    api_url = models.URLField(help_text=_('Github Repository API URL'))
-    html_url = models.URLField(help_text=_('Github Repository HTML URL'))
-
-    def __str__(self):
-        return f'{self.__class__.__name__}({self.name}) {self.html_url}'
-
-    class Meta:
-        verbose_name_plural = _('github repositories')
-
-
-class GithubRepositoryLabelsDefinition(models.Model):
+class GithubRepositoryLabelSet(models.Model):
     name = models.CharField(max_length=120,
-                            help_text=_('Reference Name For Labels Definiition'))
+                            help_text=_('Reference Name For LabelSet'))
     labels = JSONField(
                        help_text='Labels defined in the format: [{"name": "category:X", "description": "", "color": "AED6F1"},]')
     created_datetime = models.DateTimeField(auto_now_add=True,
@@ -35,6 +20,26 @@ class GithubRepositoryLabelsDefinition(models.Model):
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.id}) {self.name}'
+
+
+class GithubRepository(UserCreatedBaseModel):
+    project = models.ForeignKey('projects.KippoProject',
+                                on_delete=models.CASCADE)
+    name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH,
+                            verbose_name=_('Github Repository Name'))
+    label_set = models.ForeignKey(GithubRepositoryLabelSet,
+                                  on_delete=models.DO_NOTHING,
+                                  null=True,
+                                  blank=True,
+                                  help_text=_('Github Repository LabelSet'))
+    api_url = models.URLField(help_text=_('Github Repository API URL'))
+    html_url = models.URLField(help_text=_('Github Repository HTML URL'))
+
+    def __str__(self):
+        return f'{self.__class__.__name__}({self.name}) {self.html_url}'
+
+    class Meta:
+        verbose_name_plural = _('github repositories')
 
 
 class GithubMilestone(UserCreatedBaseModel):
