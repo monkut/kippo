@@ -99,7 +99,7 @@ class KippoUser(AbstractUser):
                     email_domain = EmailDomain.objects.get(domain=self.email_domain)
                     self.organization = email_domain.organization
                 except EmailDomain.DoesNotExist:
-                    raise PermissionDenied('Invalid Email Domain')
+                    raise PermissionDenied('Organization does not exist for given Email Domain!')
             else:
                 logger.warning('')
         super().save(*args, **kwargs)
