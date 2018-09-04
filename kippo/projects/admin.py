@@ -157,6 +157,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'id',
         'name',
+        'phase',
         'category',
         'project_manager',
         'display_as_active',
@@ -172,6 +173,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     search_fields = (
         'name',
+        'phase',
         'category',
         'problem_definition',
     )
