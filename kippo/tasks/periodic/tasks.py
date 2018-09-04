@@ -161,7 +161,9 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                             active_task_column_names = kippo_project.columnset.get_active_column_names()
                             done_task_column_names = kippo_project.columnset.get_done_column_names()
                             task_status_updates_states = active_task_column_names + done_task_column_names
-                            if issue.project_column in task_status_updates_states:
+                            if issue.project_column not in task_status_updates_states:
+                                logger.warning(f'Task({existing_task.title}) in non-active column({issue.project_column}), KippoTaskStatus NOT created!')
+                            else:
                                 latest_comment = ''
                                 if issue.latest_comment_body:
                                     latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
