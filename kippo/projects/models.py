@@ -112,6 +112,7 @@ class ProjectColumn(models.Model):
         )
 
 
+DEFAULT_PROJECT_PHASE = 'lead-evaluation'
 VALID_PROJECT_PHASES = (
     ('lead-evaluation', 'Lead Evaluation'),
     ('project-proposal', 'Project Proposal Preparation'),
@@ -130,6 +131,7 @@ class KippoProject(UserCreatedBaseModel):
                             unique=True,
                             editable=False)
     phase = models.CharField(max_length=150,
+                             default=DEFAULT_PROJECT_PHASE,
                              choices=VALID_PROJECT_PHASES,
                              help_text=_('State or phase of the project'))
     category = models.CharField(max_length=256,
