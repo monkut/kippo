@@ -23,9 +23,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'kippo',
-        'HOST': os.getenv('DJANGO_DB_HOST'),
+        'HOST': os.getenv('DB_HOST'),
         'PORT': 5432,
-        'USER': os.getenv('DJANGO_DB_USER'),
-        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
     }
 }
