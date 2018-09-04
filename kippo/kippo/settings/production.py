@@ -18,7 +18,7 @@ STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 
 # zappa deploy url prefix
 URL_PREFIX = '/prod'
-
+ALLOWED_HOSTS.append(os.getenv('ALLOWED_HOST', '*'))
 
 DATABASES = {
     'default': {
