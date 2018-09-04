@@ -168,8 +168,10 @@ class KippoProject(UserCreatedBaseModel):
 
     def developers(self):
         from tasks.models import KippoTask
-        return {t.assignee for t in KippoTask.filter(project=self,
-                                                     assignee__is_developer=True).exclude(assignee__github_login=UNASSIGNED_USER_GITHUB_LOGIN)}
+        return {t.assignee for t in KippoTask.filter(
+            project=self,
+            assignee__is_developer=True
+        ).exclude(assignee__github_login=UNASSIGNED_USER_GITHUB_LOGIN)}
 
     def get_admin_url(self):
         return f'{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change'
@@ -346,11 +348,11 @@ class KippoMilestone(UserCreatedBaseModel):
                     if repository.html_url in existing_github_milestones_by_repo_html_url:
                         github_milestone = existing_github_milestones_by_repo_html_url[repository.html_url]
                         logger.debug(f'Updating Existing Github Milestone for Repository({repository.name}) ...')
-                        _ = repository.update_milestone(title=self.title,
-                                                        description=self.description,
-                                                        due_on=self.target_date,
-                                                        state=github_state,
-                                                        number=github_milestone.number)
+                        repository.update_milestone(title=self.title,
+                                                    description=self.description,
+                                                    due_on=self.target_date,
+                                                    state=github_state,
+                                                    number=github_milestone.number)
                         # mark as updated
                         github_milestone.updated_by = user
                         github_milestone.save()
@@ -367,7 +369,8 @@ class KippoMilestone(UserCreatedBaseModel):
                         status_code, milestone_content = response
                         if status_code == UNPROCESSABLE_ENTITY_422:
                             # indicates milestone already exists on github
-                            raise GithubMilestoneAlreadyExists(f'422 response from github, milestone may already exist for repository: {repository.name}')
+                            raise GithubMilestoneAlreadyExists(f'422 response from github, milestone may already exist for repository: '
+                                                               f'{repository.name}')
 
                         number = milestone_content['number']
                         api_url = milestone_content['url']
@@ -388,9 +391,7 @@ class KippoMilestone(UserCreatedBaseModel):
         return github_milestones
 
     def save(self, *args, **kwargs):
-        github_milestone_action = 'update'
         if not self.id:  # not defined only on initial creation!
-            github_milestone_action = 'create'
             # assign project number
             existing_milestone_count = KippoMilestone.objects.filter(project=self.project).count()
             if existing_milestone_count > 1:
@@ -414,10 +415,6 @@ class KippoMilestone(UserCreatedBaseModel):
 
         super().save(*args, **kwargs)
 
-#        if not settings.TESTING:
-#            # update related github milestones
-#            self.update_github_milestones()
-
     def __str__(self):
         return f'{self.__class__.__name__}({self.title})'
 
@@ -429,4 +426,3 @@ class KippoMilestone(UserCreatedBaseModel):
 def cleanup_github_milestones(sender, instance, **kwargs):
     """Close related Github milestones when  KippoMilestone is deleted."""
     instance.update_github_milestones(close=True)
-

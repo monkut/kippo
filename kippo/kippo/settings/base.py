@@ -25,7 +25,7 @@ BASE_DIR = PurePath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SECRET_KEY = '(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = []
 
@@ -252,3 +252,6 @@ DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX = 'estimate:'
 GITHUB_MILESTONE_CLOSE_STATE = 'closed'
 
 LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'  # defaults to /accounts/profile/#
+HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
+WEBHOOK_ENDPOINT = '/octocat/webhook/'
+WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'

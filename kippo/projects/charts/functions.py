@@ -63,15 +63,22 @@ def get_project_weekly_effort(project: KippoProject, current_date: datetime.date
 
     all_status_entries = []  # state__in=GITHUB_ACTIVE_TASK_STATES
     for current_week_start_date in search_dates:
-        previous_status_entries = KippoTaskStatus.objects.filter(task__project=project,
-                                                                 task__assignee__github_login__isnull=False,
-                                                                 effort_date=current_week_start_date,
-                                                                 state__in=active_task_states).values('task__project', 'effort_date', 'task__assignee__github_login').annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
+        previous_status_entries = KippoTaskStatus.objects.filter(
+            task__project=project,
+            task__assignee__github_login__isnull=False,
+            effort_date=current_week_start_date,
+            state__in=active_task_states
+        ).values(
+            'task__project',
+            'effort_date',
+            'task__assignee__github_login'
+        ).annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
 
         all_status_entries.extend(list(previous_status_entries))
 
     if not all_status_entries:
-        raise TaskStatusError(f'No TaskStatus found for project({project.name}) in ranges: {project.start_date} to {project.target_date}')
+        raise TaskStatusError(f'No TaskStatus found for project({project.name}) in ranges: '
+                              f'{project.start_date} to {project.target_date}')
 
     return all_status_entries, search_dates
 

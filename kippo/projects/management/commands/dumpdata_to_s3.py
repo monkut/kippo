@@ -60,6 +60,3 @@ class Command(BaseCommand):
 
         self.stdout.write(f'Download with command: ')
         self.stdout.write(f'aws s3 cp s3://{s3_bucket_name}/{s3_key} .')
-
-
-

@@ -43,8 +43,9 @@ class Command(BaseCommand):
                 raise CommandError('Invalid value given for -d/--date option, should be in YYYY-MM-DD format: {}'.format(options['date']))
 
         self.stdout.write(f'Update Started for {options["github_organization_name"]} ({status_effort_date})!\n')
-        processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count = collect_github_project_issues(kippo_organization=organization,
-                                                                                                                           status_effort_date=status_effort_date)
+        results = collect_github_project_issues(kippo_organization=organization,
+                                                status_effort_date=status_effort_date)
+        processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count = results
         self.stdout.write('Update Complete!')
         self.stdout.write(f'\tProjects Processed     : {processed_projects}')
         self.stdout.write(f'\tNew KippoTask(s)       : {new_task_count}')

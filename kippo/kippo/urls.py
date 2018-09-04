@@ -14,6 +14,7 @@ urlpatterns = [
     url('', include('social_django.urls', namespace='social')),
     url('^projects/', include('projects.urls')),
     url('^tasks/', include('tasks.urls')),
+    url('^octocat/', include('octocat.urls')),
     url(r'^$', RedirectView.as_view(url=f'{settings.URL_PREFIX}/admin')),
     url(r'^admin/', admin.site.urls),
 ]

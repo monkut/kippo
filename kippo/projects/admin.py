@@ -124,7 +124,7 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             message=f'({len(successful_creation_projects)}) GitHub Projects Created: {successful_creation_projects}',
             level=messages.INFO,
         )
-create_github_organizational_project_action.short_description = _('Create Github Organizational Project(s) for selected')  # noqa
+create_github_organizational_project_action.short_description = _('Create Github Organizational Project(s) for selected')  # noqa: E305
 
 
 def create_github_repository_milestones_action(modeladmin, request, queryset) -> None:
@@ -140,7 +140,8 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
                 for created, created_octocat_milestone in created_octocat_milestones:
                     modeladmin.message_user(
                         request,
-                        message=f'({kippo_project.name}) {created_octocat_milestone.repository.name} created milestone: {milestone.title} ({milestone.start_date} - {milestone.target_date})',
+                        message=f'({kippo_project.name}) {created_octocat_milestone.repository.name} created milestone: '
+                                f'{milestone.title} ({milestone.start_date} - {milestone.target_date})',
                         level=messages.INFO,
                     )
             except GithubMilestoneAlreadyExists as e:
@@ -149,7 +150,7 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
                     message=f'({kippo_project.name}) Failed to create milestone for related repository(ies): {e.args}',
                     level=messages.ERROR,
                 )
-create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')
+create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')  # noqa: E305
 
 
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
