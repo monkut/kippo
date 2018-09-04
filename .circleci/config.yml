@@ -19,18 +19,25 @@ jobs:
       # Download and cache dependencies
       - restore_cache:
           keys:
-          - v1-dependencies-{{ .Branch }}-{{ checksum "requirements.txt" }}-{{ checksum "requirements-dev.txt" }}
+          - v1-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           # fallback to using the latest cache if no exact match is found
           - v1-dependencies-{{ .Branch }}-
-
+      - run:
+          # work around for pipenv zappa dependency issue
+          name: Fix pipenv install
+          command: |
+            pip uninstall -y pipenv
+            pip install git+git://github.com/pypa/pipenv.git@541b87abd5baa1b6528ab5938fc275b6e982d7e0 --user
+            echo "PATH=\"/home/circleci/.local/bin:$PATH\"" >> /home/circleci/.profile
+            ln -sf /home/circleci/.local/bin/pipenv /usr/local/bin/
+            mkdir -p /home/circleci/.local/share/virtualenvs
       - run:
           name: install dependencies
           command: |
-            sudo python3.6 -m pip install -r requirements.txt
-            sudo python3.6 -m pip install -r requirements-dev.txt
+            pipenv sync --dev
 
       - save_cache:
-          key: v1-dependencies-{{ .Branch }}-{{ checksum "requirements.txt" }}-{{ checksum "requirements-dev.txt" }}
+          key: v1-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           paths:
             - ./venv
             - /usr/local/bin
