@@ -8,6 +8,10 @@ jobs:
     docker:
       # specify the version you desire here
       - image: circleci/python:3.6.5
+      - image: mdillon/postgis:9.6
+        environment:
+          POSTGRES_USER: circleci
+          POSTGRES_DB: circle_test
 
     working_directory: ~/repo
 
@@ -45,13 +49,13 @@ jobs:
       - run:
           name: run code checks
           command: |
-            make check
+            pipenv run make check
 
 
       - run:
           name: run tests
           command: |
-            make coverage
+            pipenv run make coverage
 
       - store_artifacts:
           path: test-reports
