@@ -12,7 +12,7 @@ from .models import GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
 
-KIPPO_TESTING = strtobool(os.getenv('KIPPO_TESTING', False))
+KIPPO_TESTING = strtobool(os.getenv('KIPPO_TESTING', 'False'))
 THREE_MINUTES = 3 * 60
 
 
