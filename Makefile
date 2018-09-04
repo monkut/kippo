@@ -1,5 +1,5 @@
 check:
-	flake8 --max-line-length 140 --max-complexity 18 --exclude */migrations/* kippo/
+	flake8 --max-line-length 150 --max-complexity 22 --ignore F403,F405 --exclude */migrations/* kippo/
 
 pylint:
 	pylint --rcfile .pylintrc kippo/

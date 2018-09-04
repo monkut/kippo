@@ -7,7 +7,6 @@ from django.conf import settings
 from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
 
-from accounts.models import KippoUser
 from projects.models import KippoProject
 from .models import KippoTask, KippoTaskStatus
 from .functions import prepare_project_engineering_load_plot_data
@@ -56,7 +55,12 @@ def view_inprogress_task_status(request):
         done_column_names.extend(project.columnset.get_done_column_names())
     done_column_names = list(set(done_column_names))
 
-    task_state_counts = {r['state']: r['state__count'] for r in KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate).values('state').order_by('state').annotate(Count('state'))}
+    task_state_counts = {
+        r['state']: r['state__count']
+        for r in KippoTaskStatus.objects.filter(
+            effort_date__gte=active_taskstatus_startdate
+        ).values('state').order_by('state').annotate(Count('state'))
+    }
     total_state_count = sum(task_state_counts.values())
     task_state_counts['total'] = total_state_count
 

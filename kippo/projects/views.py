@@ -122,7 +122,8 @@ def view_inprogress_projects_status(request):
         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
         if projects_missing_dates:
             for p in projects_missing_dates:
-                warning = f'Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! (Will not be displayed in chart) '
+                warning = f'Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! ' \
+                          f'(Will not be displayed in chart) '
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
         script, div = prepare_project_engineering_load_plot_data(organization)

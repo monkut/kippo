@@ -15,4 +15,3 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
         'STATIC_URL': settings.STATIC_URL,
     }
     return context
-

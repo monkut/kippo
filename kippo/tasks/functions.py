@@ -51,7 +51,7 @@ def get_github_issue_estimate_label(issue, prefix=settings.DEFAULT_GITHUB_ISSUE_
             if label.name.endswith(('h', 'hour', 'hours')):
                 # all estimates are normalized to days
                 # if hours convert to a days
-                estimate = int(round((estimate/settings.DAY_WORKHOURS) + .5, 0))
+                estimate = int(round((estimate / settings.DAY_WORKHOURS) + .5, 0))
 
     return estimate
 
@@ -95,13 +95,9 @@ def get_project_weekly_effort(project: KippoProject, current_date: datetime.date
         current_date = current_date.date()
 
     if not project.start_date or not project.target_date:
-        raise ProjectDatesError(f'{project.name} required dates not set: start_date={project.start_date}, target_date={project.target_date}')
+        raise ProjectDatesError(f'{project.name} required dates not set: start_date={project.start_date}, '
+                                f'target_date={project.target_date}')
 
-    # get project participants
-    participants = set(KippoTaskStatus.objects.filter(task__project=project,
-                                                      task__assignee__github_login__isnull=False,
-                                                      effort_date__gte=project.start_date,
-                                                      effort_date__lte=current_date).values_list('task__assignee__github_login', flat=True))
     # get latest effort status
     # -- only a single entry per date
 
@@ -125,10 +121,19 @@ def get_project_weekly_effort(project: KippoProject, current_date: datetime.date
     active_column_names = project.columnset.get_active_column_names()
     all_status_entries = []  # state__in=GITHUB_ACTIVE_TASK_STATES
     for current_week_start_date in search_dates:
-        previous_status_entries = KippoTaskStatus.objects.filter(task__project=project,
-                                                                 task__assignee__github_login__isnull=False,
-                                                                 effort_date=current_week_start_date,
-                                                                 state__in=active_column_names).values('task__project', 'effort_date', 'task__assignee__github_login').annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
+        previous_status_entries = KippoTaskStatus.objects.filter(
+            task__project=project,
+            task__assignee__github_login__isnull=False,
+            effort_date=current_week_start_date,
+            state__in=active_column_names
+        ).values(
+            'task__project',
+            'effort_date',
+            'task__assignee__github_login'
+        ).annotate(
+            task_count=Count('task'),
+            estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0))
+        )
 
         all_status_entries.extend(list(previous_status_entries))
 
@@ -187,7 +192,7 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
 def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[KippoUser, List[KippoTask]]:
     """
     Schedule tasks to determine engineer work load
-    
+
     :param schedule_start_date:
     :return: A dictionary of KippoUsers with assigned Tasks, where tasks have attached scheduled QluTask as Task.qlu_task
     """
@@ -202,12 +207,16 @@ def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[K
     for developer in KippoUser.objects.filter(is_developer=True, is_active=True):
 
         # get active taskstatus
-        active_taskstatus = KippoTaskStatus.objects.filter(task__assignee=developer,
-                                                           task__is_closed=False,
-                                                           task__project__is_closed=False,
-                                                           task__assignee__github_login__isnull=False,
-                                                           task__project__target_date__gt=schedule_start_date,
-                                                           state__in=settings.GITHUB_ACTIVE_TASK_STATES).exclude(task__assignee__github_login=settings.UNASSIGNED_USER_GITHUB_LOGIN).order_by('task__project__target_date')
+        active_taskstatus = KippoTaskStatus.objects.filter(
+            task__assignee=developer,
+            task__is_closed=False,
+            task__project__is_closed=False,
+            task__assignee__github_login__isnull=False,
+            task__project__target_date__gt=schedule_start_date,
+            state__in=settings.GITHUB_ACTIVE_TASK_STATES
+        ).exclude(
+            task__assignee__github_login=settings.UNASSIGNED_USER_GITHUB_LOGIN
+        ).order_by('task__project__target_date')
 
         # get related projects and tasks
         qlu_tasks = []
@@ -350,7 +359,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             related_milestone = status.task.milestone
             if related_milestone:
                 if not all((related_milestone.start_date, related_milestone.target_date)):
-                    raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.name}): start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
+                    raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.name}): '
+                                     f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
                 milestone_id = related_milestone.id
                 qlu_milestone = QluMilestone(milestone_id,
                                              related_milestone.start_date,
@@ -358,7 +368,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             else:
                 # treat the parent project as a milestone to get the task start/end
                 if not all((project.start_date, project.target_date)):
-                    raise ValueError(f'"start_date" and "target_date" Project({project.name}): start_date={project.start_date}, target_date={project.target_date}')
+                    raise ValueError(f'"start_date" and "target_date" Project({project.name}): '
+                                     f'start_date={project.start_date}, target_date={project.target_date}')
                 milestone_id = f'p-{status.task.project.id}'  # matches below in milestone creation
                 qlu_milestone = QluMilestone(milestone_id,
                                              status.task.project.start_date,
@@ -453,4 +464,3 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
 
     script, div = prepare_project_schedule_chart_components(project_data, project_milestones)
     return script, div
-

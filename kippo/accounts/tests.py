@@ -37,8 +37,8 @@ class KippoUserCreationTestCase(TestCase):
 
     def test_create_kippouser(self):
         user1 = KippoUser(organization=self.org,
-                         username='someuser',
-                         email='otheremail@other.com')
+                          username='someuser',
+                          email='otheremail@other.com')
         with self.assertRaises(PermissionDenied):
             user1.save()
 
@@ -75,7 +75,3 @@ class KippoUserCreationTestCase(TestCase):
                              )
         domain.clean()
         self.assertTrue(domain)
-
-
-
-

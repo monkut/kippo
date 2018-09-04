@@ -2,7 +2,6 @@ import logging
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
-from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.core.validators import validate_email
 from django.utils import timezone
@@ -86,11 +85,9 @@ class KippoUser(AbstractUser):
                 yield date
 
     def save(self, *args, **kwargs):
-        is_initial = False
         # only update on initial creation
         # --> Will not have an ID on initial save
         if self.id is None:
-            is_initial = True
             self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
             self.is_superuser = False
             if not kwargs.get('ignore_email_domain_check', False):

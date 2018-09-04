@@ -13,8 +13,8 @@ GITHUB_REPOSITORY_NAME_MAX_LENGTH = 100
 class GithubRepositoryLabelSet(models.Model):
     name = models.CharField(max_length=120,
                             help_text=_('Reference Name For LabelSet'))
-    labels = JSONField(
-                       help_text='Labels defined in the format: [{"name": "category:X", "description": "", "color": "AED6F1"},]')
+    labels = JSONField(help_text='Labels defined in the format: '
+                                 '[{"name": "category:X", "description": "", "color": "AED6F1"},]')
     created_datetime = models.DateTimeField(auto_now_add=True,
                                             editable=False)
     updated_datetime = models.DateTimeField(auto_now=True,

@@ -1,17 +1,16 @@
 import datetime
 import logging
 from typing import List
+
 from django.conf import settings
 from django.utils import timezone
-from django.db import IntegrityError
 from django.apps import apps
+
 from ghorgs.managers import GithubOrganizationManager
+
 from accounts.exceptions import OrganizationConfigurationError
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
-
-if settings.TEST:
-    from octocat.mocks import GithubOrganizationManagerMock as GithubOrganizationManager
 
 
 # load models from other apps
@@ -31,7 +30,9 @@ class KippoConfigurationError(Exception):
     pass
 
 
-def collect_github_project_issues(kippo_organization: KippoOrganization, status_effort_date: datetime.date=None, github_project_urls: List[str]=None) -> tuple:
+def collect_github_project_issues(kippo_organization: KippoOrganization,
+                                  status_effort_date: datetime.date=None,
+                                  github_project_urls: List[str]=None) -> tuple:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
@@ -55,7 +56,10 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
 
     manager = GithubOrganizationManager(organization=kippo_organization.github_organization_name,
                                         token=kippo_organization.githubaccesstoken.token)
-    existing_tasks_by_html_url = {t.github_issue_html_url: t for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url}
+    existing_tasks_by_html_url = {
+        t.github_issue_html_url: t
+        for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url
+    }
 
     if github_project_urls:
         logger.info(f'Using Filtered github_project_urls: {github_project_urls}')
@@ -160,14 +164,15 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
                             if issue.project_column in task_status_updates_states:
                                 latest_comment = ''
                                 if issue.latest_comment_body:
-                                    latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] {issue.latest_comment_body}'
+                                    latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
+                                                     f'{issue.latest_comment_body}'
 
                                 unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
                                 adjusted_issue_estimate = None
                                 if unadjusted_issue_estimate:
                                     # adjusting to take into account the number of assignees working on it
                                     # -- divides task load by the number of assignees
-                                    adjusted_issue_estimate = unadjusted_issue_estimate/estimate_denominator
+                                    adjusted_issue_estimate = unadjusted_issue_estimate / estimate_denominator
 
                                 # create or update KippoTaskStatus with updated estimate
                                 status, created = KippoTaskStatus.objects.get_or_create(task=existing_task,
