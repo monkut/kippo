@@ -1,6 +1,5 @@
 from django.contrib import admin
 from social_django.models import Association, Nonce, UserSocialAuth
-from django.contrib.auth.models import Group
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
 from .models import EmailDomain, KippoOrganization, KippoUser, PersonalHoliday
@@ -141,9 +140,6 @@ admin.site.register(KippoOrganization, KippoOrganizationAdmin)
 admin.site.register(KippoUser, KippoUserAdmin)
 admin.site.register(PersonalHoliday, PersonalHolidayAdmin)
 
-
 admin.site.unregister(UserSocialAuth)
 admin.site.unregister(Nonce)
 admin.site.unregister(Association)
-
-admin.site.unregister(Group)
