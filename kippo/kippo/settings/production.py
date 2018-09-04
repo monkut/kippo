@@ -22,7 +22,7 @@ URL_PREFIX = '/production'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'kippo',
+        'NAME': os.getenv('DB_NAME', 'kippo'),
         'HOST': os.getenv('DB_HOST'),
         'PORT': 5432,
         'USER': os.getenv('DB_USER'),
