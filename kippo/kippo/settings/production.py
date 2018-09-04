@@ -7,6 +7,7 @@ INSTALLED_APPS.append('storages')
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_LOCATION = 'static'
+STATIC_ROOT = '/static/'
 
 # S3 Bucket Config
 # -- for static files
@@ -16,7 +17,7 @@ AWS_S3_CUSTOM_DOMAIN = '{}.s3.amazonaws.com'.format(AWS_STORAGE_BUCKET_NAME)
 STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 
 # zappa deploy url prefix
-URL_PREFIX = '/production'
+URL_PREFIX = '/prod'
 
 
 DATABASES = {
