@@ -89,16 +89,18 @@ class KippoUser(AbstractUser):
         # --> Will not have an ID on initial save
         if self.id is None:
             self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
-            self.is_superuser = False
-            if not kwargs.get('ignore_email_domain_check', False):
-                # find the organization for the given user
-                try:
-                    email_domain = EmailDomain.objects.get(domain=self.email_domain)
-                    self.organization = email_domain.organization
-                except EmailDomain.DoesNotExist:
-                    raise PermissionDenied('Organization does not exist for given Email Domain!')
+            if not self.is_superuser:
+                if not kwargs.get('ignore_email_domain_check', False):
+                    # find the organization for the given user
+                    try:
+                        email_domain = EmailDomain.objects.get(domain=self.email_domain)
+                        self.organization = email_domain.organization
+                    except EmailDomain.DoesNotExist:
+                        raise PermissionDenied('Organization does not exist for given Email Domain!')
+                else:
+                    logger.warning('Ignoring EMAIL DOMAIN check on user creation!')
             else:
-                logger.warning('')
+                logger.warning(f'Creating superuser: {self.username}')
         if 'ignore_email_domain_check' in kwargs:
             del kwargs['ignore_email_domain_check']
         super().save(*args, **kwargs)

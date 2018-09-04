@@ -14,6 +14,6 @@ coverage:
 	cd kippo && coverage run --source='.' manage.py test && cd ..
 
 loadinitial:
-	cd kippo && python manage.py loaddata initial_data
+	cd kippo && python manage.py loaddata default_columnset default_labelset required_bot_users && cd ..
 
 pullrequestcheck: check coverage
