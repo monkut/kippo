@@ -22,7 +22,6 @@ PersonalHoliday = apps.get_model(app_label='accounts', model_name='PersonalHolid
 
 KippoOrganization = apps.get_model(app_label='accounts', model_name='KippoOrganization')
 KippoUser = apps.get_model(app_label='accounts', model_name='KippoUser')
-GITHUB_MANAGER_USER = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
 
 
 logger = logging.getLogger(__name__)
@@ -46,6 +45,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization, status_
     # TODO: support non-update of done tasks
     # get done tasks for active projects and last week task status
     # if *still* in 'done' state do not create a new KippoTaskStatus entry
+    GITHUB_MANAGER_USER = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
 
     if not status_effort_date:
         status_effort_date = timezone.now().date()

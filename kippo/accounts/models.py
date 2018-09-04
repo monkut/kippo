@@ -93,7 +93,7 @@ class KippoUser(AbstractUser):
             is_initial = True
             self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
             self.is_superuser = False
-            if not settings.DEBUG:  # allow manually created users in development
+            if not kwargs.get('ignore_email_domain_check', False):
                 # find the organization for the given user
                 try:
                     email_domain = EmailDomain.objects.get(domain=self.email_domain)
@@ -102,6 +102,8 @@ class KippoUser(AbstractUser):
                     raise PermissionDenied('Organization does not exist for given Email Domain!')
             else:
                 logger.warning('')
+        if 'ignore_email_domain_check' in kwargs:
+            del kwargs['ignore_email_domain_check']
         super().save(*args, **kwargs)
 
 

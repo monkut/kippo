@@ -87,12 +87,16 @@ class GithubAccessToken(UserCreatedBaseModel):
         return f'{self.__class__.__name__}({self.organization.name} [{self.organization.github_organization_name}])'
 
 
+def webhook_events_default():
+    return ['project', 'project_card']
+
+
 class GithubOrganizationalWebhook(UserCreatedBaseModel):
     organization = models.ForeignKey('accounts.KippoOrganization',
                                      on_delete=models.CASCADE)
     hook_id = models.PositiveSmallIntegerField(null=True,
                                                blank=True)
-    events = fields.ArrayField(default=['project', 'project_card'],
+    events = fields.ArrayField(default=webhook_events_default,
                                base_field=models.CharField(max_length=15),
                                help_text=_('Github webhook event(s)'))
     url = models.URLField(default=settings.WEBHOOK_URL,
