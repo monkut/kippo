@@ -112,6 +112,13 @@ class ProjectColumn(models.Model):
         )
 
 
+VALID_PROJECT_PHASES = (
+    ('lead-evaluation', 'Lead Evaluation'),
+    ('project-proposal', 'Project Proposal Preparation'),
+    ('project-development', 'Project Development'),
+)
+
+
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
     organization = models.ForeignKey('accounts.KippoOrganization',
@@ -122,6 +129,9 @@ class KippoProject(UserCreatedBaseModel):
     slug = models.CharField(max_length=300,
                             unique=True,
                             editable=False)
+    phase = models.CharField(max_length=150,
+                             choices=VALID_PROJECT_PHASES,
+                             help_text=_('State or phase of the project'))
     category = models.CharField(max_length=256,
                                 default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
     columnset = models.ForeignKey(ProjectColumnSet,
@@ -157,6 +167,10 @@ class KippoProject(UserCreatedBaseModel):
                                    null=True,
                                    blank=True,
                                    help_text=_('The date the project was actually completed on (not the initial target)'))
+    document_url = models.URLField(_('Documentation Location URL'),
+                                   null=True,
+                                   blank=True,
+                                   help_text=_('URL of where documents for the projects are maintained'))
     problem_definition = models.TextField(_('Project Problem Definition'),
                                           null=True,
                                           blank=True,
