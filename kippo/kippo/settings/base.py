@@ -193,6 +193,7 @@ AUTHENTICATION_BACKENDS = (
     'social_core.backends.google.GooglePlusAuth',
     'django.contrib.auth.backends.ModelBackend',
 )
+URL_PREFIX = ''  # needed to support a prefix on urls (for zappa deployment)
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_KEY', None)  # client ID
@@ -209,6 +210,7 @@ SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ['username', 'first_name', 'email']
 # http://python-social-auth.readthedocs.io/en/latest/configuration/settings.html#user-model
 SOCIAL_AUTH_USER_MODEL = 'accounts.KippoUser'
 AUTH_USER_MODEL = SOCIAL_AUTH_USER_MODEL
+SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'
 
 GITHUB_MANAGER_USERNAME = 'github-manager'
 CLI_MANAGER_USERNAME = 'cli-manager'
