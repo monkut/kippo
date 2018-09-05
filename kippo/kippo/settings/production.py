@@ -7,6 +7,7 @@ INSTALLED_APPS.append('storages')
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 STATICFILES_LOCATION = 'static'
+STATIC_ROOT = '/static/'
 
 # S3 Bucket Config
 # -- for static files
@@ -16,16 +17,20 @@ AWS_S3_CUSTOM_DOMAIN = '{}.s3.amazonaws.com'.format(AWS_STORAGE_BUCKET_NAME)
 STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 
 # zappa deploy url prefix
-URL_PREFIX = '/production'
+URL_PREFIX = '/prod'
+SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'
 
+ALLOWED_HOSTS.append(os.getenv('ALLOWED_HOST', '*'))
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'kippo',
-        'HOST': os.getenv('DJANGO_DB_HOST'),
+        'NAME': os.getenv('DB_NAME', 'kippo'),
+        'HOST': os.getenv('DB_HOST'),
         'PORT': 5432,
-        'USER': os.getenv('DJANGO_DB_USER'),
-        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
     }
 }
+
+DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = False

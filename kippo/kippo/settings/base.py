@@ -175,27 +175,6 @@ LOGGING = {
 }
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/2.0/howto/static-files/
-
-STATICFILES_DIRS = [
-    BASE_DIR / '..' / 'accounts' / 'static',
-]
-
-# NOTE:
-# >>> The following is moved to production.py
-# refer to:
-# https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
-# DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-# STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-# STATICFILES_LOCATION = 'static'
-#
-# # S3 Bucket Config
-# # -- for static files
-# #    (For django-storages)
-# AWS_STORAGE_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME', 'kippo-staticfiles')
-# AWS_S3_CUSTOM_DOMAIN = '{}.s3.amazonaws.com'.format(AWS_STORAGE_BUCKET_NAME)
-# STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 STATIC_URL = ''
 
 BOOTSTRAP4 = {
@@ -214,6 +193,7 @@ AUTHENTICATION_BACKENDS = (
     'social_core.backends.google.GooglePlusAuth',
     'django.contrib.auth.backends.ModelBackend',
 )
+URL_PREFIX = ''  # needed to support a prefix on urls (for zappa deployment)
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_KEY', None)  # client ID
@@ -230,6 +210,7 @@ SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ['username', 'first_name', 'email']
 # http://python-social-auth.readthedocs.io/en/latest/configuration/settings.html#user-model
 SOCIAL_AUTH_USER_MODEL = 'accounts.KippoUser'
 AUTH_USER_MODEL = SOCIAL_AUTH_USER_MODEL
+SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'
 
 GITHUB_MANAGER_USERNAME = 'github-manager'
 CLI_MANAGER_USERNAME = 'cli-manager'
@@ -255,3 +236,4 @@ LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'  # defaults to /accounts/profile/#
 HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
 WEBHOOK_ENDPOINT = '/octocat/webhook/'
 WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'
+DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = True
