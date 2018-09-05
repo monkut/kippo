@@ -236,3 +236,4 @@ LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'  # defaults to /accounts/profile/#
 HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
 WEBHOOK_ENDPOINT = '/octocat/webhook/'
 WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'
+DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = True

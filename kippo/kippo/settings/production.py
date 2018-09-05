@@ -32,3 +32,5 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD'),
     }
 }
+
+DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = False
