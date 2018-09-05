@@ -65,13 +65,31 @@ WHen the system is setup and connected the database needs to be prepared.
 
 1. Run initial migrate::
 
-    zappa manage migrate
+    zappa manage prod migrate
 
 2. Load initial data fixtures::
 
-    zappa manage "loaddata required_bot_users"
-    zappa manage "loaddata default_labelset"
-    zappa manage "loaddata default_columnset"
+    zappa manage prod "loaddata required_bot_users"
+    zappa manage prod "loaddata default_labelset"
+    zappa manage prod "loaddata default_columnset"
+
+
+Create the initial superuser
+==================================
+
+In order to setup the admin initially, a super user needs to be created.
+This super user *may* be deleted after a KippoOrganization has been set  and users added to the system.
+
+.. note::
+
+    You'll want set at least one user as a *superuser* for maintenance.
+
+1. Create initial superuser::
+
+    # Update the password defined here and issue the following command from the directory containing the `zappa_settings.json` file:
+    zappa invoke --raw prod "from accounts.models import KippoUser; KippoUser.objects.create_superuser('admin', 'admin@yourdomain.com', 'not-so-secret-password')"
+
 
 
 Now your infrastructure is prepared and you are now ready to proceed to :ref:`initial-setup`.
+
