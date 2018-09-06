@@ -1,0 +1,4 @@
+
+
+class ProjectConfigurationError(ValueError):
+    pass
