@@ -5,7 +5,7 @@ from django.test import TestCase, Client
 from accounts.models import KippoOrganization, EmailDomain, KippoUser
 from projects.models import KippoProject, ProjectColumnSet
 from tasks.models import KippoTask
-from .models import GithubWebhookEvent
+from .models import GithubWebhookEvent, GithubAccessToken
 
 
 TESTDATA_DIRECTORY = Path(settings.BASE_DIR) / '..' / 'octocat' / 'testdata'
@@ -36,6 +36,14 @@ def setup_basic_project():
         updated_by=user,
     )
     email_domain.save()
+
+    access_token = GithubAccessToken(
+        organization=organization,
+        token='kdakkfj',
+        created_by=user,
+        updated_by=user,
+    )
+    access_token.save()
 
     default_columnset = ProjectColumnSet.objects.get(pk=1)
     kippo_project = KippoProject(

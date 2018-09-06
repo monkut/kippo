@@ -10,6 +10,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.functions import prepare_project_engineering_load_plot_data
+from tasks.exceptions import ProjectConfigurationError
 from .charts.functions import prepare_burndown_chart_components
 from .models import ActiveKippoProject, KippoProject
 from .exceptions import TaskStatusError, ProjectDatesError
@@ -126,7 +127,10 @@ def view_inprogress_projects_status(request):
                           f'(Will not be displayed in chart) '
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
-        script, div = prepare_project_engineering_load_plot_data(organization)
+        try:
+            script, div = prepare_project_engineering_load_plot_data(organization)
+        except ProjectConfigurationError as e:
+            logger.warning(f'No projects with start_date or target_date defined: {e.args}')
 
     # collect unique Tasks
     collected_task_ids = []

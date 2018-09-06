@@ -12,6 +12,7 @@ from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization
 from projects.models import KippoProject, KippoMilestone
+from .exceptions import ProjectConfigurationError
 from .models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_project_schedule_chart_components
 
@@ -189,125 +190,9 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
     return data, sorted(list(assignees)), burndown_line
 
 
-def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[KippoUser, List[KippoTask]]:
-    """
-    Schedule tasks to determine engineer work load
-
-    :param schedule_start_date:
-    :return: A dictionary of KippoUsers with assigned Tasks, where tasks have attached scheduled QluTask as Task.qlu_task
-    """
-    if not schedule_start_date:
-        schedule_start_date = timezone.now().date()
-    elif isinstance(schedule_start_date, datetime.datetime):
-        schedule_start_date = schedule_start_date.date()
-
-    # TODO: update to take into account ALL engineers at same schedule
-    engineer_project_load = {}
-    kippo_tasks = {}
-    for developer in KippoUser.objects.filter(is_developer=True, is_active=True):
-
-        # get active taskstatus
-        active_taskstatus = KippoTaskStatus.objects.filter(
-            task__assignee=developer,
-            task__is_closed=False,
-            task__project__is_closed=False,
-            task__assignee__github_login__isnull=False,
-            task__project__target_date__gt=schedule_start_date,
-            state__in=settings.GITHUB_ACTIVE_TASK_STATES
-        ).exclude(
-            task__assignee__github_login=settings.UNASSIGNED_USER_GITHUB_LOGIN
-        ).order_by('task__project__target_date')
-
-        # get related projects and tasks
-        qlu_tasks = []
-        qlu_milestones = []
-        related_projects = []
-        added_ids = []
-        default_minimum = 1
-        default_suggested = 3
-        maximum_multiplier = 1.7
-
-        for status in active_taskstatus:
-            # create qlu estimates and tasks
-
-            # - create estimates for task
-            minimum_estimate = int(status.minimum_estimate_days) if status.minimum_estimate_days else default_minimum
-            suggested_estimate = int(status.estimate_days) if status.estimate_days else default_suggested
-            maximum_estimate = status.maximum_estimate_days
-            if not maximum_estimate:
-                maximum_estimate = int(round(suggested_estimate * maximum_multiplier, 0))
-            qestimates = QluTaskEstimates(minimum_estimate,
-                                          suggested_estimate,
-                                          maximum_estimate)
-
-            # QluTask Fields: (id: Any, absolute_priority, depends_on, estimates, assignee, project_id, milestone_id)
-            related_milestone = status.task.milestone
-            if related_milestone:
-                milestone_id = related_milestone.id
-            else:
-                # treat the parent project as a milestone to get the task start/end
-                milestone_id = f'p-{status.task.project.id}'  # matches below in milestone creation
-                qlu_milestone = QluMilestone(milestone_id,
-                                             status.task.project.start_date,
-                                             status.task.project.target_date)
-                qlu_milestones.append(qlu_milestone)
-
-            kippo_tasks[status.task.id] = status.task
-            qtask = QluTask(
-                status.task.id,
-                absolute_priority=0,
-                estimates=qestimates,
-                assignee=developer.github_login,
-                project_id=status.task.project.id,
-                milestone_id=milestone_id,
-            )
-            qlu_tasks.append(qtask)
-
-            # get project
-            project = status.task.project
-            if project.id not in added_ids:
-                related_projects.append(project)
-                added_ids.append(project.id)
-
-        # get related milestones
-        for project in related_projects:
-            project_milestones = project.active_milestones()
-            if not project_milestones:
-                # create a single milestone covering the range of the project
-                m = KippoMilestone()  # dummy holder for processing
-                m.id = f'p-{project.id}'
-                m.start_date = project.start_date
-                m.target_date = project.target_date
-                project_milestones = [m]
-
-            for milestone in project_milestones:
-                qlu_milestone = QluMilestone(milestone.id,
-                                             milestone.start_date,
-                                             milestone.target_date)
-                qlu_milestones.append(qlu_milestone)
-
-        if qlu_tasks:
-            holidays = {developer.github_login: list(developer.personal_holiday_dates())}
-            scheduler = QluTaskScheduler(milestones=qlu_milestones,
-                                         holiday_calendar=None,  # TODO: Update with proper holiday calendar!
-                                         assignee_personal_holidays=holidays,
-                                         start_date=schedule_start_date)
-            scheduled_results = scheduler.schedule(qlu_tasks)
-            engineer_project_load[developer] = []
-            for qlu_task in scheduled_results.tasks():
-                telos_task_id = qlu_task.id
-                telos_task = kippo_tasks[telos_task_id]
-                # attach qlu_task to telos task
-                telos_task.qlu_task = qlu_task
-                engineer_project_load[developer].append(telos_task)
-        else:
-            engineer_project_load[developer] = []
-    return engineer_project_load
-
-
 def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Dict[Any, List[KippoTask]]:
     """
-    Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given orginization.
+    Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
 
     :param organization: Organization to filter projects by
     :param schedule_start_date: If given, the schedule will be calculated from this date (Otherwise the current date will be used)
@@ -319,11 +204,19 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     elif isinstance(schedule_start_date, datetime.datetime):
         schedule_start_date = schedule_start_date.date()
 
-    projects = KippoProject.objects.filter(target_date__gt=schedule_start_date,
-                                           organization=organization,
-                                           start_date__isnull=False,
-                                           target_date__isnull=False,
-                                           is_closed=False)
+    projects = list(KippoProject.objects.filter(target_date__gt=schedule_start_date,
+                                                organization=organization,
+                                                start_date__isnull=False,
+                                                target_date__isnull=False,
+                                                is_closed=False))
+    if not projects:
+        raise ProjectConfigurationError('Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined)')
+
+    # prepare absolute priority
+    project_active_state_priority = {
+        p.id: {v: k for k, v in p.columnset.get_active_column_names(with_priority=True)}
+        for p in projects
+    }
 
     kippo_tasks = {}
 
@@ -376,10 +269,15 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                                              status.task.project.target_date)
             qlu_milestones.append(qlu_milestone)
 
+            # pick priority
+            state_priority_index = project_active_state_priority[status.task.project.id][status.state]
+            priority_offset = 10 * state_priority_index
+            task_absolute_priority = status.state_priority + priority_offset  # ok to overlap priorities for now
+
             kippo_tasks[status.task.id] = status.task
             qtask = QluTask(
                 status.task.id,
-                absolute_priority=0,  # TODO: properly handle absolute-priority
+                absolute_priority=task_absolute_priority,
                 estimates=qestimates,
                 assignee=status.task.assignee.github_login,
                 project_id=project.id,
@@ -388,35 +286,39 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             qlu_tasks.append(qtask)
 
     project_developer_load = {}
-    if qlu_tasks:
-        # prepare developer holidays
-        holidays = {d.github_login: d.personal_holiday_dates() for d in KippoUser.objects.filter(is_developer=True,
-                                                                                                 is_active=True)}
-        scheduler = QluTaskScheduler(milestones=qlu_milestones,
-                                     holiday_calendar=None,  # TODO: Update with proper holiday calendar!
-                                     assignee_personal_holidays=holidays,
-                                     start_date=schedule_start_date)
-        scheduled_results = scheduler.schedule(qlu_tasks)
+    if not qlu_tasks:
+        raise ValueError('No "qlu_tasks" defined!')
 
-        for qlu_task in scheduled_results.tasks():
-            kippo_task_id = qlu_task.id
-            kippo_task = kippo_tasks[kippo_task_id]
-            # attach qlu_task to kippo task
-            # the qlu_task has the following attributes:
-            # -- qlu_task.start_date
-            # -- qlu_task.end_date
-            # -- qlu_task.is_scheduled
-            kippo_task.qlu_task = qlu_task
-            project_id = kippo_task.project.id
-            if project_id not in project_developer_load:
-                project_developer_load[project_id] = defaultdict(list)
-            project_developer_load[project_id][kippo_task.assignee.github_login].append(kippo_task)
+    # prepare developer holidays
+    holidays = {d.github_login: d.personal_holiday_dates() for d in KippoUser.objects.filter(is_developer=True,
+                                                                                             is_active=True)}
+    scheduler = QluTaskScheduler(milestones=qlu_milestones,
+                                 holiday_calendar=None,  # TODO: Update with proper holiday calendar!
+                                 assignee_personal_holidays=holidays,
+                                 start_date=schedule_start_date)
+    scheduled_results = scheduler.schedule(qlu_tasks)
+
+    for qlu_task in scheduled_results.tasks():
+        kippo_task_id = qlu_task.id
+        kippo_task = kippo_tasks[kippo_task_id]
+        # attach qlu_task to kippo task
+        # the qlu_task has the following attributes:
+        # -- qlu_task.start_date
+        # -- qlu_task.end_date
+        # -- qlu_task.is_scheduled
+        kippo_task.qlu_task = qlu_task
+        project_id = kippo_task.project.id
+        if project_id not in project_developer_load:
+            project_developer_load[project_id] = defaultdict(list)
+        project_developer_load[project_id][kippo_task.assignee.github_login].append(kippo_task)
     return project_developer_load
 
 
 def prepare_project_engineering_load_plot_data(organization: KippoOrganization, assignee_filter: str=None, schedule_start_date: datetime.date=None):
     logger.debug(f'organization: {organization}')
     projects_results = get_projects_load(organization, schedule_start_date)
+    if not projects_results:
+        raise ValueError('(get_projects_load) project_results is empty!')
 
     project_data = {}
     # prepare data for plotting

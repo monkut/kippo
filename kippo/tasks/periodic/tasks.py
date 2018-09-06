@@ -184,6 +184,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                                                                             'created_by': GITHUB_MANAGER_USER,
                                                                                             'updated_by': GITHUB_MANAGER_USER,
                                                                                             'state': issue.project_column,
+                                                                                            'state_priority': issue.column_priority,
                                                                                             'estimate_days': adjusted_issue_estimate,
                                                                                             'effort_date': status_effort_date,
                                                                                             'comment': latest_comment

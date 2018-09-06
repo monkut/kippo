@@ -65,6 +65,10 @@ class KippoTaskStatus(UserCreatedBaseModel):
                              db_index=True,
                              null=True,
                              help_text=_('Populated by the Github Organizational Project column the task exists in'))
+    state_priority = models.PositiveSmallIntegerField(null=True,
+                                                      blank=True,
+                                                      default=0,
+                                                      help_text=_('The priority of the task within the given state (column) [smaller is better]'))
     effort_date = models.DateField(default=timezone.now,
                                    db_index=True,
                                    help_text=_('Date that effort spent occurred on.'))
