@@ -207,7 +207,7 @@ def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[K
     for developer in KippoUser.objects.filter(is_developer=True, is_active=True):
 
         # get active taskstatus
-        active_taskstatus = KippoTaskStatus.objects.filter(
+        active_taskstatus = list(KippoTaskStatus.objects.select_related('task__project').filter(
             task__assignee=developer,
             task__is_closed=False,
             task__project__is_closed=False,
@@ -216,7 +216,7 @@ def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[K
             state__in=settings.GITHUB_ACTIVE_TASK_STATES
         ).exclude(
             task__assignee__github_login=settings.UNASSIGNED_USER_GITHUB_LOGIN
-        ).order_by('task__project__target_date')
+        ).order_by('task__project__target_date'))
 
         # get related projects and tasks
         qlu_tasks = []
@@ -227,9 +227,17 @@ def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[K
         default_suggested = 3
         maximum_multiplier = 1.7
 
+        # prepare absolute priority
+        # -- get projects for
+        related_project_ids = list(set(status.task.project.id for status in active_taskstatus))
+        project_active_state_priority = {
+            p.id: p.columnset.get_active_column_names(with_priority=True)
+            for p in KippoProject.objects.filter(id__in=related_project_ids)
+        }
+        task_priorities = [None] * len(active_taskstatus)
+
         for status in active_taskstatus:
             # create qlu estimates and tasks
-
             # - create estimates for task
             minimum_estimate = int(status.minimum_estimate_days) if status.minimum_estimate_days else default_minimum
             suggested_estimate = int(status.estimate_days) if status.estimate_days else default_suggested
@@ -252,10 +260,27 @@ def get_engineer_project_load(schedule_start_date: datetime.date=None) -> Dict[K
                                              status.task.project.target_date)
                 qlu_milestones.append(qlu_milestone)
 
+            # pick priority
+            task_absolute_priority = None
+            state_priority_index, _ = project_active_state_priority[status.task.project.id]
+            priority_offset = 10 * state_priority_index
+            assert task_priorities.count(None) > 1
+            while not task_absolute_priority:
+                candidate_priority_index = status.state_priority + priority_offset
+                if task_priorities.count(None) == 1:
+                    task_absolute_priority = task_priorities.index(None)
+                elif task_priorities[candidate_priority_index] is None:
+                    task_priorities[candidate_priority_index] = status.tasks.id
+                    task_absolute_priority = candidate_priority_index
+                elif task_priorities[candidate_priority_index:].count(None) == 0:
+                    priority_offset -= 1
+                else:
+                    priority_offset += 1
+
             kippo_tasks[status.task.id] = status.task
             qtask = QluTask(
                 status.task.id,
-                absolute_priority=0,
+                absolute_priority=task_absolute_priority,
                 estimates=qestimates,
                 assignee=developer.github_login,
                 project_id=status.task.project.id,

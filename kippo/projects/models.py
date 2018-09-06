@@ -58,8 +58,11 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
     def get_column_names(self):
         return [c.name for c in ProjectColumn.objects.filter(columnset=self).order_by('index')]
 
-    def get_active_column_names(self):
-        names = [c.name for c in ProjectColumn.objects.filter(columnset=self, is_active=True).order_by('index')]
+    def get_active_column_names(self, with_priority=False):
+        if with_priority:
+            names = [(priority, c.name) for priority, c in enumerate(ProjectColumn.objects.filter(columnset=self, is_active=True).order_by('-index'))]
+        else:
+            names = [c.name for c in ProjectColumn.objects.filter(columnset=self, is_active=True).order_by('index')]
         if not names:
             raise ProjectColumnSetError(f'{self} does not have any ACTIVE columns assigned!')
         return names
