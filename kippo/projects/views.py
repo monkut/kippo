@@ -157,7 +157,7 @@ def view_inprogress_projects_status(request):
         'user_effort_totals': dict(user_effort_totals),
         'chart_script': script,
         'chart_div': div,
-        'latest_effort_date': latest_effort_date.strftime('%Y-%m-%d'),
+        'latest_effort_date': latest_effort_date,
         'active_projects': active_projects,
         'messages': messages.get_messages(request),
     }
