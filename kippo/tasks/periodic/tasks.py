@@ -9,8 +9,8 @@ from zappa.async import task
 from ghorgs.managers import GithubOrganizationManager
 
 from accounts.exceptions import OrganizationConfigurationError
-from accounts.models import KippoOrganization, KippoUser, PersonalHoliday
-from projects.models import KippoProject, ActiveKippoProject
+from accounts.models import KippoOrganization, KippoUser
+from projects.models import ActiveKippoProject
 from octocat.models import GithubRepository
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
