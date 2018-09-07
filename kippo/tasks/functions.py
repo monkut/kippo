@@ -239,14 +239,15 @@ def update_kippotaskstatus_hours_worked(projects: KippoProject,
                     if change_in_days >= 0:  # ignore increases in estimates
                         # calculate based on project work days
                         project = projects_map[later_status.task.project.id]
-                        day_workhours =project.organization.day_workhours
+                        day_workhours = project.organization.day_workhours
                         calculated_work_hours = change_in_days * day_workhours
                         later_status.hours_spent = calculated_work_hours
                         later_status.save()
                         updated_statuses.append(later_status)
                         logger.info(f'({later_status.task.title} [{later_status.effort_date}]) Updated KippoTaskStatus.hours_spent={calculated_work_hours}')
                     else:
-                        logger.warning(f'Estimate increased, KippoTaskStatus NOT updated: {earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}')
+                        logger.warning(f'Estimate increased, KippoTaskStatus NOT updated: '
+                                       f'{earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}')
     return updated_statuses
 
 
