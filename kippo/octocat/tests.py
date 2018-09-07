@@ -1,3 +1,4 @@
+import os
 import json
 from pathlib import Path
 from django.conf import settings
@@ -8,6 +9,7 @@ from tasks.models import KippoTask
 from .models import GithubWebhookEvent, GithubAccessToken
 
 
+assert os.getenv('KIPPO_TESTING', False)  # The KIPPO_TESTING environment variable must be set to True
 TESTDATA_DIRECTORY = Path(settings.BASE_DIR) / '..' / 'octocat' / 'testdata'
 
 
