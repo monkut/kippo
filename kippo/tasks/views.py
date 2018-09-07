@@ -79,13 +79,14 @@ def view_inprogress_task_status(request):
     # apply specific user filter if defined
     script = None
     div = None
+    latest_effort_date = None
     if github_login:
         active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
 
         organization = request.user.organization
         if not organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
-        script, div = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
+        (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
 
     # collect unique Tasks
     collected_task_ids = []
@@ -111,6 +112,7 @@ def view_inprogress_task_status(request):
         'task_state_counts': task_state_counts,
         'chart_script': script,
         'chart_div': div,
+        'latest_effort_date': latest_effort_date,
     }
 
     return render(request, 'tasks/view_inprogress_task_status.html', context)

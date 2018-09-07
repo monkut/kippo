@@ -16,6 +16,10 @@
         <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
     {% endif %}
 
+  {% if latest_effort_date %}
+      <h4>Latest Effort Date: {{ latest_effort_date }}</h4>
+  {% endif %}
+
   {% if chart_div %}
     <center>
         {{ chart_div |safe }}

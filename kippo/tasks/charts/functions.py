@@ -1,5 +1,6 @@
 import time
 import datetime
+import logging
 
 from bokeh.resources import CDN
 from bokeh.embed import components
@@ -9,6 +10,9 @@ from bokeh.models import ColumnDataSource, FactorRange, FixedTicker, Span, Label
 from bokeh.plotting import figure
 
 
+logger = logging.getLogger(__name__)
+
+
 def prepare_project_schedule_chart_components(project_data: dict, project_milestones: dict=None):
 
     # get min/max across all projects
@@ -16,7 +20,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
     all_end_dates = []
     for project_id, data in project_data.items():
         all_start_dates.extend(data['task_start_dates'])
-        all_end_dates.extend(data['task_end_dates'])
+        all_end_dates.extend(data['project_target_dates'])
     min_date = min(all_start_dates) - datetime.timedelta(days=1)
     max_date = max(all_end_dates) + datetime.timedelta(days=5)
 
@@ -75,6 +79,25 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                               text_font_style='italic',
                               text_font_size='8pt')
                 p.add_layout(label)
+
+        # bokeh requires this time format for display
+        project_target_date = data['project_target_dates'][0]
+        logger.debug(f'project_target_date: {project_target_date}')
+        project_end_date = time.mktime(project_target_date.timetuple()) * 1000
+        project_end = Span(location=project_end_date,
+                           dimension='height',
+                           line_color='red',
+                           line_dash='dashed',
+                           line_width=5)
+        p.add_layout(project_end)
+        project_target_date_label = Label(x=project_target_date,
+                                          x_offset=5,
+                                          y=0,
+                                          y_offset=1,
+                                          text='Target',
+                                          text_font_style='italic',
+                                          text_font_size='8pt')
+        p.add_layout(project_target_date_label)
 
         p.xaxis.ticker = FixedTicker(ticks=xaxis_fixed_ticks)
         p.yaxis.group_label_orientation = 'horizontal'
