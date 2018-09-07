@@ -37,10 +37,6 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     return project, username
 
 
-def view_projects_schedule(request, project_id=None):
-    raise NotImplementedError()
-
-
 @staff_member_required
 def view_inprogress_projects_overview(request):
     now = timezone.now()
@@ -67,6 +63,7 @@ def view_inprogress_projects_overview(request):
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
+@staff_member_required
 def view_inprogress_projects_status(request):
     warning = None
     slug = request.GET.get('slug', None)
