@@ -1,13 +1,15 @@
 import datetime
 import logging
+from itertools import islice
 from collections import defaultdict
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 from django.conf import settings
 from django.utils import timezone
 from django.db.models import Sum, Value, Count
 from django.db.models.functions import Coalesce
 
+from zappa.async import task as zappa_task
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization
@@ -19,6 +21,7 @@ from .charts.functions import prepare_project_schedule_chart_components
 
 logger = logging.getLogger(__name__)
 TUESDAY_WEEKDAY = 2
+DEFAULT_HOURSWORKED_DATERANGE = timezone.timedelta(days=7)
 
 
 def get_github_issue_estimate_label(issue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX) -> int:
@@ -190,14 +193,88 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
     return data, sorted(list(assignees)), burndown_line
 
 
-def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Dict[Any, List[KippoTask]]:
+def window(seq, n=2):
+    "Returns a sliding window (of width n) over data from the iterable"
+    "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+    it = iter(seq)
+    result = tuple(islice(it, n))
+    if len(result) == n:
+        yield result
+    for elem in it:
+        result = result[1:] + (elem,)
+        yield result
+
+
+@zappa_task
+def update_kippotaskstatus_hours_worked(projects: KippoProject,
+                                        start_date: datetime.date = None,
+                                        date_delta: timezone.timedelta=DEFAULT_HOURSWORKED_DATERANGE) -> List[KippoTaskStatus]:
+    """
+    Obtain the calculated hours_worked between KippoTaskStatus objects for the same task from different effort_date(s)
+    return all calculations for
+
+    :param projects: Projects to update
+    :param start_date:
+    :param date_delta: How many days back to include in search
+    :return: Task Statuses objects that were updated
+    """
+    period_start_date = start_date - date_delta
+    projects_map = {p.id: p for p in projects}
+    # get KippoTaskStatus for KippoProjects given which are not yet updated
+    statuses = KippoTaskStatus.objects.filter(task__project__in=projects,
+                                              effort_date__gte=period_start_date).order_by('task', 'effort_date')
+
+    task_taskstatuses = defaultdict(list)
+    for status in statuses:
+        task_taskstatuses[status.task.id].append(status)  # expect to be in order
+
+    updated_statuses = []
+    for task_id, task_statuses in task_taskstatuses.items():
+        for earlier_status, later_status in window(task_statuses, n=2):
+            if earlier_status.estimate_days and later_status.estimate_days:
+                if later_status.hours_spent is None:
+                    # update
+                    change_in_days = earlier_status.estimate_days - later_status.estimate_days
+                    logger.debug(f'change_in_days: {change_in_days}')
+                    if change_in_days >= 0:  # ignore increases in estimates
+                        # calculate based on project work days
+                        project = projects_map[later_status.task.project.id]
+                        day_workhours = project.organization.day_workhours
+                        calculated_work_hours = change_in_days * day_workhours
+                        later_status.hours_spent = calculated_work_hours
+                        later_status.save()
+                        updated_statuses.append(later_status)
+                        logger.info(f'({later_status.task.title} [{later_status.effort_date}]) '
+                                    f'Updated KippoTaskStatus.hours_spent={calculated_work_hours}')
+                    else:
+                        logger.warning(f'Estimate increased, KippoTaskStatus NOT updated: '
+                                       f'{earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}')
+    return updated_statuses
+
+
+def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Tuple[Dict[Any, List[KippoTask]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
 
     :param organization: Organization to filter projects by
     :param schedule_start_date: If given, the schedule will be calculated from this date (Otherwise the current date will be used)
 
-    :return: A dictionary of KippoUsers with assigned Tasks, where tasks have attached scheduled QluTask as Task.qlu_task
+    :return:
+
+        .. code::python
+
+            (
+                { 'PROJECT_ID':  # multiple
+                    {
+                        'GITHUB_LOGIN': [  # multiple
+                            KippoTask(),
+                            KippoTask()
+                        ]
+                    },
+                },
+                datetime.date(2018, 9, 21)  # Latest available Effort Date (latest_taskstatus_effort_date) from which the schedule is calculated
+            )
+
     """
     if not schedule_start_date:
         schedule_start_date = timezone.now().date()
@@ -220,6 +297,14 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
 
     kippo_tasks = {}
 
+    # get the latest available date for KippoTaskStatus effort_date records for the specific organization
+    latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
+        task__project__organization=organization
+    ).latest('effort_date').effort_date
+
+    if latest_taskstatus_effort_date < schedule_start_date:
+        logger.warning(f'Available latest KippoTaskStatus.effort_date < schedule_start_date: {latest_taskstatus_effort_date} < {schedule_start_date}')
+
     # get related projects and tasks
     qlu_tasks = []
     qlu_milestones = []
@@ -227,14 +312,18 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     default_suggested = 3
     maximum_multiplier = 1.7
     for project in projects:
+        # NOTE: Should this be filtered by effort_date?
+        # -- 'active task status'
         active_taskstatus = KippoTaskStatus.objects.filter(task__project=project,
                                                            task__assignee__is_developer=True,
                                                            task__assignee__is_active=True,
                                                            task__is_closed=False,
                                                            task__assignee__github_login__isnull=False,
+                                                           effort_date=latest_taskstatus_effort_date,
                                                            state__in=project.get_active_column_names())
         for status in active_taskstatus:
-            if status.state not in project.get_active_column_names():
+            if status.state not in project.get_active_column_names():  # this shouldn't be needed as it's being filtered above
+                logger.error('state_in filter not working!')
                 continue  # Skip non-active states
 
             # create qlu estimates and tasks
@@ -311,12 +400,12 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
         if project_id not in project_developer_load:
             project_developer_load[project_id] = defaultdict(list)
         project_developer_load[project_id][kippo_task.assignee.github_login].append(kippo_task)
-    return project_developer_load
+    return project_developer_load, latest_taskstatus_effort_date
 
 
 def prepare_project_engineering_load_plot_data(organization: KippoOrganization, assignee_filter: str=None, schedule_start_date: datetime.date=None):
     logger.debug(f'organization: {organization}')
-    projects_results = get_projects_load(organization, schedule_start_date)
+    projects_results, latest_effort_date = get_projects_load(organization, schedule_start_date)
     if not projects_results:
         raise ValueError('(get_projects_load) project_results is empty!')
 
@@ -326,6 +415,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
         data = {
             'project_ids': [],
             'project_names': [],
+            'project_target_dates': [],
             'assignees': [],
             'project_assignee_grouped': [],
             'task_ids': [],
@@ -341,6 +431,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             for task in projects_results[project_id][assignee]:
                 data['project_ids'].append(project_id)
                 data['project_names'].append(task.project.name)
+                data['project_target_dates'].append(task.project.target_date)
                 data['assignees'].append(assignee)
                 data['project_assignee_grouped'].append((task.project.name, assignee))
                 data['task_ids'].append(task.id)
@@ -365,4 +456,4 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
         project_milestones[milestone.project.id].append(milestone_info)
 
     script, div = prepare_project_schedule_chart_components(project_data, project_milestones)
-    return script, div
+    return (script, div), latest_effort_date

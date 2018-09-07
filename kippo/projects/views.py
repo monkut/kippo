@@ -37,6 +37,7 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     return project, username
 
 
+@staff_member_required
 def view_projects_schedule(request, project_id=None):
     raise NotImplementedError()
 
@@ -67,6 +68,7 @@ def view_inprogress_projects_overview(request):
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
+@staff_member_required
 def view_inprogress_projects_status(request):
     warning = None
     slug = request.GET.get('slug', None)
@@ -99,6 +101,7 @@ def view_inprogress_projects_status(request):
     project = None
     script = None
     div = None
+    latest_effort_date = None
     if slug:
         assert len(projects) == 1
         project = projects[0]
@@ -128,7 +131,8 @@ def view_inprogress_projects_status(request):
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
         try:
-            script, div = prepare_project_engineering_load_plot_data(organization)
+            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization)
+            logger.debug(f'latest_effort_date: {latest_effort_date}')
         except ProjectConfigurationError as e:
             logger.warning(f'No projects with start_date or target_date defined: {e.args}')
 
@@ -155,6 +159,7 @@ def view_inprogress_projects_status(request):
         'user_effort_totals': dict(user_effort_totals),
         'chart_script': script,
         'chart_div': div,
+        'latest_effort_date': latest_effort_date,
         'active_projects': active_projects,
         'messages': messages.get_messages(request),
     }

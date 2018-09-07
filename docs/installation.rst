@@ -63,6 +63,15 @@ Prepare Initial Database
 
 WHen the system is setup and connected the database needs to be prepared.
 
+.. note::
+
+    When installing the lambda package is quite large, if including the dev packages,
+    the package may be TOO large for lambda.
+    Since zappa uses the virtualenv you are working in be sure to use the command::
+
+        pipenv sync
+
+
 1. Run initial migrate::
 
     zappa manage prod migrate

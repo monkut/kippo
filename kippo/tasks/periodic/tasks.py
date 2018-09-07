@@ -4,23 +4,16 @@ from typing import List
 
 from django.conf import settings
 from django.utils import timezone
-from django.apps import apps
 
+from zappa.async import task
 from ghorgs.managers import GithubOrganizationManager
 
 from accounts.exceptions import OrganizationConfigurationError
+from accounts.models import KippoOrganization, KippoUser
+from projects.models import ActiveKippoProject
+from octocat.models import GithubRepository
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
-
-
-# load models from other apps
-KippoProject = apps.get_model(app_label='projects', model_name='KippoProject')
-ActiveKippoProject = apps.get_model(app_label='projects', model_name='ActiveKippoProject')
-GithubRepository = apps.get_model(app_label='octocat', model_name='GithubRepository')
-PersonalHoliday = apps.get_model(app_label='accounts', model_name='PersonalHoliday')
-
-KippoOrganization = apps.get_model(app_label='accounts', model_name='KippoOrganization')
-KippoUser = apps.get_model(app_label='accounts', model_name='KippoUser')
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +23,7 @@ class KippoConfigurationError(Exception):
     pass
 
 
+@task
 def collect_github_project_issues(kippo_organization: KippoOrganization,
                                   status_effort_date: datetime.date=None,
                                   github_project_urls: List[str]=None) -> tuple:
@@ -39,7 +33,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     3. If KippoTask exists create KippoTaskStatus
 
     :param kippo_organization: KippoOrganization
-    :param status_effort_date: Date to get tasks from
+    :param status_effort_date: Date to get tasks from for testing, estimation purposes
     :param github_project_urls: If only specific projects are desired, the related github_project_urls may be provided
     :return: processed_projects_count, created_task_count, created_taskstatus_count
     """
@@ -201,5 +195,16 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
 
 
 def run_collect_github_project_issues(event, context):
+    """
+    A AWS Lambda handler function for running the collect_github_project_issues() function for each organization
+
+    .. note::
+
+        This function will eventually be overshadowed by github webhook integration
+
+    :param event:
+    :param context:
+    :return:
+    """
     for organization in KippoOrganization.objects.filter(github_organization_name__isnull=False):
         collect_github_project_issues(organization)
