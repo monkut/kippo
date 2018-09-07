@@ -38,6 +38,11 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
 
 
 @staff_member_required
+def view_projects_schedule(request, project_id=None):
+    raise NotImplementedError()
+
+
+@staff_member_required
 def view_inprogress_projects_overview(request):
     now = timezone.now()
 
