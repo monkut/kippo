@@ -4,24 +4,16 @@ from typing import List
 
 from django.conf import settings
 from django.utils import timezone
-from django.apps import apps
 
 from zappa.async import task
 from ghorgs.managers import GithubOrganizationManager
 
 from accounts.exceptions import OrganizationConfigurationError
+from accounts.models import KippoOrganization, KippoUser, PersonalHoliday
+from projects.models import KippoProject, ActiveKippoProject
+from octocat.models import GithubRepository
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
-
-
-# load models from other apps
-KippoProject = apps.get_model(app_label='projects', model_name='KippoProject')
-ActiveKippoProject = apps.get_model(app_label='projects', model_name='ActiveKippoProject')
-GithubRepository = apps.get_model(app_label='octocat', model_name='GithubRepository')
-PersonalHoliday = apps.get_model(app_label='accounts', model_name='PersonalHoliday')
-
-KippoOrganization = apps.get_model(app_label='accounts', model_name='KippoOrganization')
-KippoUser = apps.get_model(app_label='accounts', model_name='KippoUser')
 
 
 logger = logging.getLogger(__name__)
