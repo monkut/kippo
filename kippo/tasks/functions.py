@@ -1,5 +1,6 @@
 import datetime
 import logging
+from itertools import islice
 from collections import defaultdict
 from typing import Dict, List, Any, Tuple
 
@@ -8,6 +9,7 @@ from django.utils import timezone
 from django.db.models import Sum, Value, Count
 from django.db.models.functions import Coalesce
 
+from zappa.async import task
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization
@@ -19,6 +21,7 @@ from .charts.functions import prepare_project_schedule_chart_components
 
 logger = logging.getLogger(__name__)
 TUESDAY_WEEKDAY = 2
+DEFAULT_HOURSWORKED_DATERANGE = timezone.timedelta(days=7)
 
 
 def get_github_issue_estimate_label(issue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX) -> int:
@@ -190,12 +193,61 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
     return data, sorted(list(assignees)), burndown_line
 
 
-def updated_hours_worked(projects: KippoProject, start_date: datetime.date = None):
-    """
+def window(seq, n=2):
+    "Returns a sliding window (of width n) over data from the iterable"
+    "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+    it = iter(seq)
+    result = tuple(islice(it, n))
+    if len(result) == n:
+        yield result
+    for elem in it:
+        result = result[1:] + (elem,)
+        yield result
 
-    :param statuses:
-    :return:
+
+@task
+def update_kippotaskstatus_hours_worked(projects: KippoProject,
+                                        start_date: datetime.date = None,
+                                        date_delta: timezone.timedelta=DEFAULT_HOURSWORKED_DATERANGE) -> List[KippoTaskStatus]:
     """
+    Obtain the calculated hours_worked between KippoTaskStatus objects for the same task from different effort_date(s)
+    return all calculations for
+
+    :param projects: Projects to update
+    :param start_date:
+    :param date_delta: How many days back to include in search
+    :return: Task Statuses objects that were updated
+    """
+    period_start_date = start_date - date_delta
+    projects_map = {p.id: p for p in projects}
+    # get KippoTaskStatus for KippoProjects given which are not yet updated
+    statuses = KippoTaskStatus.objects.filter(task__project__in=projects,
+                                              effort_date__gte=period_start_date).order_by('task', 'effort_date')
+
+    task_taskstatuses = defaultdict(list)
+    for status in statuses:
+        task_taskstatuses[status.task.id].append(status)  # expect to be in order
+
+    updated_statuses = []
+    for task, task_statuses in task_taskstatuses.items():
+        for earlier_status, later_status in window(task_statuses, n=2):
+            if earlier_status.estimate_days and later_status.estimate_days:
+                if later_status.hours_spent is None:
+                    # update
+                    change_in_days = earlier_status.estimate_days - later_status.estimate_days
+                    logger.debug(f'change_in_days: {change_in_days}')
+                    if change_in_days >= 0:  # ignore increases in estimates
+                        # calculate based on project work days
+                        project = projects_map[later_status.task.project.id]
+                        day_workhours =project.organization.day_workhours
+                        calculated_work_hours = change_in_days * day_workhours
+                        later_status.hours_spent = calculated_work_hours
+                        later_status.save()
+                        updated_statuses.append(later_status)
+                        logger.info(f'({later_status.task.title} [{later_status.effort_date}]) Updated KippoTaskStatus.hours_spent={calculated_work_hours}')
+                    else:
+                        logger.warning(f'Estimate increased, KippoTaskStatus NOT updated: {earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}')
+    return updated_statuses
 
 
 def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Tuple[Dict[Any, List[KippoTask]], datetime.date]:
