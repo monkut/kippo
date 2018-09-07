@@ -90,6 +90,3 @@ class CalculateKippoTaskStatusHoursWorkedTestCase(TestCase):
         self.kippotaskstatus_second.refresh_from_db()
         self.assertTrue(self.kippotaskstatus_first.hours_spent is None)
         self.assertTrue(self.kippotaskstatus_second.hours_spent is None)
-
-
-

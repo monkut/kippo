@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.db.models import Sum, Value, Count
 from django.db.models.functions import Coalesce
 
-from zappa.async import task
+from zappa.async import task as zappa_task
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization
@@ -205,7 +205,7 @@ def window(seq, n=2):
         yield result
 
 
-@task
+@zappa_task
 def update_kippotaskstatus_hours_worked(projects: KippoProject,
                                         start_date: datetime.date = None,
                                         date_delta: timezone.timedelta=DEFAULT_HOURSWORKED_DATERANGE) -> List[KippoTaskStatus]:
@@ -229,7 +229,7 @@ def update_kippotaskstatus_hours_worked(projects: KippoProject,
         task_taskstatuses[status.task.id].append(status)  # expect to be in order
 
     updated_statuses = []
-    for task, task_statuses in task_taskstatuses.items():
+    for task_id, task_statuses in task_taskstatuses.items():
         for earlier_status, later_status in window(task_statuses, n=2):
             if earlier_status.estimate_days and later_status.estimate_days:
                 if later_status.hours_spent is None:
@@ -244,7 +244,8 @@ def update_kippotaskstatus_hours_worked(projects: KippoProject,
                         later_status.hours_spent = calculated_work_hours
                         later_status.save()
                         updated_statuses.append(later_status)
-                        logger.info(f'({later_status.task.title} [{later_status.effort_date}]) Updated KippoTaskStatus.hours_spent={calculated_work_hours}')
+                        logger.info(f'({later_status.task.title} [{later_status.effort_date}]) '
+                                    f'Updated KippoTaskStatus.hours_spent={calculated_work_hours}')
                     else:
                         logger.warning(f'Estimate increased, KippoTaskStatus NOT updated: '
                                        f'{earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}')
