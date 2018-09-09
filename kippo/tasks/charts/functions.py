@@ -87,7 +87,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
         project_end = Span(location=project_end_date,
                            dimension='height',
                            line_color='red',
-                           line_dash='dashed',
+                           line_dash='solid',
                            line_width=5)
         p.add_layout(project_end)
         project_target_date_label = Label(x=project_target_date,
