@@ -205,7 +205,6 @@ def window(seq, n=2):
         yield result
 
 
-@zappa_task
 def update_kippotaskstatus_hours_worked(projects: KippoProject,
                                         start_date: datetime.date = None,
                                         date_delta: timezone.timedelta=DEFAULT_HOURSWORKED_DATERANGE) -> List[KippoTaskStatus]:

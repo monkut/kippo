@@ -23,7 +23,6 @@ class KippoConfigurationError(Exception):
     pass
 
 
-@task
 def collect_github_project_issues(kippo_organization: KippoOrganization,
                                   status_effort_date: datetime.date=None,
                                   github_project_urls: List[str]=None) -> tuple:
