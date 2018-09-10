@@ -44,7 +44,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
         y_range = set(data['project_assignee_grouped'])
         calculated_plot_height = len(y_range) * 100
 
-        p = figure(y_range=FactorRange(*y_range),
+        p = figure(y_range=FactorRange(*sorted(y_range)),
                    x_range=(min_date, max_date),
                    plot_width=900,
                    plot_height=calculated_plot_height,
