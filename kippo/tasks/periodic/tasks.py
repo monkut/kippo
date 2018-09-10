@@ -5,7 +5,6 @@ from typing import List
 from django.conf import settings
 from django.utils import timezone
 
-from zappa.async import task
 from ghorgs.managers import GithubOrganizationManager
 
 from accounts.exceptions import OrganizationConfigurationError

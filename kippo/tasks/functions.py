@@ -9,7 +9,6 @@ from django.utils import timezone
 from django.db.models import Sum, Value, Count
 from django.db.models.functions import Coalesce
 
-from zappa.async import task as zappa_task
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization

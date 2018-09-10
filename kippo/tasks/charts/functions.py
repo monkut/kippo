@@ -88,10 +88,10 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                 logger.debug(f'project_start_date: {project_start_date}')
                 project_start_date = time.mktime(project_start_date.timetuple()) * 1000  # bokeh requires this time format for display
                 project_start = Span(location=project_start_date,
-                                   dimension='height',
-                                   line_color='green',
-                                   line_dash='solid',
-                                   line_width=2)
+                                     dimension='height',
+                                     line_color='green',
+                                     line_dash='solid',
+                                     line_width=2)
                 p.add_layout(project_start)
                 project_start_date_label = Label(x=project_start_date,
                                                  x_offset=-15,
