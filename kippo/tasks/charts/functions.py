@@ -80,10 +80,28 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                               text_font_size='8pt')
                 p.add_layout(label)
 
-        # bokeh requires this time format for display
+        project_start_date = data['project_start_dates'][0]
+        if project_start_date > min_date:
+            logger.debug(f'project_start_date: {project_start_date}')
+            project_start_date = time.mktime(project_start_date.timetuple()) * 1000  # bokeh requires this time format for display
+            project_start = Span(location=project_start_date,
+                               dimension='height',
+                               line_color='green',
+                               line_dash='solid',
+                               line_width=2)
+            p.add_layout(project_start)
+            project_start_date_label = Label(x=project_start_date,
+                                             x_offset=-15,
+                                             y=0,
+                                             y_offset=1,
+                                             text='Start',
+                                             text_font_style='italic',
+                                             text_font_size='8pt')
+            p.add_layout(project_start_date_label)
+
         project_target_date = data['project_target_dates'][0]
         logger.debug(f'project_target_date: {project_target_date}')
-        project_end_date = time.mktime(project_target_date.timetuple()) * 1000
+        project_end_date = time.mktime(project_target_date.timetuple()) * 1000  # bokeh requires this time format for display
         project_end = Span(location=project_end_date,
                            dimension='height',
                            line_color='red',

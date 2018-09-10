@@ -414,6 +414,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
         data = {
             'project_ids': [],
             'project_names': [],
+            'project_start_dates': [],
             'project_target_dates': [],
             'assignees': [],
             'project_assignee_grouped': [],
@@ -430,7 +431,8 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             for task in projects_results[project_id][assignee]:
                 data['project_ids'].append(project_id)
                 data['project_names'].append(task.project.name)
-                data['project_target_dates'].append(task.project.target_date)
+                data['roject_start_dates'].append(task.project.start_date)  # only 1 is really needed...
+                data['project_target_dates'].append(task.project.target_date)  # only 1 is really needed...
                 data['assignees'].append(assignee)
                 data['project_assignee_grouped'].append((task.project.name, assignee))
                 data['task_ids'].append(task.id)
