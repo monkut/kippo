@@ -441,7 +441,10 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['task_estimate_days'].append(estimate.days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
-        project_data[project_id] = data
+        if data:  # may not be filled if using assignee filter
+            project_data[project_id] = data
+        else:
+            logger.warning(f'No data for Project-id({project_id}): {assignee_filter}')
 
     # prepare project milestone info
     project_milestones = defaultdict(list)
