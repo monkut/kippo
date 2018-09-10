@@ -24,7 +24,10 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
 
     def get_label_set_name(self, obj):
-        return obj.label_set.name
+        result = ''
+        if obj.label_set:
+            result = obj.label_set.name
+        return result
     get_label_set_name.short_description = 'Label Set'
 
     def update_labels(self, request, queryset):
