@@ -9,7 +9,6 @@ from django.utils import timezone
 from django.db.models import Sum, Value, Count
 from django.db.models.functions import Coalesce
 
-from zappa.async import task as zappa_task
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoUser, KippoOrganization
@@ -205,7 +204,6 @@ def window(seq, n=2):
         yield result
 
 
-@zappa_task
 def update_kippotaskstatus_hours_worked(projects: KippoProject,
                                         start_date: datetime.date = None,
                                         date_delta: timezone.timedelta=DEFAULT_HOURSWORKED_DATERANGE) -> List[KippoTaskStatus]:
@@ -415,6 +413,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
         data = {
             'project_ids': [],
             'project_names': [],
+            'project_start_dates': [],
             'project_target_dates': [],
             'assignees': [],
             'project_assignee_grouped': [],
@@ -424,6 +423,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             'task_start_dates': [],
             'task_end_dates': [],
         }
+        project_populated = False
         for assignee in projects_results[project_id]:
             if assignee_filter and assignee not in assignee_filter:
                 logger.debug(f'assignee_filter({assignee_filter}) applied, skipping: {assignee}')
@@ -431,7 +431,8 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             for task in projects_results[project_id][assignee]:
                 data['project_ids'].append(project_id)
                 data['project_names'].append(task.project.name)
-                data['project_target_dates'].append(task.project.target_date)
+                data['project_start_dates'].append(task.project.start_date)  # only 1 is really needed...
+                data['project_target_dates'].append(task.project.target_date)  # only 1 is really needed...
                 data['assignees'].append(assignee)
                 data['project_assignee_grouped'].append((task.project.name, assignee))
                 data['task_ids'].append(task.id)
@@ -440,7 +441,11 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['task_estimate_days'].append(estimate.days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
-        project_data[project_id] = data
+                project_populated = True
+        if project_populated:  # may not be filled if using assignee filter
+            project_data[project_id] = data
+        else:
+            logger.warning(f'No data for Project-id({project_id}): {assignee_filter}')
 
     # prepare project milestone info
     project_milestones = defaultdict(list)

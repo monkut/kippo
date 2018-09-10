@@ -15,12 +15,20 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
         'project',
+        'get_label_set_name',
         'get_html_url',
         'api_url',
     )
     actions = (
         'update_labels',
     )
+
+    def get_label_set_name(self, obj):
+        result = ''
+        if obj.label_set:
+            result = obj.label_set.name
+        return result
+    get_label_set_name.short_description = 'Label Set'
 
     def update_labels(self, request, queryset):
         delete = False  # Do not delete existing labels atm

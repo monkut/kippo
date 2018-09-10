@@ -40,11 +40,12 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
 
     plots = []
     for project_id, data in project_data.items():
+        logger.debug(f'preparing project_id; {project_id}')
         source = ColumnDataSource(data)
         y_range = set(data['project_assignee_grouped'])
         calculated_plot_height = len(y_range) * 100
 
-        p = figure(y_range=FactorRange(*y_range),
+        p = figure(y_range=FactorRange(*sorted(y_range)),
                    x_range=(min_date, max_date),
                    plot_width=900,
                    plot_height=calculated_plot_height,
@@ -56,6 +57,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                height=0.4,
                source=source)
 
+        # add milestones display
         if project_id in project_milestones:
             milestone_count = len(project_milestones[project_id])
             color_count = 3
@@ -80,24 +82,43 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                               text_font_size='8pt')
                 p.add_layout(label)
 
-        # bokeh requires this time format for display
-        project_target_date = data['project_target_dates'][0]
-        logger.debug(f'project_target_date: {project_target_date}')
-        project_end_date = time.mktime(project_target_date.timetuple()) * 1000
-        project_end = Span(location=project_end_date,
-                           dimension='height',
-                           line_color='red',
-                           line_dash='dashed',
-                           line_width=5)
-        p.add_layout(project_end)
-        project_target_date_label = Label(x=project_target_date,
-                                          x_offset=5,
-                                          y=0,
-                                          y_offset=1,
-                                          text='Target',
-                                          text_font_style='italic',
-                                          text_font_size='8pt')
-        p.add_layout(project_target_date_label)
+        if data['project_start_dates']:  # if start_date is not defined this will be empty
+            project_start_date = data['project_start_dates'][0]
+            if project_start_date > min_date:
+                logger.debug(f'project_start_date: {project_start_date}')
+                project_start_date = time.mktime(project_start_date.timetuple()) * 1000  # bokeh requires this time format for display
+                project_start = Span(location=project_start_date,
+                                     dimension='height',
+                                     line_color='green',
+                                     line_dash='solid',
+                                     line_width=2)
+                p.add_layout(project_start)
+                project_start_date_label = Label(x=project_start_date,
+                                                 x_offset=-15,
+                                                 y=0,
+                                                 y_offset=1,
+                                                 text='Start',
+                                                 text_font_style='italic',
+                                                 text_font_size='8pt')
+                p.add_layout(project_start_date_label)
+        if data['project_target_dates']:  # will be empty if not defined
+            project_target_date = data['project_target_dates'][0]
+            logger.debug(f'project_target_date: {project_target_date}')
+            project_end_date = time.mktime(project_target_date.timetuple()) * 1000  # bokeh requires this time format for display
+            project_end = Span(location=project_end_date,
+                               dimension='height',
+                               line_color='red',
+                               line_dash='solid',
+                               line_width=5)
+            p.add_layout(project_end)
+            project_target_date_label = Label(x=project_target_date,
+                                              x_offset=5,
+                                              y=0,
+                                              y_offset=1,
+                                              text='Target',
+                                              text_font_style='italic',
+                                              text_font_size='8pt')
+            p.add_layout(project_target_date_label)
 
         p.xaxis.ticker = FixedTicker(ticks=xaxis_fixed_ticks)
         p.yaxis.group_label_orientation = 'horizontal'
@@ -106,6 +127,9 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
         p.xaxis.axis_label = "Dates"
         p.outline_line_color = None
         plots.append(p)
-
-    script, div = components(column(*plots), CDN)
+    if len(plots) > 1:
+        script, div = components(column(*plots), CDN)
+    else:
+        plot = plots[0]
+        script, div = components(plot, CDN)
     return script, div

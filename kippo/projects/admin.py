@@ -200,7 +200,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return form
 
     def save_model(self, request, obj, form, change):
-        if not obj.organization:
+        if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
             obj.organization = request.user.organization
         super().save_model(request, obj, form, change)

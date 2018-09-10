@@ -1,15 +1,21 @@
+import logging
 from collections import Counter
 
 from django.shortcuts import render
 from django.utils import timezone
 from django.http import HttpResponseBadRequest
 from django.conf import settings
+from django.contrib import messages
 from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
 
 from projects.models import KippoProject
+from .exceptions import ProjectConfigurationError
 from .models import KippoTask, KippoTaskStatus
 from .functions import prepare_project_engineering_load_plot_data
+
+
+logger = logging.getLogger(__name__)
 
 # TODO: Fix support
 # -- Initially used to separate general meeting tasks from development tasks
@@ -86,7 +92,12 @@ def view_inprogress_task_status(request):
         organization = request.user.organization
         if not organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
-        (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
+        try:
+            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
+        except ProjectConfigurationError as e:
+            logger.error(f'ProjectConfigurationError: ({e.args}): {request.build_absolute_uri()}')
+            msg = f'ProjectConfigurationError: {e.args}'
+            messages.add_message(request, messages.ERROR, msg)
 
     # collect unique Tasks
     collected_task_ids = []
@@ -113,6 +124,7 @@ def view_inprogress_task_status(request):
         'chart_script': script,
         'chart_div': div,
         'latest_effort_date': latest_effort_date,
+        'messages': messages.get_messages(request),
     }
 
     return render(request, 'tasks/view_inprogress_task_status.html', context)
