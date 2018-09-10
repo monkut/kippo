@@ -99,24 +99,24 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                                                  text_font_style='italic',
                                                  text_font_size='8pt')
                 p.add_layout(project_start_date_label)
-
-        project_target_date = data['project_target_dates'][0]
-        logger.debug(f'project_target_date: {project_target_date}')
-        project_end_date = time.mktime(project_target_date.timetuple()) * 1000  # bokeh requires this time format for display
-        project_end = Span(location=project_end_date,
-                           dimension='height',
-                           line_color='red',
-                           line_dash='solid',
-                           line_width=5)
-        p.add_layout(project_end)
-        project_target_date_label = Label(x=project_target_date,
-                                          x_offset=5,
-                                          y=0,
-                                          y_offset=1,
-                                          text='Target',
-                                          text_font_style='italic',
-                                          text_font_size='8pt')
-        p.add_layout(project_target_date_label)
+        if data['project_target_dates']:  # will be empty if not defined
+            project_target_date = data['project_target_dates'][0]
+            logger.debug(f'project_target_date: {project_target_date}')
+            project_end_date = time.mktime(project_target_date.timetuple()) * 1000  # bokeh requires this time format for display
+            project_end = Span(location=project_end_date,
+                               dimension='height',
+                               line_color='red',
+                               line_dash='solid',
+                               line_width=5)
+            p.add_layout(project_end)
+            project_target_date_label = Label(x=project_target_date,
+                                              x_offset=5,
+                                              y=0,
+                                              y_offset=1,
+                                              text='Target',
+                                              text_font_style='italic',
+                                              text_font_size='8pt')
+            p.add_layout(project_target_date_label)
 
         p.xaxis.ticker = FixedTicker(ticks=xaxis_fixed_ticks)
         p.yaxis.group_label_orientation = 'horizontal'
