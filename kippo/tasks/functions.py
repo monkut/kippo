@@ -424,6 +424,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             'task_start_dates': [],
             'task_end_dates': [],
         }
+        project_populated = False
         for assignee in projects_results[project_id]:
             if assignee_filter and assignee not in assignee_filter:
                 logger.debug(f'assignee_filter({assignee_filter}) applied, skipping: {assignee}')
@@ -441,7 +442,8 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['task_estimate_days'].append(estimate.days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
-        if data:  # may not be filled if using assignee filter
+                project_populated = True
+        if project_populated:  # may not be filled if using assignee filter
             project_data[project_id] = data
         else:
             logger.warning(f'No data for Project-id({project_id}): {assignee_filter}')
