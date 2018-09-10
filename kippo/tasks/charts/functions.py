@@ -40,6 +40,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
 
     plots = []
     for project_id, data in project_data.items():
+        logger.debug(f'preparing project_id; {project_id}')
         source = ColumnDataSource(data)
         y_range = set(data['project_assignee_grouped'])
         calculated_plot_height = len(y_range) * 100
@@ -56,6 +57,7 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                height=0.4,
                source=source)
 
+        # add milestones display
         if project_id in project_milestones:
             milestone_count = len(project_milestones[project_id])
             color_count = 3
@@ -125,6 +127,9 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
         p.xaxis.axis_label = "Dates"
         p.outline_line_color = None
         plots.append(p)
-
-    script, div = components(column(*plots), CDN)
+    if len(plots) > 1:
+        script, div = components(column(*plots), CDN)
+    else:
+        plot = plots[0]
+        script, div = components(plot, CDN)
     return script, div
