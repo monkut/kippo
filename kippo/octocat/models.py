@@ -42,6 +42,11 @@ class GithubRepository(UserCreatedBaseModel):
 
     class Meta:
         verbose_name_plural = _('github repositories')
+        unique_together = (
+            'name',
+            'api_url',
+            'html_url',
+        )
 
 
 class GithubMilestone(UserCreatedBaseModel):

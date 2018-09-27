@@ -6,6 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from ghorgs.managers import GithubOrganizationManager
+from ghorgs.wrappers import GithubOrganizationProject
 
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
@@ -20,6 +21,18 @@ logger = logging.getLogger(__name__)
 
 class KippoConfigurationError(Exception):
     pass
+
+
+def get_existing_kippo_project(github_project: GithubOrganizationProject, existing_open_projects: List[ActiveKippoProject]):
+    kippo_project = None
+    for candidate_kippo_project in existing_open_projects:
+        if candidate_kippo_project.github_project_url == github_project.html_url:
+            kippo_project = candidate_kippo_project
+            break
+
+    if not kippo_project:
+        logger.info(f'X -- Kippo Project Not found for: {github_project.name}')
+    return kippo_project
 
 
 def collect_github_project_issues(kippo_organization: KippoOrganization,
@@ -69,22 +82,16 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     new_taskstatus_objects = []
     updated_taskstatus_objects = []
     for github_project in manager.projects():
-        logger.info('Processing github project ({})...'.format(github_project.name))
+        logger.info(f'Processing github project ({github_project.name})...')
 
         # get the related KippoProject
         # --- For some reason standard filtering was not working as expected, so this method is being used...
         # --- The following was only returning a single project
         # --- Project.objects.filter(is_closed=False, github_project_url__isnull=False)
-        kippo_project = None
-        for candidate_kippo_project in existing_open_projects:
-            if candidate_kippo_project.github_project_url == github_project.html_url:
-                kippo_project = candidate_kippo_project
-                break
+        kippo_project = get_existing_kippo_project(github_project, existing_open_projects)
 
-        if not kippo_project:
-            logger.info('X -- Kippo Project Not found!')
-        else:
-            logger.info('-- KippoProject: {}'.format(kippo_project.name))
+        if kippo_project:
+            logger.info(f'-- KippoProject: {kippo_project.name}')
             processed_projects += 1
             logger.info('-- Processing Related Github Issues...')
             count = 0
@@ -98,13 +105,19 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                     repo_html_url = issue.html_url.split('issues')[0]
                     name_index = -2
                     issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
-                    kippo_github_repository, created = GithubRepository.objects.get_or_create(created_by=GITHUB_MANAGER_USER,
-                                                                                              updated_by=GITHUB_MANAGER_USER,
-                                                                                              project=kippo_project,
-                                                                                              name=issue_repo_name,
-                                                                                              api_url=repo_api_url,
-                                                                                              html_url=repo_html_url)
-                    if created:
+                    try:
+                        kippo_github_repository = GithubRepository.objects.get(project=kippo_project,
+                                                                               name=issue_repo_name,
+                                                                               api_url=repo_api_url,
+                                                                               html_url=repo_html_url)
+                    except GithubRepository.DoesNotExist:
+                        kippo_github_repository = GithubRepository(created_by=GITHUB_MANAGER_USER,
+                                                                   updated_by=GITHUB_MANAGER_USER,
+                                                                   project=kippo_project,
+                                                                   name=issue_repo_name,
+                                                                   api_url=repo_api_url,
+                                                                   html_url=repo_html_url)
+                        kippo_github_repository.save()
                         logger.info(f'>>> Created GithubRepository({kippo_project} {issue_repo_name})!')
 
                     default_task_category = kippo_github_repository.project.organization.default_task_category
