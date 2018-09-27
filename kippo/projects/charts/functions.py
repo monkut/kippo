@@ -2,6 +2,7 @@
 For functions used to create project based charts
 """
 import datetime
+import logging
 from collections import defaultdict
 from math import pi
 
@@ -21,6 +22,8 @@ from ..models import KippoProject
 
 
 TUESDAY_WEEKDAY = 2
+
+logger = logging.getLogger(__name__)
 
 
 def get_project_weekly_effort(project: KippoProject, current_date: datetime.date=None):
@@ -93,10 +96,11 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
     end_date = None
     data = defaultdict(list)
     burndown_line = None
+    date_str_format = '%Y-%m-%d (%a)'
     if project.start_date and project.target_date and project.allocated_staff_days:
-        start_date = project.start_date.strftime('%Y-%m-%d (%a)')  # Date formatted for display in graph
+        start_date = project.start_date.strftime(date_str_format)  # Date formatted for display in graph
         data['effort_date'].append(start_date)
-        end_date = project.target_date.strftime('%Y-%m-%d (%a)')  # Date formatted for display in graph
+        end_date = project.target_date.strftime(date_str_format)  # Date formatted for display in graph
         start_staff_days = project.allocated_staff_days
         burndown_line_x = [start_date, end_date]
         burndown_line_y = [start_staff_days, 0]
@@ -106,7 +110,7 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
 
     assignees = set()
     for entry in status_entries:
-        effort_date = entry['effort_date'].strftime('%Y-%m-%d (%a)')
+        effort_date = entry['effort_date'].strftime(date_str_format)
         assignee = entry['task__assignee__github_login']
         estimate_days = entry['estimate_days_sum']
         if effort_date not in data['effort_date']:
@@ -120,10 +124,24 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
 
     # get max date
     max_date_str = max(data['effort_date'])
-    all_date_strings = [d.strftime('%Y-%m-%d (%a)') for d in all_dates]
-    unadded_dates = all_date_strings[all_date_strings.index(max_date_str) + 1:]
+    all_date_strings = [d.strftime(date_str_format) for d in all_dates]
+
+    # updating for the case here start_date has not yet passed
+    nearest_date_str = max_date_str
+    if max_date_str not in all_date_strings:
+        logger.warning(f'max_date_str({max_date_str}) not in all_date_strings, getting nearest date...')
+        # find the nearest date to the max
+        max_date = datetime.datetime.strptime(max_date_str, date_str_format)
+        for date_str in sorted(all_date_strings, reverse=True):
+            current_date = datetime.datetime.strptime(date_str, date_str_format)
+            if current_date < max_date:
+                # use this as the nearest date
+                nearest_date_str = current_date.strftime(date_str_format)
+                break
+    logger.info(f'nearest_date_str: {nearest_date_str}')
+
+    unadded_dates = all_date_strings[all_date_strings.index(nearest_date_str) + 1:]
     for date_str in unadded_dates:
-        print(date_str)
         data['effort_date'].append(date_str)
         for assignee in assignees:
             data[assignee].append(0.0)
@@ -148,7 +166,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     colors = all_palettes['Category20'][color_count_index][:required_color_count]
 
     p = figure(
-        x_range=data['effort_date'],
+        x_range=sorted(data['effort_date']),
         plot_height=300,
         plot_width=950,
         title=f"({project.name}) Project Weekly Work Estimates",
