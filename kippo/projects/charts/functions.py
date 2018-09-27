@@ -106,9 +106,11 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
         burndown_line_y = [start_staff_days, 0]
         burndown_line = [burndown_line_x, burndown_line_y]
 
+    logger.info(f'get_project_weekly_effort(): {project.name} ({current_date})')
     status_entries, all_dates = get_project_weekly_effort(project, current_date)
 
     assignees = set()
+    logger.info(f'processing status_entries ({len(status_entries)})... ')
     for entry in status_entries:
         effort_date = entry['effort_date'].strftime(date_str_format)
         assignee = entry['task__assignee__github_login']
@@ -117,16 +119,18 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
             data['effort_date'].append(effort_date)
 
         effort_date_index = data['effort_date'].index(effort_date)
-        while len(data[assignee]) != effort_date_index:
+        while len(data[assignee]) < effort_date_index:
             data[assignee].append(0.0)  # back-fill
         data[assignee].append(estimate_days)
         assignees.add(assignee)
 
     # get max date
+    logger.info('Collect all_date_strings and get max_date_str...')
     max_date_str = max(data['effort_date'])
     all_date_strings = [d.strftime(date_str_format) for d in all_dates]
 
     # updating for the case here start_date has not yet passed
+    logger.info(f'Setting nearest_date_str to max_date_str: {max_date_str}')
     nearest_date_str = max_date_str
     if max_date_str not in all_date_strings:
         logger.warning(f'max_date_str({max_date_str}) not in all_date_strings, getting nearest date...')
@@ -155,6 +159,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     :param current_date: Date to generate burndown FROM
     :return: script, div objects returned by
     """
+    logger.info(f'prepare_project_plot_data(): {project.name} ({current_date})')
     data, assignees, burndown_line = prepare_project_plot_data(project, current_date)
 
     minimum_palette_count = 3  # property of the bokeh supplied palette choices
@@ -165,6 +170,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
 
     colors = all_palettes['Category20'][color_count_index][:required_color_count]
 
+    logger.info("preparing figure:  {project.name}")
     p = figure(
         x_range=sorted(data['effort_date']),
         plot_height=300,
