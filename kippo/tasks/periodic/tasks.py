@@ -98,12 +98,22 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                     repo_html_url = issue.html_url.split('issues')[0]
                     name_index = -2
                     issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
-                    kippo_github_repository, created = GithubRepository.objects.get_or_create(created_by=GITHUB_MANAGER_USER,
-                                                                                              updated_by=GITHUB_MANAGER_USER,
-                                                                                              project=kippo_project,
-                                                                                              name=issue_repo_name,
-                                                                                              api_url=repo_api_url,
-                                                                                              html_url=repo_html_url)
+                    created = False
+                    try:
+                        kippo_github_repository = GithubRepository.objects.get(project=kippo_project,
+                                                                               name=issue_repo_name,
+                                                                               api_url=repo_api_url,
+                                                                               html_url=repo_html_url)
+                    except GithubRepository.DoesNotExist:
+                        kippo_github_repository = GithubRepository(created_by=GITHUB_MANAGER_USER,
+                                                                   updated_by=GITHUB_MANAGER_USER,
+                                                                   project=kippo_project,
+                                                                   name=issue_repo_name,
+                                                                   api_url=repo_api_url,
+                                                                   html_url=repo_html_url)
+                        kippo_github_repository.save()
+                        created = True
+
                     if created:
                         logger.info(f'>>> Created GithubRepository({kippo_project} {issue_repo_name})!')
 
