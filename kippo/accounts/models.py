@@ -67,6 +67,8 @@ class KippoUser(AbstractUser):
                                     blank=True,
                                     default=None,
                                     help_text='Github Login username')
+    is_github_outside_collaborator = models.BooleanField(default=False,
+                                                         help_text=_('Set to True if User is an outside collaborator'))
 
     @property
     def email_domain(self):
@@ -90,15 +92,19 @@ class KippoUser(AbstractUser):
         if self.id is None:
             self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
             if not self.is_superuser:
-                if not kwargs.get('ignore_email_domain_check', False):
-                    # find the organization for the given user
-                    try:
-                        email_domain = EmailDomain.objects.get(domain=self.email_domain)
-                        self.organization = email_domain.organization
-                    except EmailDomain.DoesNotExist:
-                        raise PermissionDenied('Organization does not exist for given Email Domain!')
+                if not self.is_github_outside_collaborator:
+                    if not kwargs.get('ignore_email_domain_check', False):
+                        # find the organization for the given user
+                        try:
+                            email_domain = EmailDomain.objects.get(domain=self.email_domain)
+                            self.organization = email_domain.organization
+                        except EmailDomain.DoesNotExist:
+                            raise PermissionDenied('Organization does not exist for given Email Domain!')
+                    else:
+                        logger.warning('Ignoring EMAIL DOMAIN check on user creation!')
                 else:
-                    logger.warning('Ignoring EMAIL DOMAIN check on user creation!')
+                    # make sure user does not have login privileges
+                    self.is_staff = False
             else:
                 logger.warning(f'Creating superuser: {self.username}')
         if 'ignore_email_domain_check' in kwargs:
