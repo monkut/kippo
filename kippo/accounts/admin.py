@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils.translation import ugettext_lazy as _
 from social_django.models import Association, Nonce, UserSocialAuth
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
@@ -117,9 +118,14 @@ class KippoUserAdmin(admin.ModelAdmin):
         'is_developer',
         'date_joined',
         'last_login',
+        'is_github_outside_collaborator',
         'is_staff',
         'is_superuser',
     )
+
+    def get_is_collaborator(self, obj):
+        return obj.is_github_outside_collaborator
+    get_is_collaborator.short_description = _('Is Collaborator')
 
 
 class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
