@@ -4,7 +4,6 @@ from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.postgres.fields import JSONField
 from common.models import UserCreatedBaseModel
-from accounts.models import KippoUser
 
 
 GITHUB_MILESTONE_CLOSE_STATE = 'closed'
