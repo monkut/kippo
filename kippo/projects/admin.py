@@ -159,7 +159,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'name',
         'phase',
         'category',
-        'project_manager',
+        'confidence',
         'display_as_active',
         'show_github_project_url',
         'start_date',
