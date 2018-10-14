@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.utils.translation import ugettext_lazy as _
 from django.db.models import Max
 from django.db.models.signals import pre_delete
@@ -138,6 +139,10 @@ class KippoProject(UserCreatedBaseModel):
                              choices=VALID_PROJECT_PHASES,
                              help_text=_('State or phase of the project'))
     confidence = models.PositiveSmallIntegerField(default=80,
+                                                  validators=(
+                                                      MaxValueValidator(100),
+                                                      MinValueValidator(0)
+                                                  ),
                                                   help_text=_('0-100, Confidence level of the project proceeding to the next phase'))
     category = models.CharField(max_length=256,
                                 default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
