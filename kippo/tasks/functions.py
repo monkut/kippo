@@ -283,7 +283,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                                                 organization=organization,
                                                 start_date__isnull=False,
                                                 target_date__isnull=False,
-                                                is_closed=False))
+                                                is_closed=False).order_by('target_date'))
     if not projects:
         raise ProjectConfigurationError('Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined)')
 

@@ -137,6 +137,8 @@ class KippoProject(UserCreatedBaseModel):
                              default=DEFAULT_PROJECT_PHASE,
                              choices=VALID_PROJECT_PHASES,
                              help_text=_('State or phase of the project'))
+    confidence = models.PositiveSmallIntegerField(default=80,
+                                                  help_text=_('0-100, Confidence level of the project proceeding to the next phase'))
     category = models.CharField(max_length=256,
                                 default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
     columnset = models.ForeignKey(ProjectColumnSet,
