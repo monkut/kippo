@@ -35,6 +35,37 @@ Prerequisites:
     # enter environment
     pipenv shell
     ```
+    
+2. Prepare the local settings:
+
+    > The settings directory contains the `base.py` file, this file is intended to be imported by 
+    > the appropriate settings file (local.py, production.py, etc)
+
+    ```
+    # kippo/settings/local.py:
+    from .base import *  # noqa: F401
+    
+    STATIC_URL = '/static/'
+    
+    DEBUG = True
+    
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'kippo',
+            'HOST': '127.0.0.1',
+            'PORT': 5432,
+            'USER': 'postgres',
+            'PASSWORD': 'mysecretpassword',
+        }
+    }    
+    ```   
+
+3. Set `local.py` as the settings file to use:
+
+    ```
+    export DJANGO_SETTINGS_MODULE=kippo.settings.local
+    ```
 
 2. Setup database:
 
@@ -55,5 +86,6 @@ Prerequisites:
     python manage.py migrate
     
     # Load initial fixtures
-    python manage.py loaddata initial_data
+    python manage.py loaddata default_columnset
+    python manage.py loaddata default_labelset
     ```

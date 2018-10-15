@@ -159,7 +159,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'name',
         'phase',
         'category',
-        'confidence',
+        'get_confidence_display',
         'display_as_active',
         'show_github_project_url',
         'start_date',
@@ -185,6 +185,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoMilestoneReadOnlyInline,
         KippoMilestoneAdminInline,
     ]
+
+    def get_confidence_display(self, obj):
+        result = ''
+        if obj.confidence:
+            result = f'{obj.confidence} %'
+        return result
 
     def show_github_project_url(self, obj):
         url = ''
