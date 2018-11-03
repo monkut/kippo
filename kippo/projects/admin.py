@@ -6,7 +6,7 @@ from django.utils.translation import ugettext_lazy as _
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
 from .functions import collect_existing_github_projects
-from .models import KippoProject, ActiveKippoProject, KippoMilestone, ProjectColumnSet, ProjectColumn, GithubMilestoneAlreadyExists
+from .models import KippoProject, ActiveKippoProject, KippoProjectStatus, KippoMilestone, ProjectColumnSet, ProjectColumn, GithubMilestoneAlreadyExists
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,33 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
     )
 
     def get_queryset(self, request):
-        # clear the queryset so that no EDIABLE entries are displayed
+        # clear the queryset so that no EDITABLE entries are displayed
+        qs = super().get_queryset(request).none()
+        return qs
+
+
+class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectStatus
+    extra = 0
+    fields = ('created_datetime', 'created_by', 'comment')
+    readonly_fields = ('created_datetime', 'created_by', 'comment')
+
+    def has_add_permission(self, request, obj):  # No Add button
+        return False
+
+    def get_queryset(self, request):
+        # order milestones as expected
+        qs = super().get_queryset(request).order_by('created_datetime')
+        return qs
+
+
+class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectStatus
+    extra = 1
+    fields = ('comment', )
+
+    def get_queryset(self, request):
+        # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
 
@@ -184,6 +210,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     inlines = [
         KippoMilestoneReadOnlyInline,
         KippoMilestoneAdminInline,
+        KippoProjectStatusReadOnlyInine,
+        KippoProjectStatusAdminInline,
     ]
 
     def get_confidence_display(self, obj):

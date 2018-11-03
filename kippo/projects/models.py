@@ -265,6 +265,15 @@ class ActiveKippoProject(KippoProject):
         proxy = True
 
 
+class KippoProjectStatus(UserCreatedBaseModel):
+    project = models.ForeignKey(KippoProject,
+                                on_delete=models.CASCADE)
+    comment = models.TextField(help_text=_('Current Status'))
+
+    def __str__(self):
+        return f'ProjectStatus({self.project.name} {self.created_datetime})'
+
+
 class GithubMilestoneAlreadyExists(Exception):
     pass
 
