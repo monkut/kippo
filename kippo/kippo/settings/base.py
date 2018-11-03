@@ -133,7 +133,7 @@ ja_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
 DJANGO_LOG_LEVEL = 'DEBUG'
 LOGGING = {
     'version': 1,
-    'disable_existing_loggers': False,
+    'disable_existing_loggers': True,
     'formatters': {
         'standard': {
             'format': '{asctime} [{levelname:5}] ({name}) {funcName}: {message}',

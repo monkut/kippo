@@ -20,6 +20,12 @@ STATIC_URL = 'https://{}/'.format(AWS_S3_CUSTOM_DOMAIN)
 URL_PREFIX = '/prod'
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'
 
+# double-check, this is hard coded domain restriction. (Also filtered on User creation Login
+SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAINS_RAW = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAIN', None)
+if SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAINS_RAW:
+    SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAINS = [i.strip() for i in SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAINS_RAW.split(',')]
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = SOCIAL_AUTH_GOOGLE_OAUTH2_DOMAINS  # TODO: Confirm that this works...
+
 ALLOWED_HOSTS.append(os.getenv('ALLOWED_HOST', '*'))
 
 DATABASES = {
