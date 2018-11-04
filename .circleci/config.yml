@@ -30,9 +30,6 @@ jobs:
           name: Upgrade pipenv
           command: |
             pip install pipenv -U
-            echo "PATH=\"/home/circleci/.local/bin:$PATH\"" >> /home/circleci/.profile
-            ln -sf /home/circleci/.local/bin/pipenv /usr/local/bin/
-            mkdir -p /home/circleci/.local/share/virtualenvs
       - run:
           name: install dependencies
           command: |
