@@ -88,4 +88,7 @@ Prerequisites:
     # Load initial fixtures
     python manage.py loaddata default_columnset
     python manage.py loaddata default_labelset
+    
+    # Create management users
+    python manage.py loaddata required_bot_users
     ```
