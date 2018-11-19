@@ -219,6 +219,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj.confidence:
             result = f'{obj.confidence} %'
         return result
+    get_confidence_display.admin_order_field = 'confidence'
+    get_confidence_display.short_description = 'confidence'
 
     def show_github_project_url(self, obj):
         url = ''
