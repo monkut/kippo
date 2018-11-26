@@ -204,6 +204,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'category',
         'problem_definition',
     )
+    ordering = (
+        '-confidence',
+        'phase',
+    )
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
