@@ -186,11 +186,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'phase',
         'category',
         'get_confidence_display',
-        'display_as_active',
-        'show_github_project_url',
+        'updated_by',
+        'get_latest_kippoprojectstatus_comment',
         'start_date',
         'target_date',
-        'updated_by',
+        'show_github_project_url',
+        'display_as_active',
         'updated_datetime',
     )
     list_display_links = (
@@ -221,6 +222,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_confidence_display.admin_order_field = 'confidence'
     get_confidence_display.short_description = 'confidence'
+
+    def get_latest_kippoprojectstatus_comment(self, obj):
+        result = ''
+        latest_status = obj.get_latest_kippoprojectstatus()
+        if latest_status:
+            result = latest_status.comment
+        return result
+    get_latest_kippoprojectstatus_comment.short_description = _('Latest Comment')
 
     def show_github_project_url(self, obj):
         url = ''
