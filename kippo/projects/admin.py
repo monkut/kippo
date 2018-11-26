@@ -232,6 +232,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
             result = latest_status.comment
+            spaces = '&nbsp;' * 75
+            result = format_html('{result}<br/>' + spaces, result=result)
         return result
     get_latest_kippoprojectstatus_comment.short_description = _('Latest Comment')
 
