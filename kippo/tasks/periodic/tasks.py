@@ -125,7 +125,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                         kippo_github_repository.save()
                         logger.info(f'>>> Created GithubRepository({kippo_project} {issue_repo_name})!')
 
-                    default_task_category = kippo_github_repository.project.organization.default_task_category
+                    default_task_category = kippo_github_repository.organization.default_task_category
 
                     # check if issue exists
                     existing_task = existing_tasks_by_html_url.get(issue.html_url, None)
