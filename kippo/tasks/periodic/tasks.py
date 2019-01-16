@@ -159,8 +159,8 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                 )
                                 try:
                                     existing_task.save()
-                                except IntegrityError as e:
-                                    logger.error(f'Duplicate task found for: Project({kippo_project.id}) Title({issue.title}) Assignee({issue_assigned_user}), Skipping ....')
+                                except IntegrityError:
+                                    logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
                                     continue
                                 new_task_count += 1
                                 logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
