@@ -31,6 +31,12 @@ class KippoOrganization(UserCreatedBaseModel):
                                           default=None,
                                           blank=True,
                                           help_text=_('If defined, this will be set as the default ColumnSet when a Project is created'))
+    default_labelset = models.ForeignKey('octocat.GithubRepositoryLabelSet',
+                                         on_delete=models.DO_NOTHING,
+                                         null=True,
+                                         default=None,
+                                         blank=True,
+                                         help_text=_('If defined newly identified GithubRepositorie will AUTOMATICALLY have this LabelSet assigned'))
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.name}-{self.github_organization_name})'

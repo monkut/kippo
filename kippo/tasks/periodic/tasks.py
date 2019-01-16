@@ -4,6 +4,7 @@ from typing import List
 
 from django.conf import settings
 from django.utils import timezone
+from django.db.utils import IntegrityError
 
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubOrganizationProject
@@ -106,17 +107,21 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                     name_index = -2
                     issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
                     try:
-                        kippo_github_repository = GithubRepository.objects.get(project=kippo_project,
-                                                                               name=issue_repo_name,
-                                                                               api_url=repo_api_url,
-                                                                               html_url=repo_html_url)
+                        kippo_github_repository = GithubRepository.objects.get(
+                            name=issue_repo_name,
+                            api_url=repo_api_url,
+                            html_url=repo_html_url
+                        )
                     except GithubRepository.DoesNotExist:
-                        kippo_github_repository = GithubRepository(created_by=GITHUB_MANAGER_USER,
-                                                                   updated_by=GITHUB_MANAGER_USER,
-                                                                   project=kippo_project,
-                                                                   name=issue_repo_name,
-                                                                   api_url=repo_api_url,
-                                                                   html_url=repo_html_url)
+                        kippo_github_repository = GithubRepository(
+                            organization=kippo_organization,
+                            created_by=GITHUB_MANAGER_USER,
+                            updated_by=GITHUB_MANAGER_USER,
+                            name=issue_repo_name,
+                            api_url=repo_api_url,
+                            html_url=repo_html_url,
+                            label_set=kippo_organization.default_labelset  # may be Null/None
+                        )
                         kippo_github_repository.save()
                         logger.info(f'>>> Created GithubRepository({kippo_project} {issue_repo_name})!')
 
@@ -152,7 +157,11 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                     github_issue_html_url=issue.html_url,
                                     description=issue.body,
                                 )
-                                existing_task.save()
+                                try:
+                                    existing_task.save()
+                                except IntegrityError:
+                                    logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
+                                    continue
                                 new_task_count += 1
                                 logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
                             elif existing_task.assignee.github_login not in assignees:

@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
-        'project',
         'get_label_set_name',
         'get_html_url',
         'api_url',
@@ -39,8 +38,8 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 msg = f'No GithubRepositoryLabelSet defined for ({kippo_repository.name}) cannot update labels!'
                 self.message_user(request, msg, level=messages.ERROR)
             else:
-                github_organization_name = kippo_repository.project.organization.github_organization_name
-                githubaccesstoken = kippo_repository.project.organization.githubaccesstoken
+                github_organization_name = kippo_repository.organization.github_organization_name
+                githubaccesstoken = kippo_repository.organization.githubaccesstoken
                 github_manager = GithubOrganizationManager(organization=github_organization_name,
                                                            token=githubaccesstoken.token)
                 repository_name_filter = (kippo_repository.name, )
