@@ -3,7 +3,9 @@ from django.contrib.postgres import fields
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.postgres.fields import JSONField
+
 from common.models import UserCreatedBaseModel
+from accounts.models import KippoOrganization
 
 
 GITHUB_MILESTONE_CLOSE_STATE = 'closed'
@@ -25,8 +27,8 @@ class GithubRepositoryLabelSet(models.Model):
 
 
 class GithubRepository(UserCreatedBaseModel):
-    project = models.ForeignKey('projects.KippoProject',
-                                on_delete=models.CASCADE)
+    organization = models.ForeignKey(KippoOrganization,
+                                     on_delete=models.CASCADE)
     name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH,
                             verbose_name=_('Github Repository Name'))
     label_set = models.ForeignKey(GithubRepositoryLabelSet,
