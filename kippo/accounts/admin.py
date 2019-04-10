@@ -112,6 +112,7 @@ class KippoUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
         'github_login',
+        'get_github_organization_name',
         'last_name',
         'first_name',
         'is_project_manager',
@@ -126,6 +127,13 @@ class KippoUserAdmin(admin.ModelAdmin):
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator
     get_is_collaborator.short_description = _('Is Collaborator')
+
+    def get_github_organization_name(self, obj):
+        name = ''
+        if obj.organization and obj.organization.github_organization_name:
+            name = obj.organization.github_organization_name
+        return name
+    get_github_organization_name.short_description = _('Github Org Name')
 
 
 class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
