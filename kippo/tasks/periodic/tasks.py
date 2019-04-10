@@ -73,8 +73,8 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     else:
         existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__isnull=False))
 
-    github_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False)}
-    if settings.UNASSIGNED_USER_GITHUB_LOGIN not in github_users:
+    kippo_github_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False, is_developer=True)}
+    if settings.UNASSIGNED_USER_GITHUB_LOGIN not in kippo_github_users:
         raise KippoConfigurationError(f'"{settings.UNASSIGNED_USER_GITHUB_LOGIN}" must be created as a User to manage unassigned tasks')
 
     # collect project issues
@@ -133,15 +133,16 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                     developer_assignees = [
                         issue_assignee.login
                         for issue_assignee in issue.assignees
-                        if issue_assignee.login in github_users and issue_assignee.is_developer
+                        if issue_assignee.login in kippo_github_users
                     ]
                     if not developer_assignees:
                         # assign task to special 'unassigned' user if task is not assigned to anyone
+                        logger.warning(f'No developer_assignees identified')
                         developer_assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
 
                     estimate_denominator = len(developer_assignees)
                     for issue_assignee in developer_assignees:
-                        issue_assigned_user = github_users.get(issue_assignee, None)
+                        issue_assigned_user = kippo_github_users.get(issue_assignee, None)
                         if not issue_assigned_user:
                             logger.warning(f'Not assigned ({issue_assignee}): {issue.html_url}')
                         else:
