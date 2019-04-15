@@ -100,15 +100,15 @@ class KippoUser(AbstractUser):
                 self.is_staff = False  # includes outside_collaborators
                 if not self.is_github_outside_collaborator:
                     self.is_staff = True  # auto-add is_staff (so user can use the ADMIN)
-                    if not kwargs.get('ignore_email_domain_check', False):
-                        # find the organization for the given user
-                        try:
-                            email_domain = EmailDomain.objects.get(domain=self.email_domain)
-                            self.organization = email_domain.organization
-                        except EmailDomain.DoesNotExist:
-                            raise PermissionDenied('Organization does not exist for given Email Domain!')
-                    else:
-                        logger.warning('Ignoring EMAIL DOMAIN check on user creation!')
+                    # if not kwargs.get('ignore_email_domain_check', False):
+                    #     # find the organization for the given user
+                    #     try:
+                    #         email_domain = EmailDomain.objects.get(domain=self.email_domain)
+                    #         self.organization = email_domain.organization
+                    #     except EmailDomain.DoesNotExist:
+                    #         raise PermissionDenied('Organization does not exist for given Email Domain!')
+                    # else:
+                    #     logger.warning('Ignoring EMAIL DOMAIN check on user creation!')
             else:
                 logger.warning(f'Creating superuser: {self.username}')
         if 'ignore_email_domain_check' in kwargs:
