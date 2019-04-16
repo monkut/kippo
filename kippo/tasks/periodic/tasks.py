@@ -12,7 +12,7 @@ from ghorgs.wrappers import GithubOrganizationProject
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
 from projects.models import ActiveKippoProject
-from octocat.models import GithubRepository
+from octocat.models import GithubRepository, GithubMilestone
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
 
@@ -66,6 +66,10 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
         t.github_issue_html_url: t
         for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url
     }
+    existing_kippo_milestones_by_html_url = {
+        m.html_url: m.milestone
+        for m in GithubMilestone.objects.filter(milestone__is_completed=False)
+    }
 
     if github_project_urls:
         logger.info(f'Using Filtered github_project_urls: {github_project_urls}')
@@ -97,6 +101,14 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
             logger.info('-- Processing Related Github Issues...')
             count = 0
             for count, issue in enumerate(github_project.issues(), 1):
+                kippo_milestone = None
+                if issue.milestone:
+                    # TODO: Add proper support for milestone handling
+                    logger.info(f'GithubMilestone.html_url: {issue.milestone.html_url}')
+                    kippo_milestone = existing_kippo_milestones_by_html_url.get(issue.milestone.html_url, None)
+                    if not kippo_milestone:
+                        raise ValueError(f'{issue.milestone.html_url} not in: {existing_kippo_milestones_by_html_url}')
+
                 # check if issue is open
                 # refer to github API for available fields
                 # https://developer.github.com/v3/issues/
@@ -157,6 +169,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                     title=issue.title,
                                     category=category,
                                     project=kippo_project,
+                                    milestone=kippo_milestone,
                                     assignee=issue_assigned_user,
                                     github_issue_api_url=issue.url,
                                     github_issue_html_url=issue.html_url,
@@ -173,6 +186,10 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                 # TODO: review, should multiple KippoTask objects be created for a single Github Task?
                                 logger.debug(f'Updating task.assignee: {existing_task.assignee.github_login} -> {issue_assigned_user.github_login}')
                                 existing_task.assignee = issue_assigned_user
+                                existing_task.save()
+                            elif existing_task and not existing_task.milestone and kippo_milestone:
+                                logger.info(f'--> Applying NEW milestone: {kippo_milestone.title}')
+                                existing_task.milestone = kippo_milestone
                                 existing_task.save()
 
                             # only update status if active or done (want to pick up

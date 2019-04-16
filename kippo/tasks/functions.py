@@ -335,6 +335,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                                           suggested_estimate,
                                           maximum_estimate)
 
+            # TODO: review milestone handling
             # QluTask Fields: (id: Any, absolute_priority, depends_on, estimates, assignee, project_id, milestone_id)
             related_milestone = status.task.milestone
             if related_milestone:
@@ -383,6 +384,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                                  holiday_calendar=None,  # TODO: Update with proper holiday calendar!
                                  assignee_personal_holidays=holidays,
                                  start_date=schedule_start_date)
+    # TODO: fails on calc....
     scheduled_results = scheduler.schedule(qlu_tasks)
 
     for qlu_task in scheduled_results.tasks():
