@@ -1,6 +1,5 @@
 import logging
 from typing import List, Tuple
-from collections import defaultdict
 
 from django.db import models
 from django.utils import timezone
@@ -373,7 +372,7 @@ class KippoMilestone(UserCreatedBaseModel):
             user = KippoUser.objects.get(username=GITHUB_MANAGER_USERNAME)
 
         # collect existing
-        existing_github_milestones_by_repo_html_url = defaultdict(list)
+        existing_github_milestones_by_repo_html_url = {}
         existing_github_repositories_by_html_url = {}
         for github_repository in self.project.related_github_repositories():
             url = github_repository.html_url
@@ -381,8 +380,8 @@ class KippoMilestone(UserCreatedBaseModel):
                 # remove to match returned result from github
                 url = url[:-1]
             existing_github_repositories_by_html_url[url] = github_repository
-            for github_milestone in GithubMilestone.objects.filter(repository=github_repository):
-                existing_github_milestones_by_repo_html_url[url].append(github_milestone)
+            for github_milestone in GithubMilestone.objects.filter(repository=github_repository, milestone=self):
+                existing_github_milestones_by_repo_html_url[url] = github_milestone
 
         github_organization_name = self.project.organization.github_organization_name
         token = self.project.organization.githubaccesstoken.token
@@ -402,16 +401,16 @@ class KippoMilestone(UserCreatedBaseModel):
                     if close:
                         github_state = GITHUB_MILESTONE_CLOSE_STATE
                     if repository.html_url in existing_github_milestones_by_repo_html_url:
-                        for github_milestone in existing_github_milestones_by_repo_html_url[repository.html_url]:
-                            logger.debug(f'Updating Existing Github Milestone({self.title}) for Repository({repository.name}) ...')
-                            repository.update_milestone(title=self.title,
-                                                        description=self.description,
-                                                        due_on=self.target_date,
-                                                        state=github_state,
-                                                        number=github_milestone.number)
-                            # mark as updated
-                            github_milestone.updated_by = user
-                            github_milestone.save()
+                        github_milestone = existing_github_milestones_by_repo_html_url[repository.html_url]
+                        logger.debug(f'Updating Existing Github Milestone({self.title}) for Repository({repository.name}) ...')
+                        repository.update_milestone(title=self.title,
+                                                    description=self.description,
+                                                    due_on=self.target_date,
+                                                    state=github_state,
+                                                    number=github_milestone.number)
+                        # mark as updated
+                        github_milestone.updated_by = user
+                        github_milestone.save()
                     else:
                         logger.debug(f'Creating NEW Github Milestone for Repository({repository.name}) ...')
                         response = repository.create_milestone(title=self.title,
