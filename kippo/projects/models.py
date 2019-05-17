@@ -1,5 +1,6 @@
 import logging
 from typing import List, Tuple
+
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -13,6 +14,8 @@ from django.dispatch import receiver
 from django.contrib.postgres.fields import ArrayField
 import reversion
 from ghorgs.managers import GithubOrganizationManager
+
+from accounts.models import KippoUser
 from common.models import UserCreatedBaseModel
 from octocat.models import GithubRepository, GithubMilestone, GITHUB_MILESTONE_CLOSE_STATE
 
@@ -22,6 +25,7 @@ from .exceptions import ProjectColumnSetError
 logger = logging.getLogger(__name__)
 
 UNASSIGNED_USER_GITHUB_LOGIN = settings.UNASSIGNED_USER_GITHUB_LOGIN
+GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
 
 
@@ -231,7 +235,13 @@ class KippoProject(UserCreatedBaseModel):
         return KippoMilestone.objects.filter(project=self, target_date__gte=today).order_by('-target_date')
 
     def related_github_repositories(self):
-        return GithubRepository.objects.filter(project=self)
+        # get kippotask github_repository_html_url
+        from tasks.models import KippoTask
+        repository_html_urls = {
+            issue_html_url.rsplit('/', 2)[0] + '/'
+            for issue_html_url in KippoTask.objects.filter(project=self).values_list('github_issue_html_url', flat=True)
+        }
+        return GithubRepository.objects.filter(html_url__in=tuple(repository_html_urls))
 
     @property
     def github_project_name(self):
@@ -357,17 +367,20 @@ class KippoMilestone(UserCreatedBaseModel):
                 ]
         """
         github_milestones = []
+        if not user:
+            logger.warning(f'user object not given, using: {GITHUB_MANAGER_USERNAME}')
+            user = KippoUser.objects.get(username=GITHUB_MANAGER_USERNAME)
 
         # collect existing
         existing_github_milestones_by_repo_html_url = {}
         existing_github_repositories_by_html_url = {}
-        for github_repository in GithubRepository.objects.filter(project=self.project):
+        for github_repository in self.project.related_github_repositories():
             url = github_repository.html_url
             if url.endswith('/'):
                 # remove to match returned result from github
                 url = url[:-1]
             existing_github_repositories_by_html_url[url] = github_repository
-            for github_milestone in GithubMilestone.objects.filter(repository=github_repository):
+            for github_milestone in GithubMilestone.objects.filter(repository=github_repository, milestone=self):
                 existing_github_milestones_by_repo_html_url[url] = github_milestone
 
         github_organization_name = self.project.organization.github_organization_name
@@ -378,7 +391,7 @@ class KippoMilestone(UserCreatedBaseModel):
         # identify related github project and get related repository urls
         related_repository_html_urls = list(existing_github_repositories_by_html_url.keys())
         if not related_repository_html_urls:
-            logger.warning(f'Related Repository URLS not found for Telos Project: {self.project.name}')
+            logger.warning(f'Related Repository URLS not found for KippoProject: {self.project.name}')
         else:
             for repository in manager.repositories():
                 if repository.html_url in related_repository_html_urls:
@@ -389,7 +402,7 @@ class KippoMilestone(UserCreatedBaseModel):
                         github_state = GITHUB_MILESTONE_CLOSE_STATE
                     if repository.html_url in existing_github_milestones_by_repo_html_url:
                         github_milestone = existing_github_milestones_by_repo_html_url[repository.html_url]
-                        logger.debug(f'Updating Existing Github Milestone for Repository({repository.name}) ...')
+                        logger.debug(f'Updating Existing Github Milestone({self.title}) for Repository({repository.name}) ...')
                         repository.update_milestone(title=self.title,
                                                     description=self.description,
                                                     due_on=self.target_date,

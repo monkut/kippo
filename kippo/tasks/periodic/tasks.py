@@ -73,8 +73,8 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     else:
         existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__isnull=False))
 
-    github_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False)}
-    if settings.UNASSIGNED_USER_GITHUB_LOGIN not in github_users:
+    kippo_github_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False, is_developer=True)}
+    if settings.UNASSIGNED_USER_GITHUB_LOGIN not in kippo_github_users:
         raise KippoConfigurationError(f'"{settings.UNASSIGNED_USER_GITHUB_LOGIN}" must be created as a User to manage unassigned tasks')
 
     # collect project issues
@@ -130,14 +130,19 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                     # check if issue exists
                     existing_task = existing_tasks_by_html_url.get(issue.html_url, None)
 
-                    assignees = [issue_assignee.login for issue_assignee in issue.assignees if issue_assignee.login in github_users]
-                    if not assignees:
+                    developer_assignees = [
+                        issue_assignee.login
+                        for issue_assignee in issue.assignees
+                        if issue_assignee.login in kippo_github_users
+                    ]
+                    if not developer_assignees:
                         # assign task to special 'unassigned' user if task is not assigned to anyone
-                        assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
+                        logger.warning(f'No developer_assignees identified')
+                        developer_assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
 
-                    estimate_denominator = len(assignees)
-                    for issue_assignee in assignees:
-                        issue_assigned_user = github_users.get(issue_assignee, None)
+                    estimate_denominator = len(developer_assignees)
+                    for issue_assignee in developer_assignees:
+                        issue_assigned_user = kippo_github_users.get(issue_assignee, None)
                         if not issue_assigned_user:
                             logger.warning(f'Not assigned ({issue_assignee}): {issue.html_url}')
                         else:
@@ -164,7 +169,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                     continue
                                 new_task_count += 1
                                 logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
-                            elif existing_task.assignee.github_login not in assignees:
+                            elif existing_task.assignee.github_login not in developer_assignees:
                                 # TODO: review, should multiple KippoTask objects be created for a single Github Task?
                                 logger.debug(f'Updating task.assignee: {existing_task.assignee.github_login} -> {issue_assigned_user.github_login}')
                                 existing_task.assignee = issue_assigned_user
@@ -187,8 +192,8 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
                                 unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
                                 adjusted_issue_estimate = None
                                 if unadjusted_issue_estimate:
-                                    # adjusting to take into account the number of assignees working on it
-                                    # -- divides task load by the number of assignees
+                                    # adjusting to take into account the number of developer_assignees working on it
+                                    # -- divides task load by the number of developer_assignees
                                     adjusted_issue_estimate = unadjusted_issue_estimate / estimate_denominator
 
                                 # create or update KippoTaskStatus with updated estimate

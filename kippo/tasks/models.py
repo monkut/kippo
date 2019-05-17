@@ -35,6 +35,16 @@ class KippoTask(UserCreatedBaseModel):
     description = models.TextField(null=True,
                                    blank=True)
 
+    @property
+    def github_repository_html_url(self):
+        """Provide the related octocat.models.GithubRepository object"""
+        # self.github_issue_html_url
+        # https://github.com/livepassjp/rcs-delivery-core-system/issues/133
+        # -->
+        #       https://github.com/livepassjp/rcs-delivery-core-system
+        github_respository_html_url, *_ = self.github_issue_html_url.rsplit('/', 2)
+        return github_respository_html_url
+
     def latest_kippotaskstatus(self, days: int=None):
         return KippoTaskStatus.objects.filter(task=self).latest()
 

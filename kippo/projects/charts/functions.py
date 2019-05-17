@@ -170,7 +170,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
 
     colors = all_palettes['Category20'][color_count_index][:required_color_count]
 
-    logger.info("preparing figure:  {project.name}")
+    logger.info(f'preparing figure:  {project.name}')
     p = figure(
         x_range=sorted(data['effort_date']),
         plot_height=300,
