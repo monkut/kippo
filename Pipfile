@@ -8,13 +8,13 @@ django = "<2.2,>=2.1"
 social-auth-app-django = "*"
 django-reversion = "*"
 "psycopg2-binary" = "*"
-bokeh = "*"
+bokeh = ">=1.0,<1.1"
 boto3 = "*"
 requests = "*"
 "django-bootstrap4" = "*"
 ghorgs = {git="https://github.com/monkut/github-org-manager.git", editable=true}
 qlu = {git="https://github.com/monkut/qlu-scheduler.git", editable=true}
-pandas = "*"
+pandas = ">=0.23,<0.24"
 zappa = "*"
 django-storages = "*"
 

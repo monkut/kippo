@@ -244,6 +244,17 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return url
     show_github_project_url.short_description = _('GitHub Project URL')
 
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for instance in instances:
+            if instance.id is None:
+                instance.created_by = request.user  # only update created_by once!
+            instance.updated_by = request.user
+            instance.save()
+        formset.save_m2m()
+
     def get_form(self, request, obj=None, **kwargs):
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -254,6 +265,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
             obj.organization = request.user.organization
+
+            obj.created_by = request.user
+            obj.updated_by = request.user
+        else:
+            obj.updated_by = request.user
+
         super().save_model(request, obj, form, change)
 
 
