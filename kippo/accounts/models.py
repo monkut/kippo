@@ -1,4 +1,5 @@
 import logging
+from typing import List
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -116,6 +117,24 @@ class OrganizationMembership(UserCreatedBaseModel):
         default=False,
         help_text=_('Works Saturday')
     )
+
+    def get_workday_identifers(self) -> List[str]:
+        """Convert membership workdays to string list used by qlu scheduler"""
+        workday_attrs = (
+            'sunday',
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday'
+        )
+        identifiers = []
+        for attr in workday_attrs:
+            if getattr(self, attr):
+                workday_id = attr.capitalize()[:3]  # 'sunday' -> 'Sun'
+                identifiers.append(workday_id)
+        return tuple(identifiers)
 
     @property
     def email_domain(self):

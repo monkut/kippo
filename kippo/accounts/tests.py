@@ -214,7 +214,7 @@ class KippoUserCreationTestCase(TestCase):
         user.memberships.add(membership)
         self.assertTrue(user.memberships.exists())
 
-    def test_organization_get_github_developer_kippousers_method(self):
+    def test_organization_get_github_developer_kippousers(self):
         user = KippoUser(
             username='otheruser',
             github_login='otheruser-gh',
@@ -320,3 +320,128 @@ class KippoUserCreationTestCase(TestCase):
         for u in users:
             actual_usernames.append(u.username)
         self.assertTrue(set(expected_usernames) == set(actual_usernames), f'expected({set(expected_usernames)}) != actual({set(actual_usernames)})')
+
+    def test_organizationmembership_get_workday_identifers(self):
+        user = KippoUser(
+            username='otheruser',
+            github_login='otheruser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'otheruser@otherorgdomain.com',
+        )
+        password = 'testpassword'
+        user.set_password(password)
+        user.save()
+
+        another_user = KippoUser(
+            username='anotheruser',
+            github_login='anotheruser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'anotheruser@otherorgdomain.com',
+        )
+        another_user.save()
+
+        third_user = KippoUser(
+            username='thirduser',
+            github_login='thirduser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'thirduser@otherorgdomain.com',
+        )
+        third_user.save()
+
+        fourth_user = KippoUser(
+            username='fourth_user',
+            is_staff=False,
+            is_active=False,
+            email=f'fourth_user@otherorgdomain.com',
+        )
+        fourth_user.save()
+
+        # add org membership
+        user_membership1 = OrganizationMembership(
+            organization=self.nonstaff_org,
+            is_developer=True,
+            email=f'otheruser@{self.nonstaff_org_domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        user_membership1.save()
+        user.memberships.add(user_membership1)
+        user.refresh_from_db()
+
+        expected_workdays = (
+            'Mon',
+            'Tue',
+            'Wed',
+            'Thu',
+            'Fri'
+        )
+        actual_workdays = user_membership1.get_workday_identifers()
+        self.assertTrue(actual_workdays == expected_workdays, f'actual({actual_workdays}) != expected({expected_workdays})')
+
+        # add org membership with is_staff_domain
+        user_membership2 = OrganizationMembership(
+            organization=self.org,
+            is_developer=True,
+            email=f'otheruser@{self.domain}',
+            sunday=True,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        user_membership2.save()
+        user.memberships.add(user_membership2)
+        user.refresh_from_db()
+        expected_workdays = (
+            'Sun',
+            'Mon',
+            'Tue',
+            'Wed',
+            'Thu',
+            'Fri'
+        )
+        actual_workdays = user_membership2.get_workday_identifers()
+        self.assertTrue(actual_workdays == expected_workdays, f'actual({actual_workdays}) != expected({expected_workdays})')
+
+        # add org membership with is_staff_domain
+        another_membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=True,
+            email=f'anotheruser@{self.domain}',
+            monday=False,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        another_membership.save()
+        another_user.memberships.add(another_membership)
+        expected_workdays = (
+            'Tue',
+            'Wed',
+            'Thu',
+            'Fri'
+        )
+        actual_workdays = another_membership.get_workday_identifers()
+        self.assertTrue(actual_workdays == expected_workdays, f'actual({actual_workdays}) != expected({expected_workdays})')
+
+        # add org membership with is_staff_domain
+        third_membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=False,
+            email=f'thirduser@{self.domain}',
+            monday=False,
+            tuesday=False,
+            saturday=True,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        third_membership.save()
+        third_user.memberships.add(third_membership)
+        expected_workdays = (
+            'Wed',
+            'Thu',
+            'Fri',
+            'Sat'
+        )
+        actual_workdays = third_membership.get_workday_identifers()
+        self.assertTrue(actual_workdays == expected_workdays, f'actual({actual_workdays}) != expected({expected_workdays})')
