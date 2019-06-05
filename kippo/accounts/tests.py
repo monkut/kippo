@@ -214,3 +214,109 @@ class KippoUserCreationTestCase(TestCase):
         user.memberships.add(membership)
         self.assertTrue(user.memberships.exists())
 
+    def test_organization_get_github_developer_kippousers_method(self):
+        user = KippoUser(
+            username='otheruser',
+            github_login='otheruser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'otheruser@otherorgdomain.com',
+        )
+        password = 'testpassword'
+        user.set_password(password)
+        user.save()
+
+        another_user = KippoUser(
+            username='anotheruser',
+            github_login='anotheruser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'anotheruser@otherorgdomain.com',
+        )
+        another_user.save()
+
+        third_user = KippoUser(
+            username='thirduser',
+            github_login='thirduser-gh',
+            is_staff=False,
+            is_active=False,
+            email=f'thirduser@otherorgdomain.com',
+        )
+        third_user.save()
+
+        fourth_user = KippoUser(
+            username='fourth_user',
+            is_staff=False,
+            is_active=False,
+            email=f'fourth_user@otherorgdomain.com',
+        )
+        fourth_user.save()
+
+        # add org membership
+        membership = OrganizationMembership(
+            organization=self.nonstaff_org,
+            is_developer=True,
+            email=f'otheruser@{self.nonstaff_org_domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        membership.save()
+        user.memberships.add(membership)
+        user.refresh_from_db()
+
+        # add org membership with is_staff_domain
+        membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=True,
+            email=f'otheruser@{self.domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        membership.save()
+        user.memberships.add(membership)
+        user.refresh_from_db()
+
+        # add org membership with is_staff_domain
+        membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=True,
+            email=f'anotheruser@{self.domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        membership.save()
+        another_user.memberships.add(membership)
+
+        # add org membership with is_staff_domain
+        membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=False,
+            email=f'thirduser@{self.domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        membership.save()
+        third_user.memberships.add(membership)
+
+        # add org membership with is_staff_domain
+        membership = OrganizationMembership(
+            organization=self.org,
+            is_developer=True,
+            email=f'fourth_user@{self.domain}',
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        membership.save()
+        fourth_user.memberships.add(membership)  # orgmember, is_developer, no github login
+
+        users = self.org.get_github_developer_kippousers()
+        self.assertTrue(len(users) == 2)
+
+        expected_usernames = (
+            'otheruser',
+            'anotheruser'
+        )
+        actual_usernames = []
+        for u in users:
+            actual_usernames.append(u.username)
+        self.assertTrue(set(expected_usernames) == set(actual_usernames), f'expected({set(expected_usernames)}) != actual({set(actual_usernames)})')

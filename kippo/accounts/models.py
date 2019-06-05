@@ -43,6 +43,15 @@ class KippoOrganization(UserCreatedBaseModel):
         domains = EmailDomain.objects.filter(organization=self)
         return domains
 
+    def get_github_developer_kippousers(self):
+        """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
+        developer_users = KippoUser.objects.filter(
+            github_login__isnull=False,
+            memberships__organization=self,
+            memberships__is_developer=True
+        )
+        return developer_users
+
     def __str__(self):
         return f'{self.__class__.__name__}({self.name}-{self.github_organization_name})'
 
