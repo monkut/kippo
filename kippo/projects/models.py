@@ -1,4 +1,5 @@
 import logging
+import datetime
 from typing import List, Tuple
 
 from django.db import models
@@ -29,9 +30,9 @@ GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
 
 
-def get_target_date_default():
+def get_target_date_default() -> datetime.date:
     # TODO: update to take into account configured holidays
-    return timezone.now() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)
+    return (timezone.now() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)).date()
 
 
 def category_prefixes_default():
