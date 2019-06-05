@@ -4,7 +4,7 @@ from time import sleep
 from distutils.util import strtobool
 from collections import defaultdict
 
-from zappa.async import task
+from zappa.asynchronous import task
 from tasks.models import KippoTask
 from tasks.periodic.tasks import collect_github_project_issues
 from .models import GithubWebhookEvent
