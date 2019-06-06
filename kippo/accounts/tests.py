@@ -310,11 +310,12 @@ class KippoUserCreationTestCase(TestCase):
         fourth_user.memberships.add(membership)  # orgmember, is_developer, no github login
 
         users = self.org.get_github_developer_kippousers()
-        self.assertTrue(len(users) == 2)
+        self.assertTrue(len(users) == 3)  # users created in setUp + auto-created 'unassigned' user
 
         expected_usernames = (
             'otheruser',
-            'anotheruser'
+            'anotheruser',
+            f'github-unassigned-{self.org.name}'
         )
         actual_usernames = []
         for u in users:
