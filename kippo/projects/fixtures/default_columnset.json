@@ -3,7 +3,7 @@
     "model": "projects.projectcolumnset",
     "pk": 1,
     "fields": {
-        "name": "Standard Four Column Set",
+        "name": "Standard Five Column Set",
         "created_datetime": "2018-08-31T22:31:06.468Z",
         "updated_datetime": "2018-08-31T22:31:06.468Z",
         "label_category_prefixes": "[\"category:\", \"cat:\"]",
@@ -49,6 +49,17 @@
     "fields": {
         "columnset": 1,
         "index": 3,
+        "name": "in-review",
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 5,
+    "fields": {
+        "columnset": 1,
+        "index": 4,
         "name": "done",
         "is_active": false,
         "is_done": true
