@@ -56,7 +56,7 @@ class KippoOrganization(UserCreatedBaseModel):
 
     def create_organization_unassigned_kippouser(self):
         # AUTO-CREATE organization specific unassigned user
-        assert CLI_MANAGER_USER, f'Required CLI_MANAGER_USER not loaded!'
+        cli_manager_user = get_climanager_user()
         unassigned_username = f'github-unassigned-{self.name}'
         unassigned_github_login = settings.UNASSIGNED_USER_GITHUB_LOGIN
         logger.info(f'Creating ({unassigned_github_login}) user for: {self.name}')
@@ -71,8 +71,8 @@ class KippoOrganization(UserCreatedBaseModel):
         membership = OrganizationMembership(
             organization=self,
             is_developer=True,
-            created_by=CLI_MANAGER_USER,
-            updated_by=CLI_MANAGER_USER,
+            created_by=cli_manager_user,
+            updated_by=cli_manager_user,
         )
         membership.save()
         user.memberships.add(membership)
@@ -252,7 +252,6 @@ def update_user_on_organizationmembership_add(signal, sender, **kwargs):
 models.signals.m2m_changed.connect(update_user_on_organizationmembership_add, KippoUser.memberships.through)
 
 
-try:
-    CLI_MANAGER_USER = KippoUser.objects.get(username='cli-manager')
-except (ProgrammingError, KippoUser.DoesNotExist):
-    CLI_MANAGER_USER = None
+def get_climanager_user():
+    user = KippoUser.objects.get(username='cli-manager')
+    return user
