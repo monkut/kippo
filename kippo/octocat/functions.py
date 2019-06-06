@@ -4,7 +4,7 @@ from time import sleep
 from distutils.util import strtobool
 from collections import defaultdict
 
-from zappa.async import task
+from zappa.asynchronous import task
 from tasks.models import KippoTask
 from tasks.periodic.tasks import collect_github_project_issues
 from .models import GithubWebhookEvent
@@ -41,12 +41,12 @@ def process_unprocessed_events():
 
 
 @task
-def wait_and_process():
+def wait_and_process(wait_seconds=THREE_MINUTES):
     """
     Buffer to wait while user makes multiple changes to reduce updates per project
     :return:
     """
-    seconds = int(os.getenv('KIPPO_WEBHOOK_WAIT_SECONDS', THREE_MINUTES))
+    seconds = int(os.getenv('KIPPO_WEBHOOK_WAIT_SECONDS', str(wait_seconds)))
     sleep(seconds)
     process_unprocessed_events()
 
@@ -62,11 +62,13 @@ def process_incoming_project_card_event(event):
         content_url = event['project_card']['content_url']
         try:
             kippo_task = KippoTask.objects.get(github_issue_api_url=content_url)
-            e = GithubWebhookEvent(event=event,
-                                   related_project=kippo_task.project)
+            e = GithubWebhookEvent(
+                event=event,
+                related_project=kippo_task.project
+            )
             e.save()
             wait_and_process()
         except KippoTask.DoesNotExist:
-            logger.warning(f'Related KippoTask not found for content_url: {content_url}')
+            logger.warning(f'Unable to process event, related KippoTask not found for content_url: {content_url}')
     else:
         logger.warning(f'SKIPPING -- "content_url" not found in: {event["project_card"]}')

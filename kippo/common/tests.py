@@ -1,4 +1,4 @@
-from accounts.models import KippoOrganization, EmailDomain, KippoUser
+from accounts.models import KippoOrganization, EmailDomain, KippoUser, OrganizationMembership
 from projects.models import KippoProject, ProjectColumnSet
 from tasks.models import KippoTask
 from octocat.models import GithubAccessToken
@@ -18,9 +18,8 @@ def setup_basic_project():
         password='test',
         email='a@github.com',
         is_staff=True,
-        is_developer=True,
     )
-    user.save(ignore_email_domain_check=True)
+    user.save()
     created_objects['KippoUser'] = user
 
     organization = KippoOrganization(
@@ -42,6 +41,15 @@ def setup_basic_project():
     )
     email_domain.save()
     created_objects['EmailDomain'] = email_domain
+
+    orgmembership = OrganizationMembership(
+        organization=organization,
+        is_developer=True,
+        created_by=user,
+        updated_by=user,
+    )
+    orgmembership.save()
+    user.memberships.add(orgmembership)
 
     access_token = GithubAccessToken(
         organization=organization,

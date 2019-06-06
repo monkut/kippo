@@ -17,7 +17,9 @@ def webhook(request):
         # https://docs.djangoproject.com/en/2.1/ref/request-response/#django.http.HttpRequest.META
         event_type = request.META['X_GITHUB_EVENT'].strip()
         if event_type == 'project_card':
+            logger.debug(f'decoding webhook event_type: {event_type}')
             body = json.loads(request.body.decode('utf8'))
+            logger.debug(f'processing webhook event_type: {event_type}')
             process_incoming_project_card_event(body)
             return HttpResponse(status=201, content='201 Created')
         else:

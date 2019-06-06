@@ -34,10 +34,6 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     'social_django',
-    'common',
-    'projects',
-    'tasks',
-    'octocat',
     'reversion',
     'bootstrap4',
     'common.apps.KippoAdminConfig',  # 'django.contrib.admin',
@@ -46,7 +42,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'common',
     'accounts',  # must be listed AFTER social_django and django.contrib.auth
+    'projects',
+    'tasks',
+    'octocat',
 ]
 
 MIDDLEWARE = [
@@ -233,3 +233,5 @@ HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
 WEBHOOK_ENDPOINT = '/octocat/webhook/'
 WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'
 DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = True
+
+DAY_WORKHOURS = 7

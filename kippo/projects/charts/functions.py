@@ -3,6 +3,7 @@ For functions used to create project based charts
 """
 import datetime
 import logging
+from typing import Tuple, List
 from collections import defaultdict
 from math import pi
 
@@ -26,12 +27,15 @@ TUESDAY_WEEKDAY = 2
 logger = logging.getLogger(__name__)
 
 
-def get_project_weekly_effort(project: KippoProject, current_date: datetime.date=None):
+def get_project_weekly_effort(
+        project: KippoProject,
+        current_date: datetime.date = None,
+        representative_day: int = TUESDAY_WEEKDAY) -> Tuple[List[dict], List[datetime.date]]:
     """
-    Obtain the project weekly effort
-    :param project:
-    :param current_date:
-    :return:
+    Obtain the project weekly effort from the representative day.
+    :param project: Project to calculate effort for
+    :param current_date: date to start calculation for
+    :param representative_day: Day of the week to use as the representative day in effort calculation
     """
     if not current_date:
         current_date = timezone.now().date()
@@ -48,9 +52,12 @@ def get_project_weekly_effort(project: KippoProject, current_date: datetime.date
     search_dates = []
     start_date_calendar_info = project.start_date.isocalendar()
     start_date_year, start_date_week, _ = start_date_calendar_info
-    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week}-{TUESDAY_WEEKDAY}', '%Y-%W-%w').date()
+    # %W: Week number of the year (Monday as the first day of the week) as a decimal number. (0 start)
+    # %w: Weekday as a decimal number, where 0 is Sunday
+    # NOTE: isocalendar() returns the start week as (1 start), adjusting below to map to appropriate %W value
+    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week - 1}-{representative_day}', '%Y-%W-%w').date()
     current_week_start_date = initial_week_start_date
-
+    logger.debug(f'initial_week_start_date: {initial_week_start_date}')
     assert current_week_start_date <= project.target_date
     while current_week_start_date <= project.target_date:
         search_dates.append(current_week_start_date)
@@ -80,13 +87,13 @@ def get_project_weekly_effort(project: KippoProject, current_date: datetime.date
         all_status_entries.extend(list(previous_status_entries))
 
     if not all_status_entries:
-        raise TaskStatusError(f'No TaskStatus found for project({project.name}) in ranges: '
+        raise TaskStatusError(f'No KippoTaskStatus (has assignee.github_login, state__in={active_task_states}) found for project({project.name}) in ranges: '
                               f'{project.start_date} to {project.target_date}')
 
     return all_status_entries, search_dates
 
 
-def prepare_project_plot_data(project: KippoProject, current_date: datetime.date=None):
+def prepare_project_plot_data(project: KippoProject, current_date: datetime.date = None):
     """
     Format data for easy plotting
     :param project:
