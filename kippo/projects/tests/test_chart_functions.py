@@ -1,12 +1,11 @@
 from django.utils import timezone
 from django.test import TestCase
-from django.core.exceptions import ValidationError, PermissionDenied
 
 from accounts.models import KippoOrganization, KippoUser, EmailDomain, OrganizationMembership
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..models import KippoProject, ProjectColumnSet
-from ..charts.functions import get_project_weekly_effort, prepare_project_plot_data
+from ..charts.functions import get_project_weekly_effort
 
 
 class ProjectsChartFunctionsTestCase(TestCase):
