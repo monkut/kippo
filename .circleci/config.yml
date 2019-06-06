@@ -35,7 +35,7 @@ jobs:
       - run:
           name: install dependencies
           command: |
-            pipenv sync --dev
+            python3.7 -m pipenv sync --dev
 
       - save_cache:
           key: v1-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
@@ -46,18 +46,18 @@ jobs:
       - run:
           name: run code checks
           command: |
-            pipenv run make check
+            python3.7 -m pipenv run make check
 
       - run:
           name: prepare database
           command: |
             cd kippo
-            pipenv run python manage.py migrate
+            python3.7 -m pipenv run python manage.py migrate
 
       - run:
           name: run tests
           command: |
-            pipenv run make test
+            python3.7 -m pipenv run make test
 
       - store_artifacts:
           path: test-reports
