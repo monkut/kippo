@@ -3,7 +3,7 @@ from typing import List
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
-from django.core.exceptions import ValidationError, PermissionDenied
+from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
