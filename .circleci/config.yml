@@ -8,6 +8,8 @@ jobs:
     docker:
       # specify the version you desire here
       - image: circleci/python:3.7.2
+        environment:
+          PIPENV_VENV_IN_PROJECT: true
       - image: mdillon/postgis:9.6
         environment:
           POSTGRES_USER: circleci
@@ -29,7 +31,7 @@ jobs:
       - run:
           name: Upgrade pipenv
           command: |
-            pip install pipenv -U
+            python3.7 -m pip install pipenv -U
       - run:
           name: install dependencies
           command: |
@@ -50,7 +52,6 @@ jobs:
           name: prepare database
           command: |
             cd kippo
-            pipenv run python manage.py makemigrations
             pipenv run python manage.py migrate
 
       - run:
