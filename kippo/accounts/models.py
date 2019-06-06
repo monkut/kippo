@@ -1,6 +1,7 @@
 import logging
 from typing import List
 from django.db import models
+from django.db.utils import ProgrammingError
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -253,5 +254,5 @@ models.signals.m2m_changed.connect(update_user_on_organizationmembership_add, Ki
 
 try:
     CLI_MANAGER_USER = KippoUser.objects.get(username='cli-manager')
-except KippoUser.DoesNotExist:
+except (ProgrammingError, KippoUser.DoesNotExist):
     CLI_MANAGER_USER = None
