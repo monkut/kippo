@@ -57,7 +57,7 @@ jobs:
       - run:
           name: run tests
           command: |
-            python3.7 -m pipenv run make test
+            make test
 
       - store_artifacts:
           path: test-reports
