@@ -3,8 +3,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from common.tests import setup_basic_project, DEFAULT_FIXTURES
-from .models import KippoTaskStatus
-from .functions import update_kippotaskstatus_hours_worked
+from ..models import KippoTaskStatus
+from ..functions import update_kippotaskstatus_hours_worked
 
 
 class CalculateKippoTaskStatusHoursWorkedTestCase(TestCase):
