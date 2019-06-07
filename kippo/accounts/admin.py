@@ -136,8 +136,8 @@ class KippoUserAdmin(admin.ModelAdmin):
 
     def get_github_organizations(self, obj):
         membership_organizations = []
-        for membership in obj.memberships.all():
-            name = membership.organization.github_organization_name
+        for organization in obj.memberships.all():
+            name = organization.github_organization_name
             membership_organizations.append(name)
         return ', '.join(membership_organizations)
     get_github_organizations.short_description = _('Github Organizations')
