@@ -6,6 +6,8 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
+from django.dispatch import receiver
+from django.db.models.signals import pre_delete
 from django.utils.translation import ugettext_lazy as _
 from common.models import UserCreatedBaseModel
 
@@ -113,11 +115,11 @@ class EmailDomain(UserCreatedBaseModel):
 class OrganizationMembership(UserCreatedBaseModel):
     user = models.ForeignKey(
         'KippoUser',
-        on_delete=models.CASCADE,
+        on_delete=models.DO_NOTHING,
     )
     organization = models.ForeignKey(
         'KippoOrganization',
-        on_delete=models.CASCADE,
+        on_delete=models.DO_NOTHING,
     )
     email = models.EmailField(
         null=True,
@@ -259,3 +261,10 @@ class PersonalHoliday(models.Model):
 def get_climanager_user():
     user = KippoUser.objects.get(username='cli-manager')
     return user
+
+
+@receiver(pre_delete, sender=KippoUser)
+def delete_kippouser_organizationmemberships(sender, instance, **kwargs):
+    membership_count = OrganizationMembership.objects.filter(user=instance).count()
+    logger.info(f'Deleting ({membership_count}) OrganizationMembership(s) for User: {instance.username}')
+    OrganizationMembership.objects.filter(user=instance).delete()
