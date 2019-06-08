@@ -6,7 +6,16 @@ from django.utils.translation import ugettext_lazy as _
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
 from .functions import collect_existing_github_projects
-from .models import KippoProject, ActiveKippoProject, KippoProjectStatus, KippoMilestone, ProjectColumnSet, ProjectColumn, GithubMilestoneAlreadyExists
+from .models import (
+    KippoProject,
+    ActiveKippoProject,
+    KippoProjectStatus,
+    KippoMilestone,
+    ProjectColumnSet,
+    ProjectColumn,
+    ProjectAssignment,
+    GithubMilestoneAlreadyExists,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -179,6 +188,7 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
 create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')  # noqa: E305
 
 
+@admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'id',
@@ -274,6 +284,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+@admin.register(KippoMilestone)
 class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'title',
@@ -305,7 +316,7 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return HttpResponseRedirect(project_url)
 
     def response_change(self, request, obj):
-        """Overridding Redirect to the KippoProject page after edit.
+        """Overriding Redirect to the KippoProject page after edit.
         """
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
@@ -316,6 +327,7 @@ class ProjectColumnInline(admin.TabularInline):
     extra = 3
 
 
+@admin.register(ProjectColumnSet)
 class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'name',
@@ -324,7 +336,18 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     inlines = [ProjectColumnInline]
 
 
-admin.site.register(KippoProject, KippoProjectAdmin)
+@admin.register(ProjectAssignment)
+class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
+    list_display = (
+        'project',
+        'get_project_organization',
+        'user'
+    )
+
+    def get_project_organization(self, obj):
+        organization_name = obj.project.organization.name
+        return organization_name
+    get_project_organization.short_description = _('Organization')
+
+
 admin.site.register(ActiveKippoProject, KippoProjectAdmin)
-admin.site.register(ProjectColumnSet, ProjectColumnSetAdmin)
-admin.site.register(KippoMilestone, KippoMilestoneAdmin)

@@ -483,3 +483,20 @@ class KippoMilestone(UserCreatedBaseModel):
 def cleanup_github_milestones(sender, instance, **kwargs):
     """Close related Github milestones when  KippoMilestone is deleted."""
     instance.update_github_milestones(close=True)
+
+
+class ProjectAssignment(UserCreatedBaseModel):
+    project = models.ForeignKey(
+        KippoProject,
+        on_delete=models.DO_NOTHING,
+        related_name='projectassignment_project'
+    )
+    user = models.ForeignKey(
+        'accounts.KippoUser',
+        on_delete=models.DO_NOTHING,
+        related_name='projectassignment_user'
+    )
+    percentage = models.SmallIntegerField(
+        help_text=_('Workload percentage assigned to project from available workload available for project organization')
+    )
+
