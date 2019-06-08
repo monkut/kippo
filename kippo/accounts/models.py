@@ -6,6 +6,8 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
+from django.dispatch import receiver
+from django.db.models.signals import pre_delete
 from django.utils.translation import ugettext_lazy as _
 from common.models import UserCreatedBaseModel
 
@@ -46,11 +48,15 @@ class KippoOrganization(UserCreatedBaseModel):
 
     def get_github_developer_kippousers(self):
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
-        developer_users = KippoUser.objects.filter(
-            github_login__isnull=False,
-            memberships__organization=self,
-            memberships__is_developer=True
+
+        developer_memberships = OrganizationMembership.objects.filter(
+            user__github_login__isnull=False,
+            organization=self,
+            is_developer=True,
+        ).select_related(
+            'user'
         )
+        developer_users = [m.user for m in developer_memberships]
         return developer_users
 
     def create_organization_unassigned_kippouser(self):
@@ -68,13 +74,13 @@ class KippoOrganization(UserCreatedBaseModel):
         user.save()
 
         membership = OrganizationMembership(
+            user=user,
             organization=self,
             is_developer=True,
             created_by=cli_manager_user,
             updated_by=cli_manager_user,
         )
         membership.save()
-        user.memberships.add(membership)
 
     def save(self, *args, **kwargs):
         if not self.pk:
@@ -107,10 +113,13 @@ class EmailDomain(UserCreatedBaseModel):
 
 
 class OrganizationMembership(UserCreatedBaseModel):
+    user = models.ForeignKey(
+        'KippoUser',
+        on_delete=models.DO_NOTHING,
+    )
     organization = models.ForeignKey(
-        KippoOrganization,
-        on_delete=models.CASCADE,
-        blank=True
+        'KippoOrganization',
+        on_delete=models.DO_NOTHING,
     )
     email = models.EmailField(
         null=True,
@@ -179,20 +188,47 @@ class OrganizationMembership(UserCreatedBaseModel):
         if self.email and self.email_domain not in organization_domains:
             raise ValidationError(f'Invalid email address ({self.email}) for organization({self.organization}) domains: {organization_domains}')
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        # update user with is_staff/is_active state based on the organization domain.is_staff_domain value
+        logger.info(f'User({self.user}) added to {self.organization}!')
+
+        is_staff = False
+        for domain in self.organization.email_domains:
+            if domain.is_staff_domain:
+                is_staff = True
+                break
+
+        if is_staff:
+            logger.info(f'Updating User({self.user.username}) is_staff/is_active -> True')
+            self.user.is_staff = True
+            self.user.is_active = True
+            self.user.save()
+
+    def __str__(self):
+        return f'{self.organization}:{self.user.username}'
+
 
 class KippoUser(AbstractUser):
     memberships = models.ManyToManyField(
-        OrganizationMembership,
+        KippoOrganization,
+        through='OrganizationMembership',
+        through_fields=('user', 'organization'),
         blank=True,
-        default=None
+        default=None,
     )
-    github_login = models.CharField(max_length=100,
-                                    null=True,
-                                    blank=True,
-                                    default=None,
-                                    help_text='Github Login username')
-    is_github_outside_collaborator = models.BooleanField(default=False,
-                                                         help_text=_('Set to True if User is an outside collaborator'))
+    github_login = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        default=None,
+        help_text='Github Login username'
+    )
+    is_github_outside_collaborator = models.BooleanField(
+        default=False,
+        help_text=_('Set to True if User is an outside collaborator')
+    )
 
     @property
     def display_name(self):
@@ -222,35 +258,13 @@ class PersonalHoliday(models.Model):
         ordering = ['-day']
 
 
-def update_user_on_organizationmembership_add(signal, sender, **kwargs):
-    """
-    Update the user to is_staff=True, is_active=True, when added to an organization where organization.email_domain.is_staff_domain
-    """
-    user = kwargs['instance']
-    action = kwargs['action']
-    if kwargs['pk_set']:
-        if action == 'post_add':
-            # update user if organizationmembership.is_staff_domain == True
-            memberships = kwargs['model'].objects.filter(pk__in=kwargs['pk_set'])
-            is_staff = False
-            for membership in memberships:
-                logger.info(f'User({user}) added to {membership.organization}')
-                for domain in membership.organization.email_domains:
-                    if domain.is_staff_domain:
-                        is_staff = True
-                        break
-                if is_staff:
-                    break
-            if is_staff:
-                logger.info(f'Updating User({user}) is_staff/is_active -> True')
-                user.is_staff = True
-                user.is_active = True
-                user.save()
-
-
-models.signals.m2m_changed.connect(update_user_on_organizationmembership_add, KippoUser.memberships.through)
-
-
 def get_climanager_user():
     user = KippoUser.objects.get(username='cli-manager')
     return user
+
+
+@receiver(pre_delete, sender=KippoUser)
+def delete_kippouser_organizationmemberships(sender, instance, **kwargs):
+    membership_count = OrganizationMembership.objects.filter(user=instance).count()
+    logger.info(f'Deleting ({membership_count}) OrganizationMembership(s) for User: {instance.username}')
+    OrganizationMembership.objects.filter(user=instance).delete()

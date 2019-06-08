@@ -66,6 +66,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add membership
         membership = OrganizationMembership(
+            user=user2,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@{self.domain}',
@@ -73,7 +74,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user2.memberships.add(membership)
         self.assertTrue(user2.is_staff)
 
     def test_invalid_emaildomain(self):
@@ -108,6 +108,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership
         membership = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@invaliddomain.com',
@@ -115,7 +116,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
         authenticated_user = authenticate(
             username=user.username,
             password=password
@@ -134,6 +134,7 @@ class KippoUserCreationTestCase(TestCase):
         user.save()
         # add org membership
         membership = OrganizationMembership(
+            user=user,
             organization=self.nonstaff_org,
             is_developer=True,
             email=f'otheruser@{self.nonstaff_org_domain}',
@@ -141,7 +142,7 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
+
         user.refresh_from_db()
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_active)
@@ -153,6 +154,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@invaliddomain.com',
@@ -160,7 +162,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
         user.refresh_from_db()
         self.assertTrue(user.is_staff)
         self.assertTrue(user.is_active)
@@ -180,6 +181,7 @@ class KippoUserCreationTestCase(TestCase):
         user.save()
         # add membership
         membership = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@invaliddomain.com',
@@ -187,7 +189,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
         self.assertTrue(user.is_staff)
 
         with self.assertRaises(ValidationError):
@@ -203,6 +204,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add membership
         membership = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=None,
@@ -211,7 +213,6 @@ class KippoUserCreationTestCase(TestCase):
         )
         membership.clean()
         membership.save()
-        user.memberships.add(membership)
         self.assertTrue(user.memberships.exists())
 
     def test_organization_get_github_developer_kippousers(self):
@@ -254,6 +255,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership
         membership = OrganizationMembership(
+            user=user,
             organization=self.nonstaff_org,
             is_developer=True,
             email=f'otheruser@{self.nonstaff_org_domain}',
@@ -261,11 +263,11 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
         user.refresh_from_db()
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@{self.domain}',
@@ -273,11 +275,11 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        user.memberships.add(membership)
         user.refresh_from_db()
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
+            user=another_user,
             organization=self.org,
             is_developer=True,
             email=f'anotheruser@{self.domain}',
@@ -285,10 +287,10 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        another_user.memberships.add(membership)
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
+            user=third_user,
             organization=self.org,
             is_developer=False,
             email=f'thirduser@{self.domain}',
@@ -296,10 +298,10 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        third_user.memberships.add(membership)
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
+            user=fourth_user,
             organization=self.org,
             is_developer=True,
             email=f'fourth_user@{self.domain}',
@@ -307,7 +309,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         membership.save()
-        fourth_user.memberships.add(membership)  # orgmember, is_developer, no github login
 
         users = self.org.get_github_developer_kippousers()
         self.assertTrue(len(users) == 3)  # users created in setUp + auto-created 'unassigned' user
@@ -362,6 +363,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership
         user_membership1 = OrganizationMembership(
+            user=user,
             organization=self.nonstaff_org,
             is_developer=True,
             email=f'otheruser@{self.nonstaff_org_domain}',
@@ -369,7 +371,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         user_membership1.save()
-        user.memberships.add(user_membership1)
         user.refresh_from_db()
 
         expected_workdays = (
@@ -384,6 +385,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership with is_staff_domain
         user_membership2 = OrganizationMembership(
+            user=user,
             organization=self.org,
             is_developer=True,
             email=f'otheruser@{self.domain}',
@@ -392,7 +394,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         user_membership2.save()
-        user.memberships.add(user_membership2)
         user.refresh_from_db()
         expected_workdays = (
             'Sun',
@@ -407,6 +408,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership with is_staff_domain
         another_membership = OrganizationMembership(
+            user=another_user,
             organization=self.org,
             is_developer=True,
             email=f'anotheruser@{self.domain}',
@@ -415,7 +417,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         another_membership.save()
-        another_user.memberships.add(another_membership)
         expected_workdays = (
             'Tue',
             'Wed',
@@ -427,6 +428,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership with is_staff_domain
         third_membership = OrganizationMembership(
+            user=third_user,
             organization=self.org,
             is_developer=False,
             email=f'thirduser@{self.domain}',
@@ -437,7 +439,6 @@ class KippoUserCreationTestCase(TestCase):
             updated_by=self.user,
         )
         third_membership.save()
-        third_user.memberships.add(third_membership)
         expected_workdays = (
             'Wed',
             'Thu',

@@ -202,6 +202,7 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user1.save()
         self.user1_membership = OrganizationMembership(
+            user=self.user1,
             organization=self.organization,
             is_developer=True,
             email=f'otheruser@{self.domain}',
@@ -209,7 +210,6 @@ class GetKippoProjectLoadTestCase(TestCase):
             updated_by=self.cli_manager,
         )
         self.user1_membership.save()
-        self.user1.memberships.add(self.user1_membership)
 
         self.user2 = KippoUser(
             username='user2',
@@ -220,6 +220,7 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user2.save()
         self.user2_membership = OrganizationMembership(
+            user=self.user2,
             organization=self.organization,
             is_developer=True,
             wednesday=False,
@@ -228,7 +229,6 @@ class GetKippoProjectLoadTestCase(TestCase):
             updated_by=self.cli_manager,
         )
         self.user2_membership.save()
-        self.user2.memberships.add(self.user2_membership)
 
         columnset = ProjectColumnSet.objects.get(pk=1)
         self.kippoproject = KippoProject(

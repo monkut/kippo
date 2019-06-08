@@ -43,13 +43,13 @@ def setup_basic_project():
     created_objects['EmailDomain'] = email_domain
 
     orgmembership = OrganizationMembership(
+        user=user,
         organization=organization,
         is_developer=True,
         created_by=user,
         updated_by=user,
     )
     orgmembership.save()
-    user.memberships.add(orgmembership)
 
     access_token = GithubAccessToken(
         organization=organization,

@@ -14,6 +14,6 @@ coverage:
 	cd kippo && python3.7 -m pipenv run coverage run --source='.' manage.py test && cd ..
 
 loadinitial:
-	cd kippo && python3.7 -m pipenv run python manage.py loaddata default_columnset default_labelset required_bot_users && cd ..
+	cd kippo && python manage.py loaddata default_columnset default_labelset required_bot_users && cd ..
 
 pullrequestcheck: check coverage

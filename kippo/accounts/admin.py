@@ -1,9 +1,10 @@
 from django.contrib import admin
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.auth.models import Group
 from social_django.models import Association, Nonce, UserSocialAuth
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
-from .models import EmailDomain, KippoOrganization, KippoUser, PersonalHoliday
+from .models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
 
 
 class EmailDomainAdminReadOnlyInline(admin.TabularInline):
@@ -77,16 +78,22 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
     def has_add_permission(self, request, obj):
         return True
 
-    # def get_max_num(self, request, obj=None, **kwargs):
-    #     # seems to work sporatically...
-    #     max_num = 1
-    #     resolved_path = resolve(request.path)
-    #     object_id = resolved_path.kwargs.get('object_id', None)
-    #     if object_id and GithubAccessToken.objects.filter(pk=int(object_id)).exists():
-    #         max_num = 0
-    #     return max_num
+
+@admin.register(OrganizationMembership)
+class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
+    list_display = (
+        'organization',
+        'user',
+        'is_project_manager',
+        'is_developer',
+    )
+    ordering = (
+        'organization',
+        'user',
+    )
 
 
+@admin.register(KippoOrganization)
 class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'name',
@@ -108,6 +115,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
     )
 
 
+@admin.register(KippoUser)
 class KippoUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
@@ -121,6 +129,7 @@ class KippoUserAdmin(admin.ModelAdmin):
         'is_staff',
         'is_superuser',
     )
+    exclude = ('user_permissions', 'groups', 'last_login', )
 
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator
@@ -128,13 +137,14 @@ class KippoUserAdmin(admin.ModelAdmin):
 
     def get_github_organizations(self, obj):
         membership_organizations = []
-        for membership in obj.memberships.all():
-            name = membership.organization.github_organization_name
+        for organization in obj.memberships.all():
+            name = organization.github_organization_name
             membership_organizations.append(name)
         return ', '.join(membership_organizations)
     get_github_organizations.short_description = _('Github Organizations')
 
 
+@admin.register(PersonalHoliday)
 class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'user',
@@ -149,10 +159,7 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         obj.save()
 
 
-admin.site.register(KippoOrganization, KippoOrganizationAdmin)
-admin.site.register(KippoUser, KippoUserAdmin)
-admin.site.register(PersonalHoliday, PersonalHolidayAdmin)
-
 admin.site.unregister(UserSocialAuth)
 admin.site.unregister(Nonce)
 admin.site.unregister(Association)
+admin.site.unregister(Group)

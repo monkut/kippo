@@ -5,101 +5,132 @@
     "fields": {
         "name": "Standard Label Set",
         "labels": [
-            {
-                "name": "category:documentation",
-                "color": "AED6F1",
-                "description": ""
-            },
-            {
-                "name": "category:feature",
-                "color": "5DADE2",
-                "description": ""
-            },
-            {
-                "name": "category:model-design",
-                "color": "BB8FCE",
-                "description": ""
-            },
-            {
-                "name": "category:model-training",
-                "color": "D2B4DE",
-                "description": ""
-            },
-            {
-                "name": "category:study",
-                "color": "F8C471",
-                "description": ""
-            },
-            {
-                "name": "category:analysis",
-                "color": "73C6B6",
-                "description": ""
-            },
-            {
-                "name": "category:data-preparation",
-                "color": "73C6B6",
-                "description": ""
-            },
-            {
-                "name": "category:setup",
-                "color": "F7DC6F",
-                "description": ""
-            },
-            {
-                "name": "category:bug",
-                "color": "FF0000",
-                "description": ""
-            },
-            {
-                "name": "estimate:1d",
-                "color": "0000FF",
-                "description": ""
-            },
-            {
-                "name": "estimate:3d",
-                "color": "0000FF",
-                "description": ""
-            },
-            {
-                "name": "estimate:5d",
-                "color": "00FF00",
-                "description": ""
-            },
-            {
-                "name": "estimate:7d",
-                "color": "00FF00",
-                "description": ""
-            },
-            {
-                "name": "estimate:10d",
-                "color": "FFFF00",
-                "description": ""
-            },
-            {
-                "name": "estimate:15d",
-                "color": "FFFF00",
-                "description": ""
-            },
-            {
-                "name": "estimate:30d",
-                "color": "FF0000",
-                "description": ""
-            },
-            {
-                "name": "cancel:duplicate",
-                "color": "FF0000",
-                "description": ""
-            },
-            {
-                "name": "cancel:wontfix",
-                "color": "FF0000",
-                "description": ""
-            },
-            {
-                "name": "cancel:invalid",
-                "color": "FF0000",
-                "description": ""
-            }
+    {
+        "name": "category:documentation",
+        "color": "AED6F1",
+        "description": ""
+    },
+    {
+        "name": "category:feature",
+        "color": "5DADE2",
+        "description": ""
+    },
+    {
+        "name": "category:model-design",
+        "color": "BB8FCE",
+        "description": ""
+    },
+    {
+        "name": "category:model-training",
+        "color": "D2B4DE",
+        "description": ""
+    },
+    {
+        "name": "category:study",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
+        "name": "category:design",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
+        "name": "category:analysis",
+        "color": "73C6B6",
+        "description": ""
+    },
+    {
+        "name": "category:data-preparation",
+        "color": "73C6B6",
+        "description": ""
+    },
+    {
+        "name": "category:setup",
+        "color": "F7DC6F",
+        "description": ""
+    },
+    {
+        "name": "category:bug",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "estimate:1d",
+        "color": "0000FF",
+        "description": ""
+    },
+    {
+        "name": "estimate:3d",
+        "color": "0000FF",
+        "description": ""
+    },
+    {
+        "name": "estimate:5d",
+        "color": "00FF00",
+        "description": ""
+    },
+    {
+        "name": "estimate:7d",
+        "color": "00FF00",
+        "description": ""
+    },
+    {
+        "name": "estimate:10d",
+        "color": "FFFF00",
+        "description": ""
+    },
+    {
+        "name": "estimate:15d",
+        "color": "FFFF00",
+        "description": ""
+    },
+    {
+        "name": "estimate:30d",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "cancel:duplicate",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "cancel:wontfix",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "cancel:invalid",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "flag:blocker",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "flag:help-wanted",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "flag:question",
+        "color": "FF0000",
+        "description": ""
+    },
+    {
+        "name": "flag:needs-triage",
+        "color": "FFFF00",
+        "description": ""
+    },
+    {
+        "name": "category:feature-change",
+        "color": "5DADE2",
+        "description": ""
+    }
+
         ],
         "created_datetime": "2018-08-31T23:18:56.333Z",
         "updated_datetime": "2018-08-31T23:36:01.854Z"

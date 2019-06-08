@@ -11,7 +11,7 @@ from django.utils import timezone
 from ghorgs.wrappers import GithubIssue
 from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
-from accounts.models import KippoOrganization
+from accounts.models import KippoOrganization, OrganizationMembership
 from projects.models import KippoProject, KippoMilestone
 from .exceptions import ProjectConfigurationError
 from .models import KippoTask, KippoTaskStatus
@@ -295,7 +295,10 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     workdays = {}
     holidays = {}
     for kippo_org_developer in organization_developers:
-        organization_membership = kippo_org_developer.memberships.get(organization=organization)
+        organization_membership = OrganizationMembership.objects.get(
+            user=kippo_org_developer,
+            organization=organization
+        )
 
         workdays[kippo_org_developer.github_login] = organization_membership.get_workday_identifers()
         holidays[kippo_org_developer.github_login] = kippo_org_developer.personal_holiday_dates()
