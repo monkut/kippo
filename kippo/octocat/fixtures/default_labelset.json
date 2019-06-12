@@ -31,6 +31,11 @@
         "description": ""
     },
     {
+        "name": "category:action",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
         "name": "category:design",
         "color": "F8C471",
         "description": ""
