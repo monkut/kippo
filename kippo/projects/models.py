@@ -305,7 +305,10 @@ class KippoMilestone(UserCreatedBaseModel):
                                 editable=False)
     title = models.CharField(max_length=256,
                              verbose_name=_('Title'))
-    number = models.PositiveSmallIntegerField(editable=False)
+    number = models.PositiveSmallIntegerField(
+        editable=False,
+        help_text=_('Internal Per Project Management Number')
+    )
     allocated_staff_days = models.PositiveSmallIntegerField(null=True,
                                                             blank=True,
                                                             help_text=_('Budget Allocated Staff Days'))
