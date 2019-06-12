@@ -126,6 +126,11 @@
         "description": ""
     },
     {
+        "name": "flag:on-hold",
+        "color": "FFFF00",
+        "description": ""
+    },
+    {
         "name": "category:feature-change",
         "color": "5DADE2",
         "description": ""
