@@ -1,4 +1,5 @@
 import logging
+from typing import List
 
 from ghorgs.managers import GithubOrganizationManager
 
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 TUESDAY_WEEKDAY = 2
 
 
-def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser):
+def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> List[KippoProject]:
     """Collect existing github organizational projects for a configured KippoOrganization"""
 
     manager = GithubOrganizationManager(organization=organization.github_organization_name,
