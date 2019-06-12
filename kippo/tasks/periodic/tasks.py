@@ -61,17 +61,45 @@ class OrganizationIssueProcessor:
         task = self.existing_tasks_by_html_url.get(html_url, None)
         return task
 
-    def get_kippo_milestone_by_html_url(self, html_url: str) -> KippoMilestone:
+    def get_kippo_milestone_by_html_url(self, issue: GithubIssue, html_url: str) -> KippoMilestone:
+        """Get the existing related KippoMilestone for a GithubIssues's Milestone entry, if doesn't exist create it"""
         milestone = self.existing_kippo_milestones_by_html_url.get(html_url, None)
         if not milestone:
-            raise ValueError(f'{html_url} not in: {self.existing_kippo_milestones_by_html_url}')
+            # collect repository
+            github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
+
+            # check for KippoMilestone
+            try:
+                kippo_milestone = KippoMilestone.objects.get(title=milestone.title)
+            except KippoMilestone.DoesNotExist:
+                logger.info(f'Creating KippoMilestone for issue: {issue.html_url}')
+                kippo_milestone = KippoMilestone(
+                    title=milestone.title,
+                    target_date=milestone.due_on,  # start date is unknown
+                    description=milestone.description
+                )
+                kippo_milestone.save()
+
+            # create related GithubMilestone wrapper
+            github_milestone = GithubMilestone(
+                milestone=kippo_milestone,
+                repository=github_repository,
+                api_url=milestone.url,
+                html_url=milestone.html_url
+            )
+            github_milestone.save()
+
+            # add newly created milestone to self.existing_kippo_milestones_by_html_url
+            logger.debug(f'Adding milestone.html_url({milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}')
+            self.existing_kippo_milestones_by_html_url[milestone.html_url] = kippo_milestone
+            milestone = kippo_milestone
         return milestone
 
     def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> Tuple[bool, List[KippoTaskStatus], List[KippoTaskStatus]]:
         kippo_milestone = None
         if issue.milestone:
             logger.info(f'GithubMilestone.html_url: {issue.milestone.html_url}')
-            kippo_milestone = self.get_kippo_milestone_by_html_url(issue.milestone.html_url)
+            kippo_milestone = self.get_kippo_milestone_by_html_url(issue, issue.milestone.html_url)
 
         is_new_task = False
         new_taskstatus_objects = []
@@ -116,7 +144,7 @@ class OrganizationIssueProcessor:
             ]
             if not developer_assignees:
                 # assign task to special 'unassigned' user if task is not assigned to anyone
-                logger.warning(f'No developer_assignees identified')
+                logger.warning(f'No developer_assignees identified for issue: {issue.html_url}')
                 developer_assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
 
             estimate_denominator = len(developer_assignees)
@@ -245,7 +273,7 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     new_task_count = 0
     new_taskstatus_objects = []
     updated_taskstatus_objects = []
-
+    unhandled_issues = []
     for github_project in issue_processor.github_projects():
         logger.info(f'Processing github project ({github_project.name})...')
 
@@ -260,15 +288,20 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
             logger.info('-- Processing Related Github Issues...')
             count = 0
             for count, issue in enumerate(github_project.issues(), 1):
-                is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
-                if is_new_task:
-                    new_task_count += 1
-                new_taskstatus_objects.extend(issue_new_taskstatus_objects)
-                updated_taskstatus_objects.extend(issue_updated_taskstatus_objects)
+                try:
+                    is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
+                    if is_new_task:
+                        new_task_count += 1
+                    new_taskstatus_objects.extend(issue_new_taskstatus_objects)
+                    updated_taskstatus_objects.extend(issue_updated_taskstatus_objects)
+                except ValueError as e:
+                    unhandled_issues.append(
+                        (issue, e.args)
+                    )
 
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
 
-    return processed_projects, new_task_count, len(new_taskstatus_objects), len(updated_taskstatus_objects)
+    return processed_projects, new_task_count, len(new_taskstatus_objects), len(updated_taskstatus_objects), unhandled_issues
 
 
 def run_collect_github_project_issues(event, context):

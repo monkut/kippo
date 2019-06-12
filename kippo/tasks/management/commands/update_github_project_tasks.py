@@ -38,15 +38,18 @@ class Command(BaseCommand):
         status_effort_date = timezone.now().date()
         if options['date']:
             try:
-                status_effort_date = timezone.datetime.strptime('2018-1-14', '%Y-%m-%d').date()
+                status_effort_date = timezone.datetime.strptime(options['date'], '%Y-%m-%d').date()
             except ValueError:
                 raise CommandError('Invalid value given for -d/--date option, should be in YYYY-MM-DD format: {}'.format(options['date']))
 
         self.stdout.write(f'Update Started for {options["github_organization_name"]} ({status_effort_date})!\n')
         results = collect_github_project_issues(kippo_organization=organization,
                                                 status_effort_date=status_effort_date)
-        processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count = results
+        processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count, unhandled_issues = results
         self.stdout.write('Update Complete!')
+        for issue, error_args in unhandled_issues:
+            self.stderr.write(f'ERROR -- {issue.html_url}: {error_args}')
+
         self.stdout.write(f'\tProjects Processed     : {processed_projects}')
         self.stdout.write(f'\tNew KippoTask(s)       : {new_task_count}')
         self.stdout.write(f'\tNew KippoTaskStatus    : {new_taskstatus_count}')
