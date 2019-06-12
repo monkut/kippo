@@ -12,13 +12,16 @@ TUESDAY_WEEKDAY = 2
 
 
 def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser):
+    """Collect existing github organizational projects for a configured KippoOrganization"""
 
     manager = GithubOrganizationManager(organization=organization.github_organization_name,
                                         token=organization.githubaccesstoken.token)
 
     # get existing html_urls
-    existing_html_urls = KippoProject.objects.filter(organization=organization,
-                                                     github_project_url__isnull=False).values_list('github_project_url', flat=True)
+    existing_html_urls = KippoProject.objects.filter(
+        organization=organization,
+        github_project_url__isnull=False
+    ).values_list('github_project_url', flat=True)
 
     added_projects = []
     for project in manager.projects():
