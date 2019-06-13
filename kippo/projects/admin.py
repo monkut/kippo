@@ -1,11 +1,17 @@
+import csv
 import logging
+from string import ascii_lowercase
 from django.contrib import admin, messages
+from django.utils import timezone
 from django.utils.html import format_html
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, HttpResponse
 from django.utils.translation import ugettext_lazy as _
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
-from .functions import collect_existing_github_projects
+
+from tasks.models import KippoTaskStatus
+
+from .functions import collect_existing_github_projects, get_kippoproject_taskstatus_csv_rows
 from .models import (
     KippoProject,
     ActiveKippoProject,
@@ -221,6 +227,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
+        'export_project_kippotaskstatus_csv',
     ]
     inlines = [
         KippoMilestoneReadOnlyInline,
@@ -236,6 +243,37 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_confidence_display.admin_order_field = 'confidence'
     get_confidence_display.short_description = 'confidence'
+
+    def export_project_kippotaskstatus_csv(self, request, queryset):
+        """Allow export to csv from admin"""
+        if queryset.count() != 1:
+            self.message_user(
+                request,
+                _('CSV Export action only supports single Project selection'),
+                level=messages.ERROR
+            )
+        else:
+            project = queryset[0]
+            logger.debug(f'Generating KippoTaskStatus CSV for: {project.name}')
+            project_slug = ''.join(c for c in project.name.replace(' ', '').lower() if c in ascii_lowercase)
+            if not project_slug:
+                project_slug = project.id
+            filename = f'{project_slug}_{timezone.now().strftime("%Y%m%d_%H%M%Z")}.csv'
+            logger.debug(f'filename: {filename}')
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename={filename}'
+            writer = csv.writer(response)
+            try:
+                csv_row_generator = get_kippoproject_taskstatus_csv_rows(project, with_headers=True)
+                writer.writerows(csv_row_generator)
+                return response
+            except KippoTaskStatus.DoesNotExist:
+                self.message_user(
+                    request,
+                    _(f'No status entries exist for project: {project.name}'),
+                    level=messages.WARNING
+                )
+    export_project_kippotaskstatus_csv.short_description = _('Export KippoTaskStatus CSV')
 
     def get_latest_kippoprojectstatus_comment(self, obj):
         result = ''
