@@ -31,7 +31,12 @@
         "description": ""
     },
     {
-        "name": "category:action",
+        "name": "category:testing",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
+        "name": "category:activity",
         "color": "F8C471",
         "description": ""
     },
