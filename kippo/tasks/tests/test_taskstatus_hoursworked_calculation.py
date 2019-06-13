@@ -34,7 +34,6 @@ class CalculateKippoTaskStatusHoursWorkedTestCase(TestCase):
         self.kippotaskstatus_first.save()
 
         self.second_effort_date = first_effort_date + datetime.timedelta(days=1)  # tuesday
-        print(self.second_effort_date)
         self.kippotaskstatus_second = KippoTaskStatus(
             task=kippo_task,
             state=active_state_names[0],
