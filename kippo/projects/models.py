@@ -132,8 +132,7 @@ VALID_PROJECT_PHASES = (
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
     organization = models.ForeignKey('accounts.KippoOrganization',
-                                     on_delete=models.CASCADE,
-                                     editable=False)
+                                     on_delete=models.CASCADE)
     name = models.CharField(max_length=256,
                             unique=True)
     slug = models.CharField(max_length=300,

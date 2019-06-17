@@ -304,16 +304,25 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         formset.save_m2m()
 
     def get_form(self, request, obj=None, **kwargs):
+        """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['project_manager'].initial = request.user.id
+
+        user_initial_organization = request.user.memberships.first()
+        if not user_initial_organization:
+            self.message_user(
+                request,
+                f'User has not OrganizationMembership defined! Must belong to an Organization to create a project',
+                level=messages.ERROR,
+            )
+        form.base_fields['organization'].initial = user_initial_organization
+        form.base_fields['organization'].queryset = request.user.memberships.all()
         return form
 
     def save_model(self, request, obj, form, change):
         if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
-            obj.organization = request.user.organization
-
             obj.created_by = request.user
             obj.updated_by = request.user
         else:
