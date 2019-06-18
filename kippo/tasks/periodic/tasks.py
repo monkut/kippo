@@ -1,5 +1,6 @@
 import datetime
 import logging
+from math import ceil
 from typing import List, Union, Tuple
 
 from django.conf import settings
@@ -206,20 +207,22 @@ class OrganizationIssueProcessor:
                         if unadjusted_issue_estimate:
                             # adjusting to take into account the number of developer_assignees working on it
                             # -- divides task load by the number of developer_assignees
-                            adjusted_issue_estimate = unadjusted_issue_estimate / estimate_denominator
+                            adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
 
                         # create or update KippoTaskStatus with updated estimate
-                        status, created = KippoTaskStatus.objects.get_or_create(task=existing_task,
-                                                                                effort_date=self.status_effort_date,
-                                                                                defaults={
-                                                                                    'created_by': self.github_manager_user,
-                                                                                    'updated_by': self.github_manager_user,
-                                                                                    'state': issue.project_column,
-                                                                                    'state_priority': issue.column_priority,
-                                                                                    'estimate_days': adjusted_issue_estimate,
-                                                                                    'effort_date': self.status_effort_date,
-                                                                                    'comment': latest_comment
-                                                                                })
+                        status, created = KippoTaskStatus.objects.get_or_create(
+                            task=existing_task,
+                            effort_date=self.status_effort_date,
+                            defaults={
+                                'created_by': self.github_manager_user,
+                                'updated_by': self.github_manager_user,
+                                'state': issue.project_column,
+                                'state_priority': issue.column_priority,
+                                'estimate_days': adjusted_issue_estimate,
+                                'effort_date': self.status_effort_date,
+                                'comment': latest_comment
+                            }
+                        )
                         if created:
                             new_taskstatus_objects.append(status)
                             logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
