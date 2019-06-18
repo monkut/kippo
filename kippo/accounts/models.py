@@ -248,6 +248,9 @@ class KippoUser(AbstractUser):
                 date = holiday_start_date + timezone.timedelta(days=days)
                 yield date
 
+    def public_holiday_dates(self):
+        return PublicHoliday.objects.filter(country=self.holiday_country).values_list('day', flat=True)
+
 
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser,
