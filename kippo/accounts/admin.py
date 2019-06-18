@@ -10,7 +10,15 @@ from octocat.models import GithubAccessToken
 from projects.functions import collect_existing_github_projects
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
+from .models import (
+    EmailDomain,
+    KippoOrganization,
+    KippoUser,
+    OrganizationMembership,
+    PersonalHoliday,
+    Country,
+    PublicHoliday
+)
 
 
 class EmailDomainAdminReadOnlyInline(admin.TabularInline):
@@ -178,6 +186,7 @@ class KippoUserAdmin(admin.ModelAdmin):
         'get_github_organizations',
         'last_name',
         'first_name',
+        'holiday_country',
         'date_joined',
         'last_login',
         'is_github_outside_collaborator',
@@ -212,6 +221,26 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         if getattr(obj, 'pk', None) is None:
             obj.user = request.user
         obj.save()
+
+
+@admin.register(Country)
+class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'name',
+        'alpha_2',
+        'alpha_3',
+        'country_code',
+        'region'
+    )
+
+
+@admin.register(PublicHoliday)
+class PublicHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'name',
+        'country',
+        'day',
+    )
 
 
 admin.site.unregister(UserSocialAuth)
