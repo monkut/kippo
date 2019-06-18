@@ -314,7 +314,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
         )
 
         workdays[kippo_org_developer.github_login] = organization_membership.get_workday_identifers()
-        holidays[kippo_org_developer.github_login] = kippo_org_developer.personal_holiday_dates()
+        holidays[kippo_org_developer.github_login] = list(kippo_org_developer.personal_holiday_dates())
+        holidays[kippo_org_developer.github_login].extend(list(kippo_org_developer.public_holiday_dates()))
 
     scheduler = QluTaskScheduler(
         milestones=qlu_milestones,
