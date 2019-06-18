@@ -257,6 +257,11 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                     raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.name}): '
                                      f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
                 milestone_id = related_milestone.id
+                logger.debug(
+                    f'Using KippoMilestone({related_milestone.name}) as QluMilestone({milestone_id}): '
+                    f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}'
+                )
+
                 qlu_milestone = QluMilestone(milestone_id,
                                              related_milestone.start_date,
                                              related_milestone.target_date)
@@ -266,6 +271,11 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                     raise ValueError(f'"start_date" and "target_date" Project({project.name}): '
                                      f'start_date={project.start_date}, target_date={project.target_date}')
                 milestone_id = f'p-{status.task.project.id}'  # matches below in milestone creation
+                logger.debug(
+                    f'Using KippoProject({project.name}) as QluMilestone({milestone_id}): '
+                    f'start_date={project.start_date}, target_date={project.target_date}'
+                )
+
                 qlu_milestone = QluMilestone(milestone_id,
                                              status.task.project.start_date,
                                              status.task.project.target_date)
@@ -276,6 +286,9 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             priority_offset = 10 * state_priority_index
             task_absolute_priority = status.state_priority + priority_offset  # ok to overlap priorities for now
 
+            logger.debug(
+                f'QluTask.id={status.task.id}:{status.task.github_issue_html_url}'
+            )
             kippo_tasks[status.task.id] = status.task
             qtask = QluTask(
                 status.task.id,
