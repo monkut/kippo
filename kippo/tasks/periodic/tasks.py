@@ -223,6 +223,11 @@ class OrganizationIssueProcessor:
                                 'comment': latest_comment
                             }
                         )
+                        # check if title was updated, if updated, update related kippotask
+                        if issue.title != existing_task.title:
+                            existing_task.title = issue.title
+                            existing_task.save()
+
                         if created:
                             new_taskstatus_objects.append(status)
                             logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
