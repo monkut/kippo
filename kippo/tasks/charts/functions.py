@@ -6,7 +6,15 @@ from bokeh.resources import CDN
 from bokeh.embed import components
 from bokeh.layouts import column
 from bokeh.palettes import Category20
-from bokeh.models import ColumnDataSource, FactorRange, FixedTicker, Span, Label
+from bokeh.models import (
+    ColumnDataSource,
+    FactorRange,
+    FixedTicker,
+    Span,
+    Label,
+    OpenURL,
+    TapTool,
+)
 from bokeh.plotting import figure
 
 
@@ -36,18 +44,20 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
         ('task', '@task_titles'),
         ('assignee', '@assignees'),
         ('estimate days', '@task_estimate_days'),
+        ('assignee_calendar_days', '@assignee_calendar_days'),
     ]
 
     plots = []
     for project_id, data in project_data.items():
         logger.debug(f'preparing project_id; {project_id}')
+        print(f'data: {data}')
         source = ColumnDataSource(data)
         y_range = set(data['project_assignee_grouped'])
         calculated_plot_height = len(y_range) * 100
 
         p = figure(y_range=FactorRange(*sorted(y_range)),
                    x_range=(min_date, max_date),
-                   plot_width=900,
+                   plot_width=1500,
                    plot_height=calculated_plot_height,
                    toolbar_location=None,
                    tooltips=display_tooltips)
@@ -56,6 +66,8 @@ def prepare_project_schedule_chart_components(project_data: dict, project_milest
                right='task_end_dates',
                height=0.4,
                source=source)
+        taptool = p.select(type=TapTool)
+        taptool.callback = OpenURL(url='@task_urls')  # TODO: Finish!
 
         # add milestones display
         if project_id in project_milestones:

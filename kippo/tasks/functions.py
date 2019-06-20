@@ -258,7 +258,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                                      f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
                 milestone_id = related_milestone.id
                 logger.debug(
-                    f'Using KippoMilestone({related_milestone.name}) as QluMilestone({milestone_id}): '
+                    f'Using KippoMilestone({related_milestone.title}) as QluMilestone({milestone_id}): '
                     f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}'
                 )
 
@@ -361,7 +361,9 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             'assignees': [],
             'project_assignee_grouped': [],
             'task_ids': [],
+            'task_urls': [],
             'task_titles': [],
+            'assignee_calendar_days': [],
             'task_estimate_days': [],
             'task_start_dates': [],
             'task_end_dates': [],
@@ -372,6 +374,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 logger.debug(f'assignee_filter({assignee_filter}) applied, skipping: {assignee}')
                 continue
             for task in projects_results[project_id][assignee]:
+                latest_kippotaskstatus = task.latest_kippotaskstatus()
                 data['project_ids'].append(project_id)
                 data['project_names'].append(task.project.name)
                 data['project_start_dates'].append(task.project.start_date)  # only 1 is really needed...
@@ -379,9 +382,11 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['assignees'].append(assignee)
                 data['project_assignee_grouped'].append((task.project.name, assignee))
                 data['task_ids'].append(task.id)
+                data['task_urls'].append(task.github_issue_html_url)
                 data['task_titles'].append(task.title)
                 estimate = task.qlu_task.end_date - task.qlu_task.start_date
-                data['task_estimate_days'].append(estimate.days)
+                data['assignee_calendar_days'].append(estimate.days)
+                data['task_estimate_days'].append(latest_kippotaskstatus.estimate_days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
                 project_populated = True
