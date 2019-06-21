@@ -157,6 +157,20 @@ class OrganizationMembership(UserCreatedBaseModel):
         help_text=_('Works Saturday')
     )
 
+    @property
+    def committed_days(self) -> int:
+        weekdays = (
+            'sunday',
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday'
+        )
+        result = sum(1 for day in weekdays if getattr(self, day))
+        return result
+
     def get_workday_identifers(self) -> List[str]:
         """Convert membership workdays to string list used by qlu scheduler"""
         workday_attrs = (

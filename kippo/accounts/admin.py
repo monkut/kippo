@@ -98,6 +98,7 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'organization',
         'user',
+        'committed_days',
         'is_project_manager',
         'is_developer',
     )
