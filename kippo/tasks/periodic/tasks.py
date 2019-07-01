@@ -15,7 +15,11 @@ from accounts.models import KippoOrganization, KippoUser
 from projects.models import ActiveKippoProject, KippoMilestone
 from octocat.models import GithubRepository, GithubMilestone
 from ..models import KippoTask, KippoTaskStatus
-from ..functions import get_github_issue_category_label, get_github_issue_estimate_label
+from ..functions import (
+    get_github_issue_prefixed_labels,
+    get_github_issue_category_label,
+    get_github_issue_estimate_label
+)
 
 
 logger = logging.getLogger(__name__)
@@ -209,6 +213,9 @@ class OrganizationIssueProcessor:
                             # -- divides task load by the number of developer_assignees
                             adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
 
+                        prefixed_labels = get_github_issue_prefixed_labels(issue)
+                        tags = {l.prefix: l.value for l in prefixed_labels}
+
                         # create or update KippoTaskStatus with updated estimate
                         status, created = KippoTaskStatus.objects.get_or_create(
                             task=existing_task,
@@ -220,6 +227,7 @@ class OrganizationIssueProcessor:
                                 'state_priority': issue.column_priority,
                                 'estimate_days': adjusted_issue_estimate,
                                 'effort_date': self.status_effort_date,
+                                'tags': tags,
                                 'comment': latest_comment
                             }
                         )
