@@ -35,12 +35,12 @@ class GithubIssuePrefixedLabel:
             'node_id',
             'url',
             'name',
-            'description',
             'color',
             'default'
         )
         for attrname in label_attributes:
             attrvalue = getattr(label, attrname)
+            print(attrvalue)
             setattr(self, attrname, attrvalue)
 
     @property
