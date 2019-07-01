@@ -214,7 +214,7 @@ class OrganizationIssueProcessor:
                             adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
 
                         prefixed_labels = get_github_issue_prefixed_labels(issue)
-                        tags = {l.prefix: l.value for l in prefixed_labels}
+                        tags = [{l.prefix: l.value} for l in prefixed_labels]  # more than 1 label with the same prefix may exist
 
                         # create or update KippoTaskStatus with updated estimate
                         status, created = KippoTaskStatus.objects.get_or_create(
