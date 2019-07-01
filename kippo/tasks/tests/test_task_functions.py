@@ -4,13 +4,26 @@ from django.utils import timezone
 from accounts.models import KippoOrganization, KippoUser, EmailDomain, OrganizationMembership
 from projects.models import KippoProject, ProjectColumnSet
 from ..models import KippoTask, KippoTaskStatus
-from ..functions import get_github_issue_estimate_label, get_github_issue_category_label, get_projects_load
+from ..functions import (
+    get_github_issue_prefixed_labels,
+    get_github_issue_estimate_label,
+    get_github_issue_category_label,
+    get_projects_load
+)
 
 
 class LabelMock:
 
-    def __init__(self, name):
+    def __init__(self, name, **kwargs):
         self.name = name
+
+        # https://developer.github.com/v3/issues/labels/#get-a-single-label
+        self.id = kwargs.get('id', 208045947)
+        self.node_id = kwargs.get('node_id', "MDU6TGFiZWwyMDgwNDU5NDc=")
+        self.url = kwargs.get('url', 'https://api.github.com/repos/octocat/Hello-World/labels/enhancement')
+        self.description = kwargs.get('description', 'New Feature Default Description')
+        self.color = kwargs.get('color', 'a2eeef')
+        self.default = kwargs.get('default', True)
 
 
 class IssueMock:
@@ -23,6 +36,27 @@ class IssueMock:
 
 
 class TaskGithubLabelFunctionsTestCase(TestCase):
+
+    def test_get_github_issue_prefixed_labels(self):
+        category_name = 'category:testcat'
+        category_value = 'testcat'
+
+        req_name = 'req:B01'
+        req_value = 'B01'
+
+        issue = IssueMock(
+            label_names=[
+                category_name,
+                req_name,
+            ]
+        )
+        prefixed_labels = get_github_issue_prefixed_labels(issue)
+        expected_values = (
+            category_value,
+            req_value
+        )
+        for prefixed_label in prefixed_labels:
+            assert prefixed_label.value in expected_values
 
     def test_get_github_issue_estimate_label_hours(self):
         prefix = 'estimate:'
@@ -163,6 +197,7 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
                 label2_name,
             ]
         )
+        issue.html_url = 'https://www.someurl.com'
         with self.assertRaises(ValueError):
             actual_category = get_github_issue_category_label(issue, prefix)
 

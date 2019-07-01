@@ -23,6 +23,44 @@ TUESDAY_WEEKDAY = 2
 DEFAULT_HOURSWORKED_DATERANGE = timezone.timedelta(days=7)
 
 
+class GithubIssuePrefixedLabel:
+
+    def __init__(self, label: object, prefix_delim: str = ':'):
+        self.label = label
+        self.prefix_delim = prefix_delim
+
+        # https://developer.github.com/v3/issues/labels/#get-a-single-label
+        label_attributes = (
+            'id',
+            'node_id',
+            'url',
+            'name',
+            'description',
+            'color',
+            'default'
+        )
+        for attrname in label_attributes:
+            attrvalue = getattr(label, attrname)
+            setattr(self, attrname, attrvalue)
+
+    @property
+    def prefix(self):
+        return self.name.split(self.prefix_delim)[0]
+
+    @property
+    def value(self):
+        return self.name.split(self.prefix_delim)[-1]
+
+
+def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ':') -> List[GithubIssuePrefixedLabel]:
+    """Process a label in the format of a prefix/value"""
+    prefixed_labels = []
+    for label in issue.labels:
+        prefixed_label = GithubIssuePrefixedLabel(label, prefix_delim=prefix_delim)
+        prefixed_labels.append(prefixed_label)
+    return prefixed_labels
+
+
 def get_github_issue_estimate_label(
         issue: GithubIssue,
         prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX,
