@@ -269,7 +269,7 @@ class KippoUser(AbstractUser):
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser,
                              on_delete=models.CASCADE,
-                             editable=False)
+                             editable=True)
     created_datetime = models.DateTimeField(editable=False,
                                             auto_now_add=True)
     is_half = models.BooleanField(default=False,
@@ -277,6 +277,9 @@ class PersonalHoliday(models.Model):
     day = models.DateField()
     duration = models.SmallIntegerField(default=1,
                                         help_text=_('How many days (including weekends/existing holidays)'))
+
+    def __str__(self):
+        return f'PersonalHoliday({self.user.username} [{self.day} ({self.duration})])'
 
     class Meta:
         ordering = ['-day']
