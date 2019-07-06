@@ -501,4 +501,3 @@ class ProjectAssignment(UserCreatedBaseModel):
     percentage = models.SmallIntegerField(
         help_text=_('Workload percentage assigned to project from available workload available for project organization')
     )
-
