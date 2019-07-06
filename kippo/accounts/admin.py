@@ -1,10 +1,24 @@
 from django.contrib import admin
+from django.utils import timezone
+from django.contrib import messages
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.models import Group
 from social_django.models import Association, Nonce, UserSocialAuth
+
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
-from .models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
+from projects.functions import collect_existing_github_projects
+from tasks.periodic.tasks import collect_github_project_issues
+
+from .models import (
+    EmailDomain,
+    KippoOrganization,
+    KippoUser,
+    OrganizationMembership,
+    PersonalHoliday,
+    Country,
+    PublicHoliday
+)
 
 
 class EmailDomainAdminReadOnlyInline(admin.TabularInline):
@@ -84,6 +98,7 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'organization',
         'user',
+        'committed_days',
         'is_project_manager',
         'is_developer',
     )
@@ -113,6 +128,55 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
         EmailDomainAdminReadOnlyInline,
         EmailDomainAdminInline,
     )
+    actions = [
+        'collect_organization_projects_action',
+        'collect_github_project_issues_action'
+    ]
+
+    def collect_organization_projects_action(self, request, queryset):
+        for organization in queryset:
+            added_projects = collect_existing_github_projects(
+                organization=organization,
+                as_user=request.user
+            )
+
+            projects_string = ', '.join(p.name for p in added_projects)
+            msg = f'Added [{organization.name}] ({len(added_projects)}) {projects_string}'
+            self.message_user(
+                request,
+                msg,
+                level=messages.INFO
+            )
+    collect_organization_projects_action.short_description = _('Collect Organization Project(s)')
+
+    def collect_github_project_issues_action(self, request, queryset):
+        status_effort_date = timezone.now().date()
+        for organization in queryset:
+            processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count, unhandled_issues = collect_github_project_issues(
+                kippo_organization=organization,
+                status_effort_date=status_effort_date
+            )
+            warning_message = '' if not unhandled_issues else 'Partially '
+            message_level = messages.INFO if not unhandled_issues else messages.WARNING
+            msg = (
+                f'{warning_message}Updated [{organization.name}] ProcessedProjects({processed_projects})\n'
+                f'New KippoTasks: {new_task_count}\n'
+                f'New KippoTaskStatus: {new_taskstatus_count}\n'
+                f'Updated KippoTaskStatus: {updated_taskstatus_count}'
+            )
+            self.message_user(
+                request,
+                msg,
+                level=message_level
+            )
+            for issue, error_args in unhandled_issues:
+                msg = f'ERROR [{organization.name}] issue({issue.html_url}):  {error_args}'
+                self.message_user(
+                    request,
+                    msg,
+                    level=messages.ERROR
+                )
+    collect_github_project_issues_action.short_description = _('Collect Organization Project Issues')
 
 
 @admin.register(KippoUser)
@@ -123,6 +187,7 @@ class KippoUserAdmin(admin.ModelAdmin):
         'get_github_organizations',
         'last_name',
         'first_name',
+        'holiday_country',
         'date_joined',
         'last_login',
         'is_github_outside_collaborator',
@@ -157,6 +222,26 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         if getattr(obj, 'pk', None) is None:
             obj.user = request.user
         obj.save()
+
+
+@admin.register(Country)
+class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'name',
+        'alpha_2',
+        'alpha_3',
+        'country_code',
+        'region'
+    )
+
+
+@admin.register(PublicHoliday)
+class PublicHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'name',
+        'country',
+        'day',
+    )
 
 
 admin.site.unregister(UserSocialAuth)

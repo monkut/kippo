@@ -1,12 +1,27 @@
+import csv
 import logging
+from string import ascii_lowercase
 from django.contrib import admin, messages
+from django.utils import timezone
 from django.utils.html import format_html
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, HttpResponse
 from django.utils.translation import ugettext_lazy as _
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from ghorgs.managers import GithubOrganizationManager
-from .functions import collect_existing_github_projects
-from .models import KippoProject, ActiveKippoProject, KippoProjectStatus, KippoMilestone, ProjectColumnSet, ProjectColumn, GithubMilestoneAlreadyExists
+
+from tasks.models import KippoTaskStatus
+
+from .functions import collect_existing_github_projects, get_kippoproject_taskstatus_csv_rows
+from .models import (
+    KippoProject,
+    ActiveKippoProject,
+    KippoProjectStatus,
+    KippoMilestone,
+    ProjectColumnSet,
+    ProjectColumn,
+    ProjectAssignment,
+    GithubMilestoneAlreadyExists,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -179,6 +194,7 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
 create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')  # noqa: E305
 
 
+@admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'id',
@@ -211,6 +227,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
+        'export_project_kippotaskstatus_csv',
     ]
     inlines = [
         KippoMilestoneReadOnlyInline,
@@ -226,6 +243,37 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_confidence_display.admin_order_field = 'confidence'
     get_confidence_display.short_description = 'confidence'
+
+    def export_project_kippotaskstatus_csv(self, request, queryset):
+        """Allow export to csv from admin"""
+        if queryset.count() != 1:
+            self.message_user(
+                request,
+                _('CSV Export action only supports single Project selection'),
+                level=messages.ERROR
+            )
+        else:
+            project = queryset[0]
+            logger.debug(f'Generating KippoTaskStatus CSV for: {project.name}')
+            project_slug = ''.join(c for c in project.name.replace(' ', '').lower() if c in ascii_lowercase)
+            if not project_slug:
+                project_slug = project.id
+            filename = f'{project_slug}_{timezone.now().strftime("%Y%m%d_%H%M%Z")}.csv'
+            logger.debug(f'filename: {filename}')
+            response = HttpResponse(content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename={filename}'
+            writer = csv.writer(response)
+            try:
+                csv_row_generator = get_kippoproject_taskstatus_csv_rows(project, with_headers=True)
+                writer.writerows(csv_row_generator)
+                return response
+            except KippoTaskStatus.DoesNotExist:
+                self.message_user(
+                    request,
+                    _(f'No status entries exist for project: {project.name}'),
+                    level=messages.WARNING
+                )
+    export_project_kippotaskstatus_csv.short_description = _('Export KippoTaskStatus CSV')
 
     def get_latest_kippoprojectstatus_comment(self, obj):
         result = ''
@@ -256,16 +304,25 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         formset.save_m2m()
 
     def get_form(self, request, obj=None, **kwargs):
+        """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['project_manager'].initial = request.user.id
+
+        user_initial_organization = request.user.memberships.first()
+        if not user_initial_organization:
+            self.message_user(
+                request,
+                f'User has not OrganizationMembership defined! Must belong to an Organization to create a project',
+                level=messages.ERROR,
+            )
+        form.base_fields['organization'].initial = user_initial_organization
+        form.base_fields['organization'].queryset = request.user.memberships.all()
         return form
 
     def save_model(self, request, obj, form, change):
         if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
-            obj.organization = request.user.organization
-
             obj.created_by = request.user
             obj.updated_by = request.user
         else:
@@ -274,6 +331,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+@admin.register(KippoMilestone)
 class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'title',
@@ -305,7 +363,7 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return HttpResponseRedirect(project_url)
 
     def response_change(self, request, obj):
-        """Overridding Redirect to the KippoProject page after edit.
+        """Overriding Redirect to the KippoProject page after edit.
         """
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
@@ -316,6 +374,7 @@ class ProjectColumnInline(admin.TabularInline):
     extra = 3
 
 
+@admin.register(ProjectColumnSet)
 class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'name',
@@ -324,7 +383,18 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     inlines = [ProjectColumnInline]
 
 
-admin.site.register(KippoProject, KippoProjectAdmin)
+@admin.register(ProjectAssignment)
+class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
+    list_display = (
+        'project',
+        'get_project_organization',
+        'user'
+    )
+
+    def get_project_organization(self, obj):
+        organization_name = obj.project.organization.name
+        return organization_name
+    get_project_organization.short_description = _('Organization')
+
+
 admin.site.register(ActiveKippoProject, KippoProjectAdmin)
-admin.site.register(ProjectColumnSet, ProjectColumnSetAdmin)
-admin.site.register(KippoMilestone, KippoMilestoneAdmin)

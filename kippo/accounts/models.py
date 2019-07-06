@@ -157,6 +157,20 @@ class OrganizationMembership(UserCreatedBaseModel):
         help_text=_('Works Saturday')
     )
 
+    @property
+    def committed_days(self) -> int:
+        weekdays = (
+            'sunday',
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday'
+        )
+        result = sum(1 for day in weekdays if getattr(self, day))
+        return result
+
     def get_workday_identifers(self) -> List[str]:
         """Convert membership workdays to string list used by qlu scheduler"""
         workday_attrs = (
@@ -229,6 +243,13 @@ class KippoUser(AbstractUser):
         default=False,
         help_text=_('Set to True if User is an outside collaborator')
     )
+    holiday_country = models.ForeignKey(
+        'accounts.Country',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        help_text=_('Country that user participates in holidays')
+    )
 
     @property
     def display_name(self):
@@ -241,11 +262,14 @@ class KippoUser(AbstractUser):
                 date = holiday_start_date + timezone.timedelta(days=days)
                 yield date
 
+    def public_holiday_dates(self):
+        return PublicHoliday.objects.filter(country=self.holiday_country).values_list('day', flat=True)
+
 
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser,
                              on_delete=models.CASCADE,
-                             editable=False)
+                             editable=True)
     created_datetime = models.DateTimeField(editable=False,
                                             auto_now_add=True)
     is_half = models.BooleanField(default=False,
@@ -253,6 +277,53 @@ class PersonalHoliday(models.Model):
     day = models.DateField()
     duration = models.SmallIntegerField(default=1,
                                         help_text=_('How many days (including weekends/existing holidays)'))
+
+    def __str__(self):
+        return f'PersonalHoliday({self.user.username} [{self.day} ({self.duration})])'
+
+    class Meta:
+        ordering = ['-day']
+
+
+class Country(models.Model):
+    name = models.CharField(
+        max_length=130,
+        help_text=_('Name of Country')
+    )
+    alpha_2 = models.CharField(
+        max_length=2,
+        help_text=_('ISO-3166 2 letter abbreviation')
+    )
+    alpha_3 = models.CharField(
+        max_length=3,
+        help_text=_('ISO-3166 3 letter abbreviation')
+    )
+    country_code = models.CharField(
+        max_length=3,
+        help_text=_('ISO-3166 3 digit country-code')
+    )
+    region = models.CharField(
+        max_length=50,
+        help_text=_('Global Region')
+    )
+
+    def __str__(self):
+        return f'({self.alpha_3}) {self.name} '
+
+
+class PublicHoliday(models.Model):
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(
+        max_length=150,
+        help_text=_('Holiday Name')
+    )
+    day = models.DateField()
+
+    def __str__(self):
+        return f'{self.name} {self.day} ({self.country.alpha_3})'
 
     class Meta:
         ordering = ['-day']

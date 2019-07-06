@@ -15,6 +15,7 @@ def setup_basic_project():
     created_objects = {}
     user = KippoUser(
         username='octocat',
+        github_login='octocat',
         password='test',
         email='a@github.com',
         is_staff=True,
@@ -76,8 +77,10 @@ def setup_basic_project():
         title='githubcodesorg test task',
         category='test category',
         project=kippo_project,
+        assignee=user,
         created_by=user,
         updated_by=user,
+        github_issue_html_url='https://github.com/repos/octocat/Hello-World/issues/1347',
         github_issue_api_url="https://api.github.com/repos/octocat/Hello-World/issues/1347",
     )
     kippo_task.save()

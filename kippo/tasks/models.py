@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 from common.models import UserCreatedBaseModel
@@ -94,6 +95,11 @@ class KippoTaskStatus(UserCreatedBaseModel):
     maximum_estimate_days = models.FloatField(null=True,
                                               blank=True,
                                               help_text=_('Maximum number of days needed to complete the related KippoTask'))
+    tags = JSONField(
+        null=True,
+        blank=True,
+        help_text=_('Any tags related to the current task status')
+    )
     comment = models.TextField(null=True,
                                blank=True)
 

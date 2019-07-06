@@ -31,6 +31,16 @@
         "description": ""
     },
     {
+        "name": "category:testing",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
+        "name": "category:activity",
+        "color": "F8C471",
+        "description": ""
+    },
+    {
         "name": "category:design",
         "color": "F8C471",
         "description": ""
@@ -122,6 +132,11 @@
     },
     {
         "name": "flag:needs-triage",
+        "color": "FFFF00",
+        "description": ""
+    },
+    {
+        "name": "flag:on-hold",
         "color": "FFFF00",
         "description": ""
     },

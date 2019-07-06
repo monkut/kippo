@@ -118,7 +118,8 @@ def view_inprogress_projects_status(request):
             logger.warning(warning)
     else:
         # show project schedule chart
-        organization = request.user.organization
+        user_first_organization = request.user.memberships.first()
+        organization = user_first_organization
         if not organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
 

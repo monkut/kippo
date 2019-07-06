@@ -23,6 +23,43 @@ TUESDAY_WEEKDAY = 2
 DEFAULT_HOURSWORKED_DATERANGE = timezone.timedelta(days=7)
 
 
+class GithubIssuePrefixedLabel:
+
+    def __init__(self, label: object, prefix_delim: str = ':'):
+        self.label = label
+        self.prefix_delim = prefix_delim
+
+        # https://developer.github.com/v3/issues/labels/#get-a-single-label
+        label_attributes = (
+            'id',
+            'node_id',
+            'url',
+            'name',
+            'color',
+            'default'
+        )
+        for attrname in label_attributes:
+            attrvalue = getattr(label, attrname)
+            setattr(self, attrname, attrvalue)
+
+    @property
+    def prefix(self):
+        return self.name.split(self.prefix_delim)[0]
+
+    @property
+    def value(self):
+        return self.name.split(self.prefix_delim)[-1]
+
+
+def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ':') -> List[GithubIssuePrefixedLabel]:
+    """Process a label in the format of a prefix/value"""
+    prefixed_labels = []
+    for label in issue.labels:
+        prefixed_label = GithubIssuePrefixedLabel(label, prefix_delim=prefix_delim)
+        prefixed_labels.append(prefixed_label)
+    return prefixed_labels
+
+
 def get_github_issue_estimate_label(
         issue: GithubIssue,
         prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX,
@@ -89,7 +126,7 @@ def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_
     for label in issue.labels:
         if label.name.startswith(prefix):
             if category:
-                raise ValueError(f'Multiple Category labels applied on issue: {issue}')
+                raise ValueError(f'Multiple Category labels applied on issue: {issue.html_url}')
             category = label.name.split(prefix)[-1].strip()
     return category
 
@@ -257,6 +294,11 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                     raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.name}): '
                                      f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
                 milestone_id = related_milestone.id
+                logger.debug(
+                    f'Using KippoMilestone({related_milestone.title}) as QluMilestone({milestone_id}): '
+                    f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}'
+                )
+
                 qlu_milestone = QluMilestone(milestone_id,
                                              related_milestone.start_date,
                                              related_milestone.target_date)
@@ -266,6 +308,11 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
                     raise ValueError(f'"start_date" and "target_date" Project({project.name}): '
                                      f'start_date={project.start_date}, target_date={project.target_date}')
                 milestone_id = f'p-{status.task.project.id}'  # matches below in milestone creation
+                logger.debug(
+                    f'Using KippoProject({project.name}) as QluMilestone({milestone_id}): '
+                    f'start_date={project.start_date}, target_date={project.target_date}'
+                )
+
                 qlu_milestone = QluMilestone(milestone_id,
                                              status.task.project.start_date,
                                              status.task.project.target_date)
@@ -276,6 +323,9 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             priority_offset = 10 * state_priority_index
             task_absolute_priority = status.state_priority + priority_offset  # ok to overlap priorities for now
 
+            logger.debug(
+                f'QluTask.id={status.task.id}:{status.task.github_issue_html_url}'
+            )
             kippo_tasks[status.task.id] = status.task
             qtask = QluTask(
                 status.task.id,
@@ -301,7 +351,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
         )
 
         workdays[kippo_org_developer.github_login] = organization_membership.get_workday_identifers()
-        holidays[kippo_org_developer.github_login] = kippo_org_developer.personal_holiday_dates()
+        holidays[kippo_org_developer.github_login] = list(kippo_org_developer.personal_holiday_dates())
+        holidays[kippo_org_developer.github_login].extend(list(kippo_org_developer.public_holiday_dates()))
 
     scheduler = QluTaskScheduler(
         milestones=qlu_milestones,
@@ -347,7 +398,9 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
             'assignees': [],
             'project_assignee_grouped': [],
             'task_ids': [],
+            'task_urls': [],
             'task_titles': [],
+            'assignee_calendar_days': [],
             'task_estimate_days': [],
             'task_start_dates': [],
             'task_end_dates': [],
@@ -358,6 +411,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 logger.debug(f'assignee_filter({assignee_filter}) applied, skipping: {assignee}')
                 continue
             for task in projects_results[project_id][assignee]:
+                latest_kippotaskstatus = task.latest_kippotaskstatus()
                 data['project_ids'].append(project_id)
                 data['project_names'].append(task.project.name)
                 data['project_start_dates'].append(task.project.start_date)  # only 1 is really needed...
@@ -365,9 +419,11 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 data['assignees'].append(assignee)
                 data['project_assignee_grouped'].append((task.project.name, assignee))
                 data['task_ids'].append(task.id)
+                data['task_urls'].append(task.github_issue_html_url)
                 data['task_titles'].append(task.title)
                 estimate = task.qlu_task.end_date - task.qlu_task.start_date
-                data['task_estimate_days'].append(estimate.days)
+                data['assignee_calendar_days'].append(estimate.days)
+                data['task_estimate_days'].append(latest_kippotaskstatus.estimate_days)
                 data['task_start_dates'].append(task.qlu_task.start_date)
                 data['task_end_dates'].append(task.qlu_task.end_date)
                 project_populated = True
