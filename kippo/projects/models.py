@@ -276,10 +276,10 @@ class KippoProject(UserCreatedBaseModel):
         Generate and return the project survey URL pre-populated with project-id
         """
         url = ''
-        if self.organization.google_forms_project_survey_url and self.organization.google_forms_project_survery_projectid_fieldname:
+        if self.organization.google_forms_project_survey_url and self.organization.google_forms_project_survey_projectid_entryid:
             params = {
                 'usp': 'pp_url',  # not sure what this is (pre-populated url?)
-                self.organization.google_forms_project_survery_projectid_fieldname: self.id,
+                self.organization.google_forms_project_survey_projectid_entryid: self.id,
             }
             encoded_params = urlencode(params)
             url = f'{self.organization.google_forms_project_survey_url}?{encoded_params}'

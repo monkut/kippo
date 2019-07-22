@@ -48,7 +48,7 @@ class KippoOrganization(UserCreatedBaseModel):
         null=True,
         default=None,
         blank=True,
-        help_text=_('If defined newly identified GithubRepositorie will AUTOMATICALLY have this LabelSet assigned')
+        help_text=_('If defined newly identified GithubRepository will AUTOMATICALLY have this LabelSet assigned')
     )
     google_forms_project_survey_url = models.URLField(
         null=True,
@@ -56,12 +56,12 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_('If a "Project Survey" is defined, include here')
     )
-    google_forms_project_survery_projectid_fieldname = models.CharField(
+    google_forms_project_survey_projectid_entryid = models.CharField(
         max_length=255,
         null=True,
         default=None,
         blank=True,
-        help_text=_('"Project Identifier" field name in survey')
+        help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")')
     )
 
     @property
@@ -104,6 +104,11 @@ class KippoOrganization(UserCreatedBaseModel):
             updated_by=cli_manager_user,
         )
         membership.save()
+
+    def clean(self):
+        if self.google_forms_project_survey_url:
+            if not self.google_forms_project_survey_url.endswith('viewform'):
+                raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
 
     def save(self, *args, **kwargs):
         if not self.pk:
