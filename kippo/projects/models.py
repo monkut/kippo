@@ -1,5 +1,6 @@
 import logging
 import datetime
+import uuid
 from typing import List, Tuple
 
 from django.db import models
@@ -131,66 +132,105 @@ VALID_PROJECT_PHASES = (
 
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
-    organization = models.ForeignKey('accounts.KippoOrganization',
-                                     on_delete=models.CASCADE)
-    name = models.CharField(max_length=256,
-                            unique=True)
-    slug = models.CharField(max_length=300,
-                            unique=True,
-                            editable=False)
-    phase = models.CharField(max_length=150,
-                             default=DEFAULT_PROJECT_PHASE,
-                             choices=VALID_PROJECT_PHASES,
-                             help_text=_('State or phase of the project'))
-    confidence = models.PositiveSmallIntegerField(default=80,
-                                                  validators=(
-                                                      MaxValueValidator(100),
-                                                      MinValueValidator(0)
-                                                  ),
-                                                  help_text=_('0-100, Confidence level of the project proceeding to the next phase'))
-    category = models.CharField(max_length=256,
-                                default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
-    columnset = models.ForeignKey(ProjectColumnSet,
-                                  on_delete=models.DO_NOTHING,
-                                  help_text=_('ProjectColumnSet to use if/when a related Github project is created through Kippo'))
-    project_manager = models.ForeignKey('accounts.KippoUser',
-                                        on_delete=models.CASCADE,
-                                        null=True,
-                                        blank=True,
-                                        help_text=_('Project Manager assigned to the project'))
-    is_closed = models.BooleanField(_('Project is Closed'),
-                                    default=False,
-                                    help_text=_('Manually set when project is complete'))
-    display_as_active = models.BooleanField(_('Display as Active'),
-                                            default=True,
-                                            help_text=_('If True, project will be included in the ActiveKippoProject List'))
-    github_project_url = models.URLField(_('Github Project URL'),
-                                         null=True,
-                                         blank=True)
-    allocated_staff_days = models.PositiveIntegerField(null=True,
-                                                       blank=True,
-                                                       help_text=_('Estimated Staff Days needed for Project Completion'))
-    start_date = models.DateField(_('Start Date'),
-                                  null=True,
-                                  blank=True,
-                                  help_text=_('Date the Project requires engineering resources'))
-    target_date = models.DateField(_('Target Finish Date'),
-                                   null=True,
-                                   blank=True,
-                                   default=get_target_date_default,
-                                   help_text=_('Date the Project is planned to be completed by.'))
-    actual_date = models.DateField(_('Actual Completed Date'),
-                                   null=True,
-                                   blank=True,
-                                   help_text=_('The date the project was actually completed on (not the initial target)'))
-    document_url = models.URLField(_('Documentation Location URL'),
-                                   null=True,
-                                   blank=True,
-                                   help_text=_('URL of where documents for the projects are maintained'))
-    problem_definition = models.TextField(_('Project Problem Definition'),
-                                          null=True,
-                                          blank=True,
-                                          help_text=_('Define the problem that the project is set out to solve.'))
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    organization = models.ForeignKey(
+        'accounts.KippoOrganization',
+        on_delete=models.CASCADE
+    )
+    name = models.CharField(
+        max_length=256,
+        unique=True
+    )
+    slug = models.CharField(
+        max_length=300,
+        unique=True,
+        editable=False
+    )
+    phase = models.CharField(
+        max_length=150,
+        default=DEFAULT_PROJECT_PHASE,
+        choices=VALID_PROJECT_PHASES,
+        help_text=_('State or phase of the project')
+    )
+    confidence = models.PositiveSmallIntegerField(
+        default=80,
+        validators=(
+            MaxValueValidator(100),
+            MinValueValidator(0)
+        ),
+        help_text=_('0-100, Confidence level of the project proceeding to the next phase')
+    )
+    category = models.CharField(
+        max_length=256,
+        default=settings.DEFAULT_KIPPOPROJECT_CATEGORY
+    )
+    columnset = models.ForeignKey(
+        ProjectColumnSet,
+        on_delete=models.DO_NOTHING,
+        help_text=_('ProjectColumnSet to use if/when a related Github project is created through Kippo')
+    )
+    project_manager = models.ForeignKey(
+        'accounts.KippoUser',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text=_('Project Manager assigned to the project')
+    )
+    is_closed = models.BooleanField(
+        _('Project is Closed'),
+        default=False,
+        help_text=_('Manually set when project is complete')
+    )
+    display_as_active = models.BooleanField(
+        _('Display as Active'),
+        default=True,
+        help_text=_('If True, project will be included in the ActiveKippoProject List')
+    )
+    github_project_url = models.URLField(
+        _('Github Project URL'),
+        null=True,
+        blank=True
+    )
+    allocated_staff_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_('Estimated Staff Days needed for Project Completion')
+    )
+    start_date = models.DateField(
+        _('Start Date'),
+        null=True,
+        blank=True,
+        help_text=_('Date the Project requires engineering resources')
+    )
+    target_date = models.DateField(
+        _('Target Finish Date'),
+        null=True,
+        blank=True,
+        default=get_target_date_default,
+        help_text=_('Date the Project is planned to be completed by.')
+    )
+    actual_date = models.DateField(
+        _('Actual Completed Date'),
+        null=True,
+        blank=True,
+        help_text=_('The date the project was actually completed on (not the initial target)')
+    )
+    document_url = models.URLField(
+        _('Documentation Location URL'),
+        null=True,
+        blank=True,
+        help_text=_('URL of where documents for the projects are maintained')
+    )
+    problem_definition = models.TextField(
+        _('Project Problem Definition'),
+        null=True,
+        blank=True,
+        help_text=_('Define the problem that the project is set out to solve.')
+    )
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
