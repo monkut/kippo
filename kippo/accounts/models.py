@@ -18,28 +18,51 @@ logger = logging.getLogger(__name__)
 class KippoOrganization(UserCreatedBaseModel):
     name = models.CharField(max_length=256)
     github_organization_name = models.CharField(max_length=100)
-    day_workhours = models.PositiveSmallIntegerField(default=7,
-                                                     help_text=_('Defines the number of hours in the workday'))
-    default_task_category = models.CharField(max_length=256,
-                                             default=settings.DEFAULT_KIPPOTASK_CATEGORY,
-                                             null=True,
-                                             blank=True,
-                                             help_text=_('Default category to apply to KippoTask objects'))
-    default_task_display_state = models.CharField(max_length=150,
-                                                  default='in-progress',
-                                                  help_text=_('Default Task STATE to show on initial task view'))
-    default_columnset = models.ForeignKey('projects.ProjectColumnSet',
-                                          on_delete=models.DO_NOTHING,
-                                          null=True,
-                                          default=None,
-                                          blank=True,
-                                          help_text=_('If defined, this will be set as the default ColumnSet when a Project is created'))
-    default_labelset = models.ForeignKey('octocat.GithubRepositoryLabelSet',
-                                         on_delete=models.DO_NOTHING,
-                                         null=True,
-                                         default=None,
-                                         blank=True,
-                                         help_text=_('If defined newly identified GithubRepositorie will AUTOMATICALLY have this LabelSet assigned'))
+    day_workhours = models.PositiveSmallIntegerField(
+        default=7,
+        help_text=_('Defines the number of hours in the workday')
+    )
+    default_task_category = models.CharField(
+        max_length=256,
+        default=settings.DEFAULT_KIPPOTASK_CATEGORY,
+        null=True,
+        blank=True,
+        help_text=_('Default category to apply to KippoTask objects')
+    )
+    default_task_display_state = models.CharField(
+        max_length=150,
+        default='in-progress',
+        help_text=_('Default Task STATE to show on initial task view')
+    )
+    default_columnset = models.ForeignKey(
+        'projects.ProjectColumnSet',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If defined, this will be set as the default ColumnSet when a Project is created')
+    )
+    default_labelset = models.ForeignKey(
+        'octocat.GithubRepositoryLabelSet',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If defined newly identified GithubRepository will AUTOMATICALLY have this LabelSet assigned')
+    )
+    google_forms_project_survey_url = models.URLField(
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If a "Project Survey" is defined, include here')
+    )
+    google_forms_project_survey_projectid_entryid = models.CharField(
+        max_length=255,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")')
+    )
 
     @property
     def email_domains(self):
@@ -81,6 +104,11 @@ class KippoOrganization(UserCreatedBaseModel):
             updated_by=cli_manager_user,
         )
         membership.save()
+
+    def clean(self):
+        if self.google_forms_project_survey_url:
+            if not self.google_forms_project_survey_url.endswith('viewform'):
+                raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
 
     def save(self, *args, **kwargs):
         if not self.pk:
