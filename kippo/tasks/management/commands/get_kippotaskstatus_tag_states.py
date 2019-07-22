@@ -61,4 +61,3 @@ class Command(BaseCommand):
                     tag_values_status_count[tag['value']][status.state] += 1
         for name in sorted(tag_values_status_count):
             self.stdout.write(f'{name}: {tag_values_status_count[name]}')
-
