@@ -206,6 +206,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'get_latest_kippoprojectstatus_comment',
         'start_date',
         'target_date',
+        'get_projectsurvey_display_url',
         'show_github_project_url',
         'display_as_active',
         'updated_datetime',
@@ -243,6 +244,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_confidence_display.admin_order_field = 'confidence'
     get_confidence_display.short_description = 'confidence'
+
+    def get_projectsurvey_display_url(self, obj):
+        url = obj.get_projectsurvey_url()
+        html_encoded_url = ''
+        if url:
+            html_encoded_url = format_html(f"<a href='{url}'>Survey URL</a>")
+        return html_encoded_url
+    get_projectsurvey_display_url.short_description = _('Project Survey URL')
 
     def export_project_kippotaskstatus_csv(self, request, queryset):
         """Allow export to csv from admin"""

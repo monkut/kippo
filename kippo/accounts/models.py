@@ -18,28 +18,51 @@ logger = logging.getLogger(__name__)
 class KippoOrganization(UserCreatedBaseModel):
     name = models.CharField(max_length=256)
     github_organization_name = models.CharField(max_length=100)
-    day_workhours = models.PositiveSmallIntegerField(default=7,
-                                                     help_text=_('Defines the number of hours in the workday'))
-    default_task_category = models.CharField(max_length=256,
-                                             default=settings.DEFAULT_KIPPOTASK_CATEGORY,
-                                             null=True,
-                                             blank=True,
-                                             help_text=_('Default category to apply to KippoTask objects'))
-    default_task_display_state = models.CharField(max_length=150,
-                                                  default='in-progress',
-                                                  help_text=_('Default Task STATE to show on initial task view'))
-    default_columnset = models.ForeignKey('projects.ProjectColumnSet',
-                                          on_delete=models.DO_NOTHING,
-                                          null=True,
-                                          default=None,
-                                          blank=True,
-                                          help_text=_('If defined, this will be set as the default ColumnSet when a Project is created'))
-    default_labelset = models.ForeignKey('octocat.GithubRepositoryLabelSet',
-                                         on_delete=models.DO_NOTHING,
-                                         null=True,
-                                         default=None,
-                                         blank=True,
-                                         help_text=_('If defined newly identified GithubRepositorie will AUTOMATICALLY have this LabelSet assigned'))
+    day_workhours = models.PositiveSmallIntegerField(
+        default=7,
+        help_text=_('Defines the number of hours in the workday')
+    )
+    default_task_category = models.CharField(
+        max_length=256,
+        default=settings.DEFAULT_KIPPOTASK_CATEGORY,
+        null=True,
+        blank=True,
+        help_text=_('Default category to apply to KippoTask objects')
+    )
+    default_task_display_state = models.CharField(
+        max_length=150,
+        default='in-progress',
+        help_text=_('Default Task STATE to show on initial task view')
+    )
+    default_columnset = models.ForeignKey(
+        'projects.ProjectColumnSet',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If defined, this will be set as the default ColumnSet when a Project is created')
+    )
+    default_labelset = models.ForeignKey(
+        'octocat.GithubRepositoryLabelSet',
+        on_delete=models.DO_NOTHING,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If defined newly identified GithubRepositorie will AUTOMATICALLY have this LabelSet assigned')
+    )
+    google_forms_project_survey_url = models.URLField(
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('If a "Project Survey" is defined, include here')
+    )
+    google_forms_project_survery_projectid_fieldname = models.CharField(
+        max_length=255,
+        null=True,
+        default=None,
+        blank=True,
+        help_text=_('"Project Identifier" field name in survey')
+    )
 
     @property
     def email_domains(self):

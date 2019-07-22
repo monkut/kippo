@@ -1,6 +1,7 @@
 import logging
 import datetime
 import uuid
+from urllib.parse import urlencode
 from typing import List, Tuple
 
 from django.db import models
@@ -269,6 +270,20 @@ class KippoProject(UserCreatedBaseModel):
         except KippoProjectStatus.DoesNotExist:
             latest_kippoprojectstatus = None
         return latest_kippoprojectstatus
+
+    def get_projectsurvey_url(self):
+        """
+        Generate and return the project survey URL pre-populated with project-id
+        """
+        url = ''
+        if self.organization.google_forms_project_survey_url and self.organization.google_forms_project_survery_projectid_fieldname:
+            params = {
+                'usp': 'pp_url',  # not sure what this is (pre-populated url?)
+                self.organization.google_forms_project_survery_projectid_fieldname: self.id,
+            }
+            encoded_params = urlencode(params)
+            url = f'{self.organization.google_forms_project_survey_url}?{encoded_params}'
+        return url
 
     def active_milestones(self):
         today = timezone.now().date()
