@@ -295,7 +295,7 @@ class KippoProject(UserCreatedBaseModel):
         return description
 
     def save(self, *args, **kwargs):
-        if not self.id:
+        if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
         super().save(*args, **kwargs)
@@ -490,7 +490,7 @@ class KippoMilestone(UserCreatedBaseModel):
         return github_milestones
 
     def save(self, *args, **kwargs):
-        if not self.id:  # not defined only on initial creation!
+        if self._state.adding:  # created
             # assign project number
             existing_milestone_count = KippoMilestone.objects.filter(project=self.project).count()
             if existing_milestone_count > 1:
