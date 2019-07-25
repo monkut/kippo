@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import List
 from django.db import models
 from django.conf import settings
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class KippoOrganization(UserCreatedBaseModel):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     name = models.CharField(max_length=256)
     github_organization_name = models.CharField(max_length=100)
     day_workhours = models.PositiveSmallIntegerField(
@@ -253,6 +259,11 @@ class OrganizationMembership(UserCreatedBaseModel):
 
 
 class KippoUser(AbstractUser):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     memberships = models.ManyToManyField(
         KippoOrganization,
         through='OrganizationMembership',
