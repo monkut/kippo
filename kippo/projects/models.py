@@ -232,6 +232,15 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_('Define the problem that the project is set out to solve.')
     )
+    survey_issued = models.BooleanField(
+        default=False,
+        help_text=_('Update when survey is issued!')
+    )
+    survey_issued_datetime = models.DateTimeField(
+        null=True,
+        editable=False,
+        help_text=_('Updated when "survey_issued" flag is set')
+    )
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
@@ -310,6 +319,12 @@ class KippoProject(UserCreatedBaseModel):
         return description
 
     def save(self, *args, **kwargs):
+        if self.survey_issued and not self.survey_issued_datetime:
+            self.survey_issued_datetime = timezone.now()
+
+        if self.is_closed and not self.closed_datetime:
+            self.closed_datetime = timezone.now()
+
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
