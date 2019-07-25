@@ -46,6 +46,19 @@ def estimate_prefixes_default():
 
 
 class ProjectColumnSet(models.Model):  # not using userdefined model in order to make model definitions more portable
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    organization = models.ForeignKey(
+        "accounts.KippoOrganization",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_('The organization that the columnset belongs to(if null all project may use it)')
+    )
     name = models.CharField(max_length=256,
                             verbose_name=_('Project Column Set Name'))
     created_datetime = models.DateTimeField(auto_now_add=True,
@@ -368,6 +381,11 @@ class GithubMilestoneAlreadyExists(Exception):
 @reversion.register()
 class KippoMilestone(UserCreatedBaseModel):
     """Provides milestone definition and mapping to a Github Repository Milestone"""
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     project = models.ForeignKey(KippoProject,
                                 on_delete=models.CASCADE,
                                 verbose_name=_('Kippo Project'),
