@@ -1,10 +1,5 @@
 """
-Collect existing github organizational projects and create the related KippoProject objects
-for task perodic task collection
-
-Can be run via zappa with the command:
-
-    zappa manage dev "update_github_tasks --github-organization-name {MY ORG GITHUB NAME}
+Script to load from old db to the new (2019-7-26) db structure
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.translation import ugettext as _
