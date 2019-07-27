@@ -23,7 +23,10 @@ class KippoOrganization(UserCreatedBaseModel):
         editable=False
     )
     name = models.CharField(max_length=256)
-    github_organization_name = models.CharField(max_length=100)
+    github_organization_name = models.CharField(
+        max_length=100,
+        unique=True
+    )
     day_workhours = models.PositiveSmallIntegerField(
         default=7,
         help_text=_('Defines the number of hours in the workday')
@@ -125,9 +128,6 @@ class KippoOrganization(UserCreatedBaseModel):
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.name}-{self.github_organization_name})'
-
-    class Meta:
-        unique_together = ('name', 'github_organization_name')
 
 
 class EmailDomain(UserCreatedBaseModel):
