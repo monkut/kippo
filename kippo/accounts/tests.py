@@ -311,7 +311,7 @@ class KippoUserCreationTestCase(TestCase):
         membership.save()
 
         users = self.org.get_github_developer_kippousers()
-        self.assertTrue(len(users) == 3)  # users created in setUp + auto-created 'unassigned' user
+        self.assertTrue(len(users) == 3, f'len(users)[{len(users)}] != expected(3)')  # users created in setUp + auto-created 'unassigned' user
 
         expected_usernames = (
             'otheruser',
