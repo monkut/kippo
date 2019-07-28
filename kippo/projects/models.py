@@ -27,7 +27,7 @@ from .exceptions import ProjectColumnSetError
 
 logger = logging.getLogger(__name__)
 
-UNASSIGNED_USER_GITHUB_LOGIN = settings.UNASSIGNED_USER_GITHUB_LOGIN
+UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
 GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
 
@@ -264,7 +264,7 @@ class KippoProject(UserCreatedBaseModel):
         return {t.assignee for t in KippoTask.filter(
             project=self,
             assignee__is_developer=True
-        ).exclude(assignee__github_login=UNASSIGNED_USER_GITHUB_LOGIN)}
+        ).exclude(assignee__github_login__startswith=UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)}
 
     def get_admin_url(self):
         return f'{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change'
