@@ -12,6 +12,9 @@ from ..functions import (
 )
 
 
+DEFAULT_COLUMNSET_PK = '414e69c8-8ea3-4c9c-8129-6f5aac108fa2'
+
+
 class LabelMock:
 
     def __init__(self, name, **kwargs):
@@ -265,7 +268,7 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user2_membership.save()
 
-        columnset = ProjectColumnSet.objects.get(pk=1)
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         self.kippoproject = KippoProject(
             name='testproject',
             organization=self.organization,
