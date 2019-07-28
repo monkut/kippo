@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from tasks.periodic.tasks import OrganizationIssueProcessor, get_existing_kippo_project, collect_github_project_issues
 from projects.models import KippoProject, ActiveKippoProject, ProjectColumnSet
-from accounts.models import KippoUser, KippoOrganization
+from accounts.models import KippoUser, KippoOrganization, OrganizationMembership
 from octocat.models import GithubAccessToken
 from common.tests import DEFAULT_COLUMNSET_PK
 

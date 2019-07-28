@@ -9,6 +9,7 @@ from django.core.validators import validate_email
 from django.utils import timezone
 from django.dispatch import receiver
 from django.db.models.signals import pre_delete
+from django.utils.text import slugify
 from django.utils.translation import ugettext_lazy as _
 from common.models import UserCreatedBaseModel
 
@@ -78,6 +79,10 @@ class KippoOrganization(UserCreatedBaseModel):
         domains = EmailDomain.objects.filter(organization=self)
         return domains
 
+    @property
+    def slug(self):
+        return slugify(self.name, allow_unicode=True)
+
     def get_github_developer_kippousers(self):
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
 
@@ -91,11 +96,11 @@ class KippoOrganization(UserCreatedBaseModel):
         developer_users = [m.user for m in developer_memberships]
         return developer_users
 
-    def create_organization_unassigned_kippouser(self):
+    def create_unassigned_kippouser(self):
         # AUTO-CREATE organization specific unassigned user
         cli_manager_user = get_climanager_user()
-        unassigned_username = f'github-unassigned-{self.name}'
-        unassigned_github_login = f'unassigned-{self.slug}'
+        unassigned_username = f'{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}-{self.slug}'
+        unassigned_github_login = unassigned_username
         logger.info(f'Creating ({unassigned_github_login}) user for: {self.name}')
         user = KippoUser(
             username=unassigned_username,
@@ -127,9 +132,9 @@ class KippoOrganization(UserCreatedBaseModel):
                 raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
 
     def save(self, *args, **kwargs):
-        if not self.pk:
+        if self._state.adding:  # created (for when using UUIDField as id)
             super().save(*args, **kwargs)
-            self.create_organization_unassigned_kippouser()
+            self.create_unassigned_kippouser()
         else:
             super().save(*args, **kwargs)
 
