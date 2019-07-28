@@ -29,11 +29,12 @@ class Command(BaseCommand):
     help = __doc__
 
     def add_arguments(self, parser):
-        parser.add_argument('-d', '--dbname',
-                            type=str,
-                            default=None,
-                            required=True,
-                            help=_('Database name to migrate data from')
+        parser.add_argument(
+            '-d', '--dbname',
+            type=str,
+            default=None,
+            required=True,
+            help=_('Database name to migrate data from')
         )
         parser.add_argument(
             '--host',

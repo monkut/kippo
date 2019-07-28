@@ -68,14 +68,13 @@ class Command(BaseCommand):
             help='DEFAULT Country ALPHA3 code'
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options):  # noqa: C901
         jsongz_filepath = Path(options['jsongz'])
         if not jsongz_filepath.exists():
             raise CommandError(f'File not found: {options["jsongz"]}')
 
         default_user_country = Country.objects.get(alpha_3=options['country'])
         jsonparser = DjangoJsonParser(jsongz_filepath)
-
 
         # load users
         existing_users = {u.github_login: u for u in KippoUser.objects.filter(github_login__isnull=False)}
@@ -156,7 +155,6 @@ class Command(BaseCommand):
                         thursday=True,
                         friday=True,
                         saturday=True
-
                     )
                     self.stdout.write(f'Create NEW: {membership}')
                     membership.save()
