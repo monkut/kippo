@@ -95,7 +95,7 @@ class KippoOrganization(UserCreatedBaseModel):
         # AUTO-CREATE organization specific unassigned user
         cli_manager_user = get_climanager_user()
         unassigned_username = f'github-unassigned-{self.name}'
-        unassigned_github_login = settings.UNASSIGNED_USER_GITHUB_LOGIN
+        unassigned_github_login = f'unassigned-{self.slug}'
         logger.info(f'Creating ({unassigned_github_login}) user for: {self.name}')
         user = KippoUser(
             username=unassigned_username,
@@ -113,6 +113,13 @@ class KippoOrganization(UserCreatedBaseModel):
             updated_by=cli_manager_user,
         )
         membership.save()
+
+    def get_unassigned_kippouser(self):
+        membership = OrganizationMembership.objects.get(
+            organization=self,
+            user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX,
+        )
+        return membership.user
 
     def clean(self):
         if self.google_forms_project_survey_url:
