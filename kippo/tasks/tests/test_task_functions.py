@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from accounts.models import KippoOrganization, KippoUser, EmailDomain, OrganizationMembership
 from projects.models import KippoProject, ProjectColumnSet
+from common.tests import DEFAULT_COLUMNSET_PK
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
     get_github_issue_prefixed_labels,
@@ -10,9 +11,6 @@ from ..functions import (
     get_github_issue_category_label,
     get_projects_load
 )
-
-
-DEFAULT_COLUMNSET_PK = '414e69c8-8ea3-4c9c-8129-6f5aac108fa2'
 
 
 class LabelMock:
