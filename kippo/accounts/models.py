@@ -262,7 +262,7 @@ class OrganizationMembership(UserCreatedBaseModel):
             self.user.save()
 
     def __str__(self):
-        return f'{self.organization}:{self.user.username}'
+        return f'OrganizationMembership({self.organization}:{self.user.username})'
 
 
 class KippoUser(AbstractUser):
