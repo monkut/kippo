@@ -139,13 +139,27 @@ WEBHOOK_EVENT_STATES = (
 
 
 class GithubWebhookEvent(models.Model):
-    created_datetime = models.DateTimeField(auto_now_add=True,
-                                            editable=False)
-    updated_datetime = models.DateTimeField(auto_now=True,
-                                            editable=False)
-    state = models.CharField(max_length=15,
-                             default='unprocessed',
-                             choices=WEBHOOK_EVENT_STATES)
-    related_project = models.ForeignKey('projects.KippoProject',
-                                        on_delete=models.CASCADE)
+    organization = models.ForeignKey(
+        'accounts.KippoOrganization',
+        on_delete=models.CASCADE,
+        help_text=_('Organization to which event belongs to')
+    )
+    created_datetime = models.DateTimeField(
+        auto_now_add=True,
+        editable=False
+    )
+    updated_datetime = models.DateTimeField(
+        auto_now=True,
+        editable=False
+    )
+    state = models.CharField(
+        max_length=15,
+        default='unprocessed',
+        choices=WEBHOOK_EVENT_STATES
+    )
+    related_project = models.ForeignKey(
+        'projects.KippoProject',
+        on_delete=models.CASCADE,
+        null=True,
+    )
     event = fields.JSONField()

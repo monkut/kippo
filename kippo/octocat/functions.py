@@ -1,12 +1,12 @@
 import os
 import logging
-from time import sleep
 from distutils.util import strtobool
 from collections import defaultdict
 
 from zappa.asynchronous import task
 from tasks.models import KippoTask
 from tasks.periodic.tasks import collect_github_project_issues
+from accounts.models import KippoOrganization
 from .models import GithubWebhookEvent
 
 
@@ -27,6 +27,24 @@ def process_unprocessed_events():
         # get unique projects from events
         organization_specific_github_projects = defaultdict(set)
         for event in events:
+            # created, edited, moved, converted, or deleted
+            # https://developer.github.com/v3/activity/events/types/#projectcardevent
+            if event.action == 'created':
+                raise NotADirectoryError
+            elif event.action == 'edited':
+                # update title/assignees/comment, etc
+                # --> check 'changes'
+                raise NotADirectoryError
+            elif event.action == 'moved':
+                # update state to column-state
+                raise NotADirectoryError
+            elif event.action == 'converted':
+                # --> check 'changes'
+                raise NotADirectoryError
+            elif event.action == 'deleted':
+                # update status
+                raise NotADirectoryError
+
             organization_specific_github_projects[event.related_project.organization].add(event.related_project.github_project_url)
 
         if not KIPPO_TESTING:
@@ -41,18 +59,7 @@ def process_unprocessed_events():
     return event_ids
 
 
-@task
-def wait_and_process(wait_seconds=THREE_MINUTES):
-    """
-    Buffer to wait while user makes multiple changes to reduce updates per project
-    :return:
-    """
-    seconds = int(os.getenv('KIPPO_WEBHOOK_WAIT_SECONDS', str(wait_seconds)))
-    sleep(seconds)
-    process_unprocessed_events()
-
-
-def process_incoming_project_card_event(event):
+def process_incoming_project_card_event(organization: KippoOrganization, event: dict) -> GithubWebhookEvent:
     # card should contain a 'content_url' representing the issue attached (if an issue card)
     # - Use the 'content_url' to retrieve the internally managed issue,
     # - find the related project and issue an update for that project
@@ -61,15 +68,24 @@ def process_incoming_project_card_event(event):
     # Accept any event (ignoring action)
     if 'content_url' in event['project_card']:
         content_url = event['project_card']['content_url']
+        logger.debug(f'incoming event: {event}')
+        project = None
         try:
-            kippo_task = KippoTask.objects.get(github_issue_api_url=content_url)
-            e = GithubWebhookEvent(
-                event=event,
-                related_project=kippo_task.project
+            kippo_task = KippoTask.objects.get(
+                project__organization=organization,
+                github_issue_api_url=content_url
             )
-            e.save()
-            wait_and_process()
+            project = kippo_task.project
         except KippoTask.DoesNotExist:
-            logger.warning(f'Unable to process event, related KippoTask not found for content_url: {content_url}')
+            logger.warning(f'No related KippoTask not found for content_url: {content_url}')
+        webhook_event = GithubWebhookEvent(
+            organization=organization,
+            event=event,
+            related_project=project
+        )
+        webhook_event.save()
     else:
         logger.warning(f'SKIPPING -- "content_url" not found in: {event["project_card"]}')
+        raise ValueError(f'"content_url" not found in event["project_card"]: {event}')
+
+    return webhook_event
