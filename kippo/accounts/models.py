@@ -96,6 +96,10 @@ class KippoOrganization(UserCreatedBaseModel):
         developer_users = [m.user for m in developer_memberships]
         return developer_users
 
+    @property
+    def webhook_url(self):
+        return f'{settings.URL_PREFIX}/octocat/webhook/{self.pk}/'
+
     def create_unassigned_kippouser(self):
         # AUTO-CREATE organization specific unassigned user
         cli_manager_user = get_climanager_user()
