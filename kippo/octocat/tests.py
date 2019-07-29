@@ -6,6 +6,7 @@ from django.conf import settings
 from django.test import TestCase, Client
 
 from common.tests import setup_basic_project, DEFAULT_FIXTURES
+from accounts.models import KippoOrganization
 from .models import GithubWebhookEvent
 from .functions import process_incoming_project_card_event
 
@@ -19,8 +20,8 @@ class WebhookTestCase(TestCase):
 
     def setUp(self):
         setup_basic_project()
+        self.organization = KippoOrganization.objects.get(name='github')
 
-    #@mock.patch('Client.post', side_effect=mocked_client_post_response_201)
     def test_project_card_webhook(self):
         c = Client()
 
@@ -28,7 +29,7 @@ class WebhookTestCase(TestCase):
         with project_card_asissue_webhook_event_filepath.open('r', encoding='utf8') as asissue:
             project_card_asissue_webhook_event_body = json.loads(asissue.read())
 
-        response = c.post(f'{settings.URL_PREFIX}/octocat/webhook/',
+        response = c.post(f'{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/',
                           content_type='application/json',
                           data=project_card_asissue_webhook_event_body,
                           follow=True,
@@ -48,33 +49,33 @@ class WebhookTestCase(TestCase):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = process_incoming_project_card_event(event)
+        prepared_webhookevent = process_incoming_project_card_event(self.organization, event)
         self.assertTrue(prepared_webhookevent)
 
     def test_process_incoming_project_card_event__edited(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_edited.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = process_incoming_project_card_event(event)
+        prepared_webhookevent = process_incoming_project_card_event(self.organization, event)
         self.assertTrue(prepared_webhookevent)
 
     def test_process_incoming_project_card_event__moved(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_moved.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = process_incoming_project_card_event(event)
+        prepared_webhookevent = process_incoming_project_card_event(self.organization, event)
         self.assertTrue(prepared_webhookevent)
 
     def test_process_incoming_project_card_event__converted(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_converted.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = process_incoming_project_card_event(event)
+        prepared_webhookevent = process_incoming_project_card_event(self.organization, event)
         self.assertTrue(prepared_webhookevent)
 
     def test_process_incoming_project_card_event__deleted(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_deleted.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = process_incoming_project_card_event(event)
+        prepared_webhookevent = process_incoming_project_card_event(self.organization, event)
         self.assertTrue(prepared_webhookevent)

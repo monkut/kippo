@@ -1,14 +1,17 @@
 import json
 import logging
+from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, HttpResponseBadRequest
 from .functions import process_incoming_project_card_event
+from .models import KippoOrganization
 
 
 logger = logging.getLogger(__name__)
 
 
-def webhook(request):
+def webhook(request, organization_id: str):
     logger.info('webhook request received')
+    organization = get_object_or_404(KippoOrganization, pk=organization_id)
     if request.method == 'POST':
         # Github Webhook headers:
         # https://developer.github.com/webhooks/#delivery-headers
@@ -20,7 +23,7 @@ def webhook(request):
             logger.debug(f'decoding webhook event_type: {event_type}')
             body = json.loads(request.body.decode('utf8'))
             logger.debug(f'processing webhook event_type: {event_type}')
-            process_incoming_project_card_event(body)
+            process_incoming_project_card_event(organization, body)
             return HttpResponse(status=201, content='201 Created')
         else:
             return HttpResponseBadRequest(f'Unsupported event: {event_type}')
