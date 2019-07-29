@@ -73,6 +73,10 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")')
     )
+    webhook_secret = models.CharField(
+        max_length=20,
+        help_text=_('Github Webhook Secret')
+    )
 
     @property
     def email_domains(self):
