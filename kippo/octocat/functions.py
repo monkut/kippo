@@ -1,6 +1,5 @@
 import os
 import logging
-from time import sleep
 from distutils.util import strtobool
 from collections import defaultdict
 
@@ -45,7 +44,6 @@ def process_unprocessed_events():
             elif event.action == 'deleted':
                 # update status
                 raise NotADirectoryError
-
 
             organization_specific_github_projects[event.related_project.organization].add(event.related_project.github_project_url)
 
