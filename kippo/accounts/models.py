@@ -1,5 +1,7 @@
 import logging
 import uuid
+import string
+import random
 from typing import List
 from django.db import models
 from django.conf import settings
@@ -15,6 +17,11 @@ from common.models import UserCreatedBaseModel
 
 
 logger = logging.getLogger(__name__)
+
+
+def generate_random_secret(n: int = 20) -> str:
+    """Generate a random string of n length"""
+    return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(n))
 
 
 class KippoOrganization(UserCreatedBaseModel):
@@ -75,6 +82,8 @@ class KippoOrganization(UserCreatedBaseModel):
     )
     webhook_secret = models.CharField(
         max_length=20,
+        default=generate_random_secret,
+        editable=False,
         help_text=_('Github Webhook Secret')
     )
 

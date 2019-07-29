@@ -116,6 +116,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
         'github_organization_name',
         'default_task_category',
         'google_forms_project_survey_url',
+        'webhook_secret',
         'webhook_url',
         'updated_by',
         'updated_datetime',
