@@ -73,10 +73,11 @@ class WebhookTestCase(TestCase):
             'X_GITHUB_EVENT': 'project_card',
             'X-Hub-Signature': sig,
         }
-        response = c.post(
+        response = c.generic(
+            'POST',
             f'{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/',
+            content,
             content_type='application/json',
-            data=project_card_asissue_webhook_event_body,
             follow=True,
             **headers
         )
@@ -91,10 +92,11 @@ class WebhookTestCase(TestCase):
         headers = {
             'X_GITHUB_EVENT': 'project_card',
         }
-        response = c.post(
+        response = c.generic(
+            'POST',
             f'{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/',
+            content,
             content_type='application/json',
-            data=project_card_asissue_webhook_event_body,
             follow=True,
             **headers
         )
