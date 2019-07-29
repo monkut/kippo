@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.contrib.postgres import fields
 from django.conf import settings
@@ -13,6 +14,11 @@ GITHUB_REPOSITORY_NAME_MAX_LENGTH = 100
 
 
 class GithubRepositoryLabelSet(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     name = models.CharField(max_length=120,
                             help_text=_('Reference Name For LabelSet'))
     labels = JSONField(help_text='Labels defined in the format: '
@@ -27,6 +33,11 @@ class GithubRepositoryLabelSet(models.Model):
 
 
 class GithubRepository(UserCreatedBaseModel):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     organization = models.ForeignKey(KippoOrganization,
                                      on_delete=models.CASCADE)
     name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH,
@@ -58,6 +69,11 @@ class GithubMilestone(UserCreatedBaseModel):
     Therefore multiple GithubMilestone objects may exist for a single KippoMilestone,
     in order to represent a single *logical* milestone across multiple Github Repositories.
     """
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     milestone = models.ForeignKey('projects.KippoMilestone',
                                   verbose_name=_('Kippo Milestone'),
                                   on_delete=models.CASCADE,
@@ -99,6 +115,11 @@ def webhook_events_default():
 
 
 class GithubOrganizationalWebhook(UserCreatedBaseModel):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     organization = models.ForeignKey('accounts.KippoOrganization',
                                      on_delete=models.CASCADE)
     hook_id = models.PositiveSmallIntegerField(null=True,

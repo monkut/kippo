@@ -4,6 +4,8 @@ from django.test import TestCase
 from accounts.models import KippoOrganization, KippoUser, EmailDomain, OrganizationMembership
 from tasks.models import KippoTask, KippoTaskStatus
 
+from common.tests import DEFAULT_COLUMNSET_PK
+
 from ..models import KippoProject, ProjectColumnSet
 from ..charts.functions import get_project_weekly_effort
 
@@ -70,7 +72,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
         )
         self.user2_membership.save()
 
-        columnset = ProjectColumnSet.objects.get(pk=1)
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         self.kippoproject = KippoProject(
             name='testproject',
             organization=self.organization,

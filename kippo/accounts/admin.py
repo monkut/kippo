@@ -112,6 +112,7 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
 class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
     list_display = (
         'name',
+        'id',
         'github_organization_name',
         'default_task_category',
         'google_forms_project_survey_url',
@@ -184,6 +185,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
 class KippoUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
+        'id',
         'github_login',
         'get_github_organizations',
         'last_name',

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import List
 from django.db import models
 from django.conf import settings
@@ -8,6 +9,7 @@ from django.core.validators import validate_email
 from django.utils import timezone
 from django.dispatch import receiver
 from django.db.models.signals import pre_delete
+from django.utils.text import slugify
 from django.utils.translation import ugettext_lazy as _
 from common.models import UserCreatedBaseModel
 
@@ -16,8 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 class KippoOrganization(UserCreatedBaseModel):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     name = models.CharField(max_length=256)
-    github_organization_name = models.CharField(max_length=100)
+    github_organization_name = models.CharField(
+        max_length=100,
+        unique=True
+    )
     day_workhours = models.PositiveSmallIntegerField(
         default=7,
         help_text=_('Defines the number of hours in the workday')
@@ -69,6 +79,10 @@ class KippoOrganization(UserCreatedBaseModel):
         domains = EmailDomain.objects.filter(organization=self)
         return domains
 
+    @property
+    def slug(self):
+        return slugify(self.name, allow_unicode=True)
+
     def get_github_developer_kippousers(self):
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
 
@@ -82,11 +96,11 @@ class KippoOrganization(UserCreatedBaseModel):
         developer_users = [m.user for m in developer_memberships]
         return developer_users
 
-    def create_organization_unassigned_kippouser(self):
+    def create_unassigned_kippouser(self):
         # AUTO-CREATE organization specific unassigned user
         cli_manager_user = get_climanager_user()
-        unassigned_username = f'github-unassigned-{self.name}'
-        unassigned_github_login = settings.UNASSIGNED_USER_GITHUB_LOGIN
+        unassigned_username = f'{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}-{self.slug}'
+        unassigned_github_login = unassigned_username
         logger.info(f'Creating ({unassigned_github_login}) user for: {self.name}')
         user = KippoUser(
             username=unassigned_username,
@@ -105,23 +119,27 @@ class KippoOrganization(UserCreatedBaseModel):
         )
         membership.save()
 
+    def get_unassigned_kippouser(self):
+        membership = OrganizationMembership.objects.get(
+            organization=self,
+            user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX,
+        )
+        return membership.user
+
     def clean(self):
         if self.google_forms_project_survey_url:
             if not self.google_forms_project_survey_url.endswith('viewform'):
                 raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
 
     def save(self, *args, **kwargs):
-        if not self.pk:
+        if self._state.adding:  # created (for when using UUIDField as id)
             super().save(*args, **kwargs)
-            self.create_organization_unassigned_kippouser()
+            self.create_unassigned_kippouser()
         else:
             super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.__class__.__name__}({self.name}-{self.github_organization_name})'
-
-    class Meta:
-        unique_together = ('name', 'github_organization_name')
 
 
 class EmailDomain(UserCreatedBaseModel):
@@ -249,10 +267,15 @@ class OrganizationMembership(UserCreatedBaseModel):
             self.user.save()
 
     def __str__(self):
-        return f'{self.organization}:{self.user.username}'
+        return f'OrganizationMembership({self.organization}:{self.user.username})'
 
 
 class KippoUser(AbstractUser):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     memberships = models.ManyToManyField(
         KippoOrganization,
         through='OrganizationMembership',

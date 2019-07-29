@@ -43,10 +43,6 @@ jobs:
             - ./venv
             - /usr/local/bin
             - /usr/local/bin/lib/python3.7/site-packages
-      - run:
-          name: run code checks
-          command: |
-            python3.7 -m pipenv run make check
 
       - run:
           name: prepare database
@@ -58,6 +54,11 @@ jobs:
           name: run tests
           command: |
             make test
+
+      - run:
+          name: run code checks
+          command: |
+            python3.7 -m pipenv run make check
 
       - store_artifacts:
           path: test-reports

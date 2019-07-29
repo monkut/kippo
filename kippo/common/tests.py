@@ -10,6 +10,8 @@ DEFAULT_FIXTURES = [
     'default_labelset',
 ]
 
+DEFAULT_COLUMNSET_PK = '414e69c8-8ea3-4c9c-8129-6f5aac108fa2'
+
 
 def setup_basic_project():
     created_objects = {}
@@ -61,7 +63,7 @@ def setup_basic_project():
     access_token.save()
     created_objects['GithubAccessToken'] = access_token
 
-    default_columnset = ProjectColumnSet.objects.get(pk=1)
+    default_columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
     kippo_project = KippoProject(
         organization=organization,
         name='octocat-test-project',

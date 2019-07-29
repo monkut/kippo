@@ -223,7 +223,7 @@ URL_PREFIX = ''
 TEST = False
 
 # internally defined users
-UNASSIGNED_USER_GITHUB_LOGIN = 'unassigned'  # for managing unassigned github tasks
+UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = 'unassigned'  # for managing unassigned github tasks
 DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX = 'category:'
 DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX = 'estimate:'
 GITHUB_MILESTONE_CLOSE_STATE = 'closed'

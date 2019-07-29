@@ -1,9 +1,10 @@
 [
 {
     "model": "projects.projectcolumnset",
-    "pk": 1,
+    "pk": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
     "fields": {
         "name": "Standard Five Column Set",
+        "organization": null,
         "created_datetime": "2018-08-31T22:31:06.468Z",
         "updated_datetime": "2018-08-31T22:31:06.468Z",
         "label_category_prefixes": "[\"category:\", \"cat:\"]",
@@ -14,7 +15,7 @@
     "model": "projects.projectcolumn",
     "pk": 1,
     "fields": {
-        "columnset": 1,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
         "index": 0,
         "name": "backlog",
         "is_active": false,
@@ -25,7 +26,7 @@
     "model": "projects.projectcolumn",
     "pk": 2,
     "fields": {
-        "columnset": 1,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
         "index": 1,
         "name": "planning",
         "is_active": true,
@@ -36,7 +37,7 @@
     "model": "projects.projectcolumn",
     "pk": 3,
     "fields": {
-        "columnset": 1,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
         "index": 2,
         "name": "in-progress",
         "is_active": true,
@@ -47,7 +48,7 @@
     "model": "projects.projectcolumn",
     "pk": 4,
     "fields": {
-        "columnset": 1,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
         "index": 3,
         "name": "in-review",
         "is_active": true,
@@ -58,7 +59,7 @@
     "model": "projects.projectcolumn",
     "pk": 5,
     "fields": {
-        "columnset": 1,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
         "index": 4,
         "name": "done",
         "is_active": false,

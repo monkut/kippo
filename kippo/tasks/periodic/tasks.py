@@ -56,8 +56,9 @@ class OrganizationIssueProcessor:
         self.existing_open_projects = existing_open_projects
 
         self.kippo_github_users = {u.github_login: u for u in organization.get_github_developer_kippousers()}
-        if settings.UNASSIGNED_USER_GITHUB_LOGIN not in self.kippo_github_users:
-            raise KippoConfigurationError(f'"{settings.UNASSIGNED_USER_GITHUB_LOGIN}" must be created as a User to manage unassigned tasks')
+        self.unassigned_user = self.organization.get_unassigned_kippouser()
+        if not self.unassigned_user:
+            raise KippoConfigurationError(f'Username starting with "{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}" required to manage unassigned tasks')
 
     def github_projects(self):
         return self.manager.projects()
@@ -150,7 +151,7 @@ class OrganizationIssueProcessor:
             if not developer_assignees:
                 # assign task to special 'unassigned' user if task is not assigned to anyone
                 logger.warning(f'No developer_assignees identified for issue: {issue.html_url}')
-                developer_assignees = [settings.UNASSIGNED_USER_GITHUB_LOGIN]
+                developer_assignees = [self.unassigned_user.github_login]
 
             estimate_denominator = len(developer_assignees)
             for issue_assignee in developer_assignees:

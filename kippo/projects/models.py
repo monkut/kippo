@@ -27,7 +27,7 @@ from .exceptions import ProjectColumnSetError
 
 logger = logging.getLogger(__name__)
 
-UNASSIGNED_USER_GITHUB_LOGIN = settings.UNASSIGNED_USER_GITHUB_LOGIN
+UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
 GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
 
@@ -46,6 +46,19 @@ def estimate_prefixes_default():
 
 
 class ProjectColumnSet(models.Model):  # not using userdefined model in order to make model definitions more portable
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    organization = models.ForeignKey(
+        "accounts.KippoOrganization",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_('The organization that the columnset belongs to(if null all project may use it)')
+    )
     name = models.CharField(max_length=256,
                             verbose_name=_('Project Column Set Name'))
     created_datetime = models.DateTimeField(auto_now_add=True,
@@ -232,6 +245,15 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_('Define the problem that the project is set out to solve.')
     )
+    survey_issued = models.BooleanField(
+        default=False,
+        help_text=_('Update when survey is issued!')
+    )
+    survey_issued_datetime = models.DateTimeField(
+        null=True,
+        editable=False,
+        help_text=_('Updated when "survey_issued" flag is set')
+    )
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
@@ -242,7 +264,7 @@ class KippoProject(UserCreatedBaseModel):
         return {t.assignee for t in KippoTask.filter(
             project=self,
             assignee__is_developer=True
-        ).exclude(assignee__github_login=UNASSIGNED_USER_GITHUB_LOGIN)}
+        ).exclude(assignee__github_login__startswith=UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)}
 
     def get_admin_url(self):
         return f'{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change'
@@ -310,6 +332,12 @@ class KippoProject(UserCreatedBaseModel):
         return description
 
     def save(self, *args, **kwargs):
+        if self.survey_issued and not self.survey_issued_datetime:
+            self.survey_issued_datetime = timezone.now()
+
+        if self.is_closed and not self.closed_datetime:
+            self.closed_datetime = timezone.now()
+
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
@@ -353,6 +381,11 @@ class GithubMilestoneAlreadyExists(Exception):
 @reversion.register()
 class KippoMilestone(UserCreatedBaseModel):
     """Provides milestone definition and mapping to a Github Repository Milestone"""
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
     project = models.ForeignKey(KippoProject,
                                 on_delete=models.CASCADE,
                                 verbose_name=_('Kippo Project'),

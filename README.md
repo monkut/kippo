@@ -91,4 +91,7 @@ Prerequisites:
     
     # Create management users
     python manage.py loaddata required_bot_users
+    
+    # load country holidays
+    python manage.py loaddata jp_vn_publicholidays.json
     ```

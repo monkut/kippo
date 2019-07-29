@@ -1,7 +1,7 @@
 [
 {
     "model": "octocat.githubrepositorylabelset",
-    "pk": 1,
+    "pk": "209fc2af-fb7f-4232-93a3-31409c93b18e",
     "fields": {
         "name": "Standard Label Set",
         "labels": [

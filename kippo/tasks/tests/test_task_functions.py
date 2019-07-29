@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from accounts.models import KippoOrganization, KippoUser, EmailDomain, OrganizationMembership
 from projects.models import KippoProject, ProjectColumnSet
+from common.tests import DEFAULT_COLUMNSET_PK
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
     get_github_issue_prefixed_labels,
@@ -265,7 +266,7 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user2_membership.save()
 
-        columnset = ProjectColumnSet.objects.get(pk=1)
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         self.kippoproject = KippoProject(
             name='testproject',
             organization=self.organization,
