@@ -355,7 +355,7 @@ class KippoUserCreationTestCase(TestCase):
         expected_usernames = (
             'otheruser',
             'anotheruser',
-            f'github-unassigned-{self.org.name}'
+            f'unassigned-{self.org.slug}'
         )
         actual_usernames = []
         for u in users:
