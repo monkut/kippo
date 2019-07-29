@@ -146,6 +146,9 @@ class GithubWebhookEvent(models.Model):
     state = models.CharField(max_length=15,
                              default='unprocessed',
                              choices=WEBHOOK_EVENT_STATES)
-    related_project = models.ForeignKey('projects.KippoProject',
-                                        on_delete=models.CASCADE)
+    related_project = models.ForeignKey(
+        'projects.KippoProject',
+        on_delete=models.CASCADE,
+        null=True,
+    )
     event = fields.JSONField()
