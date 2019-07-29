@@ -58,7 +58,7 @@ class OrganizationIssueProcessor:
         self.kippo_github_users = {u.github_login: u for u in organization.get_github_developer_kippousers()}
         self.unassigned_user = self.organization.get_unassigned_kippouser()
         if not self.unassigned_user:
-            raise KippoConfigurationError(f'Username starting with "{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}" must be created as a User to manage unassigned tasks')
+            raise KippoConfigurationError(f'Username starting with "{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}" required to manage unassigned tasks')
 
     def github_projects(self):
         return self.manager.projects()
