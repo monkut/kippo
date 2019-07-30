@@ -7,6 +7,8 @@ from django.conf import settings
 from django.utils import timezone
 from django.db.utils import IntegrityError
 
+from zappa.asynchronous import task
+
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubOrganizationProject, GithubIssue
 
@@ -268,6 +270,7 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
     return kippo_project
 
 
+@task
 def collect_github_project_issues(kippo_organization: KippoOrganization,
                                   status_effort_date: datetime.date = None,
                                   github_project_urls: List[str] = None) -> tuple:
