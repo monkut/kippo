@@ -345,4 +345,4 @@ def run_collect_github_project_issues(event, context):
     :return:
     """
     for organization in KippoOrganization.objects.filter(github_organization_name__isnull=False):
-        collect_github_project_issues(organization)
+        collect_github_project_issues(str(organization.id))

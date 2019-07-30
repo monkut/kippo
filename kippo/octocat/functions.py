@@ -51,7 +51,7 @@ def process_unprocessed_events():
             logger.info('Starting Organization Github Processing....')
             for organization, urls in organization_specific_github_projects.items():
                 logger.info(f'Webhook Triggered collect_github_project_issues() ({organization.id}) {organization.name}: {urls}')
-                *_, unhandeled_issues = collect_github_project_issues(organization.id, github_project_urls=list(urls))
+                *_, unhandeled_issues = collect_github_project_issues(str(organization.id), github_project_urls=list(urls))
                 for issue, error_args in unhandeled_issues:
                     logger.error(f'Error handling issue({issue.html_url}): {error_args}')
         # Update after processing
