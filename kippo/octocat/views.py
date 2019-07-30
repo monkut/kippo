@@ -35,6 +35,7 @@ def validate_webhook_request(request: HttpRequest, organization: KippoOrganizati
     if hmac.compare_digest(github_signature, local_signature):
         result = True
     else:
+        logger.error('webhook validation failed!')
         msg = f'github_signature({github_signature}) != local_signature({local_signature})'
         logger.debug(msg)
     return result
@@ -68,6 +69,7 @@ def webhook(request: HttpRequest, organization_id: str):
         # Django converts incoming headers to a 'normalized' format, see:
         # https://docs.djangoproject.com/en/2.2/ref/request-response/#django.http.HttpRequest.META
         event_type = request.META.get('HTTP_X_GITHUB_EVENT', None)
+        logger.debug(f'Processing event: X-Github-Event={event_type}')
         if not event_type:
             event_type = request.META.get('X-Github-Event', None)
         if event_type == 'project_card':
