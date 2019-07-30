@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 import hmac
 from pathlib import Path
 from http import HTTPStatus
@@ -23,10 +24,36 @@ class WebhookTestCase(TestCase):
     def setUp(self):
         setup_basic_project()
         self.organization = KippoOrganization.objects.get(name='github')
-        self.secret = 'abc1234'
+        self.secret = 'DOB6tzKvmBIX69Jd1NPc'
         self.secret_encoded = self.secret.encode('utf8')
         self.organization.webhook_secret = self.secret
         self.organization.save()
+
+    def test_webhook_ping_event(self):
+        c = Client()
+        webhook_event_filepath = TESTDATA_DIRECTORY / 'webhookevent_ping.json'
+        with webhook_event_filepath.open('rb') as event_in:
+            content = event_in.read()
+            # calculate the 'X-Hub-Signature' header
+            s = hmac.new(
+                key=self.secret_encoded,
+                msg=content,
+                digestmod=hashlib.sha1,
+            ).hexdigest()
+            sig = 'sha1=a39daaa400cc91fcc7a581214b607591d96d893d'
+        headers = {
+            'X-Github-Event': 'ping',
+            'X-Hub-Signature': sig,
+        }
+        response = c.generic(
+            'POST',
+            f'{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/',
+            content,
+            content_type='application/json',
+            follow=True,
+            **headers
+        )
+        self.assertTrue(response.status_code == HTTPStatus.OK, f'actual({response.status_code}) != expected({HTTPStatus.OK})')
 
     def test_project_card_webhook_valid_signature(self):
         c = Client()
@@ -34,12 +61,16 @@ class WebhookTestCase(TestCase):
         with project_card_asissue_webhook_event_filepath.open('rb') as asissue:
             content = asissue.read()
             # calculate the 'X-Hub-Signature' header
-            s = hmac.new(self.secret_encoded + content).hexdigest()
+            s = hmac.new(
+                key=self.secret_encoded,
+                msg=content,
+                digestmod=hashlib.sha1,
+            ).hexdigest()
             sig = f'sha1={s}'
 
             project_card_asissue_webhook_event_body = json.loads(content.decode('utf8'))
         headers = {
-            'X_GITHUB_EVENT': 'project_card',
+            'HTTP_X_GITHUB_EVENT': 'project_card',
             'X-Hub-Signature': sig,
         }
         response = c.generic(
@@ -61,16 +92,19 @@ class WebhookTestCase(TestCase):
     def test_project_card_webhook_invalid_signature(self):
         c = Client()
         project_card_asissue_webhook_event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
-        with project_card_asissue_webhook_event_filepath.open('r', encoding='utf8') as asissue:
+        with project_card_asissue_webhook_event_filepath.open('rb') as asissue:
             content = asissue.read()
             # calculate the 'X-Hub-Signature' header
-            content_encoded = content.encode('utf8')
-            s = hmac.new(b'invalid text' + content_encoded).hexdigest()
-            sig = f'sha1={s}'
+            s = hmac.new(
+                key=self.secret_encoded,
+                msg=content,
+                digestmod=hashlib.sha1,
+            ).hexdigest()
+            sig = f'sha1={s}x'
 
-            project_card_asissue_webhook_event_body = json.loads(content)
+            project_card_asissue_webhook_event_body = json.loads(content.decode('utf8'))
         headers = {
-            'X_GITHUB_EVENT': 'project_card',
+            'HTTP_X_GITHUB_EVENT': 'project_card',
             'X-Hub-Signature': sig,
         }
         response = c.generic(
@@ -81,7 +115,7 @@ class WebhookTestCase(TestCase):
             follow=True,
             **headers
         )
-        self.assertTrue(response.status_code == HTTPStatus.FORBIDDEN)
+        self.assertTrue(response.status_code == HTTPStatus.FORBIDDEN, f'actual({response.status_code}) != expected({HTTPStatus.FORBIDDEN})')
 
     def test_project_card_webhook_no_signature(self):
         c = Client()
@@ -90,7 +124,7 @@ class WebhookTestCase(TestCase):
             content = asissue.read()
             project_card_asissue_webhook_event_body = json.loads(content)
         headers = {
-            'X_GITHUB_EVENT': 'project_card',
+            'HTTP_X_GITHUB_EVENT': 'project_card',
         }
         response = c.generic(
             'POST',
