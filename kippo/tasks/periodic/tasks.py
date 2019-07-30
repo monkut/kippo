@@ -271,7 +271,7 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
 
 
 @task
-def collect_github_project_issues(kippo_organization: KippoOrganization,
+def collect_github_project_issues(kippo_organization_id: str,
                                   status_effort_date: datetime.date = None,
                                   github_project_urls: List[str] = None) -> tuple:
     """
@@ -279,11 +279,12 @@ def collect_github_project_issues(kippo_organization: KippoOrganization,
     2. If related KippoTask does not exist, create one
     3. If KippoTask exists create KippoTaskStatus
 
-    :param kippo_organization: KippoOrganization
+    :param kippo_organization_id: KippoOrganization ID
     :param status_effort_date: Date to get tasks from for testing, estimation purposes
     :param github_project_urls: If only specific projects are desired, the related github_project_urls may be provided
     :return: processed_projects_count, created_task_count, created_taskstatus_count
     """
+    kippo_organization = KippoOrganization.objects.get(id=kippo_organization_id)
     if not status_effort_date:
         status_effort_date = timezone.now().date()
 
