@@ -223,6 +223,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'problem_definition',
     )
     ordering = (
+        'organization',
         '-confidence',
         'phase',
     )
