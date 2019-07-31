@@ -6,10 +6,12 @@ Can be run via zappa with the command:
     zappa manage dev "update_github_tasks -o {MY ORG} -d 2018-3-14"
 """
 from django.utils import timezone
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.translation import ugettext as _
 
-from accounts.models import KippoOrganization
+from accounts.models import KippoOrganization, KippoUser
+from projects.models import CollectIssuesAction
 from ...periodic.tasks import collect_github_project_issues
 
 
@@ -35,7 +37,7 @@ class Command(BaseCommand):
         except KippoOrganization.DoesNotExist:
             raise CommandError(f'Given "--github-organization-name" does not exist in registered KippoOrganizations: {github_organization_name}')
 
-        status_effort_date = timezone.now().date()
+        status_effort_date = timezone.now().isoformat()
         if options['date']:
             try:
                 status_effort_date = timezone.datetime.strptime(options['date'], '%Y-%m-%d').date()
@@ -43,14 +45,18 @@ class Command(BaseCommand):
                 raise CommandError('Invalid value given for -d/--date option, should be in YYYY-MM-DD format: {}'.format(options['date']))
 
         self.stdout.write(f'Update Started for {options["github_organization_name"]} ({status_effort_date})!\n')
-        results = collect_github_project_issues(kippo_organization=organization,
-                                                status_effort_date=status_effort_date)
-        processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count, unhandled_issues = results
-        self.stdout.write('Update Complete!')
-        for issue, error_args in unhandled_issues:
-            self.stderr.write(f'ERROR -- {issue.html_url}: {error_args}')
-
-        self.stdout.write(f'\tProjects Processed     : {processed_projects}')
-        self.stdout.write(f'\tNew KippoTask(s)       : {new_task_count}')
-        self.stdout.write(f'\tNew KippoTaskStatus    : {new_taskstatus_count}')
-        self.stdout.write(f'\tUpdated KippoTaskStatus: {updated_taskstatus_count}\n')
+        github_manager = KippoUser.objects.get(
+            username=settings.GITHUB_MANAGER_USERNAME
+        )
+        action_tracker = CollectIssuesAction(
+            organization=organization,
+            created_by=github_manager,
+            updated_by=github_manager,
+        )
+        action_tracker.save()
+        collect_github_project_issues(
+            action_tracker_id=action_tracker.id,
+            kippo_organization_id=str(organization.id),
+            status_effort_date_iso8601=status_effort_date
+        )
+        self.stdout.write('Update In-Progress!')

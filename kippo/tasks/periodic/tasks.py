@@ -1,7 +1,7 @@
 import datetime
 import logging
 from math import ceil
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Optional
 
 from django.conf import settings
 from django.utils import timezone
@@ -14,7 +14,7 @@ from ghorgs.wrappers import GithubOrganizationProject, GithubIssue
 
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
-from projects.models import ActiveKippoProject, KippoMilestone
+from projects.models import ActiveKippoProject, KippoMilestone, CollectIssuesAction, CollectIssuesProjectResult
 from octocat.models import GithubRepository, GithubMilestone
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
@@ -45,6 +45,7 @@ class OrganizationIssueProcessor:
             t.github_issue_html_url: t
             for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url
         }
+        logger.debug(f'existing_tasks_by_html_url: {self.existing_tasks_by_html_url}')
         self.existing_kippo_milestones_by_html_url = {
             m.html_url: m.milestone
             for m in GithubMilestone.objects.filter(milestone__is_completed=False)
@@ -143,7 +144,9 @@ class OrganizationIssueProcessor:
             default_task_category = kippo_github_repository.organization.default_task_category
 
             # check if issue exists
+            logger.debug(f'html_url: {issue.html_url}')
             existing_task = self.get_existing_task_by_html_url(issue.html_url)
+            logger.debug(f'existing task: {existing_task}')  # TODO: review why duplicate task error is occurring
 
             developer_assignees = [
                 issue_assignee.login
@@ -180,7 +183,8 @@ class OrganizationIssueProcessor:
                         )
                         try:
                             existing_task.save()
-                        except IntegrityError:
+                        except IntegrityError as e:
+                            logger.exception(e)
                             logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
                             continue
                         is_new_task = True
@@ -271,22 +275,27 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
 
 
 @task
-def collect_github_project_issues(kippo_organization_id: str,
-                                  status_effort_date: datetime.date = None,
+def collect_github_project_issues(action_tracker_id: int,
+                                  kippo_organization_id: str,
+                                  status_effort_date_iso8601: Optional[str] = None,
                                   github_project_urls: List[str] = None) -> tuple:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
     3. If KippoTask exists create KippoTaskStatus
 
+    :param action_tracker_id:
     :param kippo_organization_id: KippoOrganization ID
-    :param status_effort_date: Date to get tasks from for testing, estimation purposes
+    :param status_effort_date_iso8601: Date to get tasks from for testing, estimation purposes
     :param github_project_urls: If only specific projects are desired, the related github_project_urls may be provided
     :return: processed_projects_count, created_task_count, created_taskstatus_count
     """
+    assert action_tracker_id
     kippo_organization = KippoOrganization.objects.get(id=kippo_organization_id)
-    if not status_effort_date:
+    if not status_effort_date_iso8601:
         status_effort_date = timezone.now().date()
+    else:
+        status_effort_date = datetime.datetime.fromisoformat(status_effort_date_iso8601).date()
 
     if not kippo_organization.githubaccesstoken or not kippo_organization.githubaccesstoken.token:
         raise OrganizationConfigurationError(f'Token Not configured for: {kippo_organization.name}')
@@ -297,11 +306,6 @@ def collect_github_project_issues(kippo_organization_id: str,
         github_project_urls=github_project_urls
     )
     # collect project issues
-    processed_projects = 0
-    new_task_count = 0
-    new_taskstatus_objects = []
-    updated_taskstatus_objects = []
-    unhandled_issues = []
     for github_project in issue_processor.github_projects():
         logger.info(f'Processing github project ({github_project.name})...')
 
@@ -311,25 +315,42 @@ def collect_github_project_issues(kippo_organization_id: str,
         # --- Project.objects.filter(is_closed=False, github_project_url__isnull=False)
         kippo_project = get_existing_kippo_project(github_project, issue_processor.existing_open_projects)
         if kippo_project:
-            logger.info(f'-- KippoProject: {kippo_project.name}')
-            processed_projects += 1
-            logger.info('-- Processing Related Github Issues...')
+            unhandled_issues = []
+            result = CollectIssuesProjectResult(
+                action_id=action_tracker_id,
+                project=kippo_project,
+                unhandled_issues=[]
+            )
+            result.save()
+            logger.info(f'-- Processing {kippo_project.name} Related Github Issues...')
             count = 0
             for count, issue in enumerate(github_project.issues(), 1):
                 try:
                     is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
                     if is_new_task:
-                        new_task_count += 1
-                    new_taskstatus_objects.extend(issue_new_taskstatus_objects)
-                    updated_taskstatus_objects.extend(issue_updated_taskstatus_objects)
+                        result.new_task_count += 1
+                    result.new_taskstatus_count += len(issue_new_taskstatus_objects)
+                    result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
                 except ValueError as e:
                     unhandled_issues.append(
-                        (issue, e.args)
+                        {
+                            'issue.id': issue.id,
+                            'valueerror.args': e.args
+                         }
                     )
-
+            result.unhandled_issues = unhandled_issues
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
-
-    return processed_projects, new_task_count, len(new_taskstatus_objects), len(updated_taskstatus_objects), unhandled_issues
+            msg = (
+                f'Updated [{kippo_organization_id}] Project({kippo_project.id})\n'
+                f'New KippoTasks: {result.new_task_count}\n'
+                f'New KippoTaskStatus: {result.new_taskstatus_count}\n'
+                f'Updated KippoTaskStatus: {result.updated_taskstatus_count}'
+            )
+            logger.info(msg)
+            result.state = 'complete'
+            result.save()
+        else:
+            logger.warning(f'No KippoProject found for GithubProject: {github_project}')
 
 
 def run_collect_github_project_issues(event, context):
@@ -344,5 +365,15 @@ def run_collect_github_project_issues(event, context):
     :param context:
     :return:
     """
+    github_manager = KippoOrganization.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
     for organization in KippoOrganization.objects.filter(github_organization_name__isnull=False):
-        collect_github_project_issues(str(organization.id))
+        action_tracker = CollectIssuesAction(
+            organization=organization,
+            created_by=github_manager,
+            updated_by=github_manager,
+        )
+        action_tracker.save()
+        collect_github_project_issues(
+            action_tracker.id,
+            str(organization.id)
+        )

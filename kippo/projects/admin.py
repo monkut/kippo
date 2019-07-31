@@ -21,6 +21,7 @@ from .models import (
     ProjectColumn,
     ProjectAssignment,
     GithubMilestoneAlreadyExists,
+    CollectIssuesAction,
 )
 
 
@@ -106,7 +107,7 @@ def collect_existing_github_projects_action(modeladmin, request, queryset) -> No
     """
     # get request user organization
     organization = request.user.organization
-    added_projects = collect_existing_github_projects(organization)
+    added_projects = collect_existing_github_projects(str(organization.id))
     modeladmin.message_user(
         request,
         message=f'({len(added_projects)}) KippoProjects created from GitHub Organizational Projects',
@@ -406,4 +407,19 @@ class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
     get_project_organization.short_description = _('Organization')
 
 
+@admin.register(CollectIssuesAction)
+class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
+    list_display = (
+        'id',
+        'organization',
+        'start_datetime',
+        'end_datetime',
+        'status',
+        'new_task_count',
+        'new_taskstatus_count',
+        'updated_taskstatus_count',
+    )
+
+
+# allow additional admin to filtered ActiveKippoProject model
 admin.site.register(ActiveKippoProject, KippoProjectAdmin)

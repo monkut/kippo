@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from typing import List, Tuple
 
 from django.db import models
+from django.db.models import Sum, Count
 from django.utils import timezone
 from django.utils.text import slugify
 from django.conf import settings
@@ -12,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.utils.translation import ugettext_lazy as _
 from django.db.models import Max
+from django.contrib.postgres.fields import JSONField
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.contrib.postgres.fields import ArrayField
@@ -589,3 +591,79 @@ class ProjectAssignment(UserCreatedBaseModel):
     percentage = models.SmallIntegerField(
         help_text=_('Workload percentage assigned to project from available workload available for project organization')
     )
+
+
+class CollectIssuesAction(UserCreatedBaseModel):
+    start_datetime = models.DateTimeField(
+        default=timezone.now
+    )
+    end_datetime = models.DateTimeField(
+        null=True,
+        default=None,
+    )
+    organization = models.ForeignKey(
+        'accounts.KippoOrganization',
+        on_delete=models.CASCADE
+    )
+
+    @property
+    def status(self):
+        total_count = CollectIssuesProjectResult.objects.filter(action=self).count()
+        completed_count = CollectIssuesProjectResult.objects.filter(action=self, state='complete').count()
+        if total_count:
+            percentage = round((completed_count / total_count) * 100, 2)
+            result = f'{completed_count}/{total_count} {percentage}%'
+        else:
+            result = '0/0 0.00%'
+        return result
+
+    @property
+    def new_task_count(self):
+        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('new_task_count'))  #.get('new_task_count__sum', 0.00)
+
+    @property
+    def new_taskstatus_count(self):
+        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('new_taskstatus_count'))  # .get('new_taskstatus_count__sum', 0.00)
+
+    @property
+    def updated_taskstatus_count(self):
+        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('updated_taskstatus_count'))  # .get('updated_taskstatus_count__sum', 0.00)
+
+    def save(self, *args, **kwargs):
+        total_count = CollectIssuesProjectResult.objects.filter(action=self).count()
+        completed_count = CollectIssuesProjectResult.objects.filter(action=self, state='complete').count()
+        if total_count and completed_count == total_count:
+            self.end_datetime = timezone.now()
+        super().save(*args, **kwargs)
+
+
+VALID_COLLECTISSUESPROJECTRESULT_STATES = (
+    ('processing', 'processing'),
+    ('complete', 'complete'),
+)
+
+
+class CollectIssuesProjectResult(models.Model):
+    action = models.ForeignKey(
+        CollectIssuesAction,
+        on_delete=models.CASCADE
+    )
+    project = models.ForeignKey(
+        'projects.KippoProject',
+        on_delete=models.CASCADE,
+    )
+    state = models.CharField(
+        max_length=10,
+        choices=VALID_COLLECTISSUESPROJECTRESULT_STATES,
+        default='processing'
+    )
+    new_task_count = models.PositiveSmallIntegerField(
+        default=0
+    )
+    new_taskstatus_count = models.PositiveSmallIntegerField(
+        default=0
+    )
+    updated_taskstatus_count = models.PositiveSmallIntegerField(
+        default=0
+    )
+    unhandled_issues = JSONField()
