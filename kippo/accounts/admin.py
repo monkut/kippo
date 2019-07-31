@@ -3,10 +3,12 @@ from django.utils import timezone
 from django.contrib import messages
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.models import Group
+from django.contrib.auth.admin import UserAdmin
 from social_django.models import Association, Nonce, UserSocialAuth
 
 from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from octocat.models import GithubAccessToken
+from projects.models import CollectIssuesAction, CollectIssuesProjectResult
 from projects.functions import collect_existing_github_projects
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -154,37 +156,29 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
     collect_organization_projects_action.short_description = _('Collect Organization Project(s)')
 
     def collect_github_project_issues_action(self, request, queryset):
-        status_effort_date = timezone.now().date()
+        status_effort_date = timezone.now().isoformat()
         for organization in queryset:
-            processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count, unhandled_issues = collect_github_project_issues(
-                kippo_organization=organization,
-                status_effort_date=status_effort_date
+            action_tracker = CollectIssuesAction(
+                organization=organization,
+                created_by=request.user,
+                updated_by=request.user,
             )
-            warning_message = '' if not unhandled_issues else 'Partially '
-            message_level = messages.INFO if not unhandled_issues else messages.WARNING
-            msg = (
-                f'{warning_message}Updated [{organization.name}] ProcessedProjects({processed_projects})\n'
-                f'New KippoTasks: {new_task_count}\n'
-                f'New KippoTaskStatus: {new_taskstatus_count}\n'
-                f'Updated KippoTaskStatus: {updated_taskstatus_count}'
+            action_tracker.save()
+            collect_github_project_issues(
+                action_tracker_id=action_tracker.id,
+                kippo_organization_id=str(organization.id),
+                status_effort_date_iso8601=status_effort_date
             )
             self.message_user(
                 request,
-                msg,
-                level=message_level
+                f'Processing Request: CollectIssuesAction(id={action_tracker.id})',
+                level=messages.INFO
             )
-            for issue, error_args in unhandled_issues:
-                msg = f'ERROR [{organization.name}] issue({issue.html_url}):  {error_args}'
-                self.message_user(
-                    request,
-                    msg,
-                    level=messages.ERROR
-                )
     collect_github_project_issues_action.short_description = _('Collect Organization Project Issues')
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(admin.ModelAdmin):
+class KippoUserAdmin(UserAdmin):
     list_display = (
         'username',
         'id',
@@ -199,7 +193,7 @@ class KippoUserAdmin(admin.ModelAdmin):
         'is_staff',
         'is_superuser',
     )
-    exclude = ('user_permissions', 'groups', 'last_login', )
+    #exclude = ('user_permissions', 'groups', 'last_login', )
 
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator
