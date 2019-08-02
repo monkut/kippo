@@ -178,7 +178,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(UserAdmin):
+class KippoUserAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'username',
         'id',
@@ -193,7 +193,7 @@ class KippoUserAdmin(UserAdmin):
         'is_staff',
         'is_superuser',
     )
-    #exclude = ('user_permissions', 'groups', 'last_login', )
+    exclude = ('user_permissions', 'groups', 'last_login', )
 
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator
