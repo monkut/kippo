@@ -265,7 +265,7 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
     """
     kippo_project = None
     for candidate_kippo_project in existing_open_projects:
-        if candidate_kippo_project.github_project_url == github_project.html_url:
+        if candidate_kippo_project.github_project_html_url == github_project.html_url:
             kippo_project = candidate_kippo_project
             break
 

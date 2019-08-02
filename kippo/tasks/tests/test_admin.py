@@ -42,7 +42,7 @@ class IsStaffOrganizationKippoTaskAdminTestCase(IsStaffModelAdminTestCaseBase):
         other_kippo_project = KippoProject(
             organization=self.other_organization,
             name='octocat-test-otherproject',
-            github_project_url='https://github.com/orgs/githubcodesorg/projects/1',
+            github_project_html_url='https://github.com/orgs/githubcodesorg/projects/1',
             columnset=default_columnset,
             created_by=self.github_manager,
             updated_by=self.github_manager,
@@ -124,7 +124,7 @@ class IsStaffOrganizationKippoTaskStatusAdminTestCase(IsStaffModelAdminTestCaseB
         other_kippo_project = KippoProject(
             organization=self.other_organization,
             name='octocat-test-otherproject',
-            github_project_url='https://github.com/orgs/githubcodesorg/projects/1',
+            github_project_html_url='https://github.com/orgs/githubcodesorg/projects/1',
             columnset=default_columnset,
             created_by=self.github_manager,
             updated_by=self.github_manager,
