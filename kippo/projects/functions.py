@@ -36,7 +36,7 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
                 organization=organization,
                 name=project.name,
                 columnset=organization.default_columnset,
-                github_project_url=project.html_url,
+                github_project_html_url=project.html_url,
             )
             kippo_project.save()
             added_projects.append(kippo_project)

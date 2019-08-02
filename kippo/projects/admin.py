@@ -125,8 +125,8 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
     successful_creation_projects = []
     skipping = []
     for kippo_project in queryset:
-        if kippo_project.github_project_url:
-            message = f'{kippo_project.name} already has GitHub Project set ({kippo_project.github_project_url}), SKIPPING!'
+        if kippo_projectgithub_project_html_url:
+            message = f'{kippo_project.name} already has GitHub Project set ({kippo_projectgithub_project_html_url}), SKIPPING!'
             logger.warning(message)
             skipping.append(message)
         else:
@@ -145,12 +145,15 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
                                                        token=githubaccesstoken.token)
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
-            url, _ = github_manager.create_organizational_project(
+            url, responses = github_manager.create_organizational_project(
                 name=kippo_project.github_project_name,
                 description=kippo_project.github_project_description,
                 columns=columns,
             )
-            kippo_project.github_project_url = url
+            kippo_projectgithub_project_html_url = url
+            # TODO: Update with project id
+            # TODO: update with column name:id mapping in KippoProject.columns
+            #kippo_project.github_project_api_url = f'https://api.github.com/projects/{github_project_id}'
             kippo_project.save()
             successful_creation_projects.append((kippo_project.name, url, columns))
     if skipping:
@@ -298,8 +301,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     def show_github_project_url(self, obj):
         url = ''
-        if obj.github_project_url:
-            url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_url)
+        if obj.github_project_html_url:
+            url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
         return url
     show_github_project_url.short_description = _('GitHub Project URL')
 

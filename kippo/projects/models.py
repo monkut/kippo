@@ -206,8 +206,13 @@ class KippoProject(UserCreatedBaseModel):
         default=True,
         help_text=_('If True, project will be included in the ActiveKippoProject List')
     )
-    github_project_url = models.URLField(
-        _('Github Project URL'),
+    github_project_html_url = models.URLField(
+        _('Github Project HTML URL'),
+        null=True,
+        blank=True
+    )
+    github_project_api_url = models.URLField(
+        _('Github Project api URL (needed for webhook event linking to project)'),
         null=True,
         blank=True
     )
