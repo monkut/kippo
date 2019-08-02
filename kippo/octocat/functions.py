@@ -2,9 +2,10 @@ import os
 import logging
 from distutils.util import strtobool
 from collections import defaultdict
-from typing import Tuple
 
 from zappa.asynchronous import task
+
+from projects.models import KippoProject
 from tasks.models import KippoTask
 from tasks.periodic.tasks import collect_github_project_issues
 from accounts.models import KippoOrganization
@@ -46,7 +47,7 @@ def process_unprocessed_events():
                 # update status
                 raise NotADirectoryError
 
-            organization_specific_github_projects[event.related_project.organization].add(event.related_project.github_project_url)
+            organization_specific_github_projects[event.related_project.organization].add(event.related_project.github_project_html_url)
 
         if not KIPPO_TESTING:
             logger.info('Starting Organization Github Processing....')
@@ -60,7 +61,8 @@ def process_unprocessed_events():
     return event_ids
 
 
-def queue_incoming_project_card_event(organization: KippoOrganization, event: dict) -> GithubWebhookEvent:
+def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> GithubWebhookEvent:
+    # NOTE: Consider moving to SQS
     # card should contain a 'content_url' representing the issue attached (if an issue card)
     # - Use the 'content_url' to retrieve the internally managed issue,
     # - find the related project and issue an update for that project
@@ -70,7 +72,6 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event: di
     if 'content_url' in event['project_card']:
         content_url = event['project_card']['content_url']
         logger.debug(f'incoming event content_url: {content_url}')
-        project = None
         try:
             kippo_task = KippoTask.objects.get(
                 project__organization=organization,
@@ -82,12 +83,58 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event: di
 
         webhook_event = GithubWebhookEvent(
             organization=organization,
+            event_type=event_type,
             event=event,
-            related_project=project
         )
         webhook_event.save()
+        logger.debug(f' -- webhookevent created: {event_type}:{event["action"]}!')
     else:
         logger.warning(f'SKIPPING -- "content_url" not found in: {event["project_card"]}')
-        raise ValueError(f'"content_url" not found in event["project_card"]: {event}')
+        raise KeyError(f'"content_url" key not found in event["project_card"]!')
 
     return webhook_event
+
+
+def process_webhook_events():
+    unprocessed_events = GithubWebhookEvent.objects.filter(state='unprocessed').order_by('created_datetime')
+    unprocessed_events.update(state='processing')
+    for webhookevent in unprocessed_events:
+        if 'project_card' in webhookevent.event:  # using 'project_card' key to identify event type
+            if 'content_url' not in webhookevent.event:
+                logger.warning(f'webhookevent({webhookevent.id}).event does not contain "content_url" key, SKIPPING!')
+            else:
+                task_api_url = webhookevent.event['project_card']['content_url']
+                github_project_api_url = webhookevent.event['project_card']['project_url']
+                github_column_id = webhookevent.event['project_card']['column_id']
+                github_from_column_id = webhookevent.event['changes']['column_id']['from']  # ex: 4162976
+                state = 'processed'
+                if webhookevent.event['action'] == 'moved':
+                    # update task state (column) for related task
+                    try:
+                        task = KippoTask.objects.get(github_issue_api_url=task_api_url)
+                    except KippoTask.DoesNotExist:
+                        state = 'error'
+                        msg = f'KippoTask.github_issue_api_url={task_api_url} DoesNotExist, not updated on webhookevent "move" action'
+                        logger.error(msg)
+                        webhookevent.event['kippoerror'] = msg
+                    # TODO: add support for column_id to column_name
+                    # create KippoTaskStatus
+                    raise NotImplementedError
+                elif webhookevent.event['action'] == 'converted':
+                    # (NEW) Task create new kippo task in related project
+                    try:
+                        project = KippoProject.objects.get(github_project_api_url=github_project_api_url)
+                    except KippoProject.DoesNotExist:
+                        state = 'error'
+                        msg = f'KippoProject.github_project_api_url={github_project_api_url} DoesNotExist, KippoTask *NOT CREATED*!'
+                        logger.error(msg)
+                        webhookevent.event['kippoerror'] = msg
+                    # TODO: get task details via github manager (need to add 'get_task_details()' method to ghorgs?)
+                    # create KippoTask
+
+                    # create KippoTaskStatus
+                    raise NotImplementedError
+
+        webhookevent.state = state
+        webhookevent.save()
+

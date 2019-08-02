@@ -134,6 +134,7 @@ class GithubOrganizationalWebhook(UserCreatedBaseModel):
 WEBHOOK_EVENT_STATES = (
     ('unprocessed', 'unprocessed'),
     ('processing', 'processing'),
+    ('error', 'error'),
     ('processed', 'processed'),
 )
 
@@ -157,9 +158,9 @@ class GithubWebhookEvent(models.Model):
         default='unprocessed',
         choices=WEBHOOK_EVENT_STATES
     )
-    related_project = models.ForeignKey(
-        'projects.KippoProject',
-        on_delete=models.CASCADE,
+    event_type = models.CharField(
+        max_length=25,
         null=True,
+        help_text=_('X-Github-Event value')
     )
     event = fields.JSONField()
