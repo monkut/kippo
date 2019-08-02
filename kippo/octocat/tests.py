@@ -31,20 +31,16 @@ class WebhookTestCase(TestCase):
 
     def test_webhook_ping_event(self):
         c = Client()
-        webhook_event_filepath = TESTDATA_DIRECTORY / 'webhookevent_ping.json'
-        with webhook_event_filepath.open('rb') as event_in:
-            content = event_in.read()
-            # calculate the 'X-Hub-Signature' header
-            s = hmac.new(
-                key=self.secret_encoded,
-                msg=content,
-                digestmod=hashlib.sha1,
-            ).hexdigest()
-            sig = 'sha1=a39daaa400cc91fcc7a581214b607591d96d893d'
+        webhookevent_filepath = TESTDATA_DIRECTORY / 'webhookevent_ping.json'
+        with webhookevent_filepath.open('rb') as asissue:
+            content = asissue.read()
+
+        sig = 'sha1=a39daaa400cc91fcc7a581214b607591d96d893d'
         headers = {
             'X-Github-Event': 'ping',
-            'X-Hub-Signature': sig,
+            'X-Hub-Signature': sig,  # signature of 'webhookevent_ping.json'
         }
+
         response = c.generic(
             'POST',
             f'{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/',

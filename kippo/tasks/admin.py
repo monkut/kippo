@@ -1,11 +1,14 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
+
 from accounts.admin import UserCreatedBaseModelAdmin
+from common.admin import OrganizationTaskQuerysetModelAdminMixin
+
 from .models import KippoTask, KippoTaskStatus
 
 
-class KippoTaskAdmin(UserCreatedBaseModelAdmin):
+class KippoTaskAdmin(OrganizationTaskQuerysetModelAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'title',
         'category',
@@ -55,6 +58,11 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
         'maximum_estimate_days',
     )
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(task__project__organization__in=request.user.organizations).order_by('task__project__organization').distinct()
 
 admin.site.register(KippoTask, KippoTaskAdmin)
 admin.site.register(KippoTaskStatus, KippoTaskStatusAdmin)

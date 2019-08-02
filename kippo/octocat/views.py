@@ -2,10 +2,11 @@ import json
 import hmac
 import hashlib
 import logging
+from http import HTTPStatus
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
-from .functions import process_incoming_project_card_event
+from .functions import queue_incoming_project_card_event
 from .models import KippoOrganization
 
 
@@ -73,10 +74,16 @@ def webhook(request: HttpRequest, organization_id: str):
         if not event_type:
             event_type = request.META.get('X-Github-Event', None)
         if event_type == 'project_card':
-            logger.debug(f'decoding webhook event_type: {event_type}')
-            body = json.loads(request.body.decode('utf8'))
-            logger.debug(f'processing webhook event_type: {event_type}')
-            process_incoming_project_card_event(organization, body)
+            logger.debug(f' -- decoding webhook event_type: {event_type}')
+            event = json.loads(request.body.decode('utf8'))
+            action = event['action']
+            logger.debug(f' -- processing webhook event_type: {event_type}')
+            queue_incoming_project_card_event(organization, event)
+            assert action in ('created', 'edited', 'moved', 'converted', 'deleted')
+            if action == 'created':
+                status_code = HTTPStatus.CREATED
+            elif action in ('edited', 'moved', 'converted', 'deleted'):
+                status_code = HTTPStatus.NO_CONTENT  # 204 - "resource updated successfully"
             return HttpResponse(status=201, content='201 Created')
         elif event_type == 'ping':
             return HttpResponse(status=200, content='ping request validated')

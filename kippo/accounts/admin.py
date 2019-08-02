@@ -3,12 +3,11 @@ from django.utils import timezone
 from django.contrib import messages
 from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.models import Group
-from django.contrib.auth.admin import UserAdmin
 from social_django.models import Association, Nonce, UserSocialAuth
 
-from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsSuperuserAdminMixin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, AllowIsSuperuserAdminMixin, OrganizationQuerysetModelAdminMixin
 from octocat.models import GithubAccessToken
-from projects.models import CollectIssuesAction, CollectIssuesProjectResult
+from projects.models import CollectIssuesAction
 from projects.functions import collect_existing_github_projects
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -111,7 +110,7 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
 
 
 @admin.register(KippoOrganization)
-class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
+class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
         'id',
@@ -178,7 +177,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(AllowIsSuperuserAdminMixin, admin.ModelAdmin):
+class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, admin.ModelAdmin):
     list_display = (
         'username',
         'id',
@@ -224,7 +223,7 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(Country)
-class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+class CountryAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = (
         'name',
         'alpha_2',
@@ -235,7 +234,7 @@ class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(PublicHoliday)
-class PublicHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+class PublicHolidayAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = (
         'name',
         'country',
@@ -243,7 +242,7 @@ class PublicHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     )
 
 
-admin.site.unregister(UserSocialAuth)
+#@admin.site.unregister(UserSocialAuth)
 admin.site.unregister(Nonce)
 admin.site.unregister(Association)
 admin.site.unregister(Group)

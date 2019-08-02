@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 from typing import List, Tuple
 
 from django.db import models
-from django.db.models import Sum, Count
+from django.db.models import Sum
 from django.utils import timezone
 from django.utils.text import slugify
 from django.conf import settings
@@ -619,15 +619,27 @@ class CollectIssuesAction(UserCreatedBaseModel):
 
     @property
     def new_task_count(self):
-        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('new_task_count'))  #.get('new_task_count__sum', 0.00)
+        sum_result = CollectIssuesProjectResult.objects.filter(action=self).aggregate(Sum('new_task_count'))
+        result = 0
+        if sum_result:
+            result = sum_result.get('new_taskstatus_count__sum', 0)
+        return result
 
     @property
     def new_taskstatus_count(self):
-        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('new_taskstatus_count'))  # .get('new_taskstatus_count__sum', 0.00)
+        sum_result = CollectIssuesProjectResult.objects.filter(action=self).aggregate(Sum('new_taskstatus_count'))
+        result = 0
+        if sum_result:
+            result = sum_result.get('new_taskstatus_count__sum', 0)
+        return result
 
     @property
     def updated_taskstatus_count(self):
-        return CollectIssuesProjectResult.objects.filter(action=self).annotate(Sum('updated_taskstatus_count'))  # .get('updated_taskstatus_count__sum', 0.00)
+        sum_result = CollectIssuesProjectResult.objects.filter(action=self).aggregate(Sum('updated_taskstatus_count'))
+        result = 0
+        if sum_result:
+            result = sum_result.get('new_taskstatus_count__sum', 0)
+        return result
 
     def save(self, *args, **kwargs):
         total_count = CollectIssuesProjectResult.objects.filter(action=self).count()

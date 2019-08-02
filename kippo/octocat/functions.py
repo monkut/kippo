@@ -2,6 +2,7 @@ import os
 import logging
 from distutils.util import strtobool
 from collections import defaultdict
+from typing import Tuple
 
 from zappa.asynchronous import task
 from tasks.models import KippoTask
@@ -59,7 +60,7 @@ def process_unprocessed_events():
     return event_ids
 
 
-def process_incoming_project_card_event(organization: KippoOrganization, event: dict) -> GithubWebhookEvent:
+def queue_incoming_project_card_event(organization: KippoOrganization, event: dict) -> GithubWebhookEvent:
     # card should contain a 'content_url' representing the issue attached (if an issue card)
     # - Use the 'content_url' to retrieve the internally managed issue,
     # - find the related project and issue an update for that project
@@ -68,7 +69,7 @@ def process_incoming_project_card_event(organization: KippoOrganization, event: 
     # Accept any event (ignoring action)
     if 'content_url' in event['project_card']:
         content_url = event['project_card']['content_url']
-        logger.debug(f'incoming event: {event}')
+        logger.debug(f'incoming event content_url: {content_url}')
         project = None
         try:
             kippo_task = KippoTask.objects.get(
@@ -78,6 +79,7 @@ def process_incoming_project_card_event(organization: KippoOrganization, event: 
             project = kippo_task.project
         except KippoTask.DoesNotExist:
             logger.warning(f'No related KippoTask not found for content_url: {content_url}')
+
         webhook_event = GithubWebhookEvent(
             organization=organization,
             event=event,
