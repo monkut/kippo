@@ -6,7 +6,7 @@ from django.contrib.auth.models import Group
 from django.contrib.auth.admin import UserAdmin
 from social_django.models import Association, Nonce, UserSocialAuth
 
-from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsSuperuserAdminMixin
 from octocat.models import GithubAccessToken
 from projects.models import CollectIssuesAction, CollectIssuesProjectResult
 from projects.functions import collect_existing_github_projects
@@ -178,7 +178,7 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+class KippoUserAdmin(AllowIsSuperuserAdminMixin, admin.ModelAdmin):
     list_display = (
         'username',
         'id',
