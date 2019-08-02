@@ -67,30 +67,14 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     # - Use the 'content_url' to retrieve the internally managed issue,
     # - find the related project and issue an update for that project
     #   (Overkill, but for now this is the cleanest way without a ghorgs re-write)
-
     # Accept any event (ignoring action)
-    if 'content_url' in event['project_card']:
-        content_url = event['project_card']['content_url']
-        logger.debug(f'incoming event content_url: {content_url}')
-        try:
-            kippo_task = KippoTask.objects.get(
-                project__organization=organization,
-                github_issue_api_url=content_url
-            )
-            project = kippo_task.project
-        except KippoTask.DoesNotExist:
-            logger.warning(f'No related KippoTask not found for content_url: {content_url}')
-
-        webhook_event = GithubWebhookEvent(
-            organization=organization,
-            event_type=event_type,
-            event=event,
-        )
-        webhook_event.save()
-        logger.debug(f' -- webhookevent created: {event_type}:{event["action"]}!')
-    else:
-        logger.warning(f'SKIPPING -- "content_url" not found in: {event["project_card"]}')
-        raise KeyError(f'"content_url" key not found in event["project_card"]!')
+    webhook_event = GithubWebhookEvent(
+        organization=organization,
+        event_type=event_type,
+        event=event,
+    )
+    webhook_event.save()
+    logger.debug(f' -- webhookevent created: {event_type}:{event["action"]}')
 
     return webhook_event
 

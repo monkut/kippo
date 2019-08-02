@@ -13,6 +13,11 @@ from .models import KippoOrganization
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_WEBHOOK_EVENTS = (
+    'project_card',
+    'issue_comment',
+    'issues'
+)
 
 def validate_webhook_request(request: HttpRequest, organization: KippoOrganization) -> True:
     """
@@ -74,7 +79,7 @@ def webhook(request: HttpRequest, organization_id: str):
         logger.debug(f'Processing event: X-Github-Event={event_type}')
         if not event_type:
             event_type = request.META.get('X-Github-Event', None)
-        if event_type == 'project_card':
+        if event_type in SUPPORTED_WEBHOOK_EVENTS:
             logger.debug(f' -- decoding webhook event_type: {event_type}')
             unquoted_body = urllib.parse.unquote(request.body.decode('utf8'), encoding='utf8')
             parsed_body = unquoted_body.split('payload=')[-1]
@@ -96,9 +101,9 @@ def webhook(request: HttpRequest, organization_id: str):
                     logger.warning(f'{event_type} action={event["action"]} missing expected key: {e.args}')
                 assert action in ('created', 'edited', 'moved', 'converted', 'deleted')
                 status_code = HTTPStatus.INTERNAL_SERVER_ERROR
-                if action == 'created':
+                if action in ('created', 'opened', 'transferred'):
                     status_code = HTTPStatus.CREATED
-                elif action in ('edited', 'moved', 'converted', 'deleted'):
+                else:
                     status_code = HTTPStatus.NO_CONTENT  # 204 - "resource updated successfully"
                 return HttpResponse(status=status_code, content='201 Created')
             else:
