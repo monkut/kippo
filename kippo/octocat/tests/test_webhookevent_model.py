@@ -5,14 +5,13 @@ import hmac
 import urllib.parse
 from pathlib import Path
 from http import HTTPStatus
-from unittest import mock
 from django.conf import settings
 from django.test import TestCase, Client
 
 from common.tests import setup_basic_project, DEFAULT_FIXTURES
 from accounts.models import KippoOrganization
-from .models import GithubWebhookEvent
-from .functions import queue_incoming_project_card_event
+from ..models import GithubWebhookEvent
+from ..functions import queue_incoming_project_card_event
 
 
 assert os.getenv('KIPPO_TESTING', False)  # The KIPPO_TESTING environment variable must be set to True
@@ -141,13 +140,21 @@ class WebhookTestCase(TestCase):
             payload = unquoted_payload.split('payload=')[-1]
             event = json.loads(payload)
         with self.assertRaises(KeyError) as context:
-            prepared_webhookevent = queue_incoming_project_card_event(self.organization, event)
+            queue_incoming_project_card_event(
+                self.organization,
+                event_type='project_card',
+                event=event
+            )
 
     def test_queue_incoming_project_card_event__edited(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_edited.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = queue_incoming_project_card_event(self.organization, event)
+        prepared_webhookevent = queue_incoming_project_card_event(
+            self.organization,
+            event_type='project_card',
+            event=event
+        )
         self.assertTrue(prepared_webhookevent)
 
     def test_queue_incoming_project_card_event__moved(self):
@@ -156,19 +163,31 @@ class WebhookTestCase(TestCase):
             unquoted_payload = urllib.parse.unquote(event_in.read())
             payload = unquoted_payload.split('payload=')[-1]
             event = json.loads(payload)
-        prepared_webhookevent = queue_incoming_project_card_event(self.organization, event)
+        prepared_webhookevent = queue_incoming_project_card_event(
+            self.organization,
+            event_type='project_card',
+            event=event
+        )
         self.assertTrue(prepared_webhookevent)
 
     def test_queue_incoming_project_card_event__converted(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_converted.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = queue_incoming_project_card_event(self.organization, event)
+        prepared_webhookevent = queue_incoming_project_card_event(
+            self.organization,
+            event_type='project_card',
+            event=event
+        )
         self.assertTrue(prepared_webhookevent)
 
     def test_queue_incoming_project_card_event__deleted(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_deleted.json'
         with event_filepath.open('r', encoding='utf8') as event_in:
             event = json.load(event_in)
-        prepared_webhookevent = queue_incoming_project_card_event(self.organization, event)
+        prepared_webhookevent = queue_incoming_project_card_event(
+            self.organization,
+            event_type='project_card',
+            event=event
+        )
         self.assertTrue(prepared_webhookevent)
