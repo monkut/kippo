@@ -64,5 +64,6 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
             return qs
         return qs.filter(task__project__organization__in=request.user.organizations).order_by('task__project__organization').distinct()
 
+
 admin.site.register(KippoTask, KippoTaskAdmin)
 admin.site.register(KippoTaskStatus, KippoTaskStatusAdmin)
