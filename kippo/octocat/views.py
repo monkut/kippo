@@ -19,6 +19,7 @@ SUPPORTED_WEBHOOK_EVENTS = (
     'issues'
 )
 
+
 def validate_webhook_request(request: HttpRequest, organization: KippoOrganization) -> True:
     """
     Validate the contents with the registered secret
@@ -51,11 +52,7 @@ def validate_webhook_request(request: HttpRequest, organization: KippoOrganizati
 @csrf_exempt
 def webhook(request: HttpRequest, organization_id: str):
     """
-    Accepts the following github webhook events:
-
-        - project_card
-        - ping
-
+    Accepts the following github webhook events defined in SUPPORTED_WEBHOOK_EVENTS
     """
     logger.info('webhook request received')
     organization = get_object_or_404(KippoOrganization, pk=organization_id)
@@ -81,8 +78,16 @@ def webhook(request: HttpRequest, organization_id: str):
             event_type = request.META.get('X-Github-Event', None)
         if event_type in SUPPORTED_WEBHOOK_EVENTS:
             logger.debug(f' -- decoding webhook event_type: {event_type}')
-            unquoted_body = urllib.parse.unquote(request.body.decode('utf8'), encoding='utf8')
-            parsed_body = unquoted_body.split('payload=')[-1]
+
+            # parse request body
+            if request.content_type == 'application/x-www-form-urlencoded':
+                unquoted_body = urllib.parse.unquote(request.body.decode('utf8'), encoding='utf8')
+                parsed_body = unquoted_body.split('payload=')[-1]
+            elif request.content_type == 'application/json':
+                parsed_body = request.body.decode('utf8')
+            else:
+                return HttpResponseBadRequest(f'Unsupported content_type: {request.content_type}')
+
             try:
                 event = json.loads(parsed_body)
             except json.decoder.JSONDecodeError as e:
@@ -100,7 +105,7 @@ def webhook(request: HttpRequest, organization_id: str):
                     logger.exception(e)
                     logger.warning(f'{event_type} action={event["action"]} missing expected key: {e.args}')
                 assert action in ('created', 'edited', 'moved', 'converted', 'deleted')
-                status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
                 if action in ('created', 'opened', 'transferred'):
                     status_code = HTTPStatus.CREATED
                 else:
