@@ -3,7 +3,7 @@ import copy
 import json
 import logging
 from distutils.util import strtobool
-from collections import defaultdict
+from collections import Counter
 
 from zappa.asynchronous import task
 from django.utils import timezone
@@ -162,7 +162,7 @@ class GithubWebhookProcessor:
         is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
         return 'processed'
 
-    def process_webhook_events(self) -> int:
+    def process_webhook_events(self) -> Counter:
         unprocessed_events_for_update = GithubWebhookEvent.objects.filter(state='unprocessed').order_by('created_datetime')
         unprocessed_events = copy.copy(unprocessed_events_for_update)
         unprocessed_events_for_update.update(state='processing')
@@ -172,7 +172,7 @@ class GithubWebhookProcessor:
             'issue_comment': self._process_issuecomment_event,
         }
 
-        processed_events = 0
+        processed_events = Counter()
         for webhookevent in unprocessed_events:
             eventtype_processing_method = eventtype_method_mapping[webhookevent.event_type]
             try:
@@ -184,7 +184,7 @@ class GithubWebhookProcessor:
                 webhookevent.event['kippoerror'] = f'No related project found for task!'
             webhookevent.state = result_state
             webhookevent.save()
-            processed_events += 1
+            processed_events[webhookevent.event_type] += 1
         return processed_events
 
 
