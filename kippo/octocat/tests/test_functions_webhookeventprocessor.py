@@ -222,12 +222,101 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
         self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
 
-        # check task was created
+        # check task is not created
         tasks = KippoTask.objects.filter(github_issue_api_url=event_issue_api_url)
         self.assertFalse(tasks)
 
-    def test_issuecomment_event(self):
-        raise NotImplementedError
+    def test_issuecomment_event__existing_issue(self):
+        # confirm that related KippoTaskStatus.last_comment is updated
+        existing_task = KippoTask(
+            title='initial existing task title',
+            project=self.project,
+            assignee=self.user1,
+            description='existing task body',
+            github_issue_api_url=f'https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            github_issue_html_url=f'https://github.com/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_task.save()
+        existing_taskstatus = KippoTaskStatus(
+            task=existing_task,
+            state='open',
+            effort_date=self.current_date,
+            estimate_days=3,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_taskstatus.save()
+
+        # create GithubWebhookEvent
+        event_filepath = TESTDATA_DIRECTORY / 'issuecomment_webhook_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type='issue_comment',
+            event=event
+        )
+        webhookevent.save()
+        event_issue_api_url = event['issue']['url']
+
+        unprocessed_events = 1
+        assert unprocessed_events == GithubWebhookEvent.objects.count()
+        assert not existing_taskstatus.comment
+
+        # test event processor
+        processor = GithubWebhookProcessor()
+        processed_event_count = processor.process_webhook_events()
+        self.assertTrue(processed_event_count == 1)
+
+        # check updated webhookevents
+        expected_unprocessed_events_count = 0
+        actual_unprocessed_events_count = GithubWebhookEvent.objects.filter(state__in=('unprocessed', 'processing')).count()
+        self.assertTrue(actual_unprocessed_events_count == expected_unprocessed_events_count)
+
+        expected_processed_events_count = 1
+        actual_processed_events_count = GithubWebhookEvent.objects.filter(state='processed').count()
+        self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
+
+        # check that KippoTaskStatus.comment is updated
+        existing_taskstatus.refresh_from_db()
+        actual = existing_taskstatus.comment
+        expected = 'octocat2 [ 2019-08-04T13:09:50Z ] comment+test'
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+
+    def test_issuecomment_event__nonexisting_issue(self):
+        # create GithubWebhookEvent
+        event_filepath = TESTDATA_DIRECTORY / 'issuecomment_webhook_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type='issue_comment',
+            event=event
+        )
+        webhookevent.save()
+        event_issue_api_url = event['issue']['url']
+
+        unprocessed_events = 1
+        assert unprocessed_events == GithubWebhookEvent.objects.count()
+
+        # test event processor
+        processor = GithubWebhookProcessor()
+        processed_event_count = processor.process_webhook_events()
+        self.assertTrue(processed_event_count == 1)
+
+        # check updated webhookevents
+        expected_unprocessed_events_count = 0
+        actual_unprocessed_events_count = GithubWebhookEvent.objects.filter(state__in=('unprocessed', 'processing')).count()
+        self.assertTrue(actual_unprocessed_events_count == expected_unprocessed_events_count)
+
+        expected_processed_events_count = 1
+        actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
+        self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
 
     def test_projectcard(self):
+        # confirm that existing tasks
         raise NotImplementedError
