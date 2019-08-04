@@ -344,6 +344,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations).order_by('organization').distinct()
+
 
 @admin.register(KippoMilestone)
 class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
@@ -381,6 +387,12 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         """
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(project__organization__in=request.user.organizations).order_by('project__organization').distinct()
 
 
 class ProjectColumnInline(admin.TabularInline):
