@@ -161,6 +161,9 @@ class GithubWebhookEvent(models.Model):
     event_type = models.CharField(
         max_length=25,
         null=True,
-        help_text=_('X-Github-Event value')
+        help_text=_('X-Github-Event value (See: https://developer.github.com/v3/activity/events/types/)')
     )
     event = fields.JSONField()
+
+    def __str__(self):
+        return f'GithubWebhookEvent({self.organization.name}:{self.event_type}:{self.created_datetime}:{self.state})'

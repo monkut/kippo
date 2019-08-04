@@ -211,7 +211,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'start_date',
         'target_date',
         'get_projectsurvey_display_url',
-        'show_github_project_url',
+        'show_github_project_html_url',
         'display_as_active',
         'updated_datetime',
     )
@@ -299,12 +299,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_latest_kippoprojectstatus_comment.short_description = _('Latest Comment')
 
-    def show_github_project_url(self, obj):
+    def show_github_project_html_url(self, obj):
         url = ''
         if obj.github_project_html_url:
             url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
         return url
-    show_github_project_url.short_description = _('GitHub Project URL')
+    show_github_project_html_url.short_description = _('GitHub Project URL')
 
     def save_formset(self, request, form, formset, change):
         instances = formset.save(commit=False)
