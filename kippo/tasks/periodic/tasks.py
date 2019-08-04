@@ -14,7 +14,9 @@ from ghorgs.wrappers import GithubOrganizationProject, GithubIssue
 
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
-from projects.models import ActiveKippoProject, KippoMilestone, CollectIssuesAction, CollectIssuesProjectResult
+
+from projects.models import KippoProject, ActiveKippoProject, KippoMilestone, CollectIssuesAction, CollectIssuesProjectResult
+
 from octocat.models import GithubRepository, GithubMilestone
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
@@ -33,7 +35,7 @@ class KippoConfigurationError(Exception):
 
 class OrganizationIssueProcessor:
 
-    def __init__(self, organization: KippoOrganization, status_effort_date: datetime.date = None, github_project_urls: List[str] = None):
+    def __init__(self, organization: KippoOrganization, status_effort_date: datetime.date = None, github_project_html_urls: List[str] = None):
         self.organization = organization
         self.status_effort_date = status_effort_date
         self.manager = GithubOrganizationManager(
@@ -51,11 +53,11 @@ class OrganizationIssueProcessor:
             for m in GithubMilestone.objects.filter(milestone__is_completed=False)
         }
 
-        if github_project_urls:
-            logger.info(f'Using Filtered github_project_urls: {github_project_urls}')
-            existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__in=github_project_urls))
+        if github_project_html_urls:
+            logger.info(f'Using Filtered github_project_html_urls: {github_project_html_urls}')
+            existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__in=github_project_html_urls))
         else:
-            existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_url__isnull=False))
+            existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__isnull=False))
         self.existing_open_projects = existing_open_projects
 
         self.kippo_github_users = {u.github_login: u for u in organization.get_github_developer_kippousers()}
@@ -72,43 +74,75 @@ class OrganizationIssueProcessor:
 
     def get_kippo_milestone_by_html_url(self, issue: GithubIssue, html_url: str) -> KippoMilestone:
         """Get the existing related KippoMilestone for a GithubIssues's Milestone entry, if doesn't exist create it"""
+        assert hasattr(issue, 'milestone')
         milestone = self.existing_kippo_milestones_by_html_url.get(html_url, None)
         if not milestone:
             # collect repository
-            github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
+            try:
+                github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
+            except GithubRepository.DoesNotExist as e:
+                logger.exception(e)
+                logger.error(f'GithubRepository.DoesNotExist: {issue.repository_url}')
+                raise
+
+            # get related KippoProject for issue
+            logger.debug(f'Using REPOSITORY URl to discover related project')
+            # -- Assumes that a separate task already exists for this project
+            repository_api_url = issue.repository_url
+            kippo_project = KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)[0]
 
             # check for KippoMilestone
+            milestone_title = issue.milestone.title
             try:
-                kippo_milestone = KippoMilestone.objects.get(title=milestone.title)
+                kippo_milestone = KippoMilestone.objects.get(title=milestone_title)
             except KippoMilestone.DoesNotExist:
                 logger.info(f'Creating KippoMilestone for issue: {issue.html_url}')
+                dueon_date = datetime.datetime.fromisoformat(issue.milestone.due_on.replace('Z', "+00:00")).date()
                 kippo_milestone = KippoMilestone(
-                    title=milestone.title,
-                    target_date=milestone.due_on,  # start date is unknown
-                    description=milestone.description
+                    title=milestone_title,
+                    project=kippo_project,
+                    target_date=dueon_date,  # start date is unknown
+                    description=issue.milestone.description,
+                    created_by=self.github_manager_user,
+                    updated_by=self.github_manager_user,
                 )
                 kippo_milestone.save()
 
             # create related GithubMilestone wrapper
+            logger.info(f'Creating GithubMilestone for issue: {issue.html_url}')
             github_milestone = GithubMilestone(
                 milestone=kippo_milestone,
                 repository=github_repository,
-                api_url=milestone.url,
-                html_url=milestone.html_url
+                number=kippo_milestone.number,
+                api_url=issue.milestone.url,
+                html_url=issue.milestone.html_url,
+                created_by=self.github_manager_user,
+                updated_by=self.github_manager_user,
             )
             github_milestone.save()
 
             # add newly created milestone to self.existing_kippo_milestones_by_html_url
-            logger.debug(f'Adding milestone.html_url({milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}')
-            self.existing_kippo_milestones_by_html_url[milestone.html_url] = kippo_milestone
+            logger.debug(f'Adding milestone.html_url({github_milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}')
+            self.existing_kippo_milestones_by_html_url[github_milestone.html_url] = kippo_milestone
             milestone = kippo_milestone
         return milestone
+
+    def build_latest_comment(self, issue: GithubIssue) -> str:
+        latest_comment = ''
+        if issue.latest_comment_body:
+            latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
+                             f'{issue.latest_comment_body}'
+        return latest_comment
 
     def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> Tuple[bool, List[KippoTaskStatus], List[KippoTaskStatus]]:
         kippo_milestone = None
         if issue.milestone:
-            logger.info(f'GithubMilestone.html_url: {issue.milestone.html_url}')
-            kippo_milestone = self.get_kippo_milestone_by_html_url(issue, issue.milestone.html_url)
+            if isinstance(issue.milestone, dict):
+                milestone_html_url = issue.milestone.get('html_url', None)
+            else:
+                milestone_html_url = issue.milestone.html_url
+            logger.info(f'GithubMilestone.html_url: {milestone_html_url}')
+            kippo_milestone = self.get_kippo_milestone_by_html_url(issue, milestone_html_url)
 
         is_new_task = False
         new_taskstatus_objects = []
@@ -204,14 +238,17 @@ class OrganizationIssueProcessor:
                     active_task_column_names = kippo_project.columnset.get_active_column_names()
                     done_task_column_names = kippo_project.columnset.get_done_column_names()
                     task_status_updates_states = active_task_column_names + done_task_column_names
-                    if issue.project_column not in task_status_updates_states:
+                    if issue.project_column and issue.project_column not in task_status_updates_states:  # TODO: update to include column mapping
                         logger.warning(f'Task({existing_task.title}) in non-active column({issue.project_column}), '
                                        f'KippoTaskStatus NOT created!')
                     else:
-                        latest_comment = ''
-                        if issue.latest_comment_body:
-                            latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
-                                f'{issue.latest_comment_body}'
+                        if issue.title != existing_task.title or issue.body != existing_task.description:
+                            logger.debug(f'Updating KippoTask.(title|description)')
+                            existing_task.title = issue.title
+                            existing_task.description = issue.body
+                            existing_task.save()
+
+                        latest_comment = self.build_latest_comment(issue)
 
                         unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
                         adjusted_issue_estimate = None
@@ -254,8 +291,21 @@ class OrganizationIssueProcessor:
                             new_taskstatus_objects.append(status)
                             logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
                         else:
+                            status_updates = False
+                            if adjusted_issue_estimate != status.estimate_days:
+                                status.estimate_days = adjusted_issue_estimate
+                                status_updates = True
+
+                            if latest_comment != status.comment:
+                                status.comment = latest_comment
+                                status_updates = True
+
+                            if status_updates:
+                                status.save()
+
                             logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
                             updated_taskstatus_objects.append(status)
+
         return is_new_task, new_taskstatus_objects, updated_taskstatus_objects
 
 
@@ -278,7 +328,7 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
 def collect_github_project_issues(action_tracker_id: int,
                                   kippo_organization_id: str,
                                   status_effort_date_iso8601: Optional[str] = None,
-                                  github_project_urls: List[str] = None) -> tuple:
+                                  github_project_html_urls: List[str] = None) -> tuple:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
@@ -287,7 +337,7 @@ def collect_github_project_issues(action_tracker_id: int,
     :param action_tracker_id:
     :param kippo_organization_id: KippoOrganization ID
     :param status_effort_date_iso8601: Date to get tasks from for testing, estimation purposes
-    :param github_project_urls: If only specific projects are desired, the related github_project_urls may be provided
+    :param github_project_html_urls: If only specific projects are desired, the related github_project_html_urls may be provided
     :return: processed_projects_count, created_task_count, created_taskstatus_count
     """
     assert action_tracker_id
@@ -303,7 +353,7 @@ def collect_github_project_issues(action_tracker_id: int,
     issue_processor = OrganizationIssueProcessor(
         organization=kippo_organization,
         status_effort_date=status_effort_date,
-        github_project_urls=github_project_urls
+        github_project_html_urls=github_project_html_urls
     )
     # collect project issues
     for github_project in issue_processor.github_projects():
@@ -312,7 +362,7 @@ def collect_github_project_issues(action_tracker_id: int,
         # get the related KippoProject
         # --- For some reason standard filtering was not working as expected, so this method is being used...
         # --- The following was only returning a single project
-        # --- Project.objects.filter(is_closed=False, github_project_url__isnull=False)
+        # --- Project.objects.filter(is_closed=False, github_project_html_url__isnull=False)
         kippo_project = get_existing_kippo_project(github_project, issue_processor.existing_open_projects)
         if kippo_project:
             unhandled_issues = []
