@@ -23,8 +23,8 @@ class PeriodicTaskFunctionsTestCase(TestCase):
     ]
 
     def setUp(self):
-        self.target_github_project_url = DEFAULT_GITHUB_PROJECT_URL
-        self.other_github_project_url = 'https://github.com/other/repo/'
+        self.target_github_project_html_url = DEFAULT_GITHUB_PROJECT_URL
+        self.other_github_project_html_url = 'https://github.com/other/repo/'
         now = timezone.now()
         start_date = (now - timezone.timedelta(days=7)).date()
         end_date = (now + timezone.timedelta(days=7)).date()
@@ -47,7 +47,7 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=True,
-            github_project_html_url=self.target_github_project_url,
+            github_project_html_url=self.target_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -62,7 +62,7 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=False,
-            github_project_html_url=self.target_github_project_url,
+            github_project_html_url=self.target_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -77,7 +77,7 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=False,
-            github_project_html_url=self.other_github_project_url,
+            github_project_html_url=self.other_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -99,8 +99,8 @@ class OrganizationIssueProcessorTestCase(TestCase):
     ]
 
     def setUp(self):
-        self.target_github_project_url = DEFAULT_GITHUB_PROJECT_URL
-        self.other_github_project_url = 'https://github.com/other/repo/'
+        self.target_github_project_html_url = DEFAULT_GITHUB_PROJECT_URL
+        self.other_github_project_html_url = 'https://github.com/other/repo/'
         now = timezone.now()
         start_date = (now - timezone.timedelta(days=7)).date()
         end_date = (now + timezone.timedelta(days=7)).date()
@@ -131,7 +131,7 @@ class OrganizationIssueProcessorTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=True,
-            github_project_html_url=self.target_github_project_url,
+            github_project_html_url=self.target_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -146,7 +146,7 @@ class OrganizationIssueProcessorTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=False,
-            github_project_html_url=self.target_github_project_url,
+            github_project_html_url=self.target_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -161,7 +161,7 @@ class OrganizationIssueProcessorTestCase(TestCase):
             created_by=github_manager_user,
             updated_by=github_manager_user,
             is_closed=False,
-            github_project_html_url=self.other_github_project_url,
+            github_project_html_url=self.other_github_project_html_url,
             start_date=start_date,
             target_date=end_date,
             actual_date=end_date,
@@ -172,6 +172,6 @@ class OrganizationIssueProcessorTestCase(TestCase):
         issue_processor = OrganizationIssueProcessor(
             organization=self.organization,
             status_effort_date=timezone.datetime(2019, 6, 5).date(),
-            github_project_urls=[self.target_github_project_url]
+            github_project_html_urls=[self.target_github_project_html_url]
         )
         self.assertTrue(issue_processor)
