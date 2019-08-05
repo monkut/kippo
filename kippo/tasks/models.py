@@ -44,13 +44,13 @@ class KippoTask(UserCreatedBaseModel):
     def github_repository_html_url(self):
         """Provide the related octocat.models.GithubRepository object"""
         # self.github_issue_html_url
-        # https://github.com/livepassjp/rcs-delivery-core-system/issues/133
+        # https://github.com/myorg/myrepo/issues/133
         # -->
-        #       https://github.com/livepassjp/rcs-delivery-core-system
+        #       https://github.com/myorg/myrepo
         github_respository_html_url, *_ = self.github_issue_html_url.rsplit('/', 2)
         return github_respository_html_url
 
-    def latest_kippotaskstatus(self, days: int=None):
+    def latest_kippotaskstatus(self):
         return KippoTaskStatus.objects.filter(task=self).latest()
 
     def effort_days_remaining(self):
@@ -74,12 +74,16 @@ class KippoTask(UserCreatedBaseModel):
 
 
 class KippoTaskStatus(UserCreatedBaseModel):
-    task = models.ForeignKey(KippoTask,
-                             on_delete=models.CASCADE)
-    state = models.CharField(max_length=56,
-                             db_index=True,
-                             null=True,
-                             help_text=_('Populated by the Github Organizational Project column the task exists in'))
+    task = models.ForeignKey(
+        KippoTask,
+        on_delete=models.CASCADE
+    )
+    state = models.CharField(
+        max_length=56,
+        db_index=True,
+        null=True,
+        help_text=_('Populated by the Github Organizational Project column the task exists in')
+    )
     state_priority = models.PositiveSmallIntegerField(null=True,
                                                       blank=True,
                                                       default=0,
@@ -102,7 +106,7 @@ class KippoTaskStatus(UserCreatedBaseModel):
     tags = JSONField(
         null=True,
         blank=True,
-        help_text=_('Any tags related to the current task status')
+        help_text=_('Any tags/labels related to the current task status')
     )
     comment = models.TextField(null=True,
                                blank=True)
