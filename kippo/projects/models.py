@@ -261,6 +261,16 @@ class KippoProject(UserCreatedBaseModel):
         editable=False,
         help_text=_('Updated when "survey_issued" flag is set')
     )
+    column_info = JSONField(
+        null=True,
+        blank=True,
+        editable=False,
+        # example content:
+        # [
+        # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
+        # ]
+        help_text=_('If project created through Kippo, this field is populated with column info')
+    )
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
