@@ -415,7 +415,7 @@ def run_collect_github_project_issues(event, context):
     :param context:
     :return:
     """
-    github_manager = KippoOrganization.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
+    github_manager = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
     for organization in KippoOrganization.objects.filter(github_organization_name__isnull=False):
         action_tracker = CollectIssuesAction(
             organization=organization,
