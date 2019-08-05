@@ -1,5 +1,6 @@
 import csv
 import logging
+from base64 import b64decode
 from string import ascii_lowercase
 from django.contrib import admin, messages
 from django.utils import timezone
@@ -125,8 +126,8 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
     successful_creation_projects = []
     skipping = []
     for kippo_project in queryset:
-        if kippo_projectgithub_project_html_url:
-            message = f'{kippo_project.name} already has GitHub Project set ({kippo_projectgithub_project_html_url}), SKIPPING!'
+        if kippo_project.github_project_html_url:
+            message = f'{kippo_project.name} already has GitHub Project set ({kippo_project.github_project_html_url}), SKIPPING!'
             logger.warning(message)
             skipping.append(message)
         else:
@@ -141,8 +142,10 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             columns = kippo_project.get_column_names()
             github_organization_name = kippo_project.organization.github_organization_name
             githubaccesstoken = kippo_project.organization.githubaccesstoken
-            github_manager = GithubOrganizationManager(organization=github_organization_name,
-                                                       token=githubaccesstoken.token)
+            github_manager = GithubOrganizationManager(
+                organization=github_organization_name,
+                token=githubaccesstoken.token
+            )
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
             url, responses = github_manager.create_organizational_project(
@@ -150,10 +153,28 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
                 description=kippo_project.github_project_description,
                 columns=columns,
             )
-            kippo_projectgithub_project_html_url = url
-            # TODO: Update with project id
-            # TODO: update with column name:id mapping in KippoProject.columns
-            #kippo_project.github_project_api_url = f'https://api.github.com/projects/{github_project_id}'
+            kippo_project.github_project_html_url = url
+            logger.debug(f'kippo_project.github_project_html_url={url}')
+            logger.debug(f'github_manager.create_organizational_project() responses: {responses}')
+            # project_id appears to be a portion of the returned node_id when decoded from base64
+            # -- NOTE: not officially supported by github but seems to be the current implementation
+            # https://developer.github.com/v3/projects/#get-a-project
+            github_project_id = None
+            column_info = []
+            for item in responses:
+                if isinstance(item, dict):  # get "project_id"
+                    if 'createProject' in item['data']:
+                        project_encoded_id = item['data']['createProject']['project']['id']
+                        decoded_id = b64decode(project_encoded_id).decode('utf8').lower()
+                        # parse out project id portion
+                        github_project_id = decoded_id.split('project')[-1]
+                elif isinstance(item, list):  # get column_info
+                    for column_response in item:
+                        if 'addProjectColumn' in column_response['data']:
+                            column_info.append(column_response['data']['addProjectColumn']['columnEdge']['node'])
+
+            kippo_project.github_project_api_url = f'https://api.github.com/projects/{github_project_id}'
+            kippo_project.column_info = column_info
             kippo_project.save()
             successful_creation_projects.append((kippo_project.name, url, columns))
     if skipping:
