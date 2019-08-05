@@ -210,6 +210,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
         'latest_effort_date': latest_effort_date,
         'active_projects': active_projects,
         'messages': messages.get_messages(request),
+        'selected_organization': selected_organization,
         'organizations': user_organizations,
     }
 
