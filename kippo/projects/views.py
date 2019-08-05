@@ -16,7 +16,6 @@ from tasks.functions import prepare_project_engineering_load_plot_data
 from tasks.exceptions import ProjectConfigurationError
 from .charts.functions import prepare_burndown_chart_components
 from .models import ActiveKippoProject, KippoProject
-from .forms import OrganizationIdForm
 from .exceptions import TaskStatusError, ProjectDatesError
 
 
