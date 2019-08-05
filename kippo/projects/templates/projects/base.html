@@ -46,6 +46,14 @@
                 {% endfor %}
             </div>
           </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="{{ URL_PREFIX }}/projects/" id="dropdown04" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Organization(s)</a>
+            <div class="dropdown-menu" aria-labelledby="dropdown04">
+                {% for organization in organizations %}
+                    <a class="dropdown-item" href="{{ URL_PREFIX }}/projects/set/organization/{{ organization.id }}/">{{ organization.name }}</a>
+                {% endfor %}
+            </div>
+          </li>
             <li class="nav-item">
                 <a class="nav-link" href="#"><title>{{ user.username}}</title></a>
             </li>
