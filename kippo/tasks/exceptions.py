@@ -6,3 +6,7 @@ class ProjectConfigurationError(ValueError):
 
 class ProjectNotFoundError(ValueError):
     pass
+
+
+class OrganizationKippoTaskStatusError(ValueError):
+    pass

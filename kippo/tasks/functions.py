@@ -13,7 +13,7 @@ from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoOrganization, OrganizationMembership
 from projects.models import KippoProject, KippoMilestone
-from .exceptions import ProjectConfigurationError
+from .exceptions import ProjectConfigurationError, OrganizationKippoTaskStatusError
 from .models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_project_schedule_chart_components
 
@@ -246,9 +246,16 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     kippo_tasks = {}
 
     # get the latest available date for KippoTaskStatus effort_date records for the specific organization
-    latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
-        task__project__organization=organization
-    ).latest('effort_date').effort_date
+    logger.debug(f'Collecting KippoTaskStatus for organization: {organization}')
+    try:
+        latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
+            task__project__organization=organization
+        ).latest('effort_date').effort_date
+    except KippoTaskStatus.DoesNotExist as e:
+        logger.exception(e)
+        msg = f'No KippoTaskStatus entries for Organization: {organization}'
+        logger.error(msg)
+        raise OrganizationKippoTaskStatusError(msg)
 
     if latest_taskstatus_effort_date < schedule_start_date:
         logger.warning(f'Available latest KippoTaskStatus.effort_date < schedule_start_date: {latest_taskstatus_effort_date} < {schedule_start_date}')

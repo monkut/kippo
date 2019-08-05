@@ -160,9 +160,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
             logger.warning(warning)
     else:
         # show project schedule chart
-        user_first_organization = request.user.memberships.first()
-        organization = user_first_organization
-        if not organization:
+        if not selected_organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
 
         # check projects for start_date, target_date
@@ -175,7 +173,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
         try:
-            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization)
+            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization)
             logger.debug(f'latest_effort_date: {latest_effort_date}')
         except ProjectConfigurationError as e:
             logger.warning(f'No projects with start_date or target_date defined: {e.args}')
