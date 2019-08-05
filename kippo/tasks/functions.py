@@ -419,7 +419,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 continue
             for task in projects_results[project_id][assignee]:
                 latest_kippotaskstatus = task.latest_kippotaskstatus()
-                data['project_ids'].append(project_id)
+                data['project_ids'].append(str(project_id))
                 data['project_names'].append(task.project.name)
                 data['project_start_dates'].append(task.project.start_date)  # only 1 is really needed...
                 data['project_target_dates'].append(task.project.target_date)  # only 1 is really needed...
@@ -444,7 +444,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
     project_ids = projects_results.keys()
     for milestone in KippoMilestone.objects.filter(project__id__in=project_ids).order_by('target_date'):
         milestone_info = {
-            'project_id': milestone.project.id,
+            'project_id': str(milestone.project.id),
             'start_date': milestone.start_date,
             'target_date': milestone.target_date,
             'title': milestone.title,
