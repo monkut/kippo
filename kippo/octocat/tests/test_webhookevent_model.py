@@ -33,13 +33,10 @@ class WebhookTestCase(TestCase):
     def test_webhook_ping_event(self):
         c = Client()
         webhookevent_filepath = TESTDATA_DIRECTORY / 'webhookevent_ping.json'
-        with webhookevent_filepath.open('rb') as asissue:
-            content = asissue.read()
-
-        sig = 'sha1=a39daaa400cc91fcc7a581214b607591d96d893d'
+        content, signature = self._load_webhookevent(webhookevent_filepath)
         headers = {
             'X-Github-Event': 'ping',
-            'X-Hub-Signature': sig,  # signature of 'webhookevent_ping.json'
+            'X-Hub-Signature': signature,
         }
 
         response = c.generic(
@@ -71,7 +68,7 @@ class WebhookTestCase(TestCase):
 
         headers = {
             'HTTP_X_GITHUB_EVENT': 'project_card',
-            'X-Hub-Signature': sig,
+            'X-Hub-Signature': signature,
         }
         response = c.generic(
             'POST',
