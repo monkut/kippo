@@ -3,6 +3,7 @@ import json
 import hashlib
 import hmac
 import urllib.parse
+from typing import Tuple
 from pathlib import Path
 from http import HTTPStatus
 from django.conf import settings
@@ -51,20 +52,23 @@ class WebhookTestCase(TestCase):
         )
         self.assertTrue(response.status_code == HTTPStatus.OK, f'actual({response.status_code}) != expected({HTTPStatus.OK})')
 
-    def test_project_card_webhook_valid_signature(self):
-        c = Client()
-        project_card_asissue_webhook_event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
-        with project_card_asissue_webhook_event_filepath.open('rb') as asissue:
-            content = asissue.read()
+    def _load_webhookevent(self, filepath: Path) -> Tuple[bytes, str]:
+        with filepath.open('rb') as content_f:
+            content = content_f.read()
             # calculate the 'X-Hub-Signature' header
             s = hmac.new(
                 key=self.secret_encoded,
                 msg=content,
                 digestmod=hashlib.sha1,
             ).hexdigest()
-            sig = f'sha1={s}'
+            signature = f'sha1={s}'
+        return content, signature
 
-            project_card_asissue_webhook_event_body = json.loads(content.decode('utf8'))
+    def test_project_card_webhook_valid_signature(self):
+        c = Client()
+        project_card_asissue_webhook_event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
+        content, signature = self._load_webhookevent(project_card_asissue_webhook_event_filepath)
+
         headers = {
             'HTTP_X_GITHUB_EVENT': 'project_card',
             'X-Hub-Signature': sig,
@@ -88,20 +92,12 @@ class WebhookTestCase(TestCase):
     def test_project_card_webhook_invalid_signature(self):
         c = Client()
         project_card_asissue_webhook_event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
-        with project_card_asissue_webhook_event_filepath.open('rb') as asissue:
-            content = asissue.read()
-            # calculate the 'X-Hub-Signature' header
-            s = hmac.new(
-                key=self.secret_encoded,
-                msg=content,
-                digestmod=hashlib.sha1,
-            ).hexdigest()
-            sig = f'sha1={s}x'
+        content, signature = self._load_webhookevent(project_card_asissue_webhook_event_filepath)
+        invalid_signature = signature + 'x'
 
-            project_card_asissue_webhook_event_body = json.loads(content.decode('utf8'))
         headers = {
             'HTTP_X_GITHUB_EVENT': 'project_card',
-            'X-Hub-Signature': sig,
+            'X-Hub-Signature': invalid_signature,
         }
         response = c.generic(
             'POST',
@@ -116,9 +112,7 @@ class WebhookTestCase(TestCase):
     def test_project_card_webhook_no_signature(self):
         c = Client()
         project_card_asissue_webhook_event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
-        with project_card_asissue_webhook_event_filepath.open('r', encoding='utf8') as asissue:
-            content = asissue.read()
-            project_card_asissue_webhook_event_body = json.loads(content)
+        content, _ = self._load_webhookevent(project_card_asissue_webhook_event_filepath)
         headers = {
             'HTTP_X_GITHUB_EVENT': 'project_card',
         }
@@ -191,3 +185,5 @@ class WebhookTestCase(TestCase):
             event=event
         )
         self.assertTrue(prepared_webhookevent)
+
+
