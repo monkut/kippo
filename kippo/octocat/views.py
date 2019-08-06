@@ -95,6 +95,7 @@ def webhook(request: HttpRequest, organization_id: str):
                 logger.error(f'Unable to decode parsed_body: {parsed_body}')
                 logger.error(f'Event cannot be processed: {event_type}')
                 event = None
+
             if event:
                 action = event['action']
                 logger.debug(f' -- processing webhook event_type: {event_type}')
