@@ -321,3 +321,13 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         expected_processed_events_count = 1
         actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
         self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
+
+    def test_projectcard_event_moved(self):
+        # TODO: Add support for 'move' event
+        #  update to properly update state based on column position in order to ignore estimates for tasks in 'non-active' columns
+        assert False
+
+    def test_projectcard_event_created(self):
+        # TODO: this probably isn't needed since kippo does NOT track project "notes"
+        #  since "issues" event is supported, KippoTask will be created on that event
+        assert False
