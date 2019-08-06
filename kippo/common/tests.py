@@ -1,6 +1,7 @@
 from django.test import TestCase
+from django.utils import timezone
 
-from accounts.models import KippoOrganization, EmailDomain, KippoUser, OrganizationMembership
+from accounts.models import KippoOrganization, EmailDomain, KippoUser, OrganizationMembership, PersonalHoliday
 from projects.models import KippoProject, ProjectColumnSet
 from tasks.models import KippoTask
 from octocat.models import GithubAccessToken, GithubRepository
@@ -149,6 +150,10 @@ class IsStaffModelAdminTestCaseBase(TestCase):
             is_superuser=False,
             is_staff=True,
         )
+        PersonalHoliday.objects.create(
+            user=self.staffuser_with_org,
+            day=(timezone.now() + timezone.timedelta(days=5)).date()
+        )
         # add membership
         membership = OrganizationMembership(
             user=self.staffuser_with_org,
@@ -168,6 +173,10 @@ class IsStaffModelAdminTestCaseBase(TestCase):
             username=self.otherstaffuser_username,
             is_superuser=False,
             is_staff=True,
+        )
+        PersonalHoliday.objects.create(
+            user=self.otherstaffuser_with_org,
+            day=(timezone.now() + timezone.timedelta(days=5)).date()
         )
         # add membership
         membership = OrganizationMembership(

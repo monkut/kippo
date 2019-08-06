@@ -95,7 +95,7 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
 
 
 @admin.register(OrganizationMembership)
-class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
+class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'organization',
         'user',
@@ -107,6 +107,12 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
         'organization',
         'user',
     )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations)
 
 
 @admin.register(KippoOrganization)
@@ -220,6 +226,12 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         if getattr(obj, 'pk', None) is None:
             obj.user = request.user
         obj.save()
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user__organizationmembership__organization__in=request.user.organizations).distinct()
 
 
 @admin.register(Country)
