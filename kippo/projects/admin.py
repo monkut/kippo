@@ -248,8 +248,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     ordering = (
         'organization',
+        '-display_as_active',
         '-confidence',
         'phase',
+        'name',
     )
     actions = [
         create_github_organizational_project_action,
