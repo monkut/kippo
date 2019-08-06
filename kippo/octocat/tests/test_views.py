@@ -79,7 +79,7 @@ class OctocatViewsTestCase(TestCase):
         )
         expected = HTTPStatus.NO_CONTENT
         actual = response.status_code
-        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected}): {response.content}')
 
         # confirm that GithubWebhookEvent is created
         self.assertTrue(GithubWebhookEvent.objects.count() == 1)
