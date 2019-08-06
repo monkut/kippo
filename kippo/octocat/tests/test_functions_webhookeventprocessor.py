@@ -100,10 +100,11 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_filepath = TESTDATA_DIRECTORY / 'issues_webhook_existing.json'
         event_encoded, _ = self._load_webhookevent(event_filepath)
         event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'issues'
         webhookevent = GithubWebhookEvent(
             organization=self.organization,
             state='unprocessed',
-            event_type='issues',
+            event_type=event_type,
             event=event
         )
         webhookevent.save()
@@ -114,7 +115,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count == 1)
+        self.assertTrue(processed_event_count[event_type] == 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
@@ -148,13 +149,14 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         existing_task.save()
 
         # create GithubWebhookEvent
+        event_type = 'issues'
         event_filepath = TESTDATA_DIRECTORY / 'issues_webhook_existing.json'
         event_encoded, _ = self._load_webhookevent(event_filepath)
         event = json.loads(event_encoded.decode('utf8'))
         webhookevent = GithubWebhookEvent(
             organization=self.organization,
             state='unprocessed',
-            event_type='issues',
+            event_type=event_type,
             event=event
         )
         webhookevent.save()
@@ -166,7 +168,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count == 1)
+        self.assertTrue(processed_event_count[event_type] == 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
@@ -196,10 +198,11 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_filepath = TESTDATA_DIRECTORY / 'issues_webhook_existing.json'
         event_encoded, _ = self._load_webhookevent(event_filepath)
         event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'issues'
         webhookevent = GithubWebhookEvent(
             organization=self.organization,
             state='unprocessed',
-            event_type='issues',
+            event_type=event_type,
             event=event
         )
         webhookevent.save()
@@ -211,7 +214,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count == 1)
+        self.assertTrue(processed_event_count[event_type] == 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
@@ -253,10 +256,11 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_filepath = TESTDATA_DIRECTORY / 'issuecomment_webhook_created.json'
         event_encoded, _ = self._load_webhookevent(event_filepath)
         event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'issue_comment'
         webhookevent = GithubWebhookEvent(
             organization=self.organization,
             state='unprocessed',
-            event_type='issue_comment',
+            event_type=event_type,
             event=event
         )
         webhookevent.save()
@@ -269,7 +273,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count == 1)
+        self.assertTrue(processed_event_count[event_type] == 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
@@ -291,10 +295,11 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_filepath = TESTDATA_DIRECTORY / 'issuecomment_webhook_created.json'
         event_encoded, _ = self._load_webhookevent(event_filepath)
         event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'issue_comment'
         webhookevent = GithubWebhookEvent(
             organization=self.organization,
             state='unprocessed',
-            event_type='issue_comment',
+            event_type=event_type,
             event=event
         )
         webhookevent.save()
@@ -306,7 +311,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count == 1)
+        self.assertTrue(processed_event_count[event_type] == 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
@@ -316,7 +321,3 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         expected_processed_events_count = 1
         actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
         self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
-
-    def test_projectcard(self):
-        # confirm that existing tasks
-        raise NotImplementedError

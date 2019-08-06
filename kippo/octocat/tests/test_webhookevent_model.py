@@ -29,6 +29,7 @@ class WebhookTestCase(TestCase):
         self.secret_encoded = self.secret.encode('utf8')
         self.organization.webhook_secret = self.secret
         self.organization.save()
+        GithubWebhookEvent.objects.all().delete()
 
     def test_webhook_ping_event(self):
         c = Client()
@@ -130,12 +131,13 @@ class WebhookTestCase(TestCase):
             unquoted_payload = urllib.parse.unquote(event_in.read())
             payload = unquoted_payload.split('payload=')[-1]
             event = json.loads(payload)
-        with self.assertRaises(KeyError) as context:
-            queue_incoming_project_card_event(
-                self.organization,
-                event_type='project_card',
-                event=event
-            )
+
+        queue_incoming_project_card_event(
+            self.organization,
+            event_type='project_card',
+            event=event
+        )
+        self.assertTrue(GithubWebhookEvent.objects.all().count() == 1)
 
     def test_queue_incoming_project_card_event__edited(self):
         event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_edited.json'
