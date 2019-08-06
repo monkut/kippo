@@ -23,8 +23,8 @@ class WebhookTestCase(TestCase):
     fixtures = DEFAULT_FIXTURES
 
     def setUp(self):
-        setup_basic_project()
-        self.organization = KippoOrganization.objects.get(name='github')
+        created_objects = setup_basic_project()
+        self.organization = created_objects['KippoOrganization']
         self.secret = 'DOB6tzKvmBIX69Jd1NPc'
         self.secret_encoded = self.secret.encode('utf8')
         self.organization.webhook_secret = self.secret
