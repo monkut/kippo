@@ -3,7 +3,7 @@ from django.test import TestCase
 from accounts.models import KippoOrganization, EmailDomain, KippoUser, OrganizationMembership
 from projects.models import KippoProject, ProjectColumnSet
 from tasks.models import KippoTask
-from octocat.models import GithubAccessToken
+from octocat.models import GithubAccessToken, GithubRepository
 
 from .admin import KippoAdminSite
 
@@ -17,7 +17,7 @@ DEFAULT_FIXTURES = [
 DEFAULT_COLUMNSET_PK = '414e69c8-8ea3-4c9c-8129-6f5aac108fa2'
 
 
-def setup_basic_project(organization=None):
+def setup_basic_project(organization=None, repository_name='Hello-World'):
     created_objects = {}
     user = KippoUser(
         username='octocat',
@@ -30,8 +30,8 @@ def setup_basic_project(organization=None):
     created_objects['KippoUser'] = user
     if not organization:
         organization = KippoOrganization(
-            name='github',
-            github_organization_name='githubcodesorg',
+            name='myorg-full',
+            github_organization_name='myorg',
             day_workhours=8,
             created_by=user,
             updated_by=user,
@@ -71,7 +71,7 @@ def setup_basic_project(organization=None):
     kippo_project = KippoProject(
         organization=organization,
         name='octocat-test-project',
-        github_project_url='https://github.com/orgs/githubcodesorg/projects/1',
+        github_project_html_url=f'https://github.com/orgs/{organization.github_organization_name}/projects/1',
         columnset=default_columnset,
         created_by=user,
         updated_by=user,
@@ -86,11 +86,22 @@ def setup_basic_project(organization=None):
         assignee=user,
         created_by=user,
         updated_by=user,
-        github_issue_html_url='https://github.com/repos/octocat/Hello-World/issues/1347',
-        github_issue_api_url="https://api.github.com/repos/octocat/Hello-World/issues/1347",
+        github_issue_html_url=f'https://github.com/repos/{organization.github_organization_name}/{repository_name}/issues/1347',
+        github_issue_api_url=f"https://api.github.com/repos/{organization.github_organization_name}/{repository_name}/issues/1347",
     )
     kippo_task.save()
     created_objects['KippoTask'] = kippo_task
+
+    github_repo = GithubRepository(
+        organization=organization,
+        name='Hello-World',
+        api_url=f'https://api.github.com/repos/{organization.github_organization_name}/{repository_name}',
+        html_url=f'https://github.com/repos/{organization.github_organization_name}/{repository_name}',
+        created_by=user,
+        updated_by=user,
+    )
+    github_repo.save()
+    created_objects['GithubRepository'] = github_repo
 
     return created_objects
 
@@ -144,10 +155,30 @@ class IsStaffModelAdminTestCaseBase(TestCase):
             organization=self.organization,
             created_by=self.github_manager,
             updated_by=self.github_manager,
+            is_developer=True
         )
         membership.save()
 
         self.staff_user_request = MockRequest()
         self.staff_user_request.user = self.staffuser_with_org
+
+        # create staff user and related request mock
+        self.otherstaffuser_username = 'otherstaffuser_with_org'
+        self.otherstaffuser_with_org = KippoUser.objects.create(
+            username=self.otherstaffuser_username,
+            is_superuser=False,
+            is_staff=True,
+        )
+        # add membership
+        membership = OrganizationMembership(
+            user=self.otherstaffuser_with_org,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        membership.save()
+
+        self.otherstaff_user_request = MockRequest()
+        self.otherstaff_user_request.user = self.otherstaffuser_with_org
 
         self.site = KippoAdminSite()
