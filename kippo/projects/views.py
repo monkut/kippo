@@ -40,11 +40,6 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     return project, username
 
 
-@staff_member_required
-def view_projects_schedule(request, project_id=None):
-    raise NotImplementedError()
-
-
 def _get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganization, List[KippoOrganization]]:
     """Retrieve the session defined user KippoOrganization"""
     # get organization defined in session
@@ -71,15 +66,13 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     now = timezone.now()
 
     try:
-        organization = _get_user_session_organization(request)
+        selected_organization, user_organizations = _get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
-    organization_form = OrganizationIdForm(initial={'organization_id': organization.id})
-
     inprogress_projects = ActiveKippoProject.objects.filter(
         start_date__lte=now,
-        organization=organization
+        organization=selected_organization
     ).orderby('category')
 
     inprogress_category_groups = defaultdict(list)
@@ -88,7 +81,7 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
 
     upcoming_projects = ActiveKippoProject.objects.filter(
         start_date__gt=now,
-        organization=organization
+        organization=selected_organization
     ).orderby('category')
     upcoming_category_groups = defaultdict(list)
     for upcoming_project in upcoming_projects:
@@ -97,7 +90,8 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     context = {
         'inprogress_category_groups': inprogress_category_groups,
         'upcoming_category_groups': upcoming_category_groups,
-        'organization_form': organization_form,
+        'selected_organization': selected_organization,
+        'organizations': user_organizations,
     }
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
@@ -230,5 +224,3 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     request.session['organization_id'] = str(organization_id)
     logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
     return HttpResponseRedirect(f'{settings.URL_PREFIX}/projects/')  # go reload the page with the set org
-
-

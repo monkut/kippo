@@ -5,7 +5,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.models import Group
 from social_django.models import Association, Nonce, UserSocialAuth
 
-from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, AllowIsSuperuserAdminMixin, OrganizationQuerysetModelAdminMixin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin
 from octocat.models import GithubAccessToken
 from projects.models import CollectIssuesAction
 from projects.functions import collect_existing_github_projects
@@ -254,7 +254,7 @@ class PublicHolidayAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     )
 
 
-#@admin.site.unregister(UserSocialAuth)
+admin.site.unregister(UserSocialAuth)
 admin.site.unregister(Nonce)
 admin.site.unregister(Association)
 admin.site.unregister(Group)

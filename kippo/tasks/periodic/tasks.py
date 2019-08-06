@@ -122,7 +122,9 @@ class OrganizationIssueProcessor:
             github_milestone.save()
 
             # add newly created milestone to self.existing_kippo_milestones_by_html_url
-            logger.debug(f'Adding milestone.html_url({github_milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}')
+            logger.debug(
+                f'Adding milestone.html_url({github_milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}'
+            )
             self.existing_kippo_milestones_by_html_url[github_milestone.html_url] = kippo_milestone
             milestone = kippo_milestone
         return milestone
@@ -382,12 +384,10 @@ def collect_github_project_issues(action_tracker_id: int,
                     result.new_taskstatus_count += len(issue_new_taskstatus_objects)
                     result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
                 except ValueError as e:
-                    unhandled_issues.append(
-                        {
-                            'issue.id': issue.id,
-                            'valueerror.args': e.args
-                         }
-                    )
+                    unhandled_issues.append({
+                        'issue.id': issue.id,
+                        'valueerror.args': e.args
+                    })
             result.unhandled_issues = unhandled_issues
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
             msg = (
