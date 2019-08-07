@@ -235,8 +235,13 @@ class OrganizationIssueProcessor:
                     done_task_column_names = kippo_project.columnset.get_done_column_names()
                     task_status_updates_states = active_task_column_names + done_task_column_names
                     if issue.project_column and issue.project_column not in task_status_updates_states:  # TODO: update to include column mapping
-                        logger.warning(f'Task({existing_task.title}) in non-active column({issue.project_column}), '
-                                       f'KippoTaskStatus NOT created!')
+                        # TODO: Review why this is needed...
+                        # intention here is to avoid adding KippoTaskStatus entries for closed tasks, but we should have at least 1
+                        # create a list of KippoTaskStatus ids for project for closed tasks?
+                        # need to consider re-open case
+                        logger.warning(
+                            f'Task({existing_task.title}) in non-active column({issue.project_column}), KippoTaskStatus NOT created!'
+                        )
                     else:
                         if issue.title != existing_task.title or issue.body != existing_task.description:
                             logger.debug(f'Updating KippoTask.(title|description)')
