@@ -270,19 +270,20 @@ class OrganizationIssueProcessor:
                             })
 
                         # create or update KippoTaskStatus with updated estimate
+                        status_values = {
+                            'created_by': self.github_manager_user,
+                            'updated_by': self.github_manager_user,
+                            'state': issue.project_column,
+                            'state_priority': issue.column_priority,
+                            'estimate_days': adjusted_issue_estimate,
+                            'effort_date': self.status_effort_date,
+                            'tags': tags,
+                            'comment': latest_comment
+                        }
                         status, created = KippoTaskStatus.objects.get_or_create(
                             task=existing_task,
                             effort_date=self.status_effort_date,
-                            defaults={
-                                'created_by': self.github_manager_user,
-                                'updated_by': self.github_manager_user,
-                                'state': issue.project_column,
-                                'state_priority': issue.column_priority,
-                                'estimate_days': adjusted_issue_estimate,
-                                'effort_date': self.status_effort_date,
-                                'tags': tags,
-                                'comment': latest_comment
-                            }
+                            defaults=status_values
                         )
                         # check if title was updated, if updated, update related kippotask
                         if issue.title != existing_task.title:
@@ -293,16 +294,11 @@ class OrganizationIssueProcessor:
                             new_taskstatus_objects.append(status)
                             logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
                         else:
-                            status_updates = False
-                            if adjusted_issue_estimate != status.estimate_days:
-                                status.estimate_days = adjusted_issue_estimate
-                                status_updates = True
-
-                            if latest_comment != status.comment:
-                                status.comment = latest_comment
-                                status_updates = True
-
-                            if status_updates:
+                            # for updated status overwrite previous values
+                            if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
+                                # set values
+                                for fieldname, fieldvalue in status_values.items():
+                                    setattr(status, fieldname, fieldvalue)
                                 status.save()
 
                             logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
