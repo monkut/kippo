@@ -61,8 +61,15 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
         editable=False,
         help_text=_('The organization that the columnset belongs to(if null all project may use it)')
     )
-    name = models.CharField(max_length=256,
-                            verbose_name=_('Project Column Set Name'))
+    name = models.CharField(
+        max_length=256,
+        verbose_name=_('Project Column Set Name')
+    )
+    default_column_name = models.CharField(
+        max_length=256,
+        default='planning',
+        verbose_name=_('Task default column name (Used when project column position is not known)')
+    )
     created_datetime = models.DateTimeField(auto_now_add=True,
                                             editable=False)
     updated_datetime = models.DateTimeField(auto_now=True,
@@ -79,7 +86,10 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
                                          help_text=_('Github Issue Labels Estimate Prefixes'))
 
     def get_column_names(self):
-        return [c.name for c in ProjectColumn.objects.filter(columnset=self).order_by('index')]
+        column_names = [c.name for c in ProjectColumn.objects.filter(columnset=self).order_by('index')]
+        if self.default_column_name not in column_names:
+            raise ValueError(f'default_column_name({self.default_column_name}) not defined as column: {column_names}')
+        return column_names
 
     def get_active_column_names(self, with_priority=False):
         if with_priority:
@@ -282,6 +292,10 @@ class KippoProject(UserCreatedBaseModel):
             project=self,
             assignee__is_developer=True
         ).exclude(assignee__github_login__startswith=UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)}
+
+    @property
+    def default_column_name(self):
+        return self.columnset.default_column_name
 
     def get_admin_url(self):
         return f'{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change'

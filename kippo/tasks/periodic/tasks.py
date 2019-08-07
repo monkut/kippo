@@ -72,7 +72,7 @@ class OrganizationIssueProcessor:
         task = self.existing_tasks_by_html_url.get(html_url, None)
         return task
 
-    def get_kippo_milestone_by_html_url(self, issue: GithubIssue, html_url: str) -> KippoMilestone:
+    def get_kippo_milestone_by_html_url(self, kippo_project: KippoProject, issue: GithubIssue, html_url: str) -> KippoMilestone:
         """Get the existing related KippoMilestone for a GithubIssues's Milestone entry, if doesn't exist create it"""
         assert hasattr(issue, 'milestone')
         milestone = self.existing_kippo_milestones_by_html_url.get(html_url, None)
@@ -84,12 +84,6 @@ class OrganizationIssueProcessor:
                 logger.exception(e)
                 logger.error(f'GithubRepository.DoesNotExist: {issue.repository_url}')
                 raise
-
-            # get related KippoProject for issue
-            logger.debug(f'Using REPOSITORY URl to discover related project')
-            # -- Assumes that a separate task already exists for this project
-            repository_api_url = issue.repository_url
-            kippo_project = KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)[0]
 
             # check for KippoMilestone
             milestone_title = issue.milestone.title
@@ -144,7 +138,7 @@ class OrganizationIssueProcessor:
             else:
                 milestone_html_url = issue.milestone.html_url
             logger.info(f'GithubMilestone.html_url: {milestone_html_url}')
-            kippo_milestone = self.get_kippo_milestone_by_html_url(issue, milestone_html_url)
+            kippo_milestone = self.get_kippo_milestone_by_html_url(kippo_project, issue, milestone_html_url)
 
         is_new_task = False
         new_taskstatus_objects = []
@@ -269,11 +263,16 @@ class OrganizationIssueProcessor:
                                 'value': prefixed_label.value,
                             })
 
+                        # set task state (used to determine if a task is "active" or not)
+                        # -- When a task is "active" the estimate is included in the resulting schedule projection
+                        task_state = issue.project_column if issue.project_column else kippo_project.default_column_name
+                        logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
+
                         # create or update KippoTaskStatus with updated estimate
                         status_values = {
                             'created_by': self.github_manager_user,
                             'updated_by': self.github_manager_user,
-                            'state': issue.project_column,
+                            'state': task_state,
                             'state_priority': issue.column_priority,
                             'estimate_days': adjusted_issue_estimate,
                             'effort_date': self.status_effort_date,
@@ -296,6 +295,7 @@ class OrganizationIssueProcessor:
                         else:
                             # for updated status overwrite previous values
                             if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
+                                logger.debug(f'Updating related {status} ...')
                                 # set values
                                 for fieldname, fieldvalue in status_values.items():
                                     setattr(status, fieldname, fieldvalue)
