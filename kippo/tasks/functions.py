@@ -199,6 +199,21 @@ def update_kippotaskstatus_hours_worked(projects: KippoProject,
     return updated_statuses
 
 
+def _get_latest_kippotaskstatus_effortdate(organization: KippoOrganization) -> timezone.datetime.date:
+    """get the latest available date for KippoTaskStatus effort_date records for the specific organization"""
+    logger.debug(f'Collecting KippoTaskStatus for organization: {organization}')
+    try:
+        latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
+            task__project__organization=organization
+        ).latest('effort_date').effort_date
+    except KippoTaskStatus.DoesNotExist as e:
+        logger.exception(e)
+        msg = f'No KippoTaskStatus entries for Organization: {organization}'
+        logger.error(msg)
+        raise OrganizationKippoTaskStatusError(msg)
+    return latest_taskstatus_effort_date
+
+
 def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
@@ -246,16 +261,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     kippo_tasks = {}
 
     # get the latest available date for KippoTaskStatus effort_date records for the specific organization
+    latest_taskstatus_effort_date = _get_latest_kippotaskstatus_effortdate(organization)
     logger.debug(f'Collecting KippoTaskStatus for organization: {organization}')
-    try:
-        latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
-            task__project__organization=organization
-        ).latest('effort_date').effort_date
-    except KippoTaskStatus.DoesNotExist as e:
-        logger.exception(e)
-        msg = f'No KippoTaskStatus entries for Organization: {organization}'
-        logger.error(msg)
-        raise OrganizationKippoTaskStatusError(msg)
 
     if latest_taskstatus_effort_date < schedule_start_date:
         logger.warning(f'Available latest KippoTaskStatus.effort_date < schedule_start_date: {latest_taskstatus_effort_date} < {schedule_start_date}')
