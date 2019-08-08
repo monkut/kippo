@@ -21,6 +21,10 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     actions = (
         'update_labels',
     )
+    ordering = (
+        'organization',
+        'name',
+    )
 
     def get_label_set_name(self, obj):
         result = ''
