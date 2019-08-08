@@ -19,6 +19,13 @@ class GithubRepositoryLabelSet(models.Model):
         default=uuid.uuid4,
         editable=False
     )
+    organization = models.ForeignKey(
+        KippoOrganization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text=_('Organization to which the labelset belongs to.')
+    )
     name = models.CharField(max_length=120,
                             help_text=_('Reference Name For LabelSet'))
     labels = JSONField(help_text='Labels defined in the format: '
