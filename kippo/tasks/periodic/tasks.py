@@ -130,6 +130,37 @@ class OrganizationIssueProcessor:
                              f'{issue.latest_comment_body}'
         return latest_comment
 
+    def _get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> GithubRepository:
+        try:
+            kippo_github_repository = GithubRepository.objects.get(
+                name=repo_name,
+                api_url=api_url,
+                html_url=html_url
+            )
+        except GithubRepository.DoesNotExist:
+            kippo_github_repository = GithubRepository(
+                organization=self.organization,
+                created_by=self.github_manager_user,
+                updated_by=self.github_manager_user,
+                name=repo_name,
+                api_url=api_url,
+                html_url=html_url,
+                label_set=self.organization.default_labelset  # may be Null/None
+            )
+            kippo_github_repository.save()
+            logger.info(f'>>> Created GithubRepository({repo_name})!')
+        return kippo_github_repository
+
+    def _get_tags_from_prefixedlabels(self, prefixed_labels: list) -> list:
+        tags = []
+        for prefixed_label in prefixed_labels:
+            # more than 1 label with the same prefix may exist
+            tags.append({
+                'name': prefixed_label.prefix,
+                'value': prefixed_label.value,
+            })
+        return tags
+
     def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> Tuple[bool, List[KippoTaskStatus], List[KippoTaskStatus]]:
         kippo_milestone = None
         if issue.milestone:
@@ -152,25 +183,11 @@ class OrganizationIssueProcessor:
             repo_html_url = issue.html_url.split('issues')[0]
             name_index = -2
             issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
-            try:
-                kippo_github_repository = GithubRepository.objects.get(
-                    name=issue_repo_name,
-                    api_url=repo_api_url,
-                    html_url=repo_html_url
-                )
-            except GithubRepository.DoesNotExist:
-                kippo_github_repository = GithubRepository(
-                    organization=self.organization,
-                    created_by=self.github_manager_user,
-                    updated_by=self.github_manager_user,
-                    name=issue_repo_name,
-                    api_url=repo_api_url,
-                    html_url=repo_html_url,
-                    label_set=self.organization.default_labelset  # may be Null/None
-                )
-                kippo_github_repository.save()
-                logger.info(f'>>> Created GithubRepository({kippo_project} {issue_repo_name})!')
-
+            kippo_github_repository = self._get_githubrepository(
+                issue_repo_name,
+                repo_api_url,
+                repo_html_url
+            )
             default_task_category = kippo_github_repository.organization.default_task_category
 
             # check if issue exists
@@ -259,14 +276,7 @@ class OrganizationIssueProcessor:
                             adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
 
                         prefixed_labels = get_github_issue_prefixed_labels(issue)
-
-                        tags = []
-                        for prefixed_label in prefixed_labels:
-                            # more than 1 label with the same prefix may exist
-                            tags.append({
-                                'name': prefixed_label.prefix,
-                                'value': prefixed_label.value,
-                            })
+                        tags = self._get_tags_from_prefixedlabels(prefixed_labels)
 
                         # set task state (used to determine if a task is "active" or not)
                         # -- When a task is "active" the estimate is included in the resulting schedule projection
