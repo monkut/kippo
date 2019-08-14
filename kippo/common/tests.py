@@ -69,11 +69,21 @@ def setup_basic_project(organization=None, repository_name='Hello-World'):
     created_objects['GithubAccessToken'] = access_token
 
     default_columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+    # example content:
+    # [
+    # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
+    # ]
+    column_info = [
+        {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
+        {'id': 'MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1', 'name': 'in-review', 'resourcePath': '/orgs/myorg/projects/21/columns/2803722'},
+    ]
     kippo_project = KippoProject(
         organization=organization,
         name='octocat-test-project',
         github_project_html_url=f'https://github.com/orgs/{organization.github_organization_name}/projects/1',
+        github_project_api_url='https://api.github.com/projects/2640902',
         columnset=default_columnset,
+        column_info=column_info,
         created_by=user,
         updated_by=user,
     )
