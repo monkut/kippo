@@ -294,7 +294,7 @@ class KippoProject(UserCreatedBaseModel):
         for column_definition in self.column_info:
             name = column_definition['name']
             column_id = column_definition['resourcePath'].split('/')[-1]
-            mapping[column_id] = name
+            mapping[int(column_id)] = name
         return mapping
 
     def clean(self):
