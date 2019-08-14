@@ -37,6 +37,12 @@ class KippoTask(UserCreatedBaseModel):
                                            blank=True)
     github_issue_html_url = models.URLField(null=True,
                                             blank=True)
+    project_card_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_('CardId when task belongs to a specific Github Project')
+    )
     description = models.TextField(null=True,
                                    blank=True)
 
