@@ -36,13 +36,13 @@ INSTALLED_APPS = [
     'social_django',
     'reversion',
     'bootstrap4',
+    'common',  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
     'common.apps.KippoAdminConfig',  # 'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'common',
     'accounts',  # must be listed AFTER social_django and django.contrib.auth
     'projects',
     'tasks',

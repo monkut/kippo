@@ -19,6 +19,13 @@ class GithubRepositoryLabelSet(models.Model):
         default=uuid.uuid4,
         editable=False
     )
+    organization = models.ForeignKey(
+        KippoOrganization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text=_('Organization to which the labelset belongs to.')
+    )
     name = models.CharField(max_length=120,
                             help_text=_('Reference Name For LabelSet'))
     labels = JSONField(help_text='Labels defined in the format: '
@@ -134,6 +141,7 @@ class GithubOrganizationalWebhook(UserCreatedBaseModel):
 WEBHOOK_EVENT_STATES = (
     ('unprocessed', 'unprocessed'),
     ('processing', 'processing'),
+    ('error', 'error'),
     ('processed', 'processed'),
 )
 
@@ -157,9 +165,12 @@ class GithubWebhookEvent(models.Model):
         default='unprocessed',
         choices=WEBHOOK_EVENT_STATES
     )
-    related_project = models.ForeignKey(
-        'projects.KippoProject',
-        on_delete=models.CASCADE,
+    event_type = models.CharField(
+        max_length=25,
         null=True,
+        help_text=_('X-Github-Event value (See: https://developer.github.com/v3/activity/events/types/)')
     )
     event = fields.JSONField()
+
+    def __str__(self):
+        return f'GithubWebhookEvent({self.organization.name}:{self.event_type}:{self.created_datetime}:{self.state})'

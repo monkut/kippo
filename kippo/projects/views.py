@@ -1,13 +1,16 @@
 import logging
-from collections import Counter
+from typing import List, Tuple
+from collections import Counter, defaultdict
 
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponseBadRequest
+from django.http import HttpResponseBadRequest, HttpResponse, HttpResponseRedirect, HttpRequest
 from django.utils import timezone
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Q
 from django.contrib.admin.views.decorators import staff_member_required
 
+from accounts.models import KippoOrganization
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.functions import prepare_project_engineering_load_plot_data
 from tasks.exceptions import ProjectConfigurationError
@@ -37,63 +40,111 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     return project, username
 
 
-@staff_member_required
-def view_projects_schedule(request, project_id=None):
-    raise NotImplementedError()
+def _get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganization, List[KippoOrganization]]:
+    """Retrieve the session defined user KippoOrganization"""
+    # get organization defined in session
+    organization_id = request.session.get('organization_id', None)
+    logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
+    # check that user belongs to organization
+    user_organizations = list(request.user.organizations)
+    user_organization_ids = {str(o.id): o for o in user_organizations}
+    if not user_organization_ids:
+        raise ValueError(f'No OrganizationMembership for user: {request.user.username}')
+
+    if organization_id not in user_organization_ids.keys():
+        # set to user first orgA
+        logger.warning(f'User({request.user.username}) invalid "organization_id" given, setting to "first".')
+        organization = user_organizations[0]  # use first
+        request.session['organization_id'] = str(organization_id)
+    else:
+        organization = user_organization_ids[organization_id]
+    return organization, user_organizations
 
 
 @staff_member_required
-def view_inprogress_projects_overview(request):
+def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     now = timezone.now()
 
-    # TODO: update so that the project 'types' are NOT hard coded/fixed
-    inprogress_projects = ActiveKippoProject.objects.filter(start_date__lte=now)
-    inprogress_consulting = inprogress_projects.filter(category='consulting')
-    inprogress_poc = inprogress_projects.filter(category='poc')
-    inprogress_production = inprogress_projects.filter(category='production')
+    try:
+        selected_organization, user_organizations = _get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
 
-    upcoming_projects = ActiveKippoProject.objects.filter(start_date__gt=now)
-    upcoming_consulting = upcoming_projects.filter(category='consulting')
-    upcoming_poc = upcoming_projects.filter(category='poc')
-    upcoming_production = upcoming_projects.filter(category='production')
+    inprogress_projects = ActiveKippoProject.objects.filter(
+        start_date__lte=now,
+        organization=selected_organization
+    ).orderby('category')
+
+    inprogress_category_groups = defaultdict(list)
+    for inprogress_project in inprogress_projects:
+        inprogress_category_groups[inprogress_project.category] = inprogress_project
+
+    upcoming_projects = ActiveKippoProject.objects.filter(
+        start_date__gt=now,
+        organization=selected_organization
+    ).orderby('category')
+    upcoming_category_groups = defaultdict(list)
+    for upcoming_project in upcoming_projects:
+        upcoming_category_groups[upcoming_project.category] = upcoming_project
 
     context = {
-        'inprogress_consulting': inprogress_consulting,
-        'inprogress_poc': inprogress_poc,
-        'inprogress_production': inprogress_production,
-        'upcoming_consulting': upcoming_consulting,
-        'upcoming_poc': upcoming_poc,
-        'upcoming_production': upcoming_production,
+        'inprogress_category_groups': inprogress_category_groups,
+        'upcoming_category_groups': upcoming_category_groups,
+        'selected_organization': selected_organization,
+        'organizations': user_organizations,
     }
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
-@staff_member_required
-def view_inprogress_projects_status(request):
-    warning = None
-    slug = request.GET.get('slug', None)
-    if slug:
-        project = get_object_or_404(KippoProject, slug=slug)
-        projects = [project]
-    else:
-        projects = KippoProject.objects.filter(is_closed=False)
-    active_projects = KippoProject.objects.filter(is_closed=False).order_by('name')
-
-    # Collect tasks with TaskStatus updated this last 2 weeks
-    two_weeks_ago = timezone.timedelta(days=14)
-    active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
-
-    has_estimates = False
+def _get_active_taskstatus_from_projects(projects: List[KippoProject], active_effort_date: timezone.datetime.date) -> Tuple[List[KippoTaskStatus], bool]:
     active_taskstatus = []
+    has_estimates = False
     for project in projects:
         done_column_names = project.columnset.get_done_column_names()
-        results = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
-                                                 task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-                                                 task__project=project).exclude(state__in=done_column_names)
+        results = KippoTaskStatus.objects.filter(
+            effort_date__gte=active_effort_date,
+            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
+            task__project=project
+        ).exclude(state__in=done_column_names)
         taskstatus_results = list(results)
         if any(status.estimate_days for status in taskstatus_results):
             has_estimates = True
         active_taskstatus.extend(taskstatus_results)
+    return active_taskstatus, has_estimates
+
+
+def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
+    collected_task_ids = []
+    unique_tasks = []
+    for taskstatus in active_taskstatus:
+        if taskstatus.task.id not in collected_task_ids:
+            unique_tasks.append(taskstatus.task)
+            collected_task_ids.append(taskstatus.task.id)
+    return collected_task_ids, unique_tasks
+
+
+@staff_member_required
+def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
+    warning = None
+
+    try:
+        selected_organization, user_organizations = _get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
+
+    slug = request.GET.get('slug', None)
+    if slug:
+        project = get_object_or_404(KippoProject, slug=slug, organization=selected_organization)
+        projects = [project]
+    else:
+        projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization)
+    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by('name')
+
+    # Collect tasks with TaskStatus updated this last 2 weeks
+    two_weeks_ago = timezone.timedelta(days=14)
+    active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
+    active_taskstatus, has_estimates = _get_active_taskstatus_from_projects(projects, active_taskstatus_startdate)
+
     if not has_estimates:
         msg = f'No Estimates defined in tasks (Expect "estimate labels")'
         messages.add_message(request, messages.WARNING, msg)
@@ -118,13 +169,12 @@ def view_inprogress_projects_status(request):
             logger.warning(warning)
     else:
         # show project schedule chart
-        user_first_organization = request.user.memberships.first()
-        organization = user_first_organization
-        if not organization:
+        if not selected_organization:
             return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
 
         # check projects for start_date, target_date
         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
+        projects_missing_dates = projects_missing_dates.filter(organization=selected_organization)
         if projects_missing_dates:
             for p in projects_missing_dates:
                 warning = f'Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! ' \
@@ -132,7 +182,7 @@ def view_inprogress_projects_status(request):
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
         try:
-            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization)
+            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization)
             logger.debug(f'latest_effort_date: {latest_effort_date}')
         except ProjectConfigurationError as e:
             logger.warning(f'No projects with start_date or target_date defined: {e.args}')
@@ -142,12 +192,7 @@ def view_inprogress_projects_status(request):
             messages.add_message(request, messages.ERROR, error)
 
     # collect unique Tasks
-    collected_task_ids = []
-    unique_tasks = []
-    for taskstatus in active_taskstatus:
-        if taskstatus.task.id not in collected_task_ids:
-            unique_tasks.append(taskstatus.task)
-            collected_task_ids.append(taskstatus.task.id)
+    collected_task_ids, unique_tasks = _get_task_details(active_taskstatus)
 
     # get user totals
     user_effort_totals = Counter()
@@ -167,6 +212,25 @@ def view_inprogress_projects_status(request):
         'latest_effort_date': latest_effort_date,
         'active_projects': active_projects,
         'messages': messages.get_messages(request),
+        'selected_organization': selected_organization,
+        'organizations': user_organizations,
     }
 
     return render(request, 'projects/view_inprogress_projects_status.html', context)
+
+
+@staff_member_required
+def set_user_session_organization(request, organization_id: str = None) -> HttpResponse:
+    user_organizations = list(request.user.organizations)
+    if not organization_id:
+        return HttpResponseBadRequest(f'required "organization_id" not given!')
+    elif not user_organizations:
+        return HttpResponseBadRequest(f'user({request.user.username}) has no OrganizationMemberships!')
+
+    elif organization_id not in [str(o.id) for o in user_organizations]:
+        logger.debug(f'Invalid organization_id({organization_id}) for user({request.user.username}) using user first')
+        organization_id = user_organizations[0].id
+
+    request.session['organization_id'] = str(organization_id)
+    logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
+    return HttpResponseRedirect(f'{settings.URL_PREFIX}/projects/')  # go reload the page with the set org

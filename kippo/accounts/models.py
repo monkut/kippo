@@ -2,10 +2,12 @@ import logging
 import uuid
 import string
 import random
-from typing import List
+import datetime
+from typing import List, Generator
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.db.models import QuerySet
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
@@ -323,15 +325,20 @@ class KippoUser(AbstractUser):
     def display_name(self):
         return f'{self.last_name}, {self.first_name} ({self.github_login})'
 
-    def personal_holiday_dates(self):
+    def personal_holiday_dates(self) -> Generator[datetime.date, None, None]:
         for holiday in PersonalHoliday.objects.filter(user=self):
             holiday_start_date = holiday.day
             for days in range(holiday.duration):
                 date = holiday_start_date + timezone.timedelta(days=days)
                 yield date
 
-    def public_holiday_dates(self):
+    def public_holiday_dates(self) -> list:
         return PublicHoliday.objects.filter(country=self.holiday_country).values_list('day', flat=True)
+
+    @property
+    def organizations(self) -> QuerySet:
+        organization_ids = OrganizationMembership.objects.filter(user=self).values_list('organization', flat=True).distinct()
+        return KippoOrganization.objects.filter(id__in=organization_ids)
 
 
 class PersonalHoliday(models.Model):

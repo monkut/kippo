@@ -34,7 +34,7 @@ DATABASES = {
         'NAME': os.getenv('DB_NAME', 'kippo'),
         'HOST': os.getenv('DB_HOST'),
         'PORT': 5432,
-        'USER': os.getenv('DB_USER'),
+        'USER': os.getenv('DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DB_PASSWORD'),
     }
 }

@@ -23,8 +23,8 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
     # get existing html_urls
     existing_html_urls = KippoProject.objects.filter(
         organization=organization,
-        github_project_url__isnull=False
-    ).values_list('github_project_url', flat=True)
+        github_project_html_url__isnull=False
+    ).values_list('github_project_html_url', flat=True)
 
     added_projects = []
     for project in manager.projects():
@@ -36,7 +36,7 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
                 organization=organization,
                 name=project.name,
                 columnset=organization.default_columnset,
-                github_project_url=project.html_url,
+                github_project_html_url=project.html_url,
             )
             kippo_project.save()
             added_projects.append(kippo_project)

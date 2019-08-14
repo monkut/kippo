@@ -82,8 +82,8 @@
                 {% else %}
                     {{ task.project.name }}
                 {% endif %}
-                {% if task.project.github_project_url %}
-                    ( <a href="{{ task.project.github_project_url }}">github</a> )
+                {% if task.project.github_project_html_url %}
+                    ( <a href="{{ task.project.github_project_html_url }}">github</a> )
                 {% endif %}
             </td>
             {% for username, effort_total in user_effort_totals.items %}
