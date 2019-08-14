@@ -120,6 +120,11 @@ class ProjectColumn(models.Model):
                                              help_text=_('Github Project Column Display Index (0 start)'))
     name = models.CharField(max_length=256,
                             verbose_name=_('Project Column Display Name'))
+    github_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_('related github column id assigned on creation')
+    )
     is_active = models.BooleanField(default=False,
                                     help_text=_('Set to True if tasks in column are considered ACTIVE'))
     is_done = models.BooleanField(default=False,
@@ -281,6 +286,16 @@ class KippoProject(UserCreatedBaseModel):
         # ]
         help_text=_('If project created through Kippo, this field is populated with column info')
     )
+
+    def get_columnset_id_to_name_mapping(self):
+        if not self.column_info:
+            raise ValueError(f'KippoProject.columnset not populated, unable to generate ID to Name Mapping!')
+        mapping = {}
+        for column_definition in self.column_info:
+            name = column_definition['name']
+            column_id = column_definition['resourcePath'].split('/')[-1]
+            mapping[column_id] = name
+        return mapping
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
