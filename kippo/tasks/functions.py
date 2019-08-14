@@ -13,7 +13,7 @@ from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoOrganization, OrganizationMembership
 from projects.models import KippoProject, KippoMilestone
-from .exceptions import ProjectConfigurationError
+from .exceptions import ProjectConfigurationError, OrganizationKippoTaskStatusError
 from .models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_project_schedule_chart_components
 
@@ -199,6 +199,21 @@ def update_kippotaskstatus_hours_worked(projects: KippoProject,
     return updated_statuses
 
 
+def _get_latest_kippotaskstatus_effortdate(organization: KippoOrganization) -> timezone.datetime.date:
+    """get the latest available date for KippoTaskStatus effort_date records for the specific organization"""
+    logger.debug(f'Collecting KippoTaskStatus for organization: {organization}')
+    try:
+        latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
+            task__project__organization=organization
+        ).latest('effort_date').effort_date
+    except KippoTaskStatus.DoesNotExist as e:
+        logger.exception(e)
+        msg = f'No KippoTaskStatus entries for Organization: {organization}'
+        logger.error(msg)
+        raise OrganizationKippoTaskStatusError(msg)
+    return latest_taskstatus_effort_date
+
+
 def get_projects_load(organization: KippoOrganization, schedule_start_date: datetime.date = None) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
@@ -246,9 +261,8 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     kippo_tasks = {}
 
     # get the latest available date for KippoTaskStatus effort_date records for the specific organization
-    latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(
-        task__project__organization=organization
-    ).latest('effort_date').effort_date
+    latest_taskstatus_effort_date = _get_latest_kippotaskstatus_effortdate(organization)
+    logger.debug(f'Collecting KippoTaskStatus for organization: {organization}')
 
     if latest_taskstatus_effort_date < schedule_start_date:
         logger.warning(f'Available latest KippoTaskStatus.effort_date < schedule_start_date: {latest_taskstatus_effort_date} < {schedule_start_date}')
@@ -412,7 +426,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
                 continue
             for task in projects_results[project_id][assignee]:
                 latest_kippotaskstatus = task.latest_kippotaskstatus()
-                data['project_ids'].append(project_id)
+                data['project_ids'].append(str(project_id))
                 data['project_names'].append(task.project.name)
                 data['project_start_dates'].append(task.project.start_date)  # only 1 is really needed...
                 data['project_target_dates'].append(task.project.target_date)  # only 1 is really needed...
@@ -437,7 +451,7 @@ def prepare_project_engineering_load_plot_data(organization: KippoOrganization, 
     project_ids = projects_results.keys()
     for milestone in KippoMilestone.objects.filter(project__id__in=project_ids).order_by('target_date'):
         milestone_info = {
-            'project_id': milestone.project.id,
+            'project_id': str(milestone.project.id),
             'start_date': milestone.start_date,
             'target_date': milestone.target_date,
             'title': milestone.title,

@@ -46,6 +46,18 @@
                 {% endfor %}
             </div>
           </li>
+          <li class="nav-item dropdown">
+              {% if selected_organization %}
+                <a class="nav-link dropdown-toggle" href="{{ URL_PREFIX }}/projects/set/organization/{{ selected_organization.id }}/" id="dropdown04" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">{{ selected_organization.name }}</a>
+              {% else %}
+                <a class="nav-link dropdown-toggle" href="{{ URL_PREFIX }}/projects/" id="dropdown04" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Organization(s)</a>
+              {% endif %}
+            <div class="dropdown-menu" aria-labelledby="dropdown04">
+                {% for organization in organizations %}
+                    <a class="dropdown-item" href="{{ URL_PREFIX }}/projects/set/organization/{{ organization.id }}/">{{ organization.name }}</a>
+                {% endfor %}
+            </div>
+          </li>
             <li class="nav-item">
                 <a class="nav-link" href="#"><title>{{ user.username}}</title></a>
             </li>

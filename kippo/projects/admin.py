@@ -1,5 +1,6 @@
 import csv
 import logging
+from base64 import b64decode
 from string import ascii_lowercase
 from django.contrib import admin, messages
 from django.utils import timezone
@@ -21,6 +22,7 @@ from .models import (
     ProjectColumn,
     ProjectAssignment,
     GithubMilestoneAlreadyExists,
+    CollectIssuesAction,
 )
 
 
@@ -106,7 +108,7 @@ def collect_existing_github_projects_action(modeladmin, request, queryset) -> No
     """
     # get request user organization
     organization = request.user.organization
-    added_projects = collect_existing_github_projects(organization)
+    added_projects = collect_existing_github_projects(str(organization.id))
     modeladmin.message_user(
         request,
         message=f'({len(added_projects)}) KippoProjects created from GitHub Organizational Projects',
@@ -124,8 +126,8 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
     successful_creation_projects = []
     skipping = []
     for kippo_project in queryset:
-        if kippo_project.github_project_url:
-            message = f'{kippo_project.name} already has GitHub Project set ({kippo_project.github_project_url}), SKIPPING!'
+        if kippo_project.github_project_html_url:
+            message = f'{kippo_project.name} already has GitHub Project set ({kippo_project.github_project_html_url}), SKIPPING!'
             logger.warning(message)
             skipping.append(message)
         else:
@@ -140,16 +142,39 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             columns = kippo_project.get_column_names()
             github_organization_name = kippo_project.organization.github_organization_name
             githubaccesstoken = kippo_project.organization.githubaccesstoken
-            github_manager = GithubOrganizationManager(organization=github_organization_name,
-                                                       token=githubaccesstoken.token)
+            github_manager = GithubOrganizationManager(
+                organization=github_organization_name,
+                token=githubaccesstoken.token
+            )
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
-            url, _ = github_manager.create_organizational_project(
+            url, responses = github_manager.create_organizational_project(
                 name=kippo_project.github_project_name,
                 description=kippo_project.github_project_description,
                 columns=columns,
             )
-            kippo_project.github_project_url = url
+            kippo_project.github_project_html_url = url
+            logger.debug(f'kippo_project.github_project_html_url={url}')
+            logger.debug(f'github_manager.create_organizational_project() responses: {responses}')
+            # project_id appears to be a portion of the returned node_id when decoded from base64
+            # -- NOTE: not officially supported by github but seems to be the current implementation
+            # https://developer.github.com/v3/projects/#get-a-project
+            github_project_id = None
+            column_info = []
+            for item in responses:
+                if isinstance(item, dict):  # get "project_id"
+                    if 'createProject' in item['data']:
+                        project_encoded_id = item['data']['createProject']['project']['id']
+                        decoded_id = b64decode(project_encoded_id).decode('utf8').lower()
+                        # parse out project id portion
+                        github_project_id = decoded_id.split('project')[-1]
+                elif isinstance(item, list):  # get column_info
+                    for column_response in item:
+                        if 'addProjectColumn' in column_response['data']:
+                            column_info.append(column_response['data']['addProjectColumn']['columnEdge']['node'])
+
+            kippo_project.github_project_api_url = f'https://api.github.com/projects/{github_project_id}'
+            kippo_project.column_info = column_info
             kippo_project.save()
             successful_creation_projects.append((kippo_project.name, url, columns))
     if skipping:
@@ -207,7 +232,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'start_date',
         'target_date',
         'get_projectsurvey_display_url',
-        'show_github_project_url',
+        'show_github_project_html_url',
         'display_as_active',
         'updated_datetime',
     )
@@ -222,8 +247,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'problem_definition',
     )
     ordering = (
+        'organization',
+        '-display_as_active',
         '-confidence',
         'phase',
+        'name',
     )
     actions = [
         create_github_organizational_project_action,
@@ -294,12 +322,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
     get_latest_kippoprojectstatus_comment.short_description = _('Latest Comment')
 
-    def show_github_project_url(self, obj):
+    def show_github_project_html_url(self, obj):
         url = ''
-        if obj.github_project_url:
-            url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_url)
+        if obj.github_project_html_url:
+            url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
         return url
-    show_github_project_url.short_description = _('GitHub Project URL')
+    show_github_project_html_url.short_description = _('GitHub Project URL')
 
     def save_formset(self, request, form, formset, change):
         instances = formset.save(commit=False)
@@ -339,6 +367,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations).order_by('organization').distinct()
+
 
 @admin.register(KippoMilestone)
 class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
@@ -377,6 +411,12 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(project__organization__in=request.user.organizations).order_by('project__organization').distinct()
+
 
 class ProjectColumnInline(admin.TabularInline):
     model = ProjectColumn
@@ -406,4 +446,19 @@ class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
     get_project_organization.short_description = _('Organization')
 
 
+@admin.register(CollectIssuesAction)
+class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
+    list_display = (
+        'id',
+        'organization',
+        'start_datetime',
+        'end_datetime',
+        'status',
+        'new_task_count',
+        'new_taskstatus_count',
+        'updated_taskstatus_count',
+    )
+
+
+# allow additional admin to filtered ActiveKippoProject model
 admin.site.register(ActiveKippoProject, KippoProjectAdmin)

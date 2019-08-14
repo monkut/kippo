@@ -220,11 +220,8 @@ class Command(BaseCommand):
                         result = dict(result)
                         previous_id = result.pop('id')
 
-                        result['project'] = previous_project_id[result['project_id']]
-                        result.pop('project_id')
-
-                        result['assignee'] = user_previous_id[result['assignee_id']]
-                        result.pop('assignee_id')
+                        result['project_id'] = previous_project_id[result['project_id']].id
+                        result['assignee_id'] = user_previous_id[result['assignee_id']].id
 
                         result.pop('updated_by_id')
                         result.pop('created_by_id')
@@ -250,8 +247,7 @@ class Command(BaseCommand):
                         result.pop('created_by_id')
                         result.pop('updated_by_id')
 
-                        result['task'] = task_previous_id[result['task_id']]
-                        result.pop('task_id')
+                        result['task_id'] = task_previous_id[result['task_id']].id
 
                         taskstatus = KippoTaskStatus(
                             created_by=GITHUB_USER,

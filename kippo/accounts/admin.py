@@ -5,8 +5,9 @@ from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.models import Group
 from social_django.models import Association, Nonce, UserSocialAuth
 
-from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin
 from octocat.models import GithubAccessToken
+from projects.models import CollectIssuesAction
 from projects.functions import collect_existing_github_projects
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -94,7 +95,7 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
 
 
 @admin.register(OrganizationMembership)
-class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
+class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'organization',
         'user',
@@ -107,9 +108,15 @@ class OrganizationMembershipAdmin(UserCreatedBaseModelAdmin):
         'user',
     )
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations)
+
 
 @admin.register(KippoOrganization)
-class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
+class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
         'id',
@@ -154,37 +161,29 @@ class KippoOrganizationAdmin(UserCreatedBaseModelAdmin):
     collect_organization_projects_action.short_description = _('Collect Organization Project(s)')
 
     def collect_github_project_issues_action(self, request, queryset):
-        status_effort_date = timezone.now().date()
+        status_effort_date = timezone.now().isoformat()
         for organization in queryset:
-            processed_projects, new_task_count, new_taskstatus_count, updated_taskstatus_count, unhandled_issues = collect_github_project_issues(
-                kippo_organization=organization,
-                status_effort_date=status_effort_date
+            action_tracker = CollectIssuesAction(
+                organization=organization,
+                created_by=request.user,
+                updated_by=request.user,
             )
-            warning_message = '' if not unhandled_issues else 'Partially '
-            message_level = messages.INFO if not unhandled_issues else messages.WARNING
-            msg = (
-                f'{warning_message}Updated [{organization.name}] ProcessedProjects({processed_projects})\n'
-                f'New KippoTasks: {new_task_count}\n'
-                f'New KippoTaskStatus: {new_taskstatus_count}\n'
-                f'Updated KippoTaskStatus: {updated_taskstatus_count}'
+            action_tracker.save()
+            collect_github_project_issues(
+                action_tracker_id=action_tracker.id,
+                kippo_organization_id=str(organization.id),
+                status_effort_date_iso8601=status_effort_date
             )
             self.message_user(
                 request,
-                msg,
-                level=message_level
+                f'Processing Request: CollectIssuesAction(id={action_tracker.id})',
+                level=messages.INFO
             )
-            for issue, error_args in unhandled_issues:
-                msg = f'ERROR [{organization.name}] issue({issue.html_url}):  {error_args}'
-                self.message_user(
-                    request,
-                    msg,
-                    level=messages.ERROR
-                )
     collect_github_project_issues_action.short_description = _('Collect Organization Project Issues')
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(admin.ModelAdmin):
+class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, admin.ModelAdmin):
     list_display = (
         'username',
         'id',
@@ -228,9 +227,15 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
             obj.user = request.user
         obj.save()
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user__organizationmembership__organization__in=request.user.organizations).distinct()
+
 
 @admin.register(Country)
-class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+class CountryAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = (
         'name',
         'alpha_2',
@@ -241,7 +246,7 @@ class CountryAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(PublicHoliday)
-class PublicHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
+class PublicHolidayAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = (
         'name',
         'country',
