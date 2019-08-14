@@ -96,13 +96,12 @@ class GithubWebhookProcessor:
                 columnid2name_mapping = kippo_project.get_columnset_id_to_name_mapping()
                 column_name = columnid2name_mapping.get(github_column_id, None)
                 if not column_name:
-                    logger.error(f'column_name for column_id({github_column_id}) not found in KippProject.get_columnset_id_to_name_mapping() for column_id({github_column_id}: {columnid2name_mapping}')
+                    logger.error(
+                        f'column_name for column_id({github_column_id}) not in KippProject.get_columnset_id_to_name_mapping(): {columnid2name_mapping}'
+                    )
                     state = 'error'
                 else:
                     # 'column_name' is used to manage KippoTask state
-                    # TODO: Add support for 'move' event
-                    #  update to properly update state based on column position in order to ignore estimates for tasks in 'non-active' columns
-
                     # github_from_column_id = webhookevent.event['changes']['column_id']['from']  # ex: 4162976
                     state = 'processed'
                     current_action = webhookevent.event['action']
@@ -279,6 +278,3 @@ class GithubWebhookProcessor:
             webhookevent.save()
             processed_events[webhookevent.event_type] += 1
         return processed_events
-
-
-
