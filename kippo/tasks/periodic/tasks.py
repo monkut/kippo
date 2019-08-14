@@ -219,7 +219,7 @@ class OrganizationIssueProcessor:
                             continue
                         is_new_task = True
                         logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
-                    elif existing_task.assignee.github_login not in developer_assignees:
+                    elif not existing_task.assignee or existing_task.assignee.github_login not in developer_assignees:
                         # TODO: review, should multiple KippoTask objects be created for a single Github Task?
                         logger.debug(f'Updating task.assignee: {existing_task.assignee.github_login} -> {issue_assigned_user.github_login}')
                         existing_task.assignee = issue_assigned_user
