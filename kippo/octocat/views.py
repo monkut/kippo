@@ -105,7 +105,6 @@ def webhook(request: HttpRequest, organization_id: str):
                 except KeyError as e:
                     logger.exception(e)
                     logger.warning(f'{event_type} action={event["action"]} missing expected key: {e.args}')
-                assert action in ('created', 'edited', 'moved', 'converted', 'deleted')
 
                 if action in ('created', 'opened', 'transferred'):
                     status_code = HTTPStatus.CREATED

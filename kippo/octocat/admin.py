@@ -5,12 +5,13 @@ from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from accounts.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
-from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet
+from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet, GithubWebhookEvent
 
 
 logger = logging.getLogger(__name__)
 
 
+@admin.register(GithubRepository)
 class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'name',
@@ -76,6 +77,7 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     get_html_url.short_description = _('Repository URL')
 
 
+@admin.register(GithubMilestone)
 class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
         'number',
@@ -105,6 +107,7 @@ class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     get_html_url.short_description = _('Milestone URL')
 
 
+@admin.register(GithubRepositoryLabelSet)
 class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = (
         'name',
@@ -121,6 +124,13 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     get_label_count.short_description = 'Defined Label Count'
 
 
-admin.site.register(GithubRepository, GithubRepositoryAdmin)
-admin.site.register(GithubMilestone, GithubMilestoneAdmin)
-admin.site.register(GithubRepositoryLabelSet, GithubRepositoryLabelSetAdmin)
+@admin.register(GithubWebhookEvent)
+class GithubWebhookEventAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'organization',
+        'created_datetime',
+        'updated_datetime',
+        'event_type',
+        'state',
+    )

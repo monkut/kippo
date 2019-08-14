@@ -12,7 +12,7 @@ from common.tests import setup_basic_project, DEFAULT_FIXTURES
 from ..models import GithubWebhookEvent
 
 assert os.getenv('KIPPO_TESTING', False)  # The KIPPO_TESTING environment variable must be set to True
-TESTDATA_DIRECTORY = Path(settings.BASE_DIR) / '..' / 'octocat' / 'testdata'
+TESTDATA_DIRECTORY = Path(__file__).parent / 'testdata'
 
 
 class OctocatViewsTestCase(TestCase):

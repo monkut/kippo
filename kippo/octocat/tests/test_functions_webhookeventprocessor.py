@@ -19,7 +19,7 @@ from ..functions import GithubWebhookProcessor
 
 assert os.getenv('KIPPO_TESTING', False)  # The KIPPO_TESTING environment variable must be set to True
 
-TESTDATA_DIRECTORY = Path(settings.BASE_DIR) / '..' / 'octocat' / 'testdata'
+TESTDATA_DIRECTORY = Path(__file__).parent / 'testdata'
 
 
 class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
@@ -70,6 +70,60 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
             ).hexdigest()
             signature = f'sha1={s}'
         return content, signature
+
+    def test__get_events(self):
+        # create GithubWebhookEvent
+        event_type = 'project_card'
+        event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type=event_type,
+            event=event
+        )
+        webhookevent.save()
+
+        event_type = 'issues'
+        event_filepath = TESTDATA_DIRECTORY / 'issues_webhook_existing.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type=event_type,
+            event=event
+        )
+        webhookevent.save()
+
+        event_type = 'issue_comment'
+        event_filepath = TESTDATA_DIRECTORY / 'issuecomment_webhook_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type=event_type,
+            event=event
+        )
+        webhookevent.save()
+
+        # test event processor
+        processor = GithubWebhookProcessor()
+        events = list(processor._get_events())
+        expected = 3
+        actual = len(events)
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+
+        # confirm that the order of events is as expected
+        expected = (
+            'issues',
+            'issue_comment',
+            'project_card',
+        )
+        actual = tuple([e.event_type for e in events])
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
 
     def test_issues_event__existing(self):
         # create existing task
@@ -322,12 +376,118 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
         self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
 
-    def test_projectcard_event_moved(self):
-        # TODO: Add support for 'move' event
-        #  update to properly update state based on column position in order to ignore estimates for tasks in 'non-active' columns
-        assert False
+    def test_projectcard_event__existing_taskstatus(self):
+        # confirm that related KippoTaskStatus.last_comment is updated
+        existing_task = KippoTask(
+            title='initial existing task title',
+            project=self.project,
+            assignee=self.user1,
+            description='existing task body',
+            github_issue_api_url=f'https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            github_issue_html_url=f'https://github.com/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_task.save()
+        existing_taskstatus = KippoTaskStatus(
+            task=existing_task,
+            state='open',
+            effort_date=self.current_date,
+            estimate_days=3,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_taskstatus.save()
 
-    def test_projectcard_event_created(self):
-        # TODO: this probably isn't needed since kippo does NOT track project "notes"
-        #  since "issues" event is supported, KippoTask will be created on that event
-        assert False
+        # create GithubWebhookEvent
+        event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'project_card'
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type=event_type,
+            event=event
+        )
+        webhookevent.save()
+        # event_issue_api_url = event['project_card']['content_url']
+
+        unprocessed_events = 1
+        assert unprocessed_events == GithubWebhookEvent.objects.count()
+        assert not existing_taskstatus.comment
+
+        # test event processor
+        processor = GithubWebhookProcessor()
+        processed_event_count = processor.process_webhook_events()
+        self.assertTrue(processed_event_count['project_card'] == 1, processed_event_count)
+
+        # check that the existing task was updated with the project_card_id
+        existing_task.refresh_from_db()
+        expected = event['project_card']['id']
+        actual = existing_task.project_card_id
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+
+        # check that KippoTaskStatus.state field was updated
+        existing_taskstatus.refresh_from_db()
+        expected = 'in-review'  # determined by project.column_info definition id:column_name mapping
+        actual = existing_taskstatus.state
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+
+    def test_projectcard_event__nonexisting_taskstatus(self):
+        # confirm that related KippoTaskStatus.last_comment is updated
+        existing_task = KippoTask(
+            title='initial existing task title',
+            project=self.project,
+            assignee=self.user1,
+            description='existing task body',
+            github_issue_api_url=f'https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            github_issue_html_url=f'https://github.com/{self.organization.github_organization_name}/{self.repository_name}/issues/9',
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_task.save()
+        existing_taskstatus = KippoTaskStatus(
+            task=existing_task,
+            state='open',
+            effort_date=timezone.datetime(2018, 1, 1).date(),
+            estimate_days=3,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        existing_taskstatus.save()
+
+        # create GithubWebhookEvent
+        event_filepath = TESTDATA_DIRECTORY / 'project_card_asissue_webhookevent_created.json'
+        event_encoded, _ = self._load_webhookevent(event_filepath)
+        event = json.loads(event_encoded.decode('utf8'))
+        event_type = 'project_card'
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type=event_type,
+            event=event
+        )
+        webhookevent.save()
+        # event_issue_api_url = event['project_card']['content_url']
+
+        unprocessed_events = 1
+        assert unprocessed_events == GithubWebhookEvent.objects.count()
+        assert not existing_taskstatus.comment
+
+        # test event processor
+        processor = GithubWebhookProcessor()
+        processed_event_count = processor.process_webhook_events()
+        self.assertTrue(processed_event_count['project_card'] == 1, processed_event_count)
+
+        # check that the existing task was updated with the project_card_id
+        existing_task.refresh_from_db()
+        expected = event['project_card']['id']
+        actual = existing_task.project_card_id
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+
+        # check that KippoTaskStatus.state field was updated
+        taskstatus = KippoTaskStatus.objects.get(task=existing_task, effort_date=self.current_date)
+        expected = 'in-review'  # determined by project.column_info definition id:column_name mapping
+        actual = taskstatus.state
+        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')

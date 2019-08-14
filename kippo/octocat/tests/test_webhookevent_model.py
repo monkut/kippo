@@ -10,13 +10,12 @@ from django.conf import settings
 from django.test import TestCase, Client
 
 from common.tests import setup_basic_project, DEFAULT_FIXTURES
-from accounts.models import KippoOrganization
 from ..models import GithubWebhookEvent
 from ..functions import queue_incoming_project_card_event
 
 
 assert os.getenv('KIPPO_TESTING', False)  # The KIPPO_TESTING environment variable must be set to True
-TESTDATA_DIRECTORY = Path(settings.BASE_DIR) / '..' / 'octocat' / 'testdata'
+TESTDATA_DIRECTORY = Path(__file__).parent / 'testdata'
 
 
 class WebhookTestCase(TestCase):
