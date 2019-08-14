@@ -96,6 +96,33 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
+def _get_active_taskstatus_from_projects(projects: List[KippoProject], active_effort_date: timezone.datetime.date) -> Tuple[List[KippoTaskStatus], bool]:
+    active_taskstatus = []
+    has_estimates = False
+    for project in projects:
+        done_column_names = project.columnset.get_done_column_names()
+        results = KippoTaskStatus.objects.filter(
+            effort_date__gte=active_effort_date,
+            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
+            task__project=project
+        ).exclude(state__in=done_column_names)
+        taskstatus_results = list(results)
+        if any(status.estimate_days for status in taskstatus_results):
+            has_estimates = True
+        active_taskstatus.extend(taskstatus_results)
+    return active_taskstatus, has_estimates
+
+
+def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
+    collected_task_ids = []
+    unique_tasks = []
+    for taskstatus in active_taskstatus:
+        if taskstatus.task.id not in collected_task_ids:
+            unique_tasks.append(taskstatus.task)
+            collected_task_ids.append(taskstatus.task.id)
+    return collected_task_ids, unique_tasks
+
+
 @staff_member_required
 def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     warning = None
@@ -116,20 +143,8 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     # Collect tasks with TaskStatus updated this last 2 weeks
     two_weeks_ago = timezone.timedelta(days=14)
     active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
+    active_taskstatus, has_estimates = _get_active_taskstatus_from_projects(projects, active_taskstatus_startdate)
 
-    has_estimates = False
-    active_taskstatus = []
-    for project in projects:
-        done_column_names = project.columnset.get_done_column_names()
-        results = KippoTaskStatus.objects.filter(
-            effort_date__gte=active_taskstatus_startdate,
-            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-            task__project=project
-        ).exclude(state__in=done_column_names)
-        taskstatus_results = list(results)
-        if any(status.estimate_days for status in taskstatus_results):
-            has_estimates = True
-        active_taskstatus.extend(taskstatus_results)
     if not has_estimates:
         msg = f'No Estimates defined in tasks (Expect "estimate labels")'
         messages.add_message(request, messages.WARNING, msg)
@@ -177,12 +192,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
             messages.add_message(request, messages.ERROR, error)
 
     # collect unique Tasks
-    collected_task_ids = []
-    unique_tasks = []
-    for taskstatus in active_taskstatus:
-        if taskstatus.task.id not in collected_task_ids:
-            unique_tasks.append(taskstatus.task)
-            collected_task_ids.append(taskstatus.task.id)
+    collected_task_ids, unique_tasks = _get_task_details(active_taskstatus)
 
     # get user totals
     user_effort_totals = Counter()
