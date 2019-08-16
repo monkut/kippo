@@ -2,9 +2,11 @@ import os
 import copy
 import json
 import logging
-from typing import Generator
+from typing import Generator, Optional, List
 from distutils.util import strtobool
 from collections import Counter
+
+from zappa.asynchronous import task as zappa_task
 
 from django.utils import timezone
 from django.conf import settings
@@ -42,6 +44,15 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     logger.debug(f' -- webhookevent created: {event_type}:{event["action"]}')
 
     return webhook_event
+
+
+@zappa_task
+def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
+    logger.info(f'Processing GithubWebhookEvent(s): {webhookevent_ids}')
+    webhookevents = GithubWebhookEvent.objects.filter(id__in=webhookevent_ids)
+    processor = GithubWebhookProcessor()
+    processed_counts = processor.process_webhook_events(webhookevents)
+    return processed_counts
 
 
 class GithubWebhookProcessor:
@@ -256,9 +267,14 @@ class GithubWebhookProcessor:
             unprocessed_events_for_update.update(state='processing')
             yield from unprocessed_events
 
-    def process_webhook_events(self) -> Counter:
+    def process_webhook_events(self, webhookevents: Optional[List[GithubWebhookEvent]] = None) -> Counter:
         processed_events = Counter()
-        unprocessed_events = self._get_events()
+
+        if not webhookevents:
+            unprocessed_events = self._get_events()
+        else:
+            unprocessed_events = webhookevents
+
         eventtype_method_mapping = {
             'project_card': self._process_projectcard_event,
             'issues': self._process_issues_event,

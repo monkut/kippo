@@ -1,11 +1,13 @@
 import logging
 
+from django.db.models import Q
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from accounts.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet, GithubWebhookEvent
+from .functions import process_webhookevent_ids
 
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,13 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'organization',
         'name',
     )
+
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations).distinct()
 
     def get_label_set_name(self, obj):
         result = ''
@@ -87,6 +96,13 @@ class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'api_url',
     )
 
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(repository__organization__in=request.user.organizations).distinct()
+
     def get_kippomilestone_title(self, obj):
         result = ''
         if obj.milestone and obj.milestone.title:
@@ -116,12 +132,32 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         'created_datetime',
     )
 
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            Q(organization__in=request.user.organizations) | Q(organization__isnull=True)
+        ).distinct()
+
     def get_label_count(self, obj):
         result = ''
         if obj.labels:
             result = len(obj.labels)
         return result
     get_label_count.short_description = 'Defined Label Count'
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        if obj:
+            if request.user.is_superuser:
+                return True
+            elif obj.organization in request.user.organizations:
+                return True
+            else:
+                return False
+        else:
+            return True
 
 
 @admin.register(GithubWebhookEvent)
@@ -134,3 +170,36 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         'event_type',
         'state',
     )
+
+    actions = [
+        'process_webhook_events',
+        'reset_webhook_events'
+    ]
+
+    def process_webhook_events(self, request, queryset):
+        queryset = queryset.filter(state='unprocessed')
+        # convert to ids for task processing
+        webhookevent_ids = [wh.id for wh in queryset]
+        process_webhookevent_ids(webhookevent_ids)
+
+        msg = f'Processing GithubWebhookEvent(s): {", ".join(str(i) for i in webhookevent_ids)}'
+        self.message_user(
+            request,
+            msg,
+            level=messages.INFO
+        )
+    process_webhook_events.short_description = _('Process Selected Event(s)')
+
+    def reset_webhook_events(self, request, queryset):
+        queryset.update(state='unprocessed')
+        # convert to ids for task processing
+        webhookevent_ids = [str(wh.id) for wh in queryset]
+        process_webhookevent_ids(webhookevent_ids)
+
+        msg = f'Updated Selected GithubWebhookEvent(s)'
+        self.message_user(
+            request,
+            msg,
+            level=messages.INFO
+        )
+    reset_webhook_events.short_description = _('Reset Selected Event(s)')

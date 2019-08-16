@@ -4,11 +4,9 @@ import hashlib
 import hmac
 from typing import Tuple
 from pathlib import Path
-from http import HTTPStatus
 
-from django.conf import settings
 from django.utils import timezone
-from django.test import TestCase, Client
+from django.test import TestCase
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.tests import setup_basic_project, DEFAULT_FIXTURES
