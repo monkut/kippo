@@ -47,7 +47,7 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
 
 
 @zappa_task
-def process_webhookevent_ids(webhookevent_ids: List[int]) -> Counter:
+def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
     logger.info(f'Processing GithubWebhookEvent(s): {webhookevent_ids}')
     webhookevents = GithubWebhookEvent.objects.filter(id__in=webhookevent_ids)
     processor = GithubWebhookProcessor()
