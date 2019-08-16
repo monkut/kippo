@@ -7,6 +7,7 @@ from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from accounts.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet, GithubWebhookEvent
+from .functions import process_webhookevent_ids
 
 
 logger = logging.getLogger(__name__)
@@ -169,3 +170,37 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         'event_type',
         'state',
     )
+
+    actions = [
+        'process_webhook_events',
+        'reset_webhook_events'
+    ]
+
+    def process_webhook_events(self, request, queryset):
+        queryset = queryset.filter(state='pending')
+        # convert to ids for task processing
+        webhookevent_ids = [wh.id for wh in queryset]
+        process_webhookevent_ids(webhookevent_ids)
+
+        msg = f'Processing GithubWebhookEvent(s): {", ".join(str(i) for i in webhookevent_ids)}'
+        self.message_user(
+            request,
+            msg,
+            level=messages.INFO
+        )
+    process_webhook_events.short_description = _('Process Selected Event(s)')
+
+    def reset_webhook_events(self, request, queryset):
+        queryset.update(state='pending')
+        # convert to ids for task processing
+        webhookevent_ids = [wh.id for wh in queryset]
+        process_webhookevent_ids(webhookevent_ids)
+
+        msg = f'Updated Selected GithubWebhookEvent(s)'
+        self.message_user(
+            request,
+            msg,
+            level=messages.INFO
+        )
+    reset_webhook_events.short_description = _('Reset Selected Event(s)')
+
