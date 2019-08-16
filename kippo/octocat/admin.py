@@ -137,8 +137,7 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(
-            Q(organization__in=request.user.organizations) |
-            Q(organization__isnull=True)
+            Q(organization__in=request.user.organizations) | Q(organization__isnull=True)
         ).distinct()
 
     def get_label_count(self, obj):
