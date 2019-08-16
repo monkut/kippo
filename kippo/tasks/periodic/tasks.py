@@ -246,78 +246,64 @@ class OrganizationIssueProcessor:
                         existing_task.milestone = kippo_milestone
                         existing_task.save()
 
-                    # only update status if active or done (want to pick up
-                    # -- this condition is only met when the task is open, closed tasks will not be updated.
-                    active_task_column_names = kippo_project.columnset.get_active_column_names()
-                    done_task_column_names = kippo_project.columnset.get_done_column_names()
-                    task_status_updates_states = active_task_column_names + done_task_column_names
-                    if issue.project_column and issue.project_column not in task_status_updates_states:  # TODO: update to include column mapping
-                        # TODO: Review why this is needed...
-                        # intention here is to avoid adding KippoTaskStatus entries for closed tasks, but we should have at least 1
-                        # create a list of KippoTaskStatus ids for project for closed tasks?
-                        # need to consider re-open case
-                        logger.warning(
-                            f'Task({existing_task.title}) in non-active column({issue.project_column}), KippoTaskStatus NOT created!'
-                        )
+                    if issue.title != existing_task.title or issue.body != existing_task.description:
+                        logger.debug(f'Updating KippoTask.(title|description)')
+                        existing_task.title = issue.title
+                        existing_task.description = issue.body
+                        existing_task.save()
+
+                    latest_comment = self.build_latest_comment(issue)
+
+                    unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
+                    adjusted_issue_estimate = None
+                    if unadjusted_issue_estimate:
+                        # adjusting to take into account the number of developer_assignees working on it
+                        # -- divides task load by the number of developer_assignees
+                        adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
+
+                    prefixed_labels = get_github_issue_prefixed_labels(issue)
+                    tags = self._get_tags_from_prefixedlabels(prefixed_labels)
+
+                    # set task state (used to determine if a task is "active" or not)
+                    # -- When a task is "active" the estimate is included in the resulting schedule projection
+                    task_state = issue.project_column if issue.project_column else kippo_project.default_column_name
+                    logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
+
+                    # create or update KippoTaskStatus with updated estimate
+                    status_values = {
+                        'created_by': self.github_manager_user,
+                        'updated_by': self.github_manager_user,
+                        'state': task_state,
+                        'state_priority': issue.column_priority,
+                        'estimate_days': adjusted_issue_estimate,
+                        'effort_date': self.status_effort_date,
+                        'tags': tags,
+                        'comment': latest_comment
+                    }
+                    status, created = KippoTaskStatus.objects.get_or_create(
+                        task=existing_task,
+                        effort_date=self.status_effort_date,
+                        defaults=status_values
+                    )
+                    # check if title was updated, if updated, update related kippotask
+                    if issue.title != existing_task.title:
+                        existing_task.title = issue.title
+                        existing_task.save()
+
+                    if created:
+                        new_taskstatus_objects.append(status)
+                        logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
                     else:
-                        if issue.title != existing_task.title or issue.body != existing_task.description:
-                            logger.debug(f'Updating KippoTask.(title|description)')
-                            existing_task.title = issue.title
-                            existing_task.description = issue.body
-                            existing_task.save()
+                        # for updated status overwrite previous values
+                        if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
+                            logger.debug(f'Updating related {status} ...')
+                            # set values
+                            for fieldname, fieldvalue in status_values.items():
+                                setattr(status, fieldname, fieldvalue)
+                            status.save()
 
-                        latest_comment = self.build_latest_comment(issue)
-
-                        unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
-                        adjusted_issue_estimate = None
-                        if unadjusted_issue_estimate:
-                            # adjusting to take into account the number of developer_assignees working on it
-                            # -- divides task load by the number of developer_assignees
-                            adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
-
-                        prefixed_labels = get_github_issue_prefixed_labels(issue)
-                        tags = self._get_tags_from_prefixedlabels(prefixed_labels)
-
-                        # set task state (used to determine if a task is "active" or not)
-                        # -- When a task is "active" the estimate is included in the resulting schedule projection
-                        task_state = issue.project_column if issue.project_column else kippo_project.default_column_name
-                        logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
-
-                        # create or update KippoTaskStatus with updated estimate
-                        status_values = {
-                            'created_by': self.github_manager_user,
-                            'updated_by': self.github_manager_user,
-                            'state': task_state,
-                            'state_priority': issue.column_priority,
-                            'estimate_days': adjusted_issue_estimate,
-                            'effort_date': self.status_effort_date,
-                            'tags': tags,
-                            'comment': latest_comment
-                        }
-                        status, created = KippoTaskStatus.objects.get_or_create(
-                            task=existing_task,
-                            effort_date=self.status_effort_date,
-                            defaults=status_values
-                        )
-                        # check if title was updated, if updated, update related kippotask
-                        if issue.title != existing_task.title:
-                            existing_task.title = issue.title
-                            existing_task.save()
-
-                        if created:
-                            new_taskstatus_objects.append(status)
-                            logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
-                        else:
-                            # for updated status overwrite previous values
-                            if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
-                                logger.debug(f'Updating related {status} ...')
-                                # set values
-                                for fieldname, fieldvalue in status_values.items():
-                                    setattr(status, fieldname, fieldvalue)
-                                status.save()
-
-                            logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
-                            updated_taskstatus_objects.append(status)
+                        logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
+                        updated_taskstatus_objects.append(status)
 
         return is_new_task, new_taskstatus_objects, updated_taskstatus_objects
 
@@ -388,17 +374,31 @@ def collect_github_project_issues(action_tracker_id: int,
             logger.info(f'-- Processing {kippo_project.name} Related Github Issues...')
             count = 0
             for count, issue in enumerate(github_project.issues(), 1):
-                try:
-                    is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
-                    if is_new_task:
-                        result.new_task_count += 1
-                    result.new_taskstatus_count += len(issue_new_taskstatus_objects)
-                    result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
-                except ValueError as e:
-                    unhandled_issues.append({
-                        'issue.id': issue.id,
-                        'valueerror.args': e.args
-                    })
+                # only update status if active or done (want to pick up
+                # -- this condition is only met when the task is open, closed tasks will not be updated.
+                active_task_column_names = kippo_project.columnset.get_active_column_names()
+                done_task_column_names = kippo_project.columnset.get_done_column_names()
+                task_status_updates_states = active_task_column_names + done_task_column_names
+                if issue.project_column and issue.project_column not in task_status_updates_states:  # TODO: update to include column mapping
+                    # TODO: Review why this is needed...
+                    # intention here is to avoid adding KippoTaskStatus entries for closed tasks, but we should have at least 1
+                    # create a list of KippoTaskStatus ids for project for closed tasks?
+                    # need to consider re-open case
+                    logger.warning(
+                        f'Task({issue.title}) in non-active column({issue.project_column}), KippoTaskStatus NOT created!'
+                    )
+                else:
+                    try:
+                        is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
+                        if is_new_task:
+                            result.new_task_count += 1
+                        result.new_taskstatus_count += len(issue_new_taskstatus_objects)
+                        result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
+                    except ValueError as e:
+                        unhandled_issues.append({
+                            'issue.id': issue.id,
+                            'valueerror.args': e.args
+                        })
             result.unhandled_issues = unhandled_issues
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
             msg = (
