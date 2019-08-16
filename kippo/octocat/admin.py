@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Q
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
@@ -26,6 +27,13 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'organization',
         'name',
     )
+
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations).distinct()
 
     def get_label_set_name(self, obj):
         result = ''
@@ -87,6 +95,13 @@ class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         'api_url',
     )
 
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(repository__organization__in=request.user.organizations).distinct()
+
     def get_kippomilestone_title(self, obj):
         result = ''
         if obj.milestone and obj.milestone.title:
@@ -116,12 +131,33 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         'created_datetime',
     )
 
+    def get_queryset(self, request):
+        """Limit results by user organizationmemberships"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(
+            Q(organization__in=request.user.organizations) |
+            Q(organization__isnull=True)
+        ).distinct()
+
     def get_label_count(self, obj):
         result = ''
         if obj.labels:
             result = len(obj.labels)
         return result
     get_label_count.short_description = 'Defined Label Count'
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        if obj:
+            if request.user.is_superuser:
+                return True
+            elif obj.organization in request.user.organizations:
+                return True
+            else:
+                return False
+        else:
+            return True
 
 
 @admin.register(GithubWebhookEvent)
