@@ -203,4 +203,3 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
             level=messages.INFO
         )
     reset_webhook_events.short_description = _('Reset Selected Event(s)')
-
