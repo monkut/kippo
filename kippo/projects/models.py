@@ -280,7 +280,7 @@ class KippoProject(UserCreatedBaseModel):
         null=True,
         blank=True,
         editable=False,
-        # example content:
+        # example content (graphql creation result):
         # [
         # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
         # ]
@@ -289,11 +289,16 @@ class KippoProject(UserCreatedBaseModel):
 
     def get_columnset_id_to_name_mapping(self):
         if not self.column_info:
-            raise ValueError(f'KippoProject.columnset not populated, unable to generate ID to Name Mapping!')
+            raise ValueError(f'KippoProject.column_info not populated, unable to generate ID to Name Mapping!')
         mapping = {}
         for column_definition in self.column_info:
             name = column_definition['name']
-            column_id = column_definition['resourcePath'].split('/')[-1]
+            if 'resourcePath' in column_definition:  # when auto-populated on creation (graphql result)
+                column_id = column_definition['resourcePath'].split('/')[-1]
+            elif 'id' in column_definition:  # when manually updated with github-api result
+                column_id = column_definition['id']
+            else:
+                raise KeyError(f'expected keys("resourcePath", "id") not in column_definition: {column_definition}')
             mapping[int(column_id)] = name
         return mapping
 
