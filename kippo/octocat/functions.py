@@ -49,7 +49,10 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
 @zappa_task
 def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
     logger.info(f'Processing GithubWebhookEvent(s): {webhookevent_ids}')
-    webhookevents = GithubWebhookEvent.objects.filter(id__in=webhookevent_ids)
+    webhookevents_for_update = GithubWebhookEvent.objects.filter(id__in=webhookevent_ids)
+    webhookevents = copy.copy(webhookevents_for_update)
+    webhookevents_for_update.update(state='processing')
+
     processor = GithubWebhookProcessor()
     processed_counts = processor.process_webhook_events(webhookevents)
     return processed_counts
@@ -166,7 +169,7 @@ class GithubWebhookProcessor:
                         card_id = webhookevent.event['project_card']['id']
                         if task.project_card_id != card_id:
                             # Don't expect this to happen, as a KippoTask *should* only belong to 1 project
-                            logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}): {task}')
+                            logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
                         task.project_card_id = card_id
                         task.save()
 
@@ -175,6 +178,7 @@ class GithubWebhookProcessor:
                         # -- update 'state' info if KippoTaskStatus exists
                         try:
                             status = KippoTaskStatus.objects.filter(task=task).latest('created_datetime')
+                            logger.info(f'Updating KippoTaskStatus for task({task}) ...')
                         except KippoTaskStatus.DoesNotExist as e:
                             logger.exception(e)
                             state = 'error'
@@ -186,6 +190,7 @@ class GithubWebhookProcessor:
                         effort_date = timezone.now().date()
                         if status.effort_date != effort_date:
                             # create a new KippoTaskStatus Entry
+                            logger.info(f'Creating KippoTaskStatus for task({task}) ...')
                             status = KippoTaskStatus(
                                 task=task,
                                 effort_date=effort_date,
@@ -202,6 +207,7 @@ class GithubWebhookProcessor:
                         # update column state!
                         status.state = column_name
                         status.save()
+                        logger.info(f'KippoTaskStatus.state updated to: {column_name}')
             return state
 
     def _process_issues_event(self, webhookevent: GithubWebhookEvent):
