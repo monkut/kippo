@@ -96,7 +96,9 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
-def _get_active_taskstatus_from_projects(projects: List[KippoProject], max_effort_date: Optional[timezone.datetime.date] = None) -> Tuple[List[KippoTaskStatus], bool]:
+def _get_active_taskstatus_from_projects(
+        projects: List[KippoProject],
+        max_effort_date: Optional[timezone.datetime.date] = None) -> Tuple[List[KippoTaskStatus], bool]:
     active_taskstatus = []
     has_estimates = False
     for project in projects:
