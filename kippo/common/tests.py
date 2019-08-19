@@ -105,7 +105,7 @@ def setup_basic_project(organization=None, repository_name='Hello-World'):
 
     github_repo = GithubRepository(
         organization=organization,
-        name='Hello-World',
+        name=repository_name,
         api_url=f'https://api.github.com/repos/{organization.github_organization_name}/{repository_name}',
         html_url=f'https://github.com/repos/{organization.github_organization_name}/{repository_name}',
         created_by=user,
