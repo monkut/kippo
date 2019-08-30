@@ -377,7 +377,10 @@ class KippoProject(UserCreatedBaseModel):
 
     @property
     def github_project_description(self):
-        description = (f"""project_manager: {self.project_manager.display_name}<br/>"""
+        project_manager_display_name = ''
+        if self.project_manager:
+            project_manager_display_name = self.project_manager.display_name
+        description = (f"""project_manager: {project_manager_display_name}<br/>"""
                        f"""start_date: {self.start_date}                       <br/>"""
                        f"""end_date  : {self.target_date}                      <br/>""")
         return description
