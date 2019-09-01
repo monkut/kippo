@@ -346,7 +346,7 @@ class KippoProject(UserCreatedBaseModel):
         return latest_kippoprojectstatus
 
     def get_active_taskstatus(self, max_effort_date: Optional[timezone.datetime.date] = None,
-            additional_filters: Optional[Dict[str, Any]] = None) -> Tuple[List[KippoTaskStatus], bool]:
+                              additional_filters: Optional[Dict[str, Any]] = None) -> Tuple[List[KippoTaskStatus], bool]:
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         has_estimates = False
         done_column_names = self.columnset.get_done_column_names()
