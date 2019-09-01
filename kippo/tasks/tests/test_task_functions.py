@@ -279,11 +279,14 @@ class GetKippoProjectLoadTestCase(TestCase):
         active_states = self.kippoproject.columnset.get_active_column_names()
         active_state = active_states[0]
 
+        repo_name = 'myrepo'
         task1 = KippoTask(
             title='task1',
             category='cat1',
             project=self.kippoproject,
             assignee=self.user1,
+            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/1',
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/1",
             created_by=self.cli_manager,
             updated_by=self.cli_manager,
         )
@@ -303,6 +306,8 @@ class GetKippoProjectLoadTestCase(TestCase):
             category='cat2',
             project=self.kippoproject,
             assignee=self.user1,
+            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/2',
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/2",
             created_by=self.cli_manager,
             updated_by=self.cli_manager,
         )
@@ -323,6 +328,8 @@ class GetKippoProjectLoadTestCase(TestCase):
             category='cat3',
             project=self.kippoproject,
             assignee=self.user2,
+            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/3',
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/3",
             created_by=self.cli_manager,
             updated_by=self.cli_manager,
         )
@@ -342,6 +349,8 @@ class GetKippoProjectLoadTestCase(TestCase):
             category='cat4',
             project=self.kippoproject,
             assignee=self.user2,
+            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/4',
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/4",
             created_by=self.cli_manager,
             updated_by=self.cli_manager,
         )
