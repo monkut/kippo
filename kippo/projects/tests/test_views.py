@@ -7,7 +7,6 @@ from django.utils import timezone
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from accounts.models import KippoUser, KippoOrganization, OrganizationMembership
 from tasks.models import KippoTask, KippoTaskStatus
-from ..views import _get_active_taskstatus_from_projects
 
 
 class SetOrganizationTestCase(TestCase):
@@ -182,10 +181,8 @@ class ViewsHelperFunctionsTestCase(TestCase):
         self.task3_status1.save()
 
     def test__get_active_taskstatus_from_projects__without_max_effort_date(self):
-        projects = [self.project]
-        results, has_estimates = _get_active_taskstatus_from_projects(
-            projects=projects,
-        )
+        results, has_estimates = self.project.get_active_taskstatus_from_projects()
+
         self.assertTrue(len(results) == 2)
 
         actual_tasks = [s.task for s in results]
@@ -210,10 +207,8 @@ class ViewsHelperFunctionsTestCase(TestCase):
         self.assertTrue(all([task1_tested, task2_tested]))
 
     def test__get_active_taskstatus_from_projects__with_max_effort_date(self):
-        projects = [self.project]
         max_effort_date = timezone.datetime(2019, 8, 15).date()
-        results, has_estimates = _get_active_taskstatus_from_projects(
-            projects=projects,
+        results, has_estimates = self.project.get_active_taskstatus_from_projects(
             max_effort_date=max_effort_date
         )
         self.assertTrue(len(results) == 2)
