@@ -57,6 +57,10 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
         'estimate_days',
         'maximum_estimate_days',
     )
+    search_fields = (
+        'task__assignee__github_login',
+        'task__github_issue_html_url',
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
