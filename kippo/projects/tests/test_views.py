@@ -181,7 +181,7 @@ class ViewsHelperFunctionsTestCase(TestCase):
         self.task3_status1.save()
 
     def test__get_active_taskstatus_from_projects__without_max_effort_date(self):
-        results, has_estimates = self.project.get_active_taskstatus_from_projects()
+        results, has_estimates = self.project.get_active_taskstatus()
 
         self.assertTrue(len(results) == 2)
 
@@ -208,7 +208,7 @@ class ViewsHelperFunctionsTestCase(TestCase):
 
     def test__get_active_taskstatus_from_projects__with_max_effort_date(self):
         max_effort_date = timezone.datetime(2019, 8, 15).date()
-        results, has_estimates = self.project.get_active_taskstatus_from_projects(
+        results, has_estimates = self.project.get_active_taskstatus(
             max_effort_date=max_effort_date
         )
         self.assertTrue(len(results) == 2)
