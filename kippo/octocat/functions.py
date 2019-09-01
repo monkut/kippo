@@ -168,9 +168,13 @@ class GithubWebhookProcessor:
                         # update task.project_card_id
                         card_id = webhookevent.event['project_card']['id']
                         if task.project_card_id != card_id:
-                            # Don't expect this to happen, as a KippoTask *should* only belong to 1 project
+                            # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
                             logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
                         task.project_card_id = card_id
+
+                        if task.project is None:
+                            logger.warning(f'Updating task.project to: {kippo_project}')
+                            task.project = kippo_project
                         task.save()
 
                         # create/update KippoTaskStatus

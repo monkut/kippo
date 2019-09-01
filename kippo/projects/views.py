@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from collections import Counter, defaultdict
 
 from django.shortcuts import render, get_object_or_404
@@ -75,32 +75,6 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
 
 
-def _get_active_taskstatus_from_projects(
-        projects: List[KippoProject],
-        max_effort_date: Optional[timezone.datetime.date] = None) -> Tuple[List[KippoTaskStatus], bool]:
-    active_taskstatus = []
-    has_estimates = False
-    for project in projects:
-        done_column_names = project.columnset.get_done_column_names()
-        qs = KippoTaskStatus.objects.filter(
-            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-            task__project=project
-        ).exclude(
-            state__in=done_column_names
-        )
-        if max_effort_date:
-            qs = qs.filter(
-                effort_date__lte=max_effort_date,
-            )
-        results = qs.order_by('task__github_issue_api_url', '-effort_date').distinct('task__github_issue_api_url')
-
-        taskstatus_results = list(results)
-        if any(status.estimate_days for status in taskstatus_results):
-            has_estimates = True
-        active_taskstatus.extend(taskstatus_results)
-    return active_taskstatus, has_estimates
-
-
 def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
     collected_task_ids = []
     unique_tasks = []
@@ -129,9 +103,15 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by('name')
 
     # Collect KippoTaskStatus for projects
-    active_taskstatus, has_estimates = _get_active_taskstatus_from_projects(projects)
+    active_taskstatus = []
+    all_has_estimates = False
+    for project in projects:
+        project_active_taskstatus, has_estimates = project.get_active_taskstatus()
+        if has_estimates:
+            all_has_estimates = True
+        active_taskstatus.extend(project_active_taskstatus)
 
-    if not has_estimates:
+    if not all_has_estimates:
         msg = f'No Estimates defined in tasks (Expect "estimate labels")'
         messages.add_message(request, messages.WARNING, msg)
 

@@ -130,7 +130,8 @@ class OrganizationIssueProcessor:
                              f'{issue.latest_comment_body}'
         return latest_comment
 
-    def _get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> GithubRepository:
+    def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> GithubRepository:
+        """Get the existing GithubRepository or create a new one"""
         try:
             kippo_github_repository = GithubRepository.objects.get(
                 name=repo_name,
@@ -174,16 +175,18 @@ class OrganizationIssueProcessor:
         is_new_task = False
         new_taskstatus_objects = []
         updated_taskstatus_objects = []
-        # check if issue is open
+        # check if issue is open or active
         # refer to github API for available fields
         # https://developer.github.com/v3/issues/
-        if issue.state == 'open':
+        states_to_process = ['open']
+        states_to_process.extend(kippo_project.get_active_column_names())
+        if issue.state in states_to_process:
             # add related repository as GithubRepository
             repo_api_url = issue.repository_url
             repo_html_url = issue.html_url.split('issues')[0]
             name_index = -2
             issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
-            kippo_github_repository = self._get_githubrepository(
+            kippo_github_repository = self.get_githubrepository(
                 issue_repo_name,
                 repo_api_url,
                 repo_html_url

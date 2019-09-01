@@ -277,21 +277,17 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
     default_suggested = 3
     maximum_multiplier = 1.7
     organization_developers = list(organization.get_github_developer_kippousers())
+    additional_filters = {
+        'task__is_closed': False,
+        'task__assignee__in': organization_developers,
+    }
     for project in projects:
-        # NOTE: Should this be filtered by effort_date?
         # -- 'active task status'
-        active_taskstatus = KippoTaskStatus.objects.filter(
-            task__project=project,
-            task__assignee__in=organization_developers,
-            task__is_closed=False,
-            effort_date=latest_taskstatus_effort_date,
-            state__in=project.get_active_column_names()
+        active_taskstatus, _ = project.get_active_taskstatus(
+            additional_filters=additional_filters
         )
+        logger.debug(f'{project} len(active_taskstatus)={len(active_taskstatus)}')
         for status in active_taskstatus:
-            if status.state not in project.get_active_column_names():  # this shouldn't be needed as it's being filtered above
-                logger.error('state_in filter not working!')
-                continue  # Skip non-active states
-
             # create qlu estimates and tasks
             # - create estimates for task
             minimum_estimate = int(status.minimum_estimate_days) if status.minimum_estimate_days else default_minimum

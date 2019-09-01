@@ -10,10 +10,6 @@ class KippoTask(UserCreatedBaseModel):
                              help_text=_('KippoTask Title'))
     category = models.CharField(max_length=256)
     is_closed = models.BooleanField(default=False)
-    # is_deleted = models.BooleanField(
-    #     default=False,
-    #     help_text=_('set when related github issue is "deleted".')
-    # )
     project = models.ForeignKey('projects.KippoProject',
                                 on_delete=models.CASCADE,
                                 null=True,

@@ -2,7 +2,7 @@ import logging
 import datetime
 import uuid
 from urllib.parse import urlencode
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any, Optional
 
 from django.db import models
 from django.db.models import Sum
@@ -22,6 +22,7 @@ from ghorgs.managers import GithubOrganizationManager
 
 from accounts.models import KippoUser
 from common.models import UserCreatedBaseModel
+from tasks.models import KippoTaskStatus
 from octocat.models import GithubRepository, GithubMilestone, GITHUB_MILESTONE_CLOSE_STATE
 
 from .exceptions import ProjectColumnSetError
@@ -343,6 +344,33 @@ class KippoProject(UserCreatedBaseModel):
         except KippoProjectStatus.DoesNotExist:
             latest_kippoprojectstatus = None
         return latest_kippoprojectstatus
+
+    def get_active_taskstatus(self, max_effort_date: Optional[timezone.datetime.date] = None,
+                              additional_filters: Optional[Dict[str, Any]] = None) -> Tuple[List[KippoTaskStatus], bool]:
+        """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
+        has_estimates = False
+        done_column_names = self.columnset.get_done_column_names()
+        valid_column_states = self.get_active_column_names() + ['open']
+        qs = KippoTaskStatus.objects.filter(
+            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
+            task__project=self,
+            state__in=valid_column_states
+        ).exclude(
+            state__in=done_column_names
+        )
+        if additional_filters:
+            qs = qs.filter(**additional_filters)
+
+        if max_effort_date:
+            qs = qs.filter(
+                effort_date__lte=max_effort_date,
+            )
+        results = qs.order_by('task__github_issue_api_url', '-effort_date').distinct('task__github_issue_api_url')
+
+        taskstatus_results = list(results)
+        if any(status.estimate_days for status in taskstatus_results):
+            has_estimates = True
+        return taskstatus_results, has_estimates
 
     def get_projectsurvey_url(self):
         """
