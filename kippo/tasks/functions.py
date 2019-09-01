@@ -286,6 +286,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
         active_taskstatus, _ = project.get_active_taskstatus(
             additional_filters=additional_filters
         )
+        logger.debug(f'{project} len(active_taskstatus)={len(active_taskstatus)}')
         for status in active_taskstatus:
             # create qlu estimates and tasks
             # - create estimates for task
