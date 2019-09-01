@@ -251,7 +251,9 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
         is_closed=False).order_by('target_date')
     )
     if not projects:
-        raise ProjectConfigurationError('No projects found! Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined)')
+        raise ProjectConfigurationError(
+            'No projects found! Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined)'
+        )
 
     # prepare absolute priority
     project_active_state_priority = {
