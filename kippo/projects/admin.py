@@ -2,17 +2,23 @@ import csv
 import logging
 from base64 import b64decode
 from string import ascii_lowercase
+
 from django.contrib import admin, messages
 from django.utils import timezone
 from django.utils.html import format_html
 from django.http import HttpResponseRedirect, HttpResponse
 from django.utils.translation import ugettext_lazy as _
-from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
+
 from ghorgs.managers import GithubOrganizationManager
 
+from common.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from tasks.models import KippoTaskStatus
+from tasks.periodic.tasks import collect_github_project_issues
 
-from .functions import collect_existing_github_projects, get_kippoproject_taskstatus_csv_rows
+from .functions import (
+    get_kippoproject_taskstatus_csv_rows,
+    get_user_session_organization
+)
 from .models import (
     KippoProject,
     ActiveKippoProject,
@@ -102,19 +108,21 @@ class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline)
         return qs
 
 
-def collect_existing_github_projects_action(modeladmin, request, queryset) -> None:
-    """
-    Admin Action to discover existing github projects and add to kippo as KippoProject objects
-    """
-    # get request user organization
-    organization = request.user.organization
-    added_projects = collect_existing_github_projects(str(organization.id))
-    modeladmin.message_user(
-        request,
-        message=f'({len(added_projects)}) KippoProjects created from GitHub Organizational Projects',
-        level=messages.INFO,
-    )
-collect_existing_github_projects_action.short_description = _('Collect Github Projects')  # noqa
+# Not used at the moment...
+# def collect_existing_github_projects_action(modeladmin, request, queryset) -> None:
+#     """
+#     Admin Action to discover existing github projects and add to kippo as KippoProject objects
+#     """
+#     # get request user organization
+#     organization, user_organizations = get_user_session_organization(request)
+#
+#     added_projects = collect_existing_github_projects(str(organization.id))
+#     modeladmin.message_user(
+#         request,
+#         message=f'({len(added_projects)}) KippoProjects created from GitHub Organizational Projects',
+#         level=messages.INFO,
+#     )
+# collect_existing_github_projects_action.short_description = _('Collect Github Projects')  # noqa
 
 
 def create_github_organizational_project_action(modeladmin, request, queryset) -> None:
@@ -219,6 +227,33 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
 create_github_repository_milestones_action.short_description = _(f'Create related Github Repository Milestone(s) for selected')  # noqa: E305
 
 
+def collect_project_github_repositories_action(modeladmin, request, queryset) -> None:
+    """
+    Admin action to collect the github repositories for selected KippoProjects
+    Calls `()` which also updates issues on collection
+    """
+    # get request user organization
+    organization, user_organizations = get_user_session_organization(request)
+
+    # collect project github html_urls to filter for the collect_github_project_issues functoin
+    github_project_html_urls_to_update = []
+    for kippoproject in queryset.filter(organization__in=user_organizations):  # apply filter to only access user accessible orgs
+        logger.debug(f'adding project: {kippoproject}')
+        github_project_html_urls_to_update.append(kippoproject.github_project_html_url)
+
+    collect_github_project_issues(
+        1,
+        kippo_organization_id=str(organization.id),
+        github_project_html_urls=github_project_html_urls_to_update,
+    )
+    modeladmin.message_user(
+        request,
+        message=f'({len(github_project_html_urls_to_update)}) KippoProjects updated from GitHub Organizational Projects',
+        level=messages.INFO,
+    )
+collect_project_github_repositories_action.short_description = _('Collect Project Repositories')  # noqa
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
@@ -256,6 +291,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
+        collect_project_github_repositories_action,
         'export_project_kippotaskstatus_csv',
     ]
     inlines = [
@@ -346,7 +382,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['project_manager'].initial = request.user.id
 
-        user_initial_organization = request.user.memberships.first()
+        user_initial_organization, user_organizations = get_user_session_organization(request)
         if not user_initial_organization:
             self.message_user(
                 request,
