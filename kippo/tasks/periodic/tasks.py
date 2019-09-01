@@ -327,13 +327,13 @@ def get_existing_kippo_project(github_project: GithubOrganizationProject, existi
 def collect_github_project_issues(action_tracker_id: int,
                                   kippo_organization_id: str,
                                   status_effort_date_iso8601: Optional[str] = None,
-                                  github_project_html_urls: List[str] = None) -> tuple:
+                                  github_project_html_urls: List[str] = None) -> None:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
     3. If KippoTask exists create KippoTaskStatus
 
-    :param action_tracker_id:
+    :param action_tracker_id: specific caller defined id to clearly identify the action value stored in the relatedd CollectIssuesProjectResult.action_id
     :param kippo_organization_id: KippoOrganization ID
     :param status_effort_date_iso8601: Date to get tasks from for testing, estimation purposes
     :param github_project_html_urls: If only specific projects are desired, the related github_project_html_urls may be provided

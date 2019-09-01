@@ -1,6 +1,8 @@
 import logging
 import datetime
-from typing import List, Generator, Optional
+from typing import List, Generator, Optional, Tuple
+
+from django.http import HttpRequest
 
 from ghorgs.managers import GithubOrganizationManager
 
@@ -12,6 +14,27 @@ from .models import KippoProject
 logger = logging.getLogger(__name__)
 
 TUESDAY_WEEKDAY = 2
+
+
+def get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganization, List[KippoOrganization]]:
+    """Retrieve the session defined user KippoOrganization"""
+    # get organization defined in session
+    organization_id = request.session.get('organization_id', None)
+    logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
+    # check that user belongs to organization
+    user_organizations = list(request.user.organizations)
+    user_organization_ids = {str(o.id): o for o in user_organizations}
+    if not user_organization_ids:
+        raise ValueError(f'No OrganizationMembership for user: {request.user.username}')
+
+    if organization_id not in user_organization_ids.keys():
+        # set to user first orgA
+        logger.warning(f'User({request.user.username}) invalid "organization_id" given, setting to "first".')
+        organization = user_organizations[0]  # use first
+        request.session['organization_id'] = str(organization_id)
+    else:
+        organization = user_organization_ids[organization_id]
+    return organization, user_organizations
 
 
 def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> List[KippoProject]:

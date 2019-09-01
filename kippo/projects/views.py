@@ -10,10 +10,10 @@ from django.contrib import messages
 from django.db.models import Q
 from django.contrib.admin.views.decorators import staff_member_required
 
-from accounts.models import KippoOrganization
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.functions import prepare_project_engineering_load_plot_data
 from tasks.exceptions import ProjectConfigurationError
+from .functions import get_user_session_organization
 from .charts.functions import prepare_burndown_chart_components
 from .models import ActiveKippoProject, KippoProject
 from .exceptions import TaskStatusError, ProjectDatesError
@@ -40,33 +40,12 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     return project, username
 
 
-def _get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganization, List[KippoOrganization]]:
-    """Retrieve the session defined user KippoOrganization"""
-    # get organization defined in session
-    organization_id = request.session.get('organization_id', None)
-    logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
-    # check that user belongs to organization
-    user_organizations = list(request.user.organizations)
-    user_organization_ids = {str(o.id): o for o in user_organizations}
-    if not user_organization_ids:
-        raise ValueError(f'No OrganizationMembership for user: {request.user.username}')
-
-    if organization_id not in user_organization_ids.keys():
-        # set to user first orgA
-        logger.warning(f'User({request.user.username}) invalid "organization_id" given, setting to "first".')
-        organization = user_organizations[0]  # use first
-        request.session['organization_id'] = str(organization_id)
-    else:
-        organization = user_organization_ids[organization_id]
-    return organization, user_organizations
-
-
 @staff_member_required
 def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     now = timezone.now()
 
     try:
-        selected_organization, user_organizations = _get_user_session_organization(request)
+        selected_organization, user_organizations = get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
@@ -137,7 +116,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     warning = None
 
     try:
-        selected_organization, user_organizations = _get_user_session_organization(request)
+        selected_organization, user_organizations = get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
