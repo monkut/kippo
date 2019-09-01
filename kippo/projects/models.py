@@ -350,10 +350,11 @@ class KippoProject(UserCreatedBaseModel):
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         has_estimates = False
         done_column_names = self.columnset.get_done_column_names()
+        valid_column_states = self.get_active_column_names() + ['open']
         qs = KippoTaskStatus.objects.filter(
             task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
             task__project=self,
-            state__in=self.get_active_column_names()
+            state__in=valid_column_states
         ).exclude(
             state__in=done_column_names
         )
