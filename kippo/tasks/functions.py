@@ -304,7 +304,7 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             related_milestone = status.task.milestone
             if related_milestone:
                 if not all((related_milestone.start_date, related_milestone.target_date)):
-                    raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.name}): '
+                    raise ValueError(f'"start_date" and "target_date" KippoMilestone({related_milestone.title}): '
                                      f'start_date={related_milestone.start_date}, target_date={related_milestone.target_date}')
                 milestone_id = related_milestone.id
                 logger.debug(
@@ -334,7 +334,10 @@ def get_projects_load(organization: KippoOrganization, schedule_start_date: date
             # pick priority
             state_priority_index = project_active_state_priority[status.task.project.id][status.state]
             priority_offset = 10 * state_priority_index
-            task_absolute_priority = status.state_priority + priority_offset  # ok to overlap priorities for now
+            if status.state_priority:
+                task_absolute_priority = status.state_priority + priority_offset  # ok to overlap priorities for now
+            else:
+                task_absolute_priority = len(active_taskstatus) + priority_offset
 
             logger.debug(
                 f'QluTask.id={status.task.id}:{status.task.github_issue_html_url}'
