@@ -349,14 +349,10 @@ class KippoProject(UserCreatedBaseModel):
                               additional_filters: Optional[Dict[str, Any]] = None) -> Tuple[List[KippoTaskStatus], bool]:
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         has_estimates = False
-        done_column_names = self.columnset.get_done_column_names()
         valid_column_states = self.get_active_column_names() + ['open']
         qs = KippoTaskStatus.objects.filter(
             task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
             task__project=self,
-            state__in=valid_column_states
-        ).exclude(
-            state__in=done_column_names
         )
         if additional_filters:
             qs = qs.filter(**additional_filters)
@@ -367,7 +363,8 @@ class KippoProject(UserCreatedBaseModel):
             )
         results = qs.order_by('task__github_issue_api_url', '-effort_date').distinct('task__github_issue_api_url')
 
-        taskstatus_results = list(results)
+        # only include active states
+        taskstatus_results = [r for r in list(results) if r.state in valid_column_states]
         if any(status.estimate_days for status in taskstatus_results):
             has_estimates = True
         return taskstatus_results, has_estimates
