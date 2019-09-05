@@ -175,138 +175,133 @@ class OrganizationIssueProcessor:
         is_new_task = False
         new_taskstatus_objects = []
         updated_taskstatus_objects = []
-        # check if issue is open or active
-        # refer to github API for available fields
-        # https://developer.github.com/v3/issues/
-        states_to_process = ['open']
-        states_to_process.extend(kippo_project.get_active_column_names())
-        if issue.state in states_to_process:
-            # add related repository as GithubRepository
-            repo_api_url = issue.repository_url
-            repo_html_url = issue.html_url.split('issues')[0]
-            name_index = -2
-            issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
-            kippo_github_repository = self.get_githubrepository(
-                issue_repo_name,
-                repo_api_url,
-                repo_html_url
-            )
-            default_task_category = kippo_github_repository.organization.default_task_category
 
-            # check if issue exists
-            logger.debug(f'html_url: {issue.html_url}')
-            existing_task = self.get_existing_task_by_html_url(issue.html_url)
-            logger.debug(f'existing task: {existing_task}')  # TODO: review why duplicate task error is occurring
+        # add related repository as GithubRepository
+        repo_api_url = issue.repository_url
+        repo_html_url = issue.html_url.split('issues')[0]
+        name_index = -2
+        issue_repo_name = repo_html_url.rsplit('/', 2)[name_index]
+        kippo_github_repository = self.get_githubrepository(
+            issue_repo_name,
+            repo_api_url,
+            repo_html_url
+        )
+        default_task_category = kippo_github_repository.organization.default_task_category
 
-            developer_assignees = [
-                issue_assignee.login
-                for issue_assignee in issue.assignees
-                if issue_assignee.login in self.kippo_github_users
-            ]
-            if not developer_assignees:
-                # assign task to special 'unassigned' user if task is not assigned to anyone
-                logger.warning(f'No developer_assignees identified for issue: {issue.html_url}')
-                developer_assignees = [self.unassigned_user.github_login]
+        # check if issue exists
+        logger.debug(f'html_url: {issue.html_url}')
+        existing_task = self.get_existing_task_by_html_url(issue.html_url)
+        logger.debug(f'existing task: {existing_task}')  # TODO: review why duplicate task error is occurring
 
-            estimate_denominator = len(developer_assignees)
-            for issue_assignee in developer_assignees:
-                issue_assigned_user = self.kippo_github_users.get(issue_assignee, None)
-                if not issue_assigned_user:
-                    logger.warning(f'Not assigned ({issue_assignee}): {issue.html_url}')
-                else:
-                    # only add task if issue is assigned to someone in the system!
-                    if not existing_task:
-                        category = get_github_issue_category_label(issue)
-                        if not category:
-                            category = default_task_category
-                        existing_task = KippoTask(
-                            created_by=self.github_manager_user,
-                            updated_by=self.github_manager_user,
-                            title=issue.title,
-                            category=category,
-                            project=kippo_project,
-                            milestone=kippo_milestone,
-                            assignee=issue_assigned_user,
-                            github_issue_api_url=issue.url,
-                            github_issue_html_url=issue.html_url,
-                            description=issue.body,
-                        )
-                        try:
-                            existing_task.save()
-                        except IntegrityError as e:
-                            logger.exception(e)
-                            logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
-                            continue
-                        is_new_task = True
-                        logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
-                    elif not existing_task.assignee or existing_task.assignee.github_login not in developer_assignees:
-                        # TODO: review, should multiple KippoTask objects be created for a single Github Task?
-                        logger.debug(f'Updating task.assignee -> {issue_assigned_user.github_login}')
-                        existing_task.assignee = issue_assigned_user
-                        existing_task.save()
-                    elif existing_task and not existing_task.milestone and kippo_milestone:
-                        logger.info(f'--> Applying NEW milestone: {kippo_milestone.title}')
-                        existing_task.milestone = kippo_milestone
-                        existing_task.save()
+        developer_assignees = [
+            issue_assignee.login
+            for issue_assignee in issue.assignees
+            if issue_assignee.login in self.kippo_github_users
+        ]
+        if not developer_assignees:
+            # assign task to special 'unassigned' user if task is not assigned to anyone
+            logger.warning(f'No developer_assignees identified for issue: {issue.html_url}')
+            developer_assignees = [self.unassigned_user.github_login]
 
-                    if issue.title != existing_task.title or issue.body != existing_task.description:
-                        logger.debug(f'Updating KippoTask.(title|description)')
-                        existing_task.title = issue.title
-                        existing_task.description = issue.body
-                        existing_task.save()
-
-                    latest_comment = self.build_latest_comment(issue)
-
-                    unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
-                    adjusted_issue_estimate = None
-                    if unadjusted_issue_estimate:
-                        # adjusting to take into account the number of developer_assignees working on it
-                        # -- divides task load by the number of developer_assignees
-                        adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
-
-                    prefixed_labels = get_github_issue_prefixed_labels(issue)
-                    tags = self._get_tags_from_prefixedlabels(prefixed_labels)
-
-                    # set task state (used to determine if a task is "active" or not)
-                    # -- When a task is "active" the estimate is included in the resulting schedule projection
-                    task_state = issue.project_column if issue.project_column else kippo_project.default_column_name
-                    logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
-
-                    # create or update KippoTaskStatus with updated estimate
-                    status_values = {
-                        'created_by': self.github_manager_user,
-                        'updated_by': self.github_manager_user,
-                        'state': task_state,
-                        'state_priority': issue.column_priority,
-                        'estimate_days': adjusted_issue_estimate,
-                        'effort_date': self.status_effort_date,
-                        'tags': tags,
-                        'comment': latest_comment
-                    }
-                    status, created = KippoTaskStatus.objects.get_or_create(
-                        task=existing_task,
-                        effort_date=self.status_effort_date,
-                        defaults=status_values
+        estimate_denominator = len(developer_assignees)
+        for issue_assignee in developer_assignees:
+            issue_assigned_user = self.kippo_github_users.get(issue_assignee, None)
+            if not issue_assigned_user:
+                logger.warning(f'Not assigned ({issue_assignee}): {issue.html_url}')
+            else:
+                # only add task if issue is assigned to someone in the system!
+                if not existing_task:
+                    category = get_github_issue_category_label(issue)
+                    if not category:
+                        category = default_task_category
+                    existing_task = KippoTask(
+                        created_by=self.github_manager_user,
+                        updated_by=self.github_manager_user,
+                        title=issue.title,
+                        category=category,
+                        project=kippo_project,
+                        milestone=kippo_milestone,
+                        assignee=issue_assigned_user,
+                        github_issue_api_url=issue.url,
+                        github_issue_html_url=issue.html_url,
+                        description=issue.body,
                     )
-                    # check if title was updated, if updated, update related kippotask
-                    if issue.title != existing_task.title:
-                        existing_task.title = issue.title
+                    try:
                         existing_task.save()
+                    except IntegrityError as e:
+                        logger.exception(e)
+                        logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
+                        continue
+                    is_new_task = True
+                    logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
+                elif not existing_task.assignee or existing_task.assignee.github_login not in developer_assignees:
+                    # TODO: review, should multiple KippoTask objects be created for a single Github Task?
+                    logger.debug(f'Updating task.assignee -> {issue_assigned_user.github_login}')
+                    existing_task.assignee = issue_assigned_user
+                    existing_task.save()
+                elif existing_task and not existing_task.milestone and kippo_milestone:
+                    logger.info(f'--> Applying NEW milestone: {kippo_milestone.title}')
+                    existing_task.milestone = kippo_milestone
+                    existing_task.save()
 
-                    if created:
-                        new_taskstatus_objects.append(status)
-                        logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
-                    else:
-                        # for updated status overwrite previous values
-                        if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
-                            logger.debug(f'Updating related {status} ...')
-                            # set values
-                            for fieldname, fieldvalue in status_values.items():
-                                setattr(status, fieldname, fieldvalue)
-                            status.save()
+                if issue.title != existing_task.title or issue.body != existing_task.description:
+                    logger.debug(f'Updating KippoTask.(title|description)')
+                    existing_task.title = issue.title
+                    existing_task.description = issue.body
+                    existing_task.save()
 
-                        logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
-                        updated_taskstatus_objects.append(status)
+                latest_comment = self.build_latest_comment(issue)
+
+                unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
+                adjusted_issue_estimate = None
+                if unadjusted_issue_estimate:
+                    # adjusting to take into account the number of developer_assignees working on it
+                    # -- divides task load by the number of developer_assignees
+                    adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
+
+                prefixed_labels = get_github_issue_prefixed_labels(issue)
+                tags = self._get_tags_from_prefixedlabels(prefixed_labels)
+
+                # set task state (used to determine if a task is "active" or not)
+                # -- When a task is "active" the estimate is included in the resulting schedule projection
+                task_state = issue.project_column if issue.project_column else kippo_project.default_column_name
+                logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
+
+                # create or update KippoTaskStatus with updated estimate
+                status_values = {
+                    'created_by': self.github_manager_user,
+                    'updated_by': self.github_manager_user,
+                    'state': task_state,
+                    'state_priority': issue.column_priority,
+                    'estimate_days': adjusted_issue_estimate,
+                    'effort_date': self.status_effort_date,
+                    'tags': tags,
+                    'comment': latest_comment
+                }
+                status, created = KippoTaskStatus.objects.get_or_create(
+                    task=existing_task,
+                    effort_date=self.status_effort_date,
+                    defaults=status_values
+                )
+                # check if title was updated, if updated, update related kippotask
+                if issue.title != existing_task.title:
+                    existing_task.title = issue.title
+                    existing_task.save()
+
+                if created:
+                    new_taskstatus_objects.append(status)
+                    logger.info(f'--> KippoTaskStatus Added: ({self.status_effort_date}) {issue.title}')
+                else:
+                    # for updated status overwrite previous values
+                    if any(getattr(status, fieldname) != fieldvalue for fieldname, fieldvalue in status_values.items()):
+                        logger.debug(f'Updating related {status} ...')
+                        # set values
+                        for fieldname, fieldvalue in status_values.items():
+                            setattr(status, fieldname, fieldvalue)
+                        status.save()
+
+                    logger.info(f'--> KippoTaskStatus Already Exists, updated: ({self.status_effort_date}) {issue.title} ')
+                    updated_taskstatus_objects.append(status)
 
         return is_new_task, new_taskstatus_objects, updated_taskstatus_objects
 
@@ -379,29 +374,17 @@ def collect_github_project_issues(action_tracker_id: int,
             for count, issue in enumerate(github_project.issues(), 1):
                 # only update status if active or done (want to pick up
                 # -- this condition is only met when the task is open, closed tasks will not be updated.
-                active_task_column_names = kippo_project.columnset.get_active_column_names()
-                done_task_column_names = kippo_project.columnset.get_done_column_names()
-                task_status_updates_states = active_task_column_names + done_task_column_names
-                if issue.project_column and issue.project_column not in task_status_updates_states:  # TODO: update to include column mapping
-                    # TODO: Review why this is needed...
-                    # intention here is to avoid adding KippoTaskStatus entries for closed tasks, but we should have at least 1
-                    # create a list of KippoTaskStatus ids for project for closed tasks?
-                    # need to consider re-open case
-                    logger.warning(
-                        f'Task({issue.title}) in non-active column({issue.project_column}), KippoTaskStatus NOT created!'
-                    )
-                else:
-                    try:
-                        is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
-                        if is_new_task:
-                            result.new_task_count += 1
-                        result.new_taskstatus_count += len(issue_new_taskstatus_objects)
-                        result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
-                    except ValueError as e:
-                        unhandled_issues.append({
-                            'issue.id': issue.id,
-                            'valueerror.args': e.args
-                        })
+                try:
+                    is_new_task, issue_new_taskstatus_objects, issue_updated_taskstatus_objects = issue_processor.process(kippo_project, issue)
+                    if is_new_task:
+                        result.new_task_count += 1
+                    result.new_taskstatus_count += len(issue_new_taskstatus_objects)
+                    result.updated_taskstatus_count += len(issue_updated_taskstatus_objects)
+                except ValueError as e:
+                    unhandled_issues.append({
+                        'issue.id': issue.id,
+                        'valueerror.args': e.args
+                    })
             result.unhandled_issues = unhandled_issues
             logger.info(f'>>> {kippo_project.name} - processed issues: {count}')
             msg = (
