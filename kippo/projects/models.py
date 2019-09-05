@@ -364,7 +364,7 @@ class KippoProject(UserCreatedBaseModel):
         results = qs.order_by('task__github_issue_api_url', '-effort_date').distinct('task__github_issue_api_url')
 
         # only include active states
-        taskstatus_results = [r for r in  list(results) if r.state in valid_column_states]
+        taskstatus_results = [r for r in list(results) if r.state in valid_column_states]
         if any(status.estimate_days for status in taskstatus_results):
             has_estimates = True
         return taskstatus_results, has_estimates
