@@ -99,6 +99,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
     list_display = (
         'organization',
         'user',
+        'get_user_github_login',
         'committed_days',
         'is_project_manager',
         'is_developer',
@@ -117,6 +118,10 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations)
+
+    def get_user_github_login(self, obj):
+        return obj.user.github_login
+    get_user_github_login.short_description = _('Github Login')
 
 
 @admin.register(KippoOrganization)
