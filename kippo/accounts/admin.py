@@ -107,7 +107,10 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         'organization',
         'user',
     )
-    search_fields = ['user__username']
+    search_fields = [
+        'user__username',
+        'user__github_login',
+    ]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
