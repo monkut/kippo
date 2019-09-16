@@ -107,6 +107,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         'organization',
         'user',
     )
+    search_fields = ['user__username']
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
