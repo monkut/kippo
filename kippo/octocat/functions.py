@@ -75,7 +75,7 @@ class GithubWebhookProcessor:
             self.organization_issue_processors[org_id] = processor
         return processor
 
-    def _load_event_to_githubissue(self, event):
+    def _load_event_to_githubissue(self, event) -> GithubIssue:
         """Convert a given Issue event to a ghorgs.wrappers.GithubIssue"""
         issue_json = json.dumps(event['issue'])
         # GithubIssue.from_dict() alone does not perform nested conversion, using json
@@ -214,22 +214,38 @@ class GithubWebhookProcessor:
                         logger.info(f'KippoTaskStatus.state updated to: {column_name}')
             return state
 
+    def __get_project_from_githubissue(self, githubissue: GithubIssue) -> KippoProject:
+        """Find related KippoProject for given GithubIssue"""
+        try:
+            existing_kippotask = KippoTask.objects.get(github_issue_api_url=githubissue.url)
+            project = existing_kippotask.project
+            logger.info(f'existing KippoTask founding using project: {project}')
+        except KippoTask.DoesNotExist:
+            repository_api_url = githubissue.repository_url
+            candidate_projects = list(KippoProject.objects.filter(
+                kippotask_project__github_issue_api_url__startswith=repository_api_url,
+                is_closed=False).order_by('id').distinct('id')
+            )
+            if len(candidate_projects) <= 0:
+                raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            project = candidate_projects[0]
+            if len(candidate_projects) > 1:
+                logger.warning(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+                logger.warning(f'using first project: {project}')
+        assert project
+        return project
+
     def _process_issues_event(self, webhookevent: GithubWebhookEvent):
         assert webhookevent.event_type == 'issues'
         githubissue = self._load_event_to_githubissue(webhookevent.event)
 
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
-        repository_api_url = githubissue.repository_url
-        candidate_projects = list(KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url))
-        if len(candidate_projects) > 1:
-            raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
-        elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+        project = self.__get_project_from_githubissue(githubissue)
 
-        project = candidate_projects[0]
         issue_processor = self.get_organization_issue_processor(project.organization)
         is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+        logger.info(f'is_new_task={is_new_task}')
         return 'processed'
 
     def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent):
@@ -245,14 +261,8 @@ class GithubWebhookProcessor:
 
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
-        repository_api_url = githubissue.repository_url
-        candidate_projects = list(KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url))
-        if len(candidate_projects) > 1:
-            raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
-        elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+        project = self.__get_project_from_githubissue(githubissue)
 
-        project = candidate_projects[0]
         issue_processor = self.get_organization_issue_processor(project.organization)
         is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
         return 'processed'
