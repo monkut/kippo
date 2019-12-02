@@ -1,6 +1,7 @@
 import datetime
 import logging
 from math import ceil
+from urllib.parse import urlsplit
 from typing import List, Union, Tuple, Optional
 
 from django.conf import settings
@@ -18,6 +19,8 @@ from accounts.models import KippoOrganization, KippoUser
 from projects.models import KippoProject, ActiveKippoProject, KippoMilestone, CollectIssuesAction, CollectIssuesProjectResult
 
 from octocat.models import GithubRepository, GithubMilestone
+
+from ..exceptions import GithubRepositoryUrlError
 from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
     get_github_issue_prefixed_labels,
@@ -139,17 +142,25 @@ class OrganizationIssueProcessor:
                 html_url=html_url
             )
         except GithubRepository.DoesNotExist:
-            kippo_github_repository = GithubRepository(
-                organization=self.organization,
-                created_by=self.github_manager_user,
-                updated_by=self.github_manager_user,
-                name=repo_name,
-                api_url=api_url,
-                html_url=html_url,
-                label_set=self.organization.default_labelset  # may be Null/None
-            )
-            kippo_github_repository.save()
-            logger.info(f'>>> Created GithubRepository({repo_name})!')
+            html_path_expected_path_component_count = 2
+            parsed_html_url = urlsplit(html_url)
+            path_components = [c for c in parsed_html_url.path.split('/') if c]
+            if len(path_components) == html_path_expected_path_component_count:
+                kippo_github_repository = GithubRepository(
+                    organization=self.organization,
+                    created_by=self.github_manager_user,
+                    updated_by=self.github_manager_user,
+                    name=repo_name,
+                    api_url=api_url,
+                    html_url=html_url,
+                    label_set=self.organization.default_labelset  # may be Null/None
+                )
+                kippo_github_repository.save()
+                logger.info(f'>>> Created GithubRepository({repo_name})!')
+            else:
+                message = f'XXX Invalid html_url for GithubRepository, SKIPPING: {html_url}'
+                logger.error(message)
+                raise GithubRepositoryUrlError(message)
         return kippo_github_repository
 
     def _get_tags_from_prefixedlabels(self, prefixed_labels: list) -> list:

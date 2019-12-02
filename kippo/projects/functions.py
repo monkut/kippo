@@ -1,5 +1,6 @@
 import logging
 import datetime
+from urllib.parse import urlsplit
 from typing import List, Generator, Optional, Tuple
 
 from django.http import HttpRequest
@@ -8,6 +9,7 @@ from ghorgs.managers import GithubOrganizationManager
 
 from accounts.models import KippoOrganization, KippoUser
 from tasks.models import KippoTaskStatus
+
 from .models import KippoProject
 
 
@@ -50,22 +52,28 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
     ).values_list('github_project_html_url', flat=True)
 
     added_projects = []
+    project_html_path_expected_path_component_count = 2
     for project in manager.projects():
-        if project.html_url not in existing_html_urls:
-            # create related KippoProject
-            kippo_project = KippoProject(
-                created_by=as_user,
-                updated_by=as_user,
-                organization=organization,
-                name=project.name,
-                columnset=organization.default_columnset,
-                github_project_html_url=project.html_url,
-            )
-            kippo_project.save()
-            added_projects.append(kippo_project)
-            logger.info(f'(collect_existing_github_projects) Created KippoProject: {project.name} {project.html_url}')
+        parsed_html_url = urlsplit(project.html_url)
+        path_components = [c for c in parsed_html_url.path.split('/') if c]
+        if len(path_components) == project_html_path_expected_path_component_count:
+            if project.html_url not in existing_html_urls:
+                # create related KippoProject
+                kippo_project = KippoProject(
+                    created_by=as_user,
+                    updated_by=as_user,
+                    organization=organization,
+                    name=project.name,
+                    columnset=organization.default_columnset,
+                    github_project_html_url=project.html_url,
+                )
+                kippo_project.save()
+                added_projects.append(kippo_project)
+                logger.info(f'(collect_existing_github_projects) Created KippoProject: {project.name} {project.html_url}')
+            else:
+                logger.debug(f'(collect_existing_github_projects) Already Exists SKIPPING: {project.name}  {project.html_url}')
         else:
-            logger.debug(f'(collect_existing_github_projects) Already Exists SKIPPING: {project.name}  {project.html_url}')
+            logger.error(f'invalid path({parsed_html_url.path}), no KippoProject created: {project.name}  {project.html_url}')
     return added_projects
 
 

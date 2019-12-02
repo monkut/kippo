@@ -153,6 +153,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
         except ProjectConfigurationError as e:
             logger.warning(f'No projects with start_date or target_date defined: {e.args}')
         except ValueError as e:
+            logger.exception(e)
             logger.error(str(e.args))
             error = f'Unable to process tasks: {e.args}'
             messages.add_message(request, messages.ERROR, error)
