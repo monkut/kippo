@@ -13,6 +13,7 @@ from qlu.core import QluTaskScheduler, QluTask, QluMilestone, QluTaskEstimates
 
 from accounts.models import KippoOrganization, OrganizationMembership
 from projects.models import KippoProject, KippoMilestone
+
 from .exceptions import ProjectConfigurationError, OrganizationKippoTaskStatusError
 from .models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_project_schedule_chart_components

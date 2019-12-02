@@ -15,7 +15,7 @@ from ghorgs.wrappers import GithubIssue
 
 from projects.models import KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
-from tasks.exceptions import ProjectNotFoundError
+from tasks.exceptions import ProjectNotFoundError, GithubRepositoryUrlError
 from tasks.periodic.tasks import OrganizationIssueProcessor
 
 from accounts.models import KippoOrganization, KippoUser
@@ -229,8 +229,13 @@ class GithubWebhookProcessor:
 
         project = candidate_projects[0]
         issue_processor = self.get_organization_issue_processor(project.organization)
-        is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
-        return 'processed'
+        try:
+            is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+            result = 'processed'
+        except GithubRepositoryUrlError as e:
+            logger.exception(e)
+            result = 'error'
+        return result
 
     def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent):
         assert webhookevent.event_type == 'issue_comment'
@@ -254,8 +259,13 @@ class GithubWebhookProcessor:
 
         project = candidate_projects[0]
         issue_processor = self.get_organization_issue_processor(project.organization)
-        is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
-        return 'processed'
+        try:
+            is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+            result = 'processed'
+        except GithubRepositoryUrlError as e:
+            logger.exception(e)
+            result = 'error'
+        return result
 
     def _get_events(self) -> Generator:
         # process event_types in the following order
