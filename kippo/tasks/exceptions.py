@@ -1,4 +1,7 @@
 
+class GithubRepositoryUrlError(ValueError):
+    pass
+
 
 class ProjectConfigurationError(ValueError):
     pass
