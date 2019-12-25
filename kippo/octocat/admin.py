@@ -192,9 +192,6 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
 
     def reset_webhook_events(self, request, queryset):
         queryset.update(state='unprocessed')
-        # convert to ids for task processing
-        webhookevent_ids = [str(wh.id) for wh in queryset]
-        process_webhookevent_ids(webhookevent_ids)
 
         msg = f'Updated Selected GithubWebhookEvent(s)'
         self.message_user(
