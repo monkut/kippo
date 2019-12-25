@@ -310,6 +310,6 @@ class GithubWebhookEventAdminActionsTestCase(TestCase):
         response = self.client.post(change_url, data, follow=True)
         assert response.status_code == 200, response.status_code
 
-        actual = GithubWebhookEvent.objects.filter(state='processed').count()
+        actual = GithubWebhookEvent.objects.filter(state='unprocessed').count()
         expected = GithubWebhookEvent.objects.all().count()
         self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
