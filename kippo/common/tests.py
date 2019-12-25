@@ -97,7 +97,7 @@ def setup_basic_project(organization=None, repository_name='Hello-World'):
         assignee=user,
         created_by=user,
         updated_by=user,
-        github_issue_html_url=f'https://github.com/repos/{organization.github_organization_name}/{repository_name}/issues/1347',
+        github_issue_html_url=f'https://github.com/{organization.github_organization_name}/{repository_name}/issues/1347',
         github_issue_api_url=f"https://api.github.com/repos/{organization.github_organization_name}/{repository_name}/issues/1347",
     )
     kippo_task.save()
@@ -107,7 +107,7 @@ def setup_basic_project(organization=None, repository_name='Hello-World'):
         organization=organization,
         name=repository_name,
         api_url=f'https://api.github.com/repos/{organization.github_organization_name}/{repository_name}',
-        html_url=f'https://github.com/repos/{organization.github_organization_name}/{repository_name}',
+        html_url=f'https://github.com/{organization.github_organization_name}/{repository_name}',
         created_by=user,
         updated_by=user,
     )
