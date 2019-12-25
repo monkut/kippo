@@ -1,0 +1,32 @@
+// https://stackoverflow.com/questions/20456694/grid-of-responsive-squares/20457076#20457076
+
+
+table {
+    table-layout: fixed;
+    width: 100%;
+    height: 40%;
+    line-height: 50px;
+}
+
+
+th,
+td {
+  border: 1px solid black;
+  height: 50px;
+  width: 50px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0px;
+
+}
+
+dl {
+    visibility: hidden;
+}
+
+
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;

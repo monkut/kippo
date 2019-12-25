@@ -11,10 +11,12 @@ from zappa.asynchronous import task as zappa_task
 from django.utils import timezone
 from django.conf import settings
 
+from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
 
 from projects.models import KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
+from tasks.functions import get_github_issue_category_label
 from tasks.exceptions import ProjectNotFoundError, GithubRepositoryUrlError
 from tasks.periodic.tasks import OrganizationIssueProcessor
 
@@ -154,64 +156,107 @@ class GithubWebhookProcessor:
                         #         ...
                         #     }
                         # }
-
+                        card_id = webhookevent.event['project_card']['id']
                         try:
-                            task = KippoTask.objects.get(github_issue_api_url=task_api_url)
+                            tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
                         except KippoTask.DoesNotExist as e:
                             logger.exception(e)
-                            state = 'error'
-                            msg = f'KippoTask.github_issue_api_url={task_api_url} DoesNotExist, not updated on webhookevent "{current_action}" action'
-                            logger.error(msg)
-                            webhookevent.event['kippoerror'] = msg
-                            return state
-
-                        # update task.project_card_id
-                        card_id = webhookevent.event['project_card']['id']
-                        if task.project_card_id != card_id:
-                            # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
-                            logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
-                        task.project_card_id = card_id
-
-                        if task.project is None:
-                            logger.warning(f'Updating task.project to: {kippo_project}')
-                            task.project = kippo_project
-                        task.save()
-
-                        # create/update KippoTaskStatus
-                        # KippoTask created with 'issues' event
-                        # -- update 'state' info if KippoTaskStatus exists
-                        try:
-                            status = KippoTaskStatus.objects.filter(task=task).latest('created_datetime')
-                            logger.info(f'Updating KippoTaskStatus for task({task}) ...')
-                        except KippoTaskStatus.DoesNotExist as e:
-                            logger.exception(e)
-                            state = 'error'
-                            msg = f'KippoTaskStatus.DoesNotExist, "state" not updated!'
-                            logger.error(msg)
-                            webhookevent.event['kippoerror'] = msg
-                            return state
-
-                        effort_date = timezone.now().date()
-                        if status.effort_date != effort_date:
-                            # create a new KippoTaskStatus Entry
-                            logger.info(f'Creating KippoTaskStatus for task({task}) ...')
-                            status = KippoTaskStatus(
-                                task=task,
-                                effort_date=effort_date,
-                                state_priority=status.state_priority,
-                                minimum_estimate_days=status.minimum_estimate_days,
-                                estimate_days=status.estimate_days,
-                                maximum_estimate_days=status.maximum_estimate_days,
-                                hours_spent=status.hours_spent,
-                                tags=status.tags,
-                                comment=status.comment,
-                                created_by=self.github_manager_kippouser,
-                                updated_by=self.github_manager_kippouser,
+                            logger.warning(f'Related KippoTask not found for: {task_api_url}')
+                            # Create related KippoTask
+                            # - get task info
+                            logger.debug('preparing GithubOrganizationManager to retrieve GithubIssue...')
+                            github_manager = GithubOrganizationManager(
+                                organization=webhookevent.organization.github_organization_name,
+                                token=webhookevent.organization.githubaccesstoken.token
                             )
-                        # update column state!
-                        status.state = column_name
-                        status.save()
-                        logger.info(f'KippoTaskStatus.state updated to: {column_name}')
+                            github_manager_user = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
+                            logger.debug(f'Retrieving issue github_manager.get_github_issue(): {task_api_url}')
+                            issue = github_manager.get_github_issue(api_url=task_api_url)
+
+                            category = get_github_issue_category_label(issue)
+                            if not category:
+                                category = webhookevent.organization.default_task_category
+
+                            organization_unassigned_user = webhookevent.organization.get_unassigned_kippouser()
+                            organization_developer_users = {u.github_login: u for u in webhookevent.organization.get_github_developer_kippousers()}
+                            organization_kippo_github_logins = organization_developer_users.keys()
+                            developer_assignees = [
+                                issue_assignee.login
+                                for issue_assignee in issue.assignees
+                                if issue_assignee.login in organization_kippo_github_logins
+                            ]
+                            if not developer_assignees:
+                                # assign task to special 'unassigned' user if task is not assigned to anyone
+                                logger.warning(f'No developer_assignees identified for issue: {issue.html_url}')
+                                developer_assignees = [organization_unassigned_user]
+                            tasks = []
+                            for issue_assignee in developer_assignees:
+                                organization_user = organization_developer_users.get(issue_assignee, organization_unassigned_user)
+                                logger.info(f'Creating KippoTask for user({organization_user})...')
+                                task = KippoTask(
+                                    created_by=github_manager_user,
+                                    updated_by=github_manager_user,
+                                    title=issue.title,
+                                    category=category,
+                                    project=kippo_project,
+                                    milestone=None,
+                                    assignee=organization_user,
+                                    project_card_id=card_id,
+                                    github_issue_api_url=task_api_url,
+                                    github_issue_html_url=issue.html_url,
+                                    description=issue.body,
+                                )
+                                task.save()
+                                tasks.append(task)
+
+                        for task in tasks:
+                            # update task.project_card_id
+                            if task.project_card_id != card_id:
+                                # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
+                                logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
+                            task.project_card_id = card_id
+
+                            if task.project is None:
+                                logger.warning(f'Updating task.project to: {kippo_project}')
+                                task.project = kippo_project
+                            task.save()
+
+                            # create/update KippoTaskStatus
+                            # KippoTask created with 'issues' event
+                            # -- update 'state' info if KippoTaskStatus exists
+                            try:
+                                status = KippoTaskStatus.objects.filter(task=task).latest('created_datetime')
+                                logger.info(f'Updating KippoTaskStatus for task({task}) ...')
+                            except KippoTaskStatus.DoesNotExist as e:
+                                # logger.exception(e)
+                                # state = 'error'
+                                # msg = f'KippoTaskStatus.DoesNotExist, "state" not updated!'
+                                # logger.error(msg)
+                                # webhookevent.event['kippoerror'] = msg
+                                # return state
+                                status = None
+
+                            effort_date = timezone.now().date()
+                            if not status or status.effort_date != effort_date:
+                                # create a new KippoTaskStatus Entry
+                                logger.info(f'Creating KippoTaskStatus for task({task}) ...')
+                                status = KippoTaskStatus(
+                                    task=task,
+                                    effort_date=effort_date,
+                                    state_priority=status.state_priority,
+                                    minimum_estimate_days=status.minimum_estimate_days,
+                                    estimate_days=status.estimate_days,
+                                    maximum_estimate_days=status.maximum_estimate_days,
+                                    hours_spent=status.hours_spent,
+                                    tags=status.tags,
+                                    comment=status.comment,
+                                    created_by=self.github_manager_kippouser,
+                                    updated_by=self.github_manager_kippouser,
+                                )
+                            # update column state!
+                            status.state = column_name
+                            status.save()
+                            logger.info(f'KippoTaskStatus.state updated to: {column_name}')
             return state
 
     def _process_issues_event(self, webhookevent: GithubWebhookEvent):
@@ -225,7 +270,9 @@ class GithubWebhookProcessor:
         if len(candidate_projects) > 1:
             raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
         elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            # Github Repository Added in
+            # -> issue_processor.process(project, githubissue)  below
+            logger.warning(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
 
         project = candidate_projects[0]
         issue_processor = self.get_organization_issue_processor(project.organization)
@@ -255,6 +302,7 @@ class GithubWebhookProcessor:
         if len(candidate_projects) > 1:
             raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
         elif len(candidate_projects) <= 0:
+            # create project
             raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
 
         project = candidate_projects[0]

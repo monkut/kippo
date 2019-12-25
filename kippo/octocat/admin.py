@@ -170,6 +170,12 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         'event_type',
         'state',
     )
+    readonly_fields = (
+        'organization',
+        'event_type',
+        'state',
+        'event'
+    )
 
     actions = [
         'process_webhook_events',
@@ -180,14 +186,13 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         queryset = queryset.filter(state='unprocessed')
         # convert to ids for task processing
         webhookevent_ids = [wh.id for wh in queryset]
-        process_webhookevent_ids(webhookevent_ids)
-
         msg = f'Processing GithubWebhookEvent(s): {", ".join(str(i) for i in webhookevent_ids)}'
         self.message_user(
             request,
             msg,
             level=messages.INFO
         )
+        process_webhookevent_ids(webhookevent_ids)
     process_webhook_events.short_description = _('Process Selected Event(s)')
 
     def reset_webhook_events(self, request, queryset):
