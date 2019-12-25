@@ -143,6 +143,7 @@ WEBHOOK_EVENT_STATES = (
     ('processing', 'processing'),
     ('error', 'error'),
     ('processed', 'processed'),
+    ('ignore', 'ignore'),
 )
 
 

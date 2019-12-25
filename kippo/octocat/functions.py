@@ -95,7 +95,7 @@ class GithubWebhookProcessor:
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
 
-    def _process_projectcard_event(self, webhookevent: GithubWebhookEvent):
+    def _process_projectcard_event(self, webhookevent: GithubWebhookEvent) -> str:
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
@@ -224,7 +224,7 @@ class GithubWebhookProcessor:
                             # update task.project_card_id
                             if task.project_card_id != card_id:
                                 # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
-                                logger.warning(f'Current KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
+                                logger.warning(f'Current_process_ KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
                             task.project_card_id = card_id
 
                             if task.project is None:
@@ -265,7 +265,7 @@ class GithubWebhookProcessor:
                             logger.info(f'KippoTaskStatus.state updated to: {column_name}')
             return state
 
-    def _process_issues_event(self, webhookevent: GithubWebhookEvent):
+    def _process_issues_event(self, webhookevent: GithubWebhookEvent) -> str:
         assert webhookevent.event_type == 'issues'
         githubissue = self._load_event_to_githubissue(webhookevent.event)
 
@@ -291,7 +291,7 @@ class GithubWebhookProcessor:
                 break
         return result
 
-    def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent):
+    def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent) -> str:
         assert webhookevent.event_type == 'issue_comment'
         githubissue = self._load_event_to_githubissue(webhookevent.event)
 
@@ -322,7 +322,6 @@ class GithubWebhookProcessor:
             logger.warning(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
         elif len(candidate_projects) <= 0:
             raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
-
 
         result = 'error'
         for project_name, project in candidate_projects.items():
@@ -376,9 +375,10 @@ class GithubWebhookProcessor:
                 result_state = eventtype_processing_method(webhookevent)
             except ProjectNotFoundError as e:
                 logger.exception(e)
-                logger.error(f'No related KippoProject found for task: {e.args}')
+                logger.error(f'ProjectNotFoundError: {e.args}')
                 result_state = 'ignore'
                 webhookevent.event['kippoerror'] = f'No related project found for task!'
+            logger.debug(f'result_state={result_state}')
             webhookevent.state = result_state
             webhookevent.save()
             processed_events[webhookevent.event_type] += 1
