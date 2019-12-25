@@ -270,12 +270,10 @@ class GithubWebhookProcessor:
         if len(candidate_projects) > 1:
             raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
         elif len(candidate_projects) <= 0:
-            # Github Repository Added in
-            # -> issue_processor.process(project, githubissue)  below
-            logger.warning(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
 
         project = candidate_projects[0]
-        issue_processor = self.get_organization_issue_processor(project.organization)
+        issue_processor = self.get_organization_issue_processor(webhookevent.organization)
         try:
             is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
             result = 'processed'
