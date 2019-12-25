@@ -227,13 +227,8 @@ class GithubWebhookProcessor:
                             try:
                                 status = KippoTaskStatus.objects.filter(task=task).latest('created_datetime')
                                 logger.info(f'Updating KippoTaskStatus for task({task}) ...')
-                            except KippoTaskStatus.DoesNotExist as e:
-                                # logger.exception(e)
-                                # state = 'error'
-                                # msg = f'KippoTaskStatus.DoesNotExist, "state" not updated!'
-                                # logger.error(msg)
-                                # webhookevent.event['kippoerror'] = msg
-                                # return state
+                            except KippoTaskStatus.DoesNotExist:
+                                logger.warning('KippoTaskStatus.DoesNotExist, status set to None (KippoTaskStatus will be newly created)')
                                 status = None
 
                             effort_date = timezone.now().date()
