@@ -98,7 +98,7 @@ class KippoOrganization(UserCreatedBaseModel):
     def slug(self):
         return slugify(self.name, allow_unicode=True)
 
-    def get_github_developer_kippousers(self):
+    def get_github_developer_kippousers(self) -> List["KippoUser"]:
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
 
         developer_memberships = OrganizationMembership.objects.filter(
@@ -112,7 +112,7 @@ class KippoOrganization(UserCreatedBaseModel):
         return developer_users
 
     @property
-    def webhook_url(self):
+    def webhook_url(self) -> str:
         return f'{settings.URL_PREFIX}/octocat/webhook/{self.pk}/'
 
     def create_unassigned_kippouser(self):
