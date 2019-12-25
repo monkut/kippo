@@ -37,7 +37,7 @@ def get_repo_url_from_issuecomment_url(url: str) -> str:
         repo_url = url.rsplit('/', 3)[0]
     elif url.startswith('https://github.com'):
         # "https://github.com/octocat/Hello-World/issues/1347#issuecomment-1"
-        repo_url = url.rsplit('/',2)[0]
+        repo_url = url.rsplit('/', 2)[0]
     return repo_url
 
 
@@ -224,7 +224,8 @@ class GithubWebhookProcessor:
                             # update task.project_card_id
                             if task.project_card_id != card_id:
                                 # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
-                                logger.warning(f'Current_process_ KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}')
+                                msg = f'Current_process_ KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}'
+                                logger.warning(msg)
                             task.project_card_id = card_id
 
                             if task.project is None:
