@@ -263,7 +263,6 @@ class GithubWebhookProcessor:
         repository_api_url = githubissue.repository_url
         candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)}
         if len(candidate_projects) > 1:
-            #raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
             logger.debug(f'len(candidate_projects)={candidate_projects}')
             logger.warning(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
         elif len(candidate_projects) <= 0:
@@ -277,6 +276,7 @@ class GithubWebhookProcessor:
                 result = 'processed'
             except GithubRepositoryUrlError as e:
                 logger.exception(e)
+                result = 'error'
                 break
         return result
 
@@ -309,6 +309,8 @@ class GithubWebhookProcessor:
                 result = 'processed'
             except GithubRepositoryUrlError as e:
                 logger.exception(e)
+                result = 'error'
+                break
 
         return result
 
