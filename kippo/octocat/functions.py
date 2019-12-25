@@ -30,6 +30,17 @@ KIPPO_TESTING = strtobool(os.getenv('KIPPO_TESTING', 'False'))
 THREE_MINUTES = 3 * 60
 
 
+def get_repo_url_from_issuecomment_url(url: str) -> str:
+    # https://api.github.com/repos/octocat/Hello-World/issues/comments/1
+    if url.startswith('https://api.github.com'):
+        # "https://api.github.com/repos/octocat/Hello-World/issues/comments/1"
+        repo_url = url.rsplit('/', 3)[0]
+    elif url.startswith('https://github.com'):
+        # "https://github.com/octocat/Hello-World/issues/1347#issuecomment-1"
+        repo_url = url.rsplit('/',2)[0]
+    return repo_url
+
+
 def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> GithubWebhookEvent:
     # NOTE: Consider moving to SQS
     # card should contain a 'content_url' representing the issue attached (if an issue card)
@@ -291,6 +302,17 @@ class GithubWebhookProcessor:
         githubissue.latest_comment_created_by = comment['user']['login']
         githubissue.latest_comment_created_at = comment['created_at']
 
+        issue_api_url = comment['url']
+        issue_html_url = comment['html_url']
+
+        repo_api_url = get_repo_url_from_issuecomment_url(issue_api_url)
+        repo_html_url = get_repo_url_from_issuecomment_url(issue_html_url)
+        repo_name = repo_html_url.split('/')[-1]
+
+        issue_processor = self.get_organization_issue_processor(webhookevent.organization)
+        # creates GithubRepository for Kippo Management if it doesn't exist
+        issue_processor.get_githubrepository(repo_name, api_url=repo_api_url, html_url=repo_html_url)
+
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
         repository_api_url = githubissue.repository_url
@@ -301,7 +323,7 @@ class GithubWebhookProcessor:
         elif len(candidate_projects) <= 0:
             raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
 
-        issue_processor = self.get_organization_issue_processor(webhookevent.organization)
+
         result = 'error'
         for project_name, project in candidate_projects.items():
             try:
