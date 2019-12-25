@@ -371,7 +371,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         self.assertTrue(actual_unprocessed_events_count == expected_unprocessed_events_count)
 
         expected_processed_events_count = 1
-        actual_processed_events_count = GithubWebhookEvent.objects.filter(state='error').count()
+        actual_processed_events_count = GithubWebhookEvent.objects.filter(state='ignore').count()
         self.assertTrue(actual_processed_events_count == expected_processed_events_count, f'actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}')
 
     def test_projectcard_event__existing_taskstatus(self):
