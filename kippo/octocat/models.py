@@ -58,7 +58,7 @@ class GithubRepository(UserCreatedBaseModel):
     html_url = models.URLField(help_text=_('Github Repository HTML URL'))
 
     def __str__(self):
-        return f'{self.__class__.__name__}({self.name}) {self.html_url}'
+        return f'{self.__class__.__name__}({self.name}) html_url={self.html_url}'
 
     class Meta:
         verbose_name_plural = _('github repositories')
@@ -143,6 +143,7 @@ WEBHOOK_EVENT_STATES = (
     ('processing', 'processing'),
     ('error', 'error'),
     ('processed', 'processed'),
+    ('ignore', 'ignore'),
 )
 
 
