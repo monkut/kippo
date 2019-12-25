@@ -261,20 +261,23 @@ class GithubWebhookProcessor:
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
         repository_api_url = githubissue.repository_url
-        candidate_projects = list(KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url))
+        candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)}
         if len(candidate_projects) > 1:
-            raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            logger.debug(f'len(candidate_projects)={candidate_projects}')
+            logger.warning(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
         elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
 
-        project = candidate_projects[0]
+        result = 'error'
         issue_processor = self.get_organization_issue_processor(webhookevent.organization)
-        try:
-            is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
-            result = 'processed'
-        except GithubRepositoryUrlError as e:
-            logger.exception(e)
-            result = 'error'
+        for project_name, project in candidate_projects.items():
+            try:
+                is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+                result = 'processed'
+            except GithubRepositoryUrlError as e:
+                logger.exception(e)
+                result = 'error'
+                break
         return result
 
     def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent):
@@ -291,21 +294,24 @@ class GithubWebhookProcessor:
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
         repository_api_url = githubissue.repository_url
-        candidate_projects = list(KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url))
+        candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)}
         if len(candidate_projects) > 1:
-            raise ValueError(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            logger.debug(f'len(candidate_projects)={candidate_projects}')
+            logger.warning(f'More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
         elif len(candidate_projects) <= 0:
-            # create project
-            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p.name for p in candidate_projects]}')
+            raise ProjectNotFoundError(f'KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}')
 
-        project = candidate_projects[0]
-        issue_processor = self.get_organization_issue_processor(project.organization)
-        try:
-            is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
-            result = 'processed'
-        except GithubRepositoryUrlError as e:
-            logger.exception(e)
-            result = 'error'
+        issue_processor = self.get_organization_issue_processor(webhookevent.organization)
+        result = 'error'
+        for project_name, project in candidate_projects.items():
+            try:
+                is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+                result = 'processed'
+            except GithubRepositoryUrlError as e:
+                logger.exception(e)
+                result = 'error'
+                break
+
         return result
 
     def _get_events(self) -> Generator:
