@@ -10,6 +10,7 @@ from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
 
 from projects.models import KippoProject
+from projects.functions import get_user_session_organization
 from .exceptions import ProjectConfigurationError
 from .models import KippoTask, KippoTaskStatus
 from .functions import prepare_project_engineering_load_plot_data
@@ -50,7 +51,11 @@ def view_inprogress_task_status(request):
     two_weeks_ago = timezone.timedelta(days=14)
     active_taskstatus_startdate = (timezone.now() - two_weeks_ago).date()
 
-    active_projects = KippoProject.objects.filter(is_closed=False).order_by('name')
+    try:
+        selected_organization, user_organizations = get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
+    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by('name')
 
     # TODO: fix so that done columns is accurately applied per project
     # --> Temporary Workaround
@@ -77,10 +82,11 @@ def view_inprogress_task_status(request):
         display_state_filter = done_column_names
 
     # NOTE: done can not be
-    active_taskstatus = KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate,
-                                                       state__in=display_state_filter,
-                                                       task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-                                                       task__assignee__is_developer=True).exclude(task__project__is_closed=True)
+    active_taskstatus = KippoTaskStatus.objects.filter(
+        effort_date__gte=active_taskstatus_startdate,
+        state__in=display_state_filter,
+        task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
+    ).exclude(task__project__is_closed=True)
 
     # apply specific user filter if defined
     script = None
@@ -89,11 +95,8 @@ def view_inprogress_task_status(request):
     if github_login:
         active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
 
-        organization = request.user.organization
-        if not organization:
-            return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
         try:
-            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(organization, assignee_filter=github_login)
+            (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization, assignee_filter=github_login)
         except ProjectConfigurationError as e:
             logger.error(f'ProjectConfigurationError: ({e.args}): {request.build_absolute_uri()}')
             msg = f'ProjectConfigurationError: {e.args}'
