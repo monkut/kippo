@@ -340,6 +340,9 @@ class KippoUser(AbstractUser):
         organization_ids = OrganizationMembership.objects.filter(user=self).values_list('organization', flat=True).distinct()
         return KippoOrganization.objects.filter(id__in=organization_ids)
 
+    def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
+        return OrganizationMembership.objects.get(user=self, organization=organization)
+
 
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser,
