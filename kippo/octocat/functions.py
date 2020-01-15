@@ -3,6 +3,7 @@ import copy
 import json
 import logging
 from typing import Generator, Optional, List
+from urllib.parse import unquote_plus
 from distutils.util import strtobool
 from collections import Counter
 
@@ -90,7 +91,13 @@ class GithubWebhookProcessor:
 
     def _load_event_to_githubissue(self, event):
         """Convert a given Issue event to a ghorgs.wrappers.GithubIssue"""
+        # clean quoted data
+        unquote_keys = ('body', 'title')
+        for key in unquote_keys:
+            if key in event['issue']:
+                event['issue'][key] = unquote_plus(event['issue'][key])
         issue_json = json.dumps(event['issue'])
+
         # GithubIssue.from_dict() alone does not perform nested conversion, using json
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
@@ -99,12 +106,12 @@ class GithubWebhookProcessor:
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
-        :param webhookevent:
         """
         assert webhookevent.event_type == 'project_card'
 
         # identify project, retrieve related KippoProject
         github_project_api_url = webhookevent.event['project_card']['project_url']
+        logger.debug(f'github_project_api_url={github_project_api_url}')
         try:
             kippo_project = KippoProject.objects.get(github_project_api_url=github_project_api_url)
         except KippoProject.DoesNotExist as e:
@@ -299,7 +306,7 @@ class GithubWebhookProcessor:
         # populate GithubIssue.latest_comment* fields before processing
         # -- This enables kippo to process the GithubIssue through the standard processor
         comment = webhookevent.event['comment']
-        githubissue.latest_comment_body = comment['body']
+        githubissue.latest_comment_body = unquote_plus(comment['body'])
         githubissue.latest_comment_created_by = comment['user']['login']
         githubissue.latest_comment_created_at = comment['created_at']
 
