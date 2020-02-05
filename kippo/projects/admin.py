@@ -370,7 +370,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         for obj in formset.deleted_objects:
             obj.delete()
         for instance in instances:
-            if instance.id is None:
+            if instance._state.adding:  # Only for create (needed for handling uuid field as id)
                 instance.created_by = request.user  # only update created_by once!
             instance.updated_by = request.user
             instance.save()
