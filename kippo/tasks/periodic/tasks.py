@@ -25,7 +25,9 @@ from ..models import KippoTask, KippoTaskStatus
 from ..functions import (
     get_github_issue_prefixed_labels,
     get_github_issue_category_label,
-    get_github_issue_estimate_label
+    get_github_issue_estimate_label,
+    get_tags_from_prefixedlabels,
+    build_latest_comment
 )
 
 
@@ -126,22 +128,22 @@ class OrganizationIssueProcessor:
             milestone = kippo_milestone
         return milestone
 
-    def build_latest_comment(self, issue: GithubIssue) -> str:
-        latest_comment = ''
-        if issue.latest_comment_body:
-            latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
-                             f'{issue.latest_comment_body}'
-        return latest_comment
-
     def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> GithubRepository:
         """Get the existing GithubRepository or create a new one"""
+        # normalize urls
+        if api_url.endswith('/'):
+            api_url = api_url[:-1]
+        if html_url.endswith('/'):
+            html_url = html_url[:-1]
         try:
+            # using '__startswith' to assure match in cases where an *older* url as added with an ending '/'.
             kippo_github_repository = GithubRepository.objects.get(
                 name=repo_name,
-                api_url=api_url,
-                html_url=html_url
+                api_url__startswith=api_url,
+                html_url__startswith=html_url
             )
         except GithubRepository.DoesNotExist:
+            logger.warning(f'GithubRepository.DoesNotExist: name={repo_name}, api_url={api_url}, html_url={html_url}')
             html_path_expected_path_component_count = 2
             parsed_html_url = urlsplit(html_url)
             path_components = [c for c in parsed_html_url.path.split('/') if c]
@@ -162,16 +164,6 @@ class OrganizationIssueProcessor:
                 logger.error(message)
                 raise GithubRepositoryUrlError(message)
         return kippo_github_repository
-
-    def _get_tags_from_prefixedlabels(self, prefixed_labels: list) -> list:
-        tags = []
-        for prefixed_label in prefixed_labels:
-            # more than 1 label with the same prefix may exist
-            tags.append({
-                'name': prefixed_label.prefix,
-                'value': prefixed_label.value,
-            })
-        return tags
 
     def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> Tuple[bool, List[KippoTaskStatus], List[KippoTaskStatus]]:
         kippo_milestone = None
@@ -247,7 +239,7 @@ class OrganizationIssueProcessor:
                     logger.info(f'-> Created KippoTask: {issue.title} ({issue_assigned_user.username})')
                 elif not existing_task.assignee or existing_task.assignee.github_login not in developer_assignees:
                     # TODO: review, should multiple KippoTask objects be created for a single Github Task?
-                    logger.debug(f'Updating task.assignee -> {issue_assigned_user.github_login}')
+                    logger.debug(f'Updating task.assignee ({existing_task.assignee}) -> {issue_assigned_user.github_login}')
                     existing_task.assignee = issue_assigned_user
                     existing_task.save()
                 elif existing_task and not existing_task.milestone and kippo_milestone:
@@ -261,7 +253,7 @@ class OrganizationIssueProcessor:
                     existing_task.description = issue.body
                     existing_task.save()
 
-                latest_comment = self.build_latest_comment(issue)
+                latest_comment = build_latest_comment(issue)
 
                 unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
                 adjusted_issue_estimate = None
@@ -271,7 +263,7 @@ class OrganizationIssueProcessor:
                     adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
 
                 prefixed_labels = get_github_issue_prefixed_labels(issue)
-                tags = self._get_tags_from_prefixedlabels(prefixed_labels)
+                tags = get_tags_from_prefixedlabels(prefixed_labels)
 
                 # set task state (used to determine if a task is "active" or not)
                 # -- When a task is "active" the estimate is included in the resulting schedule projection

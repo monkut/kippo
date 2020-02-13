@@ -200,6 +200,13 @@ class KippoProject(UserCreatedBaseModel):
         max_length=256,
         default=settings.DEFAULT_KIPPOPROJECT_CATEGORY
     )
+    slack_channel_name = models.CharField(
+        max_length=80,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('If given, updates are sent periodically')
+    )
     columnset = models.ForeignKey(
         ProjectColumnSet,
         on_delete=models.DO_NOTHING,

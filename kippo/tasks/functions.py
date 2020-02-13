@@ -61,6 +61,25 @@ def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ':'
     return prefixed_labels
 
 
+def build_latest_comment(issue: GithubIssue) -> str:
+    latest_comment = ''
+    if issue.latest_comment_body:
+        latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
+                         f'{issue.latest_comment_body}'
+    return latest_comment
+
+
+def get_tags_from_prefixedlabels(prefixed_labels: List[GithubIssuePrefixedLabel]) -> List[Dict[str, str]]:
+    tags = []
+    for prefixed_label in prefixed_labels:
+        # more than 1 label with the same prefix may exist
+        tags.append({
+            'name': prefixed_label.prefix,
+            'value': prefixed_label.value,
+        })
+    return tags
+
+
 def get_github_issue_estimate_label(
         issue: GithubIssue,
         prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX,

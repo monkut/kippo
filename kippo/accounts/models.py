@@ -88,6 +88,26 @@ class KippoOrganization(UserCreatedBaseModel):
         editable=False,
         help_text=_('Github Webhook Secret')
     )
+    slack_api_token = models.CharField(
+        max_length=60,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('REQUIRED if slack channel reporting is desired')
+    )
+    slack_bot_name = models.CharField(
+        max_length=60,
+        null=True,
+        blank=True,
+        default='kippo',
+        help_text=_('REQUIRED if slack channel reporting is desired')
+    )
+    slack_bot_iconurl = models.URLField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('URL link to slack bot display image')
+    )
 
     @property
     def email_domains(self):
