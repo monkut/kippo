@@ -363,6 +363,20 @@ class KippoUser(AbstractUser):
     def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=self, organization=organization)
 
+    def get_assigned_kippotasks(self) -> QuerySet:
+        from tasks.models import KippoTask
+        return KippoTask.objects.filter(is_closed=False, assignee=self)
+
+    def get_estimatedays(self) -> float:
+        tasks = self.get_assigned_kippotasks()
+        total_estimatedays = 0
+        for task in tasks:
+            active_columnnames = task.project.get_active_column_names()
+            lastest_taskstatus = task.latest_kippotaskstatus()
+            if lastest_taskstatus.state in active_columnnames:
+                total_estimatedays += lastest_taskstatus.estimate_days if lastest_taskstatus.estimate_days else 0
+        return float(total_estimatedays)
+
 
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser,

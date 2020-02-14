@@ -153,6 +153,7 @@ class KippoTask(UserCreatedBaseModel):
             'title',
             'assignee',
         )
+        get_latest_by = 'created_datetime'
 
 
 class KippoTaskStatus(UserCreatedBaseModel):

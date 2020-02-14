@@ -253,6 +253,7 @@ class GithubWebhookProcessor:
                 logger.warning(f'webhookevent({webhookevent.id}).event does not contain "content_url" key, IGNORE (notes not supported)!')
                 state = 'ignore'
             else:
+                logger.info(f'processing {kippo_project} webhook event...')
                 task_api_url = webhookevent.event['project_card']['content_url']
                 github_column_id = webhookevent.event['project_card']['column_id']
                 columnid2name_mapping = kippo_project.get_columnset_id_to_name_mapping()
@@ -307,11 +308,9 @@ class GithubWebhookProcessor:
                             organization=webhookevent.organization.github_organization_name,
                             token=webhookevent.organization.githubaccesstoken.token
                         )
-                        try:
-                            tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
-                            issue = github_manager.get_github_issue(api_url=task_api_url)
-                        except KippoTask.DoesNotExist as e:
-                            logger.exception(e)
+                        tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
+                        issue = github_manager.get_github_issue(api_url=task_api_url)
+                        if not tasks:
                             logger.warning(f'Related KippoTask not found for: {task_api_url}')
                             # Create related KippoTask
                             # - get task info
@@ -356,7 +355,7 @@ class GithubWebhookProcessor:
                                 )
                                 task.save()
                                 tasks.append(task)
-
+                        logger.debug(f'len(tasks)={len(tasks)}')
                         prefixed_labels = get_github_issue_prefixed_labels(issue)
                         tags = get_tags_from_prefixedlabels(prefixed_labels)
                         for task in tasks:
