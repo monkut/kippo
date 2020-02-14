@@ -268,11 +268,10 @@ class OrganizationIssueProcessor:
                 # set task state (used to determine if a task is "active" or not)
                 # -- When a task is "active" the estimate is included in the resulting schedule projection
                 default_column = kippo_project.default_column_name
-                if existing_task:
-                    # get latest status, and get the latest status
-                    latest_kippotaskstatus = existing_task.latest_kippotaskstatus()
-                    if latest_kippotaskstatus and latest_kippotaskstatus.state:
-                        default_column = latest_kippotaskstatus.state
+                # get latest status, and get the latest status
+                latest_kippotaskstatus = existing_task.latest_kippotaskstatus()
+                if latest_kippotaskstatus and latest_kippotaskstatus.state:
+                    default_column = latest_kippotaskstatus.state
 
                 task_state = issue.project_column if issue.project_column else default_column
                 logger.debug(f'KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}')
