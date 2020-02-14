@@ -31,7 +31,7 @@ KIPPO_TESTING = strtobool(os.getenv('KIPPO_TESTING', 'False'))
 THREE_MINUTES = 3 * 60
 
 
-class GithubIssuePrefixedLabel:  #TODO: fix with tasks.functions
+class GithubIssuePrefixedLabel:
 
     def __init__(self, label: object, prefix_delim: str = ':'):
         self.label = label

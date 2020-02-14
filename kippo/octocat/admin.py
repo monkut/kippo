@@ -176,7 +176,6 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         'organization',
         'event_type',
         'state',
-        #'event'
         'get_pprint_event'
     )
 
