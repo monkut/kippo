@@ -88,6 +88,26 @@ class KippoOrganization(UserCreatedBaseModel):
         editable=False,
         help_text=_('Github Webhook Secret')
     )
+    slack_api_token = models.CharField(
+        max_length=60,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('REQUIRED if slack channel reporting is desired')
+    )
+    slack_bot_name = models.CharField(
+        max_length=60,
+        null=True,
+        blank=True,
+        default='kippo',
+        help_text=_('REQUIRED if slack channel reporting is desired')
+    )
+    slack_bot_iconurl = models.URLField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('URL link to slack bot display image')
+    )
 
     @property
     def email_domains(self):
@@ -339,6 +359,23 @@ class KippoUser(AbstractUser):
     def organizations(self) -> QuerySet:
         organization_ids = OrganizationMembership.objects.filter(user=self).values_list('organization', flat=True).distinct()
         return KippoOrganization.objects.filter(id__in=organization_ids)
+
+    def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
+        return OrganizationMembership.objects.get(user=self, organization=organization)
+
+    def get_assigned_kippotasks(self) -> QuerySet:
+        from tasks.models import KippoTask
+        return KippoTask.objects.filter(is_closed=False, assignee=self)
+
+    def get_estimatedays(self) -> float:
+        tasks = self.get_assigned_kippotasks()
+        total_estimatedays = 0
+        for task in tasks:
+            active_columnnames = task.project.get_active_column_names()
+            lastest_taskstatus = task.latest_kippotaskstatus()
+            if lastest_taskstatus.state in active_columnnames:
+                total_estimatedays += lastest_taskstatus.estimate_days if lastest_taskstatus.estimate_days else 0
+        return float(total_estimatedays)
 
 
 class PersonalHoliday(models.Model):

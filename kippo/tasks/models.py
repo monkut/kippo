@@ -1,8 +1,25 @@
+# from typing import Optional
+# from math import ceil
+#
+# from django.conf import settings
 from django.db import models
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
+
+# from ghorgs.managers import GithubOrganizationManager
+# from ghorgs.wrappers import GithubIssue
+#
+# from accounts.models import KippoUser
 from common.models import UserCreatedBaseModel
+
+# from .functions import (
+#     get_github_issue_prefixed_labels,
+#     get_github_issue_category_label,
+#     get_github_issue_estimate_label,
+#     build_latest_comment,
+#     get_tags_from_prefixedlabels
+# )
 
 
 class KippoTask(UserCreatedBaseModel):
@@ -55,9 +72,72 @@ class KippoTask(UserCreatedBaseModel):
     def latest_kippotaskstatus(self):
         return KippoTaskStatus.objects.filter(task=self).latest()
 
-    def effort_days_remaining(self):
+    def effort_days_remaining(self) -> int:
         latest_task_status = KippoTaskStatus.objects.filter(task=self).latest()
         return latest_task_status.estimate_days
+
+    # def get_or_create_kippotaskstatus(self):
+    #     """Create a *NEW* KippoTaskStatus object from the latest GithubIssue state"""
+    #     assert self.project
+    #     status_effort_date = timezone.now().date()
+    #     githubissue = self.get_githubissue()
+    #     latest_comment = build_latest_comment(githubissue)
+    #     self.github_manager_user = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
+    #
+    #     org_developer_users = self.project.organization.get_github_developer_kippousers()
+    #     org_unassigned_user = self.project.organization.get_unassigned_kippouser()
+    #     developer_assignees = [
+    #         issue_assignee.login
+    #         for issue_assignee in githubissue.assignees
+    #         if issue_assignee.login in org_developer_users
+    #     ]
+    #     if not developer_assignees:
+    #         # assign task to special 'unassigned' user if task is not assigned to anyone
+    #         developer_assignees = [org_unassigned_user.github_login]
+    #
+    #     estimate_denominator = len(developer_assignees)
+    #
+    #     unadjusted_issue_estimate = get_github_issue_estimate_label(githubissue)
+    #     adjusted_issue_estimate = None
+    #     if unadjusted_issue_estimate:
+    #         # adjusting to take into account the number of developer_assignees working on it
+    #         # -- divides task load by the number of developer_assignees
+    #         adjusted_issue_estimate = ceil(unadjusted_issue_estimate / estimate_denominator)
+    #
+    #     prefixed_labels = get_github_issue_prefixed_labels(githubissue)
+    #     tags = get_tags_from_prefixedlabels(prefixed_labels)
+    #
+    #     # set task state (used to determine if a task is "active" or not)
+    #     # -- When a task is "active" the estimate is included in the resulting schedule projection
+    #     task_state = githubissue.project_column if githubissue.project_column else self.project.default_column_name
+    #
+    #     # create or update KippoTaskStatus with updated estimate
+    #     status_values = {
+    #         'created_by': self.github_manager_user,
+    #         'updated_by': self.github_manager_user,
+    #         'state': task_state,
+    #         'state_priority': githubissue.column_priority,
+    #         'estimate_days': adjusted_issue_estimate,
+    #         'effort_date': status_effort_date,
+    #         'tags': tags,
+    #         'comment': latest_comment
+    #     }
+    #     status, created = KippoTaskStatus.objects.get_or_create(
+    #         task=self,
+    #         effort_date=status_effort_date,
+    #         defaults=status_values
+    #     )
+    #     return status, created
+    #
+    # def get_githubissue(self) -> Optional[GithubIssue]:
+    #     githubissue = None
+    #     if self.project and self.github_issue_api_url:
+    #         manager = GithubOrganizationManager(
+    #             organization=self.project.organization.github_organization_name,
+    #             token=self.project.organization.githubaccesstoken.token
+    #         )
+    #         githubissue = manager.get_github_issue(self.github_issue_api_url)
+    #     return githubissue
 
     def save(self, *args, **kwargs):
         if self.is_closed and not self.closed_datetime:
@@ -73,6 +153,7 @@ class KippoTask(UserCreatedBaseModel):
             'title',
             'assignee',
         )
+        get_latest_by = 'created_datetime'
 
 
 class KippoTaskStatus(UserCreatedBaseModel):

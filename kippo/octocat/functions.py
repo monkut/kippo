@@ -2,7 +2,9 @@ import os
 import copy
 import json
 import logging
-from typing import Generator, Optional, List
+from math import ceil
+from typing import Generator, Optional, List, Dict
+from urllib.parse import unquote_plus
 from distutils.util import strtobool
 from collections import Counter
 
@@ -16,7 +18,6 @@ from ghorgs.wrappers import GithubIssue
 
 from projects.models import KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
-from tasks.functions import get_github_issue_category_label
 from tasks.exceptions import ProjectNotFoundError, GithubRepositoryUrlError
 from tasks.periodic.tasks import OrganizationIssueProcessor
 
@@ -28,6 +29,133 @@ logger = logging.getLogger(__name__)
 
 KIPPO_TESTING = strtobool(os.getenv('KIPPO_TESTING', 'False'))
 THREE_MINUTES = 3 * 60
+
+
+class GithubIssuePrefixedLabel:
+
+    def __init__(self, label: object, prefix_delim: str = ':'):
+        self.label = label
+        self.prefix_delim = prefix_delim
+
+        # https://developer.github.com/v3/issues/labels/#get-a-single-label
+        label_attributes = (
+            'id',
+            'node_id',
+            'url',
+            'name',
+            'color',
+            'default'
+        )
+        for attrname in label_attributes:
+            attrvalue = getattr(label, attrname)
+            setattr(self, attrname, attrvalue)
+
+    @property
+    def prefix(self):
+        return self.name.split(self.prefix_delim)[0]
+
+    @property
+    def value(self):
+        return self.name.split(self.prefix_delim)[-1]
+
+
+def get_github_issue_estimate_label(
+        issue: GithubIssue,
+        prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX,
+        day_workhours: int = settings.DAY_WORKHOURS) -> int:
+    """
+    Parse the estimate label into an estimate value
+    Estimate labels follow the scheme: {prefix}N{suffix}
+    WHERE:
+    - {prefix} estimate label identifier
+    - N is a positive integer representing number of days
+    - {suffix} one of ('d', 'day', 'days', 'h', 'hour', 'hours')
+    - If multiple estimate labels are defined the larger value will be used
+    - If no suffix is given, 'days' will be assumed
+
+    .. note::
+
+        Only integer values are supported.
+        (fractional days are not represented at the moment)
+
+
+    :param issue: github issue object
+    :param prefix: This identifies the github issue label as being an
+    :param day_workhours: Number of hours in the workday
+    :return: parsed estimate result in days
+    """
+    estimate = None
+    valid_label_suffixes = ('d', 'day', 'days', 'h', 'hour', 'hours')
+    for label in issue.labels:
+        if label.name.startswith(prefix):
+            estimate_str_value = label.name.split(prefix)[-1]
+            for suffix in valid_label_suffixes:
+                if estimate_str_value.endswith(suffix):  # d = days, h = hours
+                    estimate_str_value = estimate_str_value.split(suffix)[0]
+
+            candidate_estimate = int(estimate_str_value)
+
+            if label.name.endswith(('h', 'hour', 'hours')):
+                # all estimates are normalized to days
+                # if hours convert to a days
+                candidate_estimate = int(ceil(candidate_estimate / day_workhours))
+
+            if estimate and candidate_estimate:
+                if candidate_estimate > estimate:
+                    logger.warning(f'multiple estimate labels found for issue({issue}), using the larger value: {estimate} -> {candidate_estimate}')
+                    estimate = candidate_estimate
+            else:
+                estimate = candidate_estimate
+
+    return estimate
+
+
+def build_latest_comment(issue: GithubIssue) -> str:
+    latest_comment = ''
+    if issue.latest_comment_body:
+        latest_comment = f'{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] ' \
+                         f'{issue.latest_comment_body}'
+    return latest_comment
+
+
+def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX) -> str:
+    """
+    Parse the category label into the category value
+    Category Labels follow the scheme:
+        category:CATEGORY_NAME
+        WHERE:
+            CATEGORY_NAME should match the VALID_TASK_CATEGORIES value in models.py
+    :param issue: github issue object
+    :param prefix: This identifies the github issue label as being a category
+    :return: parsed category result
+    """
+    category = None
+    for label in issue.labels:
+        if label.name.startswith(prefix):
+            if category:
+                raise ValueError(f'Multiple Category labels applied on issue: {issue.html_url}')
+            category = label.name.split(prefix)[-1].strip()
+    return category
+
+
+def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ':') -> List[GithubIssuePrefixedLabel]:
+    """Process a label in the format of a prefix/value"""
+    prefixed_labels = []
+    for label in issue.labels:
+        prefixed_label = GithubIssuePrefixedLabel(label, prefix_delim=prefix_delim)
+        prefixed_labels.append(prefixed_label)
+    return prefixed_labels
+
+
+def get_tags_from_prefixedlabels(prefixed_labels: List[GithubIssuePrefixedLabel]) -> List[Dict[str, str]]:
+    tags = []
+    for prefixed_label in prefixed_labels:
+        # more than 1 label with the same prefix may exist
+        tags.append({
+            'name': prefixed_label.prefix,
+            'value': prefixed_label.value,
+        })
+    return tags
 
 
 def get_repo_url_from_issuecomment_url(url: str) -> str:
@@ -88,9 +216,16 @@ class GithubWebhookProcessor:
             self.organization_issue_processors[org_id] = processor
         return processor
 
-    def _load_event_to_githubissue(self, event):
+    @staticmethod
+    def _load_event_to_githubissue(event):
         """Convert a given Issue event to a ghorgs.wrappers.GithubIssue"""
+        # clean quoted data
+        unquote_keys = ('body', 'title')
+        for key in unquote_keys:
+            if key in event['issue']:
+                event['issue'][key] = unquote_plus(event['issue'][key])
         issue_json = json.dumps(event['issue'])
+
         # GithubIssue.from_dict() alone does not perform nested conversion, using json
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
@@ -99,12 +234,12 @@ class GithubWebhookProcessor:
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
-        :param webhookevent:
         """
         assert webhookevent.event_type == 'project_card'
 
         # identify project, retrieve related KippoProject
         github_project_api_url = webhookevent.event['project_card']['project_url']
+        logger.debug(f'github_project_api_url={github_project_api_url}')
         try:
             kippo_project = KippoProject.objects.get(github_project_api_url=github_project_api_url)
         except KippoProject.DoesNotExist as e:
@@ -116,8 +251,9 @@ class GithubWebhookProcessor:
         if kippo_project:
             if 'content_url' not in webhookevent.event['project_card']:
                 logger.warning(f'webhookevent({webhookevent.id}).event does not contain "content_url" key, IGNORE (notes not supported)!')
-                state = 'error'
+                state = 'ignore'
             else:
+                logger.info(f'processing {kippo_project} webhook event...')
                 task_api_url = webhookevent.event['project_card']['content_url']
                 github_column_id = webhookevent.event['project_card']['column_id']
                 columnid2name_mapping = kippo_project.get_columnset_id_to_name_mapping()
@@ -168,18 +304,18 @@ class GithubWebhookProcessor:
                         #     }
                         # }
                         card_id = webhookevent.event['project_card']['id']
-                        try:
-                            tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
-                        except KippoTask.DoesNotExist as e:
-                            logger.exception(e)
+                        github_manager = GithubOrganizationManager(
+                            organization=webhookevent.organization.github_organization_name,
+                            token=webhookevent.organization.githubaccesstoken.token
+                        )
+                        tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
+                        issue = github_manager.get_github_issue(api_url=task_api_url)
+                        if not tasks:
                             logger.warning(f'Related KippoTask not found for: {task_api_url}')
                             # Create related KippoTask
                             # - get task info
                             logger.debug('preparing GithubOrganizationManager to retrieve GithubIssue...')
-                            github_manager = GithubOrganizationManager(
-                                organization=webhookevent.organization.github_organization_name,
-                                token=webhookevent.organization.githubaccesstoken.token
-                            )
+
                             github_manager_user = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
                             logger.debug(f'Retrieving issue github_manager.get_github_issue(): {task_api_url}')
                             issue = github_manager.get_github_issue(api_url=task_api_url)
@@ -219,7 +355,9 @@ class GithubWebhookProcessor:
                                 )
                                 task.save()
                                 tasks.append(task)
-
+                        logger.debug(f'len(tasks)={len(tasks)}')
+                        prefixed_labels = get_github_issue_prefixed_labels(issue)
+                        tags = get_tags_from_prefixedlabels(prefixed_labels)
                         for task in tasks:
                             # update task.project_card_id
                             if task.project_card_id != card_id:
@@ -233,6 +371,9 @@ class GithubWebhookProcessor:
                                 task.project = kippo_project
                             task.save()
 
+                            # get latest github taskstatus
+                            # TODO: Update to retrieve latest github issue status
+
                             # create/update KippoTaskStatus
                             # KippoTask created with 'issues' event
                             # -- update 'state' info if KippoTaskStatus exists
@@ -244,22 +385,29 @@ class GithubWebhookProcessor:
                                 status = None
 
                             effort_date = timezone.now().date()
+                            unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
+                            latest_comment = build_latest_comment(issue)
                             if not status or status.effort_date != effort_date:
                                 # create a new KippoTaskStatus Entry
                                 logger.info(f'Creating KippoTaskStatus for task({task}) ...')
+                                if not status:
+                                    priority = 0  # DEFAULT
+                                else:
+                                    priority = status.state_priority
+
                                 status = KippoTaskStatus(
                                     task=task,
                                     effort_date=effort_date,
-                                    state_priority=status.state_priority,
-                                    minimum_estimate_days=status.minimum_estimate_days,
-                                    estimate_days=status.estimate_days,
-                                    maximum_estimate_days=status.maximum_estimate_days,
-                                    hours_spent=status.hours_spent,
-                                    tags=status.tags,
-                                    comment=status.comment,
+                                    state_priority=priority,
+                                    estimate_days=unadjusted_issue_estimate,
+                                    tags=tags,
+                                    comment=latest_comment,
                                     created_by=self.github_manager_kippouser,
                                     updated_by=self.github_manager_kippouser,
                                 )
+                            else:
+                                status.estimate_days = unadjusted_issue_estimate
+                                status.comment = latest_comment
                             # update column state!
                             status.state = column_name
                             status.save()
@@ -299,7 +447,7 @@ class GithubWebhookProcessor:
         # populate GithubIssue.latest_comment* fields before processing
         # -- This enables kippo to process the GithubIssue through the standard processor
         comment = webhookevent.event['comment']
-        githubissue.latest_comment_body = comment['body']
+        githubissue.latest_comment_body = unquote_plus(comment['body'])
         githubissue.latest_comment_created_by = comment['user']['login']
         githubissue.latest_comment_created_at = comment['created_at']
 
