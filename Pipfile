@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-django = "<2.3,>=2.2"
+django = "<2.3,>=2.2.10"
 social-auth-app-django = "*"
 django-reversion = "*"
 "psycopg2-binary" = "*"
