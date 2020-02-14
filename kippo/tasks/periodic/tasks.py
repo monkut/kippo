@@ -69,14 +69,14 @@ class OrganizationIssueProcessor:
             logger.info(f'closing unassigned KippoTask(s), unassigned_taskids_to_close={unassigned_taskids_to_close}')
             KippoTask.objects.filter(id__in=unassigned_taskids_to_close).update(is_closed=True)
 
-        logger.debug(f'existing_tasks_by_html_url: {self.existing_tasks_by_html_url}')
+        logger.debug(f'existing_tasks_by_html_url: {list(self.existing_tasks_by_html_url.keys())}')
         self.existing_kippo_milestones_by_html_url = {
             m.html_url: m.milestone
             for m in GithubMilestone.objects.filter(milestone__is_completed=False)
         }
 
         if github_project_html_urls:
-            logger.info(f'Using Filtered github_project_html_urls: {github_project_html_urls}')
+            logger.info(f'Using Filtered github_project_html_urls: {list(github_project_html_urls.keys())}')
             existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__in=github_project_html_urls))
         else:
             existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__isnull=False))
