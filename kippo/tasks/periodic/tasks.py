@@ -48,10 +48,27 @@ class OrganizationIssueProcessor:
             token=organization.githubaccesstoken.token
         )
         self.github_manager_user = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
+        self.unassigned_user = self.organization.get_unassigned_kippouser()
+        if not self.unassigned_user:
+            raise KippoConfigurationError(f'Username starting with "{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}" required to manage unassigned tasks')
+
         self.existing_tasks_by_html_url = {
             t.github_issue_html_url: t
-            for t in KippoTask.objects.filter(is_closed=False) if t.github_issue_html_url
+            for t in KippoTask.objects.filter(is_closed=False).exclude(assignee=self.unassigned_user) if t.github_issue_html_url
         }
+
+        # update existing_tasks_by_html_url for unassigned users
+        unassigned_taskids_to_close = []
+        for unassigned_task in KippoTask.objects.filter(is_closed=False, assignee=self.unassigned_user):
+            if unassigned_task.github_issue_html_url and unassigned_task.github_issue_html_url not in self.existing_tasks_by_html_url:
+                self.existing_tasks_by_html_url[unassigned_task.github_issue_html_url] = unassigned_task
+            else:
+                # close the task assigned to an unassigned user (that means it's now assigned as expecte)
+                unassigned_taskids_to_close.append(unassigned_task.id)
+        if unassigned_taskids_to_close:
+            logger.info(f'closing unassigned KippoTask(s), unassigned_taskids_to_close={unassigned_taskids_to_close}')
+            KippoTask.objects.filter(id__in=unassigned_taskids_to_close).update(is_closed=True)
+
         logger.debug(f'existing_tasks_by_html_url: {self.existing_tasks_by_html_url}')
         self.existing_kippo_milestones_by_html_url = {
             m.html_url: m.milestone
@@ -66,9 +83,7 @@ class OrganizationIssueProcessor:
         self.existing_open_projects = existing_open_projects
 
         self.kippo_github_users = {u.github_login: u for u in organization.get_github_developer_kippousers()}
-        self.unassigned_user = self.organization.get_unassigned_kippouser()
-        if not self.unassigned_user:
-            raise KippoConfigurationError(f'Username starting with "{settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX}" required to manage unassigned tasks')
+
 
     def github_projects(self):
         return self.manager.projects()
@@ -194,7 +209,7 @@ class OrganizationIssueProcessor:
         # check if issue exists
         logger.debug(f'html_url: {issue.html_url}')
         existing_task = self.get_existing_task_by_html_url(issue.html_url)
-        logger.debug(f'existing task: {existing_task}')  # TODO: review why duplicate task error is occurring
+        logger.debug(f'existing task: {existing_task} {issue.html_url}')  # TODO: review why duplicate task error is occurring
 
         developer_assignees = [
             issue_assignee.login
