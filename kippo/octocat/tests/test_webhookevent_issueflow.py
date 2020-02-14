@@ -79,8 +79,10 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # update estimate label
 
         # issue moved to in-progress
+        # - no estimate update
 
         # issue moved to done
+        # - confirm issue esimate is no longer counted for the assignee
 
         raise NotImplementedError
     #

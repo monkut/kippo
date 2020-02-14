@@ -1,10 +1,12 @@
+import json
 import logging
 
 from django.db.models import Q
 from django.contrib import admin, messages
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
+
 from accounts.admin import UserCreatedBaseModelAdmin, AllowIsStaffAdminMixin
 from .models import GithubRepository, GithubMilestone, GithubRepositoryLabelSet, GithubWebhookEvent
 from .functions import process_webhookevent_ids
@@ -174,13 +176,24 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         'organization',
         'event_type',
         'state',
-        'event'
+        #'event'
+        'get_pprint_event'
     )
 
     actions = [
         'process_webhook_events',
         'reset_webhook_events'
     ]
+
+    def get_pprint_event(self, obj=None):
+        result = ''
+        if obj and obj.event:
+
+            result = json.dumps(obj.event, indent=4, sort_keys=True)
+            result_str = f'<pre>{result}</pre>'
+            result = mark_safe(result_str)
+        return result
+    get_pprint_event.short_description = 'event'
 
     def process_webhook_events(self, request, queryset):
         queryset = queryset.filter(state='unprocessed')
