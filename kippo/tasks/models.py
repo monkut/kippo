@@ -1,4 +1,4 @@
-# from typing import Optional
+from typing import Optional
 # from math import ceil
 #
 # from django.conf import settings
@@ -69,8 +69,13 @@ class KippoTask(UserCreatedBaseModel):
         github_respository_html_url, *_ = self.github_issue_html_url.rsplit('/', 2)
         return github_respository_html_url
 
-    def latest_kippotaskstatus(self):
-        return KippoTaskStatus.objects.filter(task=self).latest()
+    def latest_kippotaskstatus(self) -> Optional["KippoTaskStatus"]:
+        status = None
+        try:
+            status = KippoTaskStatus.objects.filter(task=self).latest()
+        except KippoTaskStatus.DoesNotExist:
+            pass
+        return status
 
     def effort_days_remaining(self) -> int:
         latest_task_status = KippoTaskStatus.objects.filter(task=self).latest()
