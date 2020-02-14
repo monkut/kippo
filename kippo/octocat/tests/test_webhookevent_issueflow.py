@@ -310,6 +310,40 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         user_estimatedays = self.user1.get_estimatedays()
         self.assertEqual(user_estimatedays, 0.0)
 
+        # issue closed
+        event_9_filepath = scenario_directory / 'event_9_issue_closed.json'
+        event_9, _ = self._load_webhookevent(event_9_filepath, decode=True)
+        webhookevent = GithubWebhookEvent(
+            organization=self.organization,
+            state='unprocessed',
+            event_type='issues',
+            event=event_9
+        )
+        webhookevent.save()
+
+        issue_json = {'issue': json.loads((scenario_directory / 'issue674_closed.json').read_text(encoding='utf8'))}
+        issue_closed = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
+        with mock.patch('ghorgs.managers.GithubOrganizationManager.get_github_issue', return_value=issue_closed):
+            self.githubwebhookprocessor.process_webhook_events([webhookevent])
+
+        webhookevent.refresh_from_db()
+        self.assertEqual(webhookevent.state, 'processed')
+        self.assertEqual(KippoTask.objects.count(), 1)
+
+        kippotask = KippoTask.objects.latest()
+
+        # check KippoTaskStatus
+        latest_taskstatus = kippotask.latest_kippotaskstatus()
+        self.assertTrue(latest_taskstatus)
+        self.assertEqual(latest_taskstatus.state, 'done')
+        self.assertEqual(latest_taskstatus.estimate_days, 5.0)
+
+        # check assigned user total estimate days
+        user_estimatedays = self.user1.get_estimatedays()
+        self.assertEqual(user_estimatedays, 0.0)
+
+        self.assertEqual(kippotask.is_closed, True)
+
 
     #
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
