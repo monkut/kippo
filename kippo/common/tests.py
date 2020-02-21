@@ -96,7 +96,7 @@ def setup_basic_project(organization=None, repository_name='Hello-World', github
     created_objects['KippoProject'] = kippo_project
 
     kippo_task = KippoTask(
-        title='githubcodesorg test task',
+        title='githubcodesorg test task-1',
         category='test category',
         project=kippo_project,
         assignee=user,

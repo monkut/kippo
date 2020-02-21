@@ -1,3 +1,5 @@
+import datetime
+
 from django.test import Client, TestCase
 from django.utils import timezone
 
@@ -19,6 +21,7 @@ class KippoProjectMethodsTestCase(TestCase):
         self.github_manager = KippoUser.objects.get(username='github-manager')
 
         # default columnset done name
+        self.planning_column_name = 'planning'
         self.done_column_name = 'done'
 
         # create task2
@@ -52,7 +55,7 @@ class KippoProjectMethodsTestCase(TestCase):
         # create existing taskstatus
         self.task1_status1 = KippoTaskStatus(
             task=self.task1,
-            state='open',
+            state=self.planning_column_name,
             effort_date=self.firstdate,
             estimate_days=3,
             created_by=self.github_manager,
@@ -63,7 +66,7 @@ class KippoProjectMethodsTestCase(TestCase):
         self.task1_seconddate = timezone.datetime(2019, 8, 17).date()
         self.task1_status2 = KippoTaskStatus(
             task=self.task1,
-            state='open',
+            state=self.planning_column_name,
             effort_date=self.task1_seconddate,
             estimate_days=3,
             created_by=self.github_manager,
@@ -73,7 +76,7 @@ class KippoProjectMethodsTestCase(TestCase):
 
         self.task2_status1 = KippoTaskStatus(
             task=self.task2,
-            state='open',
+            state=self.planning_column_name,
             effort_date=self.firstdate,
             estimate_days=3,
             created_by=self.github_manager,
@@ -84,7 +87,7 @@ class KippoProjectMethodsTestCase(TestCase):
         self.task2_seconddate = timezone.datetime(2019, 8, 19).date()
         self.task2_status2 = KippoTaskStatus(
             task=self.task2,
-            state='open',
+            state=self.planning_column_name,
             effort_date=self.task2_seconddate,
             estimate_days=3,
             created_by=self.github_manager,
@@ -157,3 +160,22 @@ class KippoProjectMethodsTestCase(TestCase):
                 self.assertTrue(taskstatus.effort_date == self.firstdate)
                 task2_tested = True
         self.assertTrue(all([task1_tested, task2_tested]))
+
+    def test__get_active_taskstatus__done__latest_taskstatus(self):
+        new_date = timezone.datetime(2019, 12, 19)
+        for i in range(10):
+            task2_status = KippoTaskStatus(
+                task=self.task2,
+                state=self.done_column_name,
+                effort_date=new_date.date(),
+                estimate_days=3,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+            task2_status.save()
+            new_date += datetime.timedelta(days=1)
+
+        # make sure that task2 is not returned now that it is 'done'
+        results, has_estimates = self.project.get_active_taskstatus()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], self.task1_status2)

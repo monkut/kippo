@@ -73,17 +73,23 @@ def get_project_weekly_effort(
 
     all_status_entries = []  # state__in=GITHUB_ACTIVE_TASK_STATES
     for current_week_start_date in search_dates:
-        previous_status_entries = KippoTaskStatus.objects.filter(
+        target_kippotaskstatus_ids = KippoTaskStatus.objects.filter(
+            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
             task__project=project,
-            task__assignee__github_login__isnull=False,
-            effort_date=current_week_start_date,
+            effort_date__lte=current_week_start_date,
+        ).order_by(
+            'task__github_issue_api_url',
+            '-effort_date'
+        ).distinct('task__github_issue_api_url').values_list('pk', flat=True)
+
+        previous_status_entries = KippoTaskStatus.objects.filter(
+            pk__in=target_kippotaskstatus_ids,
             state__in=active_task_states
         ).values(
             'task__project',
             'effort_date',
             'task__assignee__github_login'
         ).annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
-
         all_status_entries.extend(list(previous_status_entries))
 
     if not all_status_entries:

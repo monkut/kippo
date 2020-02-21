@@ -18,6 +18,9 @@ class KippoTaskAdmin(OrganizationTaskQuerysetModelAdminMixin, UserCreatedBaseMod
         'get_github_issue_html_url',
         'github_issue_api_url',
     )
+    search_fields = (
+        'title',
+    )
 
     def get_kippoproject_name(self, obj):
         result = ''
@@ -53,6 +56,7 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
         'display_name',
         'effort_date',
         'state',
+        'get_assignee',
         'minimum_estimate_days',
         'estimate_days',
         'maximum_estimate_days',
@@ -60,7 +64,15 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
     search_fields = (
         'task__assignee__github_login',
         'task__github_issue_html_url',
+        'task__title',
     )
+
+    def get_assignee(self, obj=None) -> str:
+        result = ''
+        if obj and obj.task.assignee:
+            result = obj.task.assignee.github_login
+        return result
+    get_assignee.short_description = 'ASSIGNEE'
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
