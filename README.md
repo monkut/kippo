@@ -36,7 +36,15 @@ Prerequisites:
     pipenv shell
     ```
     
-2. Prepare the local settings:
+2. Setup `pre-commit` hooks (_black_, _isort_):
+
+    ```bash
+    # assumes pre-commit is installed on system via: `pip install pre-commit`
+    pre-commit install
+    ```
+    
+    
+3. Prepare the local settings:
 
     > The settings directory contains the `base.py` file, this file is intended to be imported by 
     > the appropriate settings file (local.py, production.py, etc)
@@ -61,13 +69,13 @@ Prerequisites:
     }    
     ```   
 
-3. Set `local.py` as the settings file to use:
+4. Set `local.py` as the settings file to use:
 
     ```
     export DJANGO_SETTINGS_MODULE=kippo.settings.local
     ```
 
-2. Setup database:
+5. Setup database:
 
     ```
     # From the repository root run the following

@@ -3,7 +3,7 @@ For functions used to create project based charts
 """
 import datetime
 import logging
-from typing import Tuple, List
+from typing import Dict, List
 from collections import defaultdict
 from math import pi
 
@@ -27,10 +27,37 @@ TUESDAY_WEEKDAY = 2
 logger = logging.getLogger(__name__)
 
 
+def _get_target_search_dates(project: KippoProject,
+                             current_date: datetime.date = None,
+                             representative_day: int = TUESDAY_WEEKDAY) -> List[datetime.date]:
+    assert project.start_date
+    # prepare dates
+    search_dates = []
+    start_date_calendar_info = project.start_date.isocalendar()
+    start_date_year, start_date_week, _ = start_date_calendar_info
+    # %W: Week number of the year (Monday as the first day of the week) as a decimal number. (0 start)
+    # %w: Weekday as a decimal number, where 0 is Sunday
+    # NOTE: isocalendar() returns the start week as (1 start), adjusting below to map to appropriate %W value
+    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week - 1}-{representative_day}', '%Y-%W-%w').date()
+    current_week_start_date = initial_week_start_date
+    logger.debug(f'representative_day={representative_day}, initial_week_start_date={initial_week_start_date}')
+    assert current_week_start_date <= project.target_date
+    while current_week_start_date <= project.target_date:
+        search_dates.append(current_week_start_date)
+        last_week_start_date = current_week_start_date
+        current_week_start_date += datetime.timedelta(days=7)
+        if last_week_start_date < current_date < current_week_start_date:
+            # add the current date (to show the current status)
+            search_dates.append(current_date)
+    if project.target_date not in search_dates:
+        search_dates.append(project.target_date)
+    return search_dates
+
+
 def get_project_weekly_effort(
         project: KippoProject,
         current_date: datetime.date = None,
-        representative_day: int = TUESDAY_WEEKDAY) -> Tuple[List[dict], List[datetime.date]]:
+        representative_day: int = TUESDAY_WEEKDAY) -> Dict[datetime.date, List[dict]]:
     """
     Obtain the project weekly effort from the representative day.
     :param project: Project to calculate effort for
@@ -47,50 +74,38 @@ def get_project_weekly_effort(
 
     # get latest effort status
     # -- only a single entry per date
-
-    # prepare dates
-    search_dates = []
-    start_date_calendar_info = project.start_date.isocalendar()
-    start_date_year, start_date_week, _ = start_date_calendar_info
-    # %W: Week number of the year (Monday as the first day of the week) as a decimal number. (0 start)
-    # %w: Weekday as a decimal number, where 0 is Sunday
-    # NOTE: isocalendar() returns the start week as (1 start), adjusting below to map to appropriate %W value
-    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week - 1}-{representative_day}', '%Y-%W-%w').date()
-    current_week_start_date = initial_week_start_date
-    logger.debug(f'initial_week_start_date: {initial_week_start_date}')
-    assert current_week_start_date <= project.target_date
-    while current_week_start_date <= project.target_date:
-        search_dates.append(current_week_start_date)
-        last_week_start_date = current_week_start_date
-        current_week_start_date += datetime.timedelta(days=7)
-        if last_week_start_date < current_date < current_week_start_date:
-            # add the current date (to show the current status)
-            search_dates.append(current_date)
-    if project.target_date not in search_dates:
-        search_dates.append(project.target_date)
-
+    search_dates = _get_target_search_dates(project, current_date, representative_day)
     active_task_states = project.columnset.get_active_column_names()
 
-    all_status_entries = []  # state__in=GITHUB_ACTIVE_TASK_STATES
+    all_status_entries = defaultdict(list)
     for current_week_start_date in search_dates:
-        previous_status_entries = KippoTaskStatus.objects.filter(
+        logger.debug(f'collecting active tasks for current_week_start_date={current_week_start_date}...')
+        target_kippotaskstatus_ids = KippoTaskStatus.objects.filter(
+            task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
             task__project=project,
-            task__assignee__github_login__isnull=False,
-            effort_date=current_week_start_date,
+            effort_date__lte=current_week_start_date,
+        ).order_by(
+            'task__github_issue_api_url',
+            '-effort_date'
+        ).distinct('task__github_issue_api_url').values_list('pk', flat=True)
+
+        # filter by active columns and get desired values
+        previous_status_entries = KippoTaskStatus.objects.filter(
+            pk__in=target_kippotaskstatus_ids,
             state__in=active_task_states
         ).values(
             'task__project',
             'effort_date',
             'task__assignee__github_login'
         ).annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
-
-        all_status_entries.extend(list(previous_status_entries))
+        logger.debug(f'collecting active tasks for current_week_start_date={current_week_start_date}...len(previous_status_entries)={len(previous_status_entries)}')
+        all_status_entries[current_week_start_date] = list(previous_status_entries)
 
     if not all_status_entries:
         raise TaskStatusError(f'No KippoTaskStatus (has assignee.github_login, state__in={active_task_states}) found for project({project.name}) in ranges: '
                               f'{project.start_date} to {project.target_date}')
 
-    return all_status_entries, search_dates
+    return all_status_entries
 
 
 def prepare_project_plot_data(project: KippoProject, current_date: datetime.date = None):
@@ -114,27 +129,28 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
         burndown_line = [burndown_line_x, burndown_line_y]
 
     logger.info(f'get_project_weekly_effort(): {project.name} ({current_date})')
-    status_entries, all_dates = get_project_weekly_effort(project, current_date)
+    date_keyed_status_entries = get_project_weekly_effort(project, current_date)
 
     assignees = set()
-    logger.info(f'processing status_entries ({len(status_entries)})... ')
-    for entry in status_entries:
-        effort_date = entry['effort_date'].strftime(date_str_format)
-        assignee = entry['task__assignee__github_login']
-        estimate_days = entry['estimate_days_sum']
-        if effort_date not in data['effort_date']:
-            data['effort_date'].append(effort_date)
+    logger.info(f'processing date_keyed_status_entries ({len(date_keyed_status_entries)})... ')
+    for effort_date_object, status_entries in date_keyed_status_entries.items():
+        for entry in status_entries:
+            effort_date = effort_date_object.strftime(date_str_format)
+            assignee = entry['task__assignee__github_login']
+            estimate_days = entry['estimate_days_sum']
+            if effort_date not in data['effort_date']:
+                data['effort_date'].append(effort_date)
 
-        effort_date_index = data['effort_date'].index(effort_date)
-        while len(data[assignee]) < effort_date_index:
-            data[assignee].append(0.0)  # back-fill
-        data[assignee].append(estimate_days)
-        assignees.add(assignee)
+            effort_date_index = data['effort_date'].index(effort_date)
+            while len(data[assignee]) < effort_date_index:
+                data[assignee].append(0.0)  # back-fill
+            data[assignee].append(estimate_days)
+            assignees.add(assignee)
 
     # get max date
     logger.info('Collect all_date_strings and get max_date_str...')
     max_date_str = max(data['effort_date'])
-    all_date_strings = [d.strftime(date_str_format) for d in all_dates]
+    all_date_strings = [d.strftime(date_str_format) for d in date_keyed_status_entries.keys()]
 
     # updating for the case here start_date has not yet passed
     logger.info(f'Setting nearest_date_str to max_date_str: {max_date_str}')
@@ -159,7 +175,7 @@ def prepare_project_plot_data(project: KippoProject, current_date: datetime.date
     return data, sorted(list(assignees)), burndown_line
 
 
-def prepare_burndown_chart_components(project: KippoProject, current_date: datetime.date=None) -> tuple:
+def prepare_burndown_chart_components(project: KippoProject, current_date: datetime.date = None) -> tuple:
     """
     Prepare the javascript script and div for embedding into a template
     :param project: KippoProject
