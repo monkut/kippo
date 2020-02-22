@@ -77,6 +77,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
             name='testproject',
             organization=self.organization,
             start_date=timezone.datetime(2019, 6, 3).date(),
+            target_date=timezone.datetime(2019, 7, 3).date(),
             columnset=columnset,
             created_by=self.cli_manager,
             updated_by=self.cli_manager,
@@ -88,6 +89,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
         task1 = KippoTask(
             title='task1',
             category='cat1',
+            github_issue_api_url='http://github.com/task/1',
             project=self.kippoproject,
             assignee=self.user1,
             created_by=self.cli_manager,
@@ -107,6 +109,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
         task2 = KippoTask(
             title='task2',
             category='cat2',
+            github_issue_api_url='http://github.com/task/2',
             project=self.kippoproject,
             assignee=self.user1,
             created_by=self.cli_manager,
@@ -127,6 +130,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
         task3 = KippoTask(
             title='task3',
             category='cat3',
+            github_issue_api_url='http://github.com/task/3',
             project=self.kippoproject,
             assignee=self.user2,
             created_by=self.cli_manager,
@@ -146,6 +150,7 @@ class ProjectsChartFunctionsTestCase(TestCase):
         task4 = KippoTask(
             title='task4',
             category='cat4',
+            github_issue_api_url='http://github.com/task/4',
             project=self.kippoproject,
             assignee=self.user2,
             created_by=self.cli_manager,
@@ -164,23 +169,28 @@ class ProjectsChartFunctionsTestCase(TestCase):
         self.user2effort_total = task3status.estimate_days + task4status.estimate_days
 
     def test_get_project_weekly_effort(self):
+        assert KippoTaskStatus.objects.filter(task__project=self.kippoproject).count() == 4
+        assert KippoTaskStatus.objects.filter(task__project=self.kippoproject, effort_date=timezone.datetime(2019, 6, 5).date()).count() == 4
+
         wednesday_weekday = 3
-        status_entries, search_dates = get_project_weekly_effort(
+        date_keyed_status_entries = get_project_weekly_effort(
             project=self.kippoproject,
             current_date=timezone.datetime(2019, 6, 5).date(),
             representative_day=wednesday_weekday
         )
-        self.assertTrue(status_entries)
-        self.assertTrue(search_dates)
+        self.assertTrue(date_keyed_status_entries)
         user_status = {}
-        for entry in status_entries:
-            user = entry['task__assignee__github_login']
-            user_status[user] = {
-                'task_count': entry['task_count'],
-                'estimate_days_sum': entry['estimate_days_sum']
-            }
-        self.assertTrue(user_status['user1']['task_count'] == 2)
-        self.assertTrue(user_status['user1']['estimate_days_sum'] == self.user1effort_total)
+        for period_date, status_entries in date_keyed_status_entries.items():
+            for entry in status_entries:
+                user = entry['task__assignee__github_login']
+                user_status[user] = {
+                    'task_count': entry['task_count'],
+                    'estimate_days_sum': entry['estimate_days_sum']
+                }
+        print(user_status)
+        self.assertTrue(user_status)
+        self.assertEqual(user_status['user1']['task_count'], 2)
+        self.assertEqual(user_status['user1']['estimate_days_sum'], self.user1effort_total)
 
-        self.assertTrue(user_status['user2']['task_count'] == 2)
-        self.assertTrue(user_status['user2']['estimate_days_sum'] == self.user2effort_total)
+        self.assertEqual(user_status['user2']['task_count'], 2)
+        self.assertEqual(user_status['user2']['estimate_days_sum'], self.user2effort_total)

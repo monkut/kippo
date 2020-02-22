@@ -76,7 +76,7 @@ class OrganizationIssueProcessor:
         }
 
         if github_project_html_urls:
-            logger.info(f'Using Filtered github_project_html_urls: {list(github_project_html_urls.keys())}')
+            logger.info(f'Using Filtered github_project_html_urls: {github_project_html_urls}')
             existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__in=github_project_html_urls))
         else:
             existing_open_projects = list(ActiveKippoProject.objects.filter(github_project_html_url__isnull=False))

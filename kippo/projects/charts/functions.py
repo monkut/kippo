@@ -27,6 +27,33 @@ TUESDAY_WEEKDAY = 2
 logger = logging.getLogger(__name__)
 
 
+def _get_target_search_dates(project: KippoProject,
+                             current_date: datetime.date = None,
+                             representative_day: int = TUESDAY_WEEKDAY) -> List[datetime.date]:
+    assert project.start_date
+    # prepare dates
+    search_dates = []
+    start_date_calendar_info = project.start_date.isocalendar()
+    start_date_year, start_date_week, _ = start_date_calendar_info
+    # %W: Week number of the year (Monday as the first day of the week) as a decimal number. (0 start)
+    # %w: Weekday as a decimal number, where 0 is Sunday
+    # NOTE: isocalendar() returns the start week as (1 start), adjusting below to map to appropriate %W value
+    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week - 1}-{representative_day}', '%Y-%W-%w').date()
+    current_week_start_date = initial_week_start_date
+    logger.debug(f'representative_day={representative_day}, initial_week_start_date={initial_week_start_date}')
+    assert current_week_start_date <= project.target_date
+    while current_week_start_date <= project.target_date:
+        search_dates.append(current_week_start_date)
+        last_week_start_date = current_week_start_date
+        current_week_start_date += datetime.timedelta(days=7)
+        if last_week_start_date < current_date < current_week_start_date:
+            # add the current date (to show the current status)
+            search_dates.append(current_date)
+    if project.target_date not in search_dates:
+        search_dates.append(project.target_date)
+    return search_dates
+
+
 def get_project_weekly_effort(
         project: KippoProject,
         current_date: datetime.date = None,
@@ -47,32 +74,12 @@ def get_project_weekly_effort(
 
     # get latest effort status
     # -- only a single entry per date
-
-    # prepare dates
-    search_dates = []
-    start_date_calendar_info = project.start_date.isocalendar()
-    start_date_year, start_date_week, _ = start_date_calendar_info
-    # %W: Week number of the year (Monday as the first day of the week) as a decimal number. (0 start)
-    # %w: Weekday as a decimal number, where 0 is Sunday
-    # NOTE: isocalendar() returns the start week as (1 start), adjusting below to map to appropriate %W value
-    initial_week_start_date = datetime.datetime.strptime(f'{start_date_year}-{start_date_week - 1}-{representative_day}', '%Y-%W-%w').date()
-    current_week_start_date = initial_week_start_date
-    logger.debug(f'initial_week_start_date: {initial_week_start_date}')
-    assert current_week_start_date <= project.target_date
-    while current_week_start_date <= project.target_date:
-        search_dates.append(current_week_start_date)
-        last_week_start_date = current_week_start_date
-        current_week_start_date += datetime.timedelta(days=7)
-        if last_week_start_date < current_date < current_week_start_date:
-            # add the current date (to show the current status)
-            search_dates.append(current_date)
-    if project.target_date not in search_dates:
-        search_dates.append(project.target_date)
-
+    search_dates = _get_target_search_dates(project, current_date, representative_day)
     active_task_states = project.columnset.get_active_column_names()
 
     all_status_entries = defaultdict(list)
     for current_week_start_date in search_dates:
+        logger.debug(f'collecting active tasks for current_week_start_date={current_week_start_date}...')
         target_kippotaskstatus_ids = KippoTaskStatus.objects.filter(
             task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
             task__project=project,
@@ -91,6 +98,7 @@ def get_project_weekly_effort(
             'effort_date',
             'task__assignee__github_login'
         ).annotate(task_count=Count('task'), estimate_days_sum=Coalesce(Sum('estimate_days'), Value(0)))
+        logger.debug(f'collecting active tasks for current_week_start_date={current_week_start_date}...len(previous_status_entries)={len(previous_status_entries)}')
         all_status_entries[current_week_start_date] = list(previous_status_entries)
 
     if not all_status_entries:
