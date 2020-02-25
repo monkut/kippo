@@ -1,23 +1,22 @@
 import logging
-from typing import List, Tuple
 from collections import Counter, defaultdict
+from typing import List, Tuple
 
-from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponseBadRequest, HttpResponse, HttpResponseRedirect, HttpRequest
-from django.utils import timezone
 from django.conf import settings
 from django.contrib import messages
-from django.db.models import Q
 from django.contrib.admin.views.decorators import staff_member_required
-
-from tasks.models import KippoTask, KippoTaskStatus
-from tasks.functions import prepare_project_engineering_load_plot_data
+from django.db.models import Q
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from tasks.exceptions import ProjectConfigurationError
-from .functions import get_user_session_organization
-from .charts.functions import prepare_burndown_chart_components
-from .models import ActiveKippoProject, KippoProject
-from .exceptions import TaskStatusError, ProjectDatesError
+from tasks.functions import prepare_project_engineering_load_plot_data
+from tasks.models import KippoTask, KippoTaskStatus
 
+from .charts.functions import prepare_burndown_chart_components
+from .exceptions import ProjectDatesError, TaskStatusError
+from .functions import get_user_session_organization
+from .models import ActiveKippoProject, KippoProject
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +28,11 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
     :param task_object: KippoTask task object
     :return: (task_object.assignee.username, task_object.project.name)
     """
-    username = ''
+    username = ""
     if task_object.assignee:
         username = task_object.assignee.username
 
-    project = ''
+    project = ""
     if task_object.project:
         project = task_object.project.name
 
@@ -49,30 +48,24 @@ def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
-    inprogress_projects = ActiveKippoProject.objects.filter(
-        start_date__lte=now,
-        organization=selected_organization
-    ).orderby('category')
+    inprogress_projects = ActiveKippoProject.objects.filter(start_date__lte=now, organization=selected_organization).orderby("category")
 
     inprogress_category_groups = defaultdict(list)
     for inprogress_project in inprogress_projects:
         inprogress_category_groups[inprogress_project.category] = inprogress_project
 
-    upcoming_projects = ActiveKippoProject.objects.filter(
-        start_date__gt=now,
-        organization=selected_organization
-    ).orderby('category')
+    upcoming_projects = ActiveKippoProject.objects.filter(start_date__gt=now, organization=selected_organization).orderby("category")
     upcoming_category_groups = defaultdict(list)
     for upcoming_project in upcoming_projects:
         upcoming_category_groups[upcoming_project.category] = upcoming_project
 
     context = {
-        'inprogress_category_groups': inprogress_category_groups,
-        'upcoming_category_groups': upcoming_category_groups,
-        'selected_organization': selected_organization,
-        'organizations': user_organizations,
+        "inprogress_category_groups": inprogress_category_groups,
+        "upcoming_category_groups": upcoming_category_groups,
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
     }
-    return render(request, 'projects/view_inprogress_projects_status_overview.html', context)
+    return render(request, "projects/view_inprogress_projects_status_overview.html", context)
 
 
 def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
@@ -94,13 +87,13 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
-    slug = request.GET.get('slug', None)
+    slug = request.GET.get("slug", None)
     if slug:
         project = get_object_or_404(KippoProject, slug=slug, organization=selected_organization)
         projects = [project]
     else:
         projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization)
-    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by('name')
+    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by("name")
 
     # Collect KippoTaskStatus for projects
     active_taskstatus = []
@@ -126,36 +119,39 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
         try:
             script, div = prepare_burndown_chart_components(project)
         except TaskStatusError as e:
-            warning = f'Data not available for project({project.name}): {e.args}'
+            warning = f"Data not available for project({project.name}): {e.args}"
             messages.add_message(request, messages.WARNING, warning)
             logger.warning(warning)
         except ProjectDatesError as e:
-            warning = f'start_date or target_date not set for project: {e.args}'
+            warning = f"start_date or target_date not set for project: {e.args}"
             messages.add_message(request, messages.WARNING, warning)
             logger.warning(warning)
     else:
         # show project schedule chart
         if not selected_organization:
-            return HttpResponseBadRequest(f'KippoUser not registered with an Organization!')
+            return HttpResponseBadRequest(f"KippoUser not registered with an Organization!")
 
         # check projects for start_date, target_date
         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
-        projects_missing_dates = projects_missing_dates.filter(organization=selected_organization)
+        projects_missing_dates = projects_missing_dates.filter(
+            organization=selected_organization, github_project_api_url__isnull=False, is_closed=False
+        )
         if projects_missing_dates:
             for p in projects_missing_dates:
-                warning = f'Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! ' \
-                          f'(Will not be displayed in chart) '
+                warning = (
+                    f"Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! " f"(Will not be displayed in chart) "
+                )
                 messages.add_message(request, messages.WARNING, warning)
                 logger.warning(warning)
         try:
             (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization)
-            logger.debug(f'latest_effort_date: {latest_effort_date}')
+            logger.debug(f"latest_effort_date: {latest_effort_date}")
         except ProjectConfigurationError as e:
-            logger.warning(f'No projects with start_date or target_date defined: {e.args}')
+            logger.warning(f"No projects with start_date or target_date defined: {e.args}")
         except ValueError as e:
             logger.exception(e)
             logger.error(str(e.args))
-            error = f'Unable to process tasks: {e.args}'
+            error = f"Unable to process tasks: {e.args}"
             messages.add_message(request, messages.ERROR, error)
 
     # collect unique Tasks
@@ -171,19 +167,19 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=project_assignee_keyfunc)
     context = {
-        'project': project,
-        'tasks': sorted_tasks,
-        'user_effort_totals': dict(user_effort_totals),
-        'chart_script': script,
-        'chart_div': div,
-        'latest_effort_date': latest_effort_date,
-        'active_projects': active_projects,
-        'messages': messages.get_messages(request),
-        'selected_organization': selected_organization,
-        'organizations': user_organizations,
+        "project": project,
+        "tasks": sorted_tasks,
+        "user_effort_totals": dict(user_effort_totals),
+        "chart_script": script,
+        "chart_div": div,
+        "latest_effort_date": latest_effort_date,
+        "active_projects": active_projects,
+        "messages": messages.get_messages(request),
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
     }
 
-    return render(request, 'projects/view_inprogress_projects_status.html', context)
+    return render(request, "projects/view_inprogress_projects_status.html", context)
 
 
 @staff_member_required
@@ -192,12 +188,12 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     if not organization_id:
         return HttpResponseBadRequest(f'required "organization_id" not given!')
     elif not user_organizations:
-        return HttpResponseBadRequest(f'user({request.user.username}) has no OrganizationMemberships!')
+        return HttpResponseBadRequest(f"user({request.user.username}) has no OrganizationMemberships!")
 
     elif organization_id not in [str(o.id) for o in user_organizations]:
-        logger.debug(f'Invalid organization_id({organization_id}) for user({request.user.username}) using user first')
+        logger.debug(f"Invalid organization_id({organization_id}) for user({request.user.username}) using user first")
         organization_id = user_organizations[0].id
 
-    request.session['organization_id'] = str(organization_id)
+    request.session["organization_id"] = str(organization_id)
     logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
-    return HttpResponseRedirect(f'{settings.URL_PREFIX}/projects/')  # go reload the page with the set org
+    return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
