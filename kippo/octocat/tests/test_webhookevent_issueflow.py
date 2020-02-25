@@ -272,10 +272,67 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         self.assertEqual(kippotask.is_closed, True)
 
-    # def test_webhook_issue__change_assignee(self):
-    #     raise NotImplementedError
+    def test_webhook_issue__change_assignee(self):
+        assert KippoTask.objects.count() == 0
 
-    #
+        # create initially related task and status entry
+        task1 = KippoTask(
+            title="sample+title",
+            category="cat1",
+            github_issue_html_url="https://github.com/myorg/myrepo/issues/657",
+            github_issue_api_url="https://api.github.com/repos/myorg/myrepo/issues/657",
+            project=self.project,
+            assignee=self.user1,  # octocat
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task1.save()
+        taskstatus_estimate_days = 3
+        task1status = KippoTaskStatus(
+            task=task1,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="planning",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task1status.save()
+
+        # confirm that initial user has related estimate days as expected
+        assert self.user1.get_estimatedays() == taskstatus_estimate_days
+
+        scenario_directory = TESTDATA_DIRECTORY / "issue_change_assignment"
+
+        # issue created -- planning
+        # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
+        event_1_filepath = scenario_directory / "event_1_issue_unassigned.json"
+        event_1, _ = load_webhookevent(event_1_filepath, secret_encoded=self.secret_encoded, decode=True)
+        unassigned_webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_1)
+        unassigned_webhookevent.save()
+
+        event_2_filepath = scenario_directory / "event_2_issue_assigned.json"
+        event_2, _ = load_webhookevent(event_2_filepath, secret_encoded=self.secret_encoded, decode=True)
+        assigned_webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_2)
+        assigned_webhookevent.save()
+
+        self.githubwebhookprocessor.process_webhook_events([unassigned_webhookevent, assigned_webhookevent])
+        unassigned_webhookevent.refresh_from_db()
+        self.assertEqual(unassigned_webhookevent.state, "processed")
+        assigned_webhookevent.refresh_from_db()
+        self.assertEqual(assigned_webhookevent.state, "processed")
+
+        # check that related task was changed/updated to new assignee
+        task1.refresh_from_db()
+        self.assertEqual(task1.assignee.github_login, self.user2.github_login)
+
+        # check that new assignee (octocat2) has current KippoTaskStatus
+        # -- NOTE: all TaskStatus is changed to new assignee
+        actual_estimate_days = self.user2.get_estimatedays()
+        self.assertEqual(actual_estimate_days, taskstatus_estimate_days)
+
+        # make sure that originally assigned user does NOT have previously related estimate days
+        self.assertEqual(self.user1.get_estimatedays(), 0.0)
+
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
     #     raise NotImplementedError
     #
