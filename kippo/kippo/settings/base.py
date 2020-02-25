@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/2.0/ref/settings/
 """
 import os
 from pathlib import PurePath
+
 from django.conf.locale.en import formats as en_formats
 from django.conf.locale.ja import formats as ja_formats
 
@@ -22,7 +23,7 @@ BASE_DIR = PurePath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya'
+SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -33,92 +34,78 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'social_django',
-    'reversion',
-    'bootstrap4',
-    'common',  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
-    'common.apps.KippoAdminConfig',  # 'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'accounts',  # must be listed AFTER social_django and django.contrib.auth
-    'projects',
-    'tasks',
-    'octocat',
+    "social_django",
+    "reversion",
+    "bootstrap4",
+    "common",  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
+    "common.apps.KippoAdminConfig",  # 'django.contrib.admin',
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "accounts",  # must be listed AFTER social_django and django.contrib.auth
+    "projects",
+    "tasks",
+    "octocat",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'social_django.middleware.SocialAuthExceptionMiddleware',
-
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "social_django.middleware.SocialAuthExceptionMiddleware",
 ]
 
-ROOT_URLCONF = 'kippo.urls'
+ROOT_URLCONF = "kippo.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-                'social_django.context_processors.backends',
-                'social_django.context_processors.login_redirect',
-                'kippo.context_processors.global_view_additional_context',  # PROVIDES settings.URL_PREFIX to context
-            ],
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "social_django.context_processors.backends",
+                "social_django.context_processors.login_redirect",
+                "kippo.context_processors.global_view_additional_context",  # PROVIDES settings.URL_PREFIX to context
+            ]
         },
-    },
+    }
 ]
 
-WSGI_APPLICATION = 'kippo.wsgi.application'
+WSGI_APPLICATION = "kippo.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/2.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
-}
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.path.join(BASE_DIR, "db.sqlite3")}}
 
 
 # Password validation
 # https://docs.djangoproject.com/en/2.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 
 # Internationalization
 # https://docs.djangoproject.com/en/2.0/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
 USE_I18N = True
 
@@ -126,112 +113,83 @@ USE_L10N = True
 
 USE_TZ = True
 
-TIME_ZONE = 'Asia/Tokyo'
-en_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
-ja_formats.DATETIME_FORMAT = 'Y-n-j G:i:s (T)'
+TIME_ZONE = "Asia/Tokyo"
+en_formats.DATETIME_FORMAT = "Y-n-j G:i:s (T)"
+ja_formats.DATETIME_FORMAT = "Y-n-j G:i:s (T)"
 
-DJANGO_LOG_LEVEL = 'DEBUG'
+DJANGO_LOG_LEVEL = "DEBUG"
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': True,
-    'formatters': {
-        'standard': {
-            'format': '{asctime} [{levelname:5}] ({name}) {funcName}: {message}',
-            'style': '{',
-        }
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'standard',
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',  # Change to DEBUG to see db queries
-        },
-        'projects': {
-            'handlers': ['console'],
-            'level': DJANGO_LOG_LEVEL,
-            'propagate': True,
-        },
-        'tasks': {
-            'handlers': ['console'],
-            'level': DJANGO_LOG_LEVEL,
-            'propagate': True,
-        },
-        'accounts': {
-            'handlers': ['console'],
-            'level': DJANGO_LOG_LEVEL,
-            'propagate': True,
-        },
-        'octocat': {
-            'handlers': ['console'],
-            'level': DJANGO_LOG_LEVEL,
-            'propagate': True,
-        }
+    "version": 1,
+    "disable_existing_loggers": True,
+    "formatters": {"standard": {"format": "{asctime} [{levelname:5}] ({name}) {funcName}: {message}", "style": "{"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "standard"}},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO"},  # Change to DEBUG to see db queries
+        "projects": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
+        "tasks": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
+        "accounts": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
+        "octocat": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
     },
 }
 
 
-STATIC_URL = ''
+STATIC_URL = ""
 
 BOOTSTRAP4 = {
-    'include_jquery': True,
+    "include_jquery": True,
     # The Bootstrap base URL
-    'base_url': '//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/',
+    "base_url": "//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.1.3/",
 }
 
 # -- for data backup/dump
-DUMPDATA_S3_BUCKETNAME = 'kippo-dumpdata-bucket-123xyz'
+DUMPDATA_S3_BUCKETNAME = "kippo-dumpdata-bucket-123xyz"
 
 # Authentication
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends
-AUTHENTICATION_BACKENDS = (
-    'social_core.backends.google.GoogleOAuth2',
-    'django.contrib.auth.backends.ModelBackend',
-)
-URL_PREFIX = ''  # needed to support a prefix on urls (for zappa deployment)
+AUTHENTICATION_BACKENDS = ("social_core.backends.google.GoogleOAuth2", "django.contrib.auth.backends.ModelBackend")
+URL_PREFIX = ""  # needed to support a prefix on urls (for zappa deployment)
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_KEY', None)  # client ID
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_OAUTH2_SECRET', None)
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_KEY", None)  # client ID
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET", None)
 
 # for integration of social_auth with admin
 # https://python-social-auth.readthedocs.io/en/latest/configuration/django.html
-SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ['username', 'first_name', 'email']
+SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ["username", "first_name", "email"]
 
 # for identification of SOCIAL_AUTH_USER
 # http://python-social-auth.readthedocs.io/en/latest/configuration/settings.html#user-model
-SOCIAL_AUTH_USER_MODEL = 'accounts.KippoUser'
+SOCIAL_AUTH_USER_MODEL = "accounts.KippoUser"
 AUTH_USER_MODEL = SOCIAL_AUTH_USER_MODEL
-SOCIAL_AUTH_LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'
+SOCIAL_AUTH_LOGIN_REDIRECT_URL = f"{URL_PREFIX}/admin/"
 
-GITHUB_MANAGER_USERNAME = 'github-manager'
-CLI_MANAGER_USERNAME = 'cli-manager'
+GITHUB_MANAGER_USERNAME = "github-manager"
+CLI_MANAGER_USERNAME = "cli-manager"
 
-SITE_HEADER = 'Kippo (Project Goal & Milestone Manager)'
+SITE_HEADER = "Kippo (Project Goal & Milestone Manager)"
 SITE_TITLE = SITE_HEADER
 
-DEFAULT_KIPPOPROJECT_CATEGORY = 'poc'
-DEFAULT_KIPPOTASK_CATEGORY = 'study'
-DEFAULT_TASK_DISPLAY_STATE = 'in-progress'
+DEFAULT_KIPPOPROJECT_CATEGORY = "poc"
+DEFAULT_KIPPOTASK_CATEGORY = "study"
+DEFAULT_TASK_DISPLAY_STATE = "in-progress"
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
-URL_PREFIX = ''
+URL_PREFIX = ""
 
 TEST = False
 
 # internally defined users
-UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = 'unassigned'  # for managing unassigned github tasks
-DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX = 'category:'
-DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX = 'estimate:'
-GITHUB_MILESTONE_CLOSE_STATE = 'closed'
+UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = "unassigned"  # for managing unassigned github tasks
+DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX = "category:"
+DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX = "estimate:"
+GITHUB_MILESTONE_CLOSE_STATE = "closed"
 
-LOGIN_REDIRECT_URL = f'{URL_PREFIX}/admin/'  # defaults to /accounts/profile/#
-HOST_URL = os.getenv('HOST_URL', 'http://127.0.0.1')
-WEBHOOK_ENDPOINT = '/octocat/webhook/'
-WEBHOOK_URL = f'{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}'
+LOGIN_REDIRECT_URL = f"{URL_PREFIX}/admin/"  # defaults to /accounts/profile/#
+HOST_URL = os.getenv("HOST_URL", "http://127.0.0.1")
+WEBHOOK_ENDPOINT = "/octocat/webhook/"
+WEBHOOK_URL = f"{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}"
 DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = True
 
 DAY_WORKHOURS = 7
+
+DEFAULT_WEBHOOK_DELETE_DAYS = "30"
+WEBHOOK_DELETE_DAYS = int(os.getenv("WEBHOOK_DELETE_DAYS", DEFAULT_WEBHOOK_DELETE_DAYS))
