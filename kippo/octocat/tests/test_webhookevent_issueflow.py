@@ -284,8 +284,8 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         self.assertEqual(kippotask.is_closed, True)
 
-    def test_webhook_issue__change_assignee(self):
-        raise NotImplementedError
+    # def test_webhook_issue__change_assignee(self):
+    #     raise NotImplementedError
 
     #
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
