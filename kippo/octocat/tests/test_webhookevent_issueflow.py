@@ -1,9 +1,6 @@
-import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
-from typing import Tuple
 from unittest import mock
 
 from accounts.models import KippoUser, OrganizationMembership
@@ -14,6 +11,7 @@ from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import GithubWebhookProcessor
 from ..models import GithubWebhookEvent
+from .utils import load_webhookevent
 
 assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
 
@@ -56,16 +54,6 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         self.githubwebhookprocessor = GithubWebhookProcessor()
 
-    def _load_webhookevent(self, filepath: Path, decode: bool = False) -> Tuple[bytes, str]:
-        with filepath.open("rb") as content_f:
-            content = content_f.read()
-            # calculate the 'X-Hub-Signature' header
-            s = hmac.new(key=self.secret_encoded, msg=content, digestmod=hashlib.sha1).hexdigest()
-            signature = f"sha1={s}"
-            if decode:
-                content = json.loads(content)
-        return content, signature
-
     def test_webhookevent_issue_standard_lifecycle__same_assignment(self):
         assert KippoTask.objects.count() == 0
         scenario_directory = TESTDATA_DIRECTORY / "issue_standard_lifecycle_from_note"
@@ -73,7 +61,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # issue created -- planning
         # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
         event_1_filepath = scenario_directory / "event_1_projectcard_converted_from_note.json"
-        event_1, _ = self._load_webhookevent(event_1_filepath, decode=True)
+        event_1, _ = load_webhookevent(event_1_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_1)
         webhookevent.save()
 
@@ -99,7 +87,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         self.assertEqual(user_estimatedays, 0)
 
         event_2_filepath = scenario_directory / "event_2_issue_opened.json"
-        event_2, _ = self._load_webhookevent(event_2_filepath, decode=True)
+        event_2, _ = load_webhookevent(event_2_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_2)
         webhookevent.save()
         self.githubwebhookprocessor.process_webhook_events([webhookevent])
@@ -123,12 +111,12 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # issue assigned
         # issue add estimate label - 1 day
         event_3_filepath = scenario_directory / "event_3_issue_labeled.json"
-        event_3, _ = self._load_webhookevent(event_3_filepath, decode=True)
+        event_3, _ = load_webhookevent(event_3_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_3)
         webhookevent.save()
 
         event_4_filepath = scenario_directory / "event_4_issue_labeled.json"
-        event_4, _ = self._load_webhookevent(event_4_filepath, decode=True)
+        event_4, _ = load_webhookevent(event_4_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_4)
         webhookevent.save()
 
@@ -153,7 +141,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # update estimate label - 5 days
         # - label added
         event_5_filepath = scenario_directory / "event_5_issue_labeled_changeestimate.json"
-        event_5, _ = self._load_webhookevent(event_5_filepath, decode=True)
+        event_5, _ = load_webhookevent(event_5_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_5)
         webhookevent.save()
 
@@ -177,7 +165,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         # - label removed
         event_6_filepath = scenario_directory / "event_6_issue_labeled_changeesimate.json"
-        event_6, _ = self._load_webhookevent(event_6_filepath, decode=True)
+        event_6, _ = load_webhookevent(event_6_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_6)
         webhookevent.save()
 
@@ -202,7 +190,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # issue moved to in-progress
         # - no estimate update
         event_7_filepath = scenario_directory / "event_7_projectcard_moved.json"
-        event_7, _ = self._load_webhookevent(event_7_filepath, decode=True)
+        event_7, _ = load_webhookevent(event_7_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_7)
         webhookevent.save()
 
@@ -230,7 +218,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # issue moved to done
         # - confirm issue estimate is no longer counted for the assignee
         event_8_filepath = scenario_directory / "event_8_projectcard_moved.json"
-        event_8, _ = self._load_webhookevent(event_8_filepath, decode=True)
+        event_8, _ = load_webhookevent(event_8_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_8)
         webhookevent.save()
 
@@ -257,7 +245,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         # issue closed
         event_9_filepath = scenario_directory / "event_9_issue_closed.json"
-        event_9, _ = self._load_webhookevent(event_9_filepath, decode=True)
+        event_9, _ = load_webhookevent(event_9_filepath, secret_encoded=self.secret_encoded, decode=True)
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_9)
         webhookevent.save()
 
