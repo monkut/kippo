@@ -194,7 +194,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_7)
         webhookevent.save()
 
-        issue_json = {"issue": json.loads((scenario_directory / "issue657.json").read_text(encoding="utf8"))}
+        issue_json = {"issue": json.loads((scenario_directory / "issue674_with_labels5days.json").read_text(encoding="utf8"))}
         issue_created = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
         with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_created):
             self.githubwebhookprocessor.process_webhook_events([webhookevent])
@@ -222,7 +222,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_8)
         webhookevent.save()
 
-        issue_json = {"issue": json.loads((scenario_directory / "issue657.json").read_text(encoding="utf8"))}
+        issue_json = {"issue": json.loads((scenario_directory / "issue674_with_labels5days.json").read_text(encoding="utf8"))}
         issue_created = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
         with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_created):
             self.githubwebhookprocessor.process_webhook_events([webhookevent])
