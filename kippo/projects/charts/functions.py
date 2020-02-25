@@ -194,7 +194,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
         title=f"({project.name}) Project Weekly Work Estimates",
         toolbar_location=None,
         tools="hover",
-        tooltips="$name @effort_date (calendar days): @$name",
+        tooltips="$name @effort_date: @$name",
     )
     if burndown_line:
         p.line(*burndown_line, line_width=2, line_color="#BCBCBC", line_dash="dashed")
