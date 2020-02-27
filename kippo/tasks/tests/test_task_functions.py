@@ -287,7 +287,7 @@ class GetKippoProjectLoadTestCase(TestCase):
         self.user2effort_total = task3status.estimate_days + task4status.estimate_days
 
     def test_get_projects_load(self):
-        project_developer_load, latest_taskstatus_effort_date = get_projects_load(
+        project_developer_load, _, latest_taskstatus_effort_date = get_projects_load(
             organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
         )
         self.assertTrue(project_developer_load)

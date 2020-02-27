@@ -223,7 +223,7 @@ def _get_latest_kippotaskstatus_effortdate(organization: KippoOrganization) -> t
 
 def get_projects_load(
     organization: KippoOrganization, schedule_start_date: datetime.date = None
-) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], datetime.date]:
+) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], Dict[str, Dict[datetime.date, str]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
     Returned KippoTasks are augmented with the scheduled resulting QluTask object as the 'qlu_task' attribute.
@@ -365,15 +365,13 @@ def get_projects_load(
 
     scheduler = QluTaskScheduler(
         milestones=qlu_milestones,
-        holiday_calendar=None,  # TODO: Update with proper holiday calendar!
+        holiday_calendar=None,  # Currently Holidays are included in the 'holidays' variable this is not needed
         assignee_workdays=workdays,
         assignee_personal_holidays=holidays,
         start_date=schedule_start_date,
     )
-
-    # TODO: fails on calc....
     scheduled_results = scheduler.schedule(qlu_tasks)
-
+    assignee_date_keyed_scheduled_projects_ids = defaultdict(dict)
     for qlu_task in scheduled_results.tasks():
         kippo_task_id = qlu_task.id
         kippo_task = kippo_tasks[kippo_task_id]
@@ -384,10 +382,13 @@ def get_projects_load(
         # -- qlu_task.is_scheduled
         kippo_task.qlu_task = qlu_task
         project_id = kippo_task.project.id
+        project_name = kippo_task.project.name
         if project_id not in project_developer_load:
             project_developer_load[project_id] = defaultdict(list)
         project_developer_load[project_id][kippo_task.assignee.github_login].append(kippo_task)
-    return project_developer_load, latest_taskstatus_effort_date
+        for task_date in qlu_task.scheduled_dates:
+            assignee_date_keyed_scheduled_projects_ids[kippo_task.assignee.github_login][task_date] = str(project_name)
+    return project_developer_load, assignee_date_keyed_scheduled_projects_ids, latest_taskstatus_effort_date
 
 
 def _add_assignee_project_data(
@@ -396,6 +397,7 @@ def _add_assignee_project_data(
     assignee_github_login: str,
     assignee_tasks: list,
     country_holidays: Dict[Country, List[PublicHoliday]],
+    assignee_date_keyed_scheduled_projects_ids: Dict[str, Dict[datetime.date, str]],
     max_days: int = 65,
 ) -> Tuple[Dict[str, list], bool]:
     assignee_data = {
@@ -416,6 +418,7 @@ def _add_assignee_project_data(
         "descriptions": [],
         "holiday_dates": [],
         "weekend_dates": [],
+        "scheduled_dates": [],
         "unscheduled_dates": [],
         "uncommitted_dates": [],
         "personal_holiday_dates": [],
@@ -453,6 +456,7 @@ def _add_assignee_project_data(
             assignee_data["assignees"].append(assignee_github_login)
             assignee_data["project_assignee_grouped"].append(project_assignee_group)
             assignee_data["current_dates"].append(task_date.strftime(DATE_DISPLAY_FORMAT))
+            assignee_data["scheduled_dates"].append(None)
             if task_date.weekday() in WEEKENDS:
                 # add weekend dates
                 assignee_data["task_ids"].append(None)
@@ -536,6 +540,7 @@ def _add_assignee_project_data(
             assignee_data["assignees"].append(assignee_github_login)
             assignee_data["project_assignee_grouped"].append(project_assignee_group)
             assignee_data["current_dates"].append(current_date.strftime(DATE_DISPLAY_FORMAT))
+            scheduled_project_id = assignee_date_keyed_scheduled_projects_ids[assignee_github_login].get(current_date, None)
             if current_date.weekday() in WEEKENDS:
                 # add weekend dates
                 assignee_data["task_ids"].append(None)
@@ -547,6 +552,7 @@ def _add_assignee_project_data(
                 assignee_data["descriptions"].append("weekend")
                 assignee_data["holiday_dates"].append(None)
                 assignee_data["weekend_dates"].append(current_date)
+                assignee_data["scheduled_dates"].append(None)
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
@@ -562,6 +568,7 @@ def _add_assignee_project_data(
                 assignee_data["descriptions"].append(holiday_name)
                 assignee_data["holiday_dates"].append(current_date)
                 assignee_data["weekend_dates"].append(None)
+                assignee_data["scheduled_dates"].append(None)
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
@@ -576,6 +583,7 @@ def _add_assignee_project_data(
                 assignee_data["descriptions"].append("personal holiday")
                 assignee_data["holiday_dates"].append(None)
                 assignee_data["weekend_dates"].append(None)
+                assignee_data["scheduled_dates"].append(None)
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(current_date)
@@ -590,8 +598,24 @@ def _add_assignee_project_data(
                 assignee_data["descriptions"].append("uncommitted")
                 assignee_data["holiday_dates"].append(None)
                 assignee_data["weekend_dates"].append(None)
+                assignee_data["scheduled_dates"].append(None)
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(current_date)
+                assignee_data["personal_holiday_dates"].append(None)
+            elif scheduled_project_id:
+                # add scheduled_dates (other project)
+                assignee_data["task_ids"].append(None)
+                assignee_data["task_urls"].append(None)
+                assignee_data["task_titles"].append(None)
+                assignee_data["assignee_calendar_days"].append(None)
+                assignee_data["task_estimate_days"].append(None)
+                assignee_data["task_dates"].append(None)
+                assignee_data["descriptions"].append(f"scheduled in {scheduled_project_id}")
+                assignee_data["holiday_dates"].append(None)
+                assignee_data["weekend_dates"].append(None)
+                assignee_data["scheduled_dates"].append(current_date)
+                assignee_data["unscheduled_dates"].append(None)
+                assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
             else:
                 # add unscheduled_dates
@@ -604,6 +628,7 @@ def _add_assignee_project_data(
                 assignee_data["descriptions"].append("unscheduled")
                 assignee_data["holiday_dates"].append(None)
                 assignee_data["weekend_dates"].append(None)
+                assignee_data["scheduled_dates"].append(None)
                 assignee_data["unscheduled_dates"].append(current_date)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
@@ -618,7 +643,7 @@ def prepare_project_engineering_load_plot_data(
         schedule_start_date = timezone.now().date()
     logger.info(f"schedule_start_date={schedule_start_date}")
     max_days = 70
-    projects_results, latest_effort_date = get_projects_load(organization, schedule_start_date)
+    projects_results, assignee_date_keyed_scheduled_projects_ids, latest_effort_date = get_projects_load(organization, schedule_start_date)
     if not projects_results:
         raise ValueError("(get_projects_load) project_results is empty!")
 
@@ -647,6 +672,7 @@ def prepare_project_engineering_load_plot_data(
             "descriptions": [],
             "holiday_dates": [],
             "weekend_dates": [],
+            "scheduled_dates": [],
             "unscheduled_dates": [],
             "uncommitted_dates": [],
             "personal_holiday_dates": [],
@@ -657,7 +683,13 @@ def prepare_project_engineering_load_plot_data(
                 logger.debug(f"assignee_filter({assignee_filter}) applied, skipping: {assignee}")
                 continue
             assignee_data, populated = _add_assignee_project_data(
-                organization, schedule_start_date, assignee, assignee_tasks, country_holidays, max_days=max_days
+                organization,
+                schedule_start_date,
+                assignee,
+                assignee_tasks,
+                country_holidays,
+                assignee_date_keyed_scheduled_projects_ids,
+                max_days=max_days,
             )
             if populated:
                 project_populated = True
@@ -683,7 +715,7 @@ def prepare_project_engineering_load_plot_data(
         }
         project_milestones[milestone.project.id].append(milestone_info)
 
-    logger.debug(f"len(project_data)={project_data}")
+    logger.debug(f"len(project_data)={len(project_data)}")
     logger.debug(f"project_milestones={project_milestones}")
 
     script, div = prepare_project_schedule_chart_components(project_data, schedule_start_date, project_milestones, display_days=max_days)

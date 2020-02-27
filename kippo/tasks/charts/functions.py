@@ -31,6 +31,7 @@ def prepare_project_schedule_chart_components(
             'task_dates': [],
             'holiday_names': [],
             'weekend_dates': [],
+            'scheduled_dates': [],
             'unscheduled_dates': [],
             'uncommitted_dates':[],
             'personal_holiday_dates': [],
@@ -69,12 +70,14 @@ def prepare_project_schedule_chart_components(
         # p.hbar(y="project_assignee_grouped", left="task_start_dates", right="task_end_dates", height=0.4, source=source)
         # add assignments
         p.square(y="project_assignee_grouped", x="task_dates", size=15, color="deepskyblue", source=source)
+        # add uncommitted
+        p.square_x(y="project_assignee_grouped", x="scheduled_dates", size=15, fill_color=None, color="deepskyblue", alpha=0.2, source=source)
         # add unscheduled
         p.square(y="project_assignee_grouped", x="unscheduled_dates", size=15, fill_color=None, color="deepskyblue", source=source)
         # add uncommitted
-        p.square_x(y="project_assignee_grouped", x="uncommitted_dates", size=15, fill_color=None, color="deepskyblue", alpha=0.25, source=source)
+        p.square_x(y="project_assignee_grouped", x="uncommitted_dates", size=15, fill_color=None, color="lightgrey", alpha=0.25, source=source)
         # add holidays
-        p.circle(y="project_assignee_grouped", x="holiday_dates", size=15, color="lavender", source=source)
+        p.circle(y="project_assignee_grouped", x="holiday_dates", size=15, color="lightgrey", alpha=0.5, source=source)
         # add weekends
         p.circle(y="project_assignee_grouped", x="weekend_dates", size=15, color="lightgrey", source=source)
         # add personal holidays
