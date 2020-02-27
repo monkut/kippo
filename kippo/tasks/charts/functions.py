@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from bokeh.embed import components
 from bokeh.layouts import column
-from bokeh.models import ColumnDataSource, DatetimeTicker, Label, OpenURL, TapTool
+from bokeh.models import ColumnDataSource, DatetimeTicker, FactorRange, Label, OpenURL, TapTool
 from bokeh.models.glyphs import VBar
 from bokeh.palettes import Category20
 from bokeh.plotting import figure
@@ -67,7 +67,7 @@ def prepare_project_schedule_chart_components(
         calculated_plot_height = (len(y_range) * 15) + chart_minimum_height
 
         p = figure(
-            y_range=list(sorted(y_range)),  # FactorRange(*sorted(y_range)),
+            y_range=FactorRange(*sorted(y_range)),
             x_range=(min_date, max_date),
             plot_width=display_days * 22,
             plot_height=calculated_plot_height,

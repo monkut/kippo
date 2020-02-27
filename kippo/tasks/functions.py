@@ -446,7 +446,7 @@ def _add_assignee_project_data(
         project_name = task.project.name
         project_start_date = task.project.start_date
         project_target_date = task.project.target_date
-        project_assignee_group = f"{task.project.name} - {assignee_github_login}"
+        project_assignee_group = (task.project.name, assignee_github_login)
         for task_date in task.qlu_task.scheduled_dates:
             assignee_data["project_ids"].append(project_id)
             assignee_data["project_names"].append(project_name)
