@@ -5,7 +5,7 @@ from typing import List
 
 from bokeh.embed import components
 from bokeh.layouts import column
-from bokeh.models import ColumnDataSource, DatetimeTicker, FactorRange, FixedTicker, Label, OpenURL, Span, TapTool
+from bokeh.models import ColumnDataSource, DatetimeTicker, Label, OpenURL, Span, TapTool
 from bokeh.palettes import Category20
 from bokeh.plotting import figure
 from bokeh.resources import CDN

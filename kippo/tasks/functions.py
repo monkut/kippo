@@ -432,7 +432,6 @@ def _add_assignee_project_data(
     if assignee_public_holidays:
         date_keyed_holidays = {h.day: h for h in assignee_public_holidays}
 
-    last_task_date = None
     assignee_scheduled_dates = []
     project_populated = False
     project_id = None
@@ -525,7 +524,6 @@ def _add_assignee_project_data(
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
             assignee_scheduled_dates.append(task_date)
-            last_task_date = task_date
         project_populated = True
 
     # fill additional dates for assignee
