@@ -59,11 +59,12 @@ def prepare_project_schedule_chart_components(
     ]
 
     plots = []
+    chart_minimum_height = 100
     for project_id, data in project_data.items():
         logger.debug(f"preparing project_id; {project_id}")
         source = ColumnDataSource(data)
         y_range = set(data["project_assignee_grouped"])
-        calculated_plot_height = len(y_range) * 70
+        calculated_plot_height = (len(y_range) * 15) + chart_minimum_height
 
         p = figure(
             y_range=list(sorted(y_range)),  # FactorRange(*sorted(y_range)),
@@ -75,7 +76,7 @@ def prepare_project_schedule_chart_components(
         )
         project_specific_milestones = project_milestones.get(project_id, None)
         # add milestones display
-        label_y = -1
+        label_y = -0.75
         label_x_offset = 15
         if project_specific_milestones:
             milestone_count = len(project_specific_milestones)
@@ -144,13 +145,14 @@ def prepare_project_schedule_chart_components(
         taptool = p.select(type=TapTool)
         taptool.callback = OpenURL(url="@task_urls")  # TODO: Finish!
 
-        p.xaxis.ticker = DatetimeTicker()
+        p.xaxis.ticker = DatetimeTicker(desired_num_ticks=display_days)
         p.yaxis.group_label_orientation = "horizontal"
         p.ygrid.grid_line_color = None
         p.y_range.range_padding = 1
         p.y_range.range_padding_units = "absolute"
         p.yaxis.group_label_orientation = "horizontal"  # pi/25
         p.xaxis.axis_label = "Dates"
+        p.xaxis.major_label_orientation = "vertical"
         p.outline_line_color = None
         plots.append(p)
     if len(plots) > 1:
