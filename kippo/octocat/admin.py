@@ -2,7 +2,9 @@ import json
 import logging
 
 from accounts.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from common.admin import PrettyJSONWidget
 from django.contrib import admin, messages
+from django.contrib.postgres.fields import JSONField
 from django.db.models import Q
 from django.utils.html import format_html, mark_safe
 from django.utils.translation import ugettext_lazy as _
@@ -112,6 +114,8 @@ class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 @admin.register(GithubRepositoryLabelSet)
 class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = ("name", "get_label_count", "updated_datetime", "created_datetime")
+
+    formfield_overrides = {JSONField: {"widget": PrettyJSONWidget}}
 
     def get_queryset(self, request):
         """Limit results by user organizationmemberships"""

@@ -1,13 +1,13 @@
 import json
-from django.contrib import admin
+
 from django.conf import settings
+from django.contrib import admin
 from django.forms import widgets
 
 
 class UserCreatedBaseModelAdmin(admin.ModelAdmin):
-
     def save_model(self, request, obj, form, change):
-        if getattr(obj, 'pk', None) is None:
+        if getattr(obj, "pk", None) is None:
             obj.created_by = request.user
             obj.updated_by = request.user
         else:
@@ -28,7 +28,6 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
 
 
 class AllowIsStaffAdminMixin:
-
     def check_perm(self, user_obj):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
@@ -50,7 +49,6 @@ class AllowIsStaffAdminMixin:
 
 
 class AllowIsStaffReadonlyMixin:
-
     def check_perm(self, user_obj):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
@@ -87,7 +85,6 @@ class AllowIsStaffReadonlyMixin:
 
 
 class AllowIsSuperuserAdminMixin:
-
     def check_perm(self, user_obj):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
@@ -109,22 +106,22 @@ class AllowIsSuperuserAdminMixin:
 
 
 class OrganizationTaskQuerysetModelAdminMixin:
-
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(project__organization__in=request.user.organizations).order_by('project__organization').distinct()
+        return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization").distinct()
 
 
 class OrganizationQuerysetModelAdminMixin:
-
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
         # get user organizations
-        return qs.filter(organizationmembership__organization__in=request.user.organizations).order_by('organizationmembership__organization').distinct()
+        return (
+            qs.filter(organizationmembership__organization__in=request.user.organizations).order_by("organizationmembership__organization").distinct()
+        )
 
 
 class KippoAdminSite(admin.AdminSite):
@@ -133,18 +130,17 @@ class KippoAdminSite(admin.AdminSite):
     site_title = settings.SITE_TITLE
 
 
-admin_site = KippoAdminSite(name='kippoadmin')
+admin_site = KippoAdminSite(name="kippoadmin")
 
 
 class PrettyJSONWidget(widgets.Textarea):
-
     def format_value(self, value):
         try:
-            value = json.dumps(json.loads(value), indent=2, sort_keys=True)
+            value = json.dumps(json.loads(value), indent=4, ensure_ascii=False, sort_keys=True)
         except json.JSONDecodeError:
             return super(PrettyJSONWidget, self).format_value(value)
         # these lines will try to adjust size of TextArea to fit to content
-        row_lengths = [len(r) for r in value.split('\n')]
-        self.attrs['rows'] = min(max(len(row_lengths) + 2, 10), 30)
-        self.attrs['cols'] = min(max(max(row_lengths) + 2, 40), 120)
+        row_lengths = [len(r) for r in value.split("\n")]
+        self.attrs["rows"] = min(max(len(row_lengths) + 2, 10), 30)
+        self.attrs["cols"] = min(max(max(row_lengths) + 2, 50), 120)
         return value
