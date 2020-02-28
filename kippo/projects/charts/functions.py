@@ -189,7 +189,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     logger.info(f"preparing figure:  {project.name}")
     p = figure(
         x_range=data["effort_date"],
-        plot_height=300,
+        plot_height=400,
         plot_width=950,
         title=f"({project.name}) Project Weekly Work Estimates",
         toolbar_location=None,
@@ -209,7 +209,7 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     p.xgrid.grid_line_color = None
     p.axis.minor_tick_line_color = None
     p.outline_line_color = None
-    p.legend.location = "top_right"
+    p.legend.location = "bottom_left"
     p.legend.orientation = "vertical"
 
     script, div = components(p, CDN)
