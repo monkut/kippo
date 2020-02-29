@@ -399,13 +399,11 @@ def _add_assignee_project_data(
     country_holidays: Dict[Country, List[PublicHoliday]],
     assignee_date_keyed_scheduled_projects_ids: Dict[str, Dict[datetime.date, str]],
     max_days: int = 65,
-) -> Tuple[Dict[str, list], bool]:
+) -> Tuple[Dict[str, list], datetime.date, datetime.date, datetime.date, bool]:
     assignee_data = {
         # length of columns expected to be the same
         "project_ids": [],
         "project_names": [],
-        "project_start_dates": [],
-        "project_target_dates": [],
         "current_dates": [],
         "assignee_calendar_days": [],
         "assignees": [],
@@ -439,6 +437,7 @@ def _add_assignee_project_data(
     project_start_date = None
     project_target_date = None
     project_assignee_group = None
+    assignee_max_task_date = None
     for task in assignee_tasks:
         latest_kippotaskstatus = task.latest_kippotaskstatus()
         required_calendar_days = task.qlu_task.end_date - task.qlu_task.start_date
@@ -448,10 +447,12 @@ def _add_assignee_project_data(
         project_target_date = task.project.target_date
         project_assignee_group = (task.project.name, assignee_github_login)
         for task_date in task.qlu_task.scheduled_dates:
+            if not assignee_max_task_date:
+                assignee_max_task_date = task_date
+            elif assignee_max_task_date and assignee_max_task_date < task_date:
+                assignee_max_task_date = task_date
             assignee_data["project_ids"].append(project_id)
             assignee_data["project_names"].append(project_name)
-            assignee_data["project_start_dates"].append(project_start_date)  # only 1 is really needed...
-            assignee_data["project_target_dates"].append(project_target_date)  # only 1 is really needed...
             assignee_data["assignees"].append(assignee_github_login)
             assignee_data["project_assignee_grouped"].append(project_assignee_group)
             assignee_data["current_dates"].append(task_date.strftime(DATE_DISPLAY_FORMAT))
@@ -533,8 +534,6 @@ def _add_assignee_project_data(
         if current_date not in assignee_scheduled_dates:
             assignee_data["project_ids"].append(project_id)
             assignee_data["project_names"].append(project_name)
-            assignee_data["project_start_dates"].append(project_start_date)  # only 1 is really needed...
-            assignee_data["project_target_dates"].append(project_target_date)  # only 1 is really needed...
             assignee_data["assignees"].append(assignee_github_login)
             assignee_data["project_assignee_grouped"].append(project_assignee_group)
             assignee_data["current_dates"].append(current_date.strftime(DATE_DISPLAY_FORMAT))
@@ -630,7 +629,7 @@ def _add_assignee_project_data(
                 assignee_data["unscheduled_dates"].append(current_date)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
-    return assignee_data, project_populated
+    return assignee_data, project_start_date, project_target_date, assignee_max_task_date, project_populated
 
 
 def prepare_project_engineering_load_plot_data(
@@ -649,15 +648,13 @@ def prepare_project_engineering_load_plot_data(
     for public_holiday in PublicHoliday.objects.filter(day__gte=schedule_start_date):
         country_holidays[public_holiday.country].append(public_holiday)
 
-    project_data = {}
+    project_data = []
     # prepare data for plotting
     for project_id in projects_results:
         data = {
             # length of columns expected to be the same
             "project_ids": [],
             "project_names": [],
-            "project_start_dates": [],
-            "project_target_dates": [],
             "current_dates": [],
             "assignee_calendar_days": [],
             "assignees": [],
@@ -676,11 +673,14 @@ def prepare_project_engineering_load_plot_data(
             "personal_holiday_dates": [],
         }
         project_populated = False
+        project_start_date = None
+        project_target_date = None
+        project_estimate_date = None
         for assignee, assignee_tasks in projects_results[project_id].items():
             if assignee_filter and assignee not in assignee_filter:
                 logger.debug(f"assignee_filter({assignee_filter}) applied, skipping: {assignee}")
                 continue
-            assignee_data, populated = _add_assignee_project_data(
+            assignee_data, project_start_date, project_target_date, assignee_max_task_date, populated = _add_assignee_project_data(
                 organization,
                 schedule_start_date,
                 assignee,
@@ -691,12 +691,16 @@ def prepare_project_engineering_load_plot_data(
             )
             if populated:
                 project_populated = True
+            if not project_estimate_date:
+                project_estimate_date = assignee_max_task_date
+            elif project_estimate_date and project_estimate_date < assignee_max_task_date:
+                project_estimate_date = assignee_max_task_date
 
             for category, values in assignee_data.items():
                 data[category].extend(values)
 
         if project_populated:  # may not be filled if using assignee filter
-            project_data[project_id] = data
+            project_data.append((project_id, project_start_date, project_target_date, project_estimate_date, data))
         else:
             logger.warning(f"No data for Project-id({project_id}): {assignee_filter}")
 
