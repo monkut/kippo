@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 
 from bokeh.embed import components
 from bokeh.layouts import column
-from bokeh.models import ColumnDataSource, DatetimeTicker, FactorRange, HoverTool, Label
+from bokeh.models import ColumnDataSource, DatetimeTicker, FactorRange, HoverTool, Label, Legend
 from bokeh.models.glyphs import VBar
 from bokeh.palettes import Category20
 from bokeh.plotting import figure
@@ -65,7 +65,9 @@ def prepare_project_schedule_chart_components(
 
     plots = []
     chart_minimum_height = 120
+    legend_added = False
     for project_id, project_start_date, project_target_date, project_estimated_date, data in project_data:
+        legend_items = []
         logger.debug(f"preparing project_id; {project_id}")
         source = ColumnDataSource(data)
         y_range = set(data["project_assignee_grouped"])
@@ -128,11 +130,16 @@ def prepare_project_schedule_chart_components(
             p.add_layout(project_target_date_label)
 
         # add assignments
-        p.square(name="Scheduled Task", y="project_assignee_grouped", x="task_dates", size=15, color="deepskyblue", source=source)
+        task_dates_entry_name = "Scheduled Task"
+        task_dates_entry = p.square(
+            name=task_dates_entry_name, y="project_assignee_grouped", x="task_dates", size=15, color="deepskyblue", source=source
+        )
+        legend_items.append((task_dates_entry_name, [task_dates_entry]))
 
         # add other scheduled
-        p.square_x(
-            name="Other Project Scheduled Task",
+        scheduled_dates_entry_name = "Other Project Scheduled Task"
+        scheduled_dates_entry = p.square_x(
+            name=scheduled_dates_entry_name,
             y="project_assignee_grouped",
             x="scheduled_dates",
             size=15,
@@ -141,14 +148,25 @@ def prepare_project_schedule_chart_components(
             alpha=0.5,
             source=source,
         )
+        legend_items.append((scheduled_dates_entry_name, [scheduled_dates_entry]))
 
         # add unscheduled
-        p.square(
-            name="Unscheduled", y="project_assignee_grouped", x="unscheduled_dates", size=15, fill_color=None, color="deepskyblue", source=source
+        unscheduled_dates_entry_name = "Unscheduled"
+        unscheduled_dates_entry = p.square(
+            name=unscheduled_dates_entry_name,
+            y="project_assignee_grouped",
+            x="unscheduled_dates",
+            size=15,
+            fill_color=None,
+            color="deepskyblue",
+            source=source,
         )
+        legend_items.append((unscheduled_dates_entry_name, [unscheduled_dates_entry]))
+
         # add uncommitted
-        p.square_x(
-            name="Uncommitted",
+        uncommitted_dates_entry_name = "Uncommitted"
+        uncommitted_dates_entry = p.square_x(
+            name=uncommitted_dates_entry_name,
             y="project_assignee_grouped",
             x="uncommitted_dates",
             size=15,
@@ -157,14 +175,34 @@ def prepare_project_schedule_chart_components(
             alpha=0.5,
             source=source,
         )
+        legend_items.append((uncommitted_dates_entry_name, [uncommitted_dates_entry]))
 
         # add holidays
-        p.circle(name="Holiday", y="project_assignee_grouped", x="holiday_dates", size=15, color="lightgrey", alpha=0.5, source=source)
+        holiday_dates_entry_name = "Holiday"
+        holiday_dates_entry = p.circle(
+            name=holiday_dates_entry_name, y="project_assignee_grouped", x="holiday_dates", size=15, color="lightgrey", alpha=0.5, source=source
+        )
+        legend_items.append((holiday_dates_entry_name, [holiday_dates_entry]))
 
         # add weekends
-        p.circle(name="Weekend", y="project_assignee_grouped", x="weekend_dates", size=15, color="lightgrey", source=source)
+        weekend_dates_entry_name = "Weekend"
+        weekend_dates_entry = p.circle(
+            name=weekend_dates_entry_name, y="project_assignee_grouped", x="weekend_dates", size=15, color="lightgrey", source=source
+        )
+        legend_items.append((weekend_dates_entry_name, [weekend_dates_entry]))
+
         # add personal holidays
-        p.circle(name="Personal Holiday", y="project_assignee_grouped", x="personal_holiday_dates", size=15, color="deepskyblue", source=source)
+        personal_holiday_dates_entry_name = "Personal Holiday"
+        personal_holiday_dates_entry = p.circle(
+            name=personal_holiday_dates_entry_name,
+            y="project_assignee_grouped",
+            x="personal_holiday_dates",
+            size=15,
+            color="deepskyblue",
+            source=source,
+        )
+        legend_items.append((personal_holiday_dates_entry_name, [personal_holiday_dates_entry]))
+
         glyph = VBar(x=project_estimated_date, top=calculated_plot_height, bottom=-50, width=ONE_DAY, line_color="grey", fill_color=None)
         p.add_glyph(source, glyph)
 
@@ -173,11 +211,17 @@ def prepare_project_schedule_chart_components(
             x_offset=label_x_offset,
             y=label_y,
             y_offset=1,
-            text=f"Estimated ({difference.days} days)",
+            text=f"Estimated ({positive_id}{difference.days} days)",
             text_font_style="italic",
             text_font_size="8pt",
         )
         p.add_layout(label)
+
+        if not legend_added:
+            legend = Legend(items=legend_items, location=(0, -60))
+            p.add_layout(legend, "right")
+            legend_added = True
+
         # taptool = p.select(type=TapTool)
         # taptool.callback = OpenURL(url="@task_urls")  # TODO: Finish!
 
