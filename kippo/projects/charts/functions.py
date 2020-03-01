@@ -7,7 +7,6 @@ from collections import Counter, defaultdict
 from math import pi
 from typing import Dict, List
 
-from bokeh.core.properties import value
 from bokeh.embed import components
 from bokeh.models import Legend
 from bokeh.palettes import all_palettes
