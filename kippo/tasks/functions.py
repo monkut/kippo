@@ -451,6 +451,10 @@ def _add_assignee_project_data(
                 assignee_max_task_date = task_date
             elif assignee_max_task_date and assignee_max_task_date < task_date:
                 assignee_max_task_date = task_date
+            logger.debug(
+                f"assignee_github_login={assignee_github_login}, assignee_max_task_date={assignee_max_task_date}, project_name={project_name}, "
+                f"task.title={task.title} ({latest_kippotaskstatus.estimate_days}) {task.github_issue_html_url}"
+            )
             assignee_data["project_ids"].append(project_id)
             assignee_data["project_names"].append(project_name)
             assignee_data["assignees"].append(assignee_github_login)
