@@ -9,6 +9,7 @@ from typing import Dict, List
 
 from bokeh.core.properties import value
 from bokeh.embed import components
+from bokeh.models import Legend
 from bokeh.palettes import all_palettes
 from bokeh.plotting import figure
 from bokeh.resources import CDN
@@ -198,8 +199,13 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     )
     if burndown_line:
         p.line(*burndown_line, line_width=2, line_color="#BCBCBC", line_dash="dashed")
-    p.vbar_stack(assignees, x="effort_date", width=0.9, color=colors, source=data, legend=[value(user) for user in assignees])
+    assignee_effort_per_day_stacked = p.vbar_stack(assignees, x="effort_date", width=0.9, color=colors, source=data)
     logger.debug(data)
+    legend_items = []
+    for idx, assignee_name in enumerate(assignees):
+        legend_items.append((assignee_name, [assignee_effort_per_day_stacked[idx]]))
+    legend = Legend(items=legend_items, location=(0, -60))
+    p.add_layout(legend, "right")
 
     p.y_range.start = 0
     p.yaxis.axis_label = "Effort (days)"
@@ -209,8 +215,6 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     p.xgrid.grid_line_color = None
     p.axis.minor_tick_line_color = None
     p.outline_line_color = None
-    p.legend.location = "bottom_left"
-    p.legend.orientation = "vertical"
 
     script, div = components(p, CDN)
     return script, div
