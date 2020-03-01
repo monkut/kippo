@@ -65,6 +65,7 @@ def prepare_project_schedule_chart_components(
 
     plots = []
     chart_minimum_height = 120
+    chart_minimum_width = 155
     legend_added = False
     for project_id, project_start_date, project_target_date, project_estimated_date, data in project_data:
         legend_items = []
@@ -72,6 +73,7 @@ def prepare_project_schedule_chart_components(
         source = ColumnDataSource(data)
         y_range = set(data["project_assignee_grouped"])
         calculated_plot_height = (len(y_range) * 15) + chart_minimum_height
+        calculated_plot_width = (display_days * 22) + chart_minimum_width
         difference = project_estimated_date - project_target_date
         positive_id = ""
         if difference.days > 0:
@@ -80,7 +82,7 @@ def prepare_project_schedule_chart_components(
             title=f"Target Completion={project_target_date}, Estimated Completion={project_estimated_date} ({positive_id}{difference})",
             y_range=FactorRange(*sorted(y_range)),
             x_range=(min_date, max_date),
-            plot_width=display_days * 22,
+            plot_width=calculated_plot_width,
             plot_height=calculated_plot_height,
             toolbar_location=None,
             tools=[hover],
