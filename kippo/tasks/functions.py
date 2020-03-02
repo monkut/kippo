@@ -100,19 +100,25 @@ def get_github_issue_estimate_label(
                 if estimate_str_value.endswith(suffix):  # d = days, h = hours
                     estimate_str_value = estimate_str_value.split(suffix)[0]
 
-            candidate_estimate = int(estimate_str_value)
+            try:
+                candidate_estimate = int(estimate_str_value)
+            except ValueError:
+                logger.error(f"Invalid estimate value cannot convert to int() estimate_str_value={estimate_str_value}, label.name={label.name}")
 
-            if label.name.endswith(("h", "hour", "hours")):
-                # all estimates are normalized to days
-                # if hours convert to a days
-                candidate_estimate = int(ceil(candidate_estimate / day_workhours))
+            if candidate_estimate:
+                if label.name.endswith(("h", "hour", "hours")):
+                    # all estimates are normalized to days
+                    # if hours convert to a days
+                    candidate_estimate = int(ceil(candidate_estimate / day_workhours))
 
-            if estimate and candidate_estimate:
-                if candidate_estimate > estimate:
-                    logger.warning(f"multiple estimate labels found for issue({issue}), using the larger value: {estimate} -> {candidate_estimate}")
+                if estimate and candidate_estimate:
+                    if candidate_estimate > estimate:
+                        logger.warning(
+                            f"multiple estimate labels found for issue({issue}), using the larger value: {estimate} -> {candidate_estimate}"
+                        )
+                        estimate = candidate_estimate
+                else:
                     estimate = candidate_estimate
-            else:
-                estimate = candidate_estimate
 
     return estimate
 
