@@ -1,20 +1,19 @@
 import logging
 from collections import Counter
 
-from django.shortcuts import render
-from django.utils import timezone
-from django.http import HttpResponseBadRequest
 from django.conf import settings
 from django.contrib import messages
-from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
-
-from projects.models import KippoProject
+from django.db.models import Count
+from django.http import HttpResponseBadRequest
+from django.shortcuts import render
+from django.utils import timezone
 from projects.functions import get_user_session_organization
-from .exceptions import ProjectConfigurationError
-from .models import KippoTask, KippoTaskStatus
-from .functions import prepare_project_engineering_load_plot_data
+from projects.models import KippoProject
 
+from .exceptions import ProjectConfigurationError
+from .functions import prepare_project_engineering_load_plot_data
+from .models import KippoTask, KippoTaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,11 @@ def assignee_project_keyfunc(task_object: KippoTask) -> tuple:
     :param task_object:
     :return: (task_object.assignee.username, task_object.project.name)
     """
-    username = ''
+    username = ""
     if task_object.assignee:
         username = task_object.assignee.username
 
-    project = ''
+    project = ""
     if task_object.project:
         project = task_object.project.name
 
@@ -44,8 +43,7 @@ def assignee_project_keyfunc(task_object: KippoTask) -> tuple:
 
 @staff_member_required
 def view_inprogress_task_status(request):
-    github_login = request.GET.get('github_login', None)
-    display_state_filter = request.GET.get('state', None)
+    github_login = request.GET.get("github_login", None)
 
     # Collect tasks with TaskStatus updated this last 2 weeks
     two_weeks_ago = timezone.timedelta(days=14)
@@ -55,51 +53,37 @@ def view_inprogress_task_status(request):
         selected_organization, user_organizations = get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
-    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by('name')
+    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by("name")
 
-    # TODO: fix so that done columns is accurately applied per project
-    # --> Temporary Workaround
-    # --> This will work IF all projects share the same 'Done' state,
-    # --> But does NOT support project defined done/active state properly!!!
-    done_column_names = []
+    additional_filters = {}
+    if github_login:
+        additional_filters["task__assignee__github_login"] = github_login
+
+    active_taskstatus = []
     for project in KippoProject.objects.filter(is_closed=False):
-        done_column_names.extend(project.columnset.get_done_column_names())
-    done_column_names = list(set(done_column_names))
+        project_active_taskstatuses, _ = project.get_active_taskstatus(additional_filters=additional_filters)
+        active_taskstatus.extend(project_active_taskstatuses)
 
     task_state_counts = {
-        r['state']: r['state__count']
-        for r in KippoTaskStatus.objects.filter(
-            effort_date__gte=active_taskstatus_startdate
-        ).values('state').order_by('state').annotate(Count('state'))
+        r["state"]: r["state__count"]
+        for r in KippoTaskStatus.objects.filter(effort_date__gte=active_taskstatus_startdate)
+        .values("state")
+        .order_by("state")
+        .annotate(Count("state"))
     }
     total_state_count = sum(task_state_counts.values())
-    task_state_counts['total'] = total_state_count
-
-    # Removed Exclude Categories
-    if display_state_filter:
-        display_state_filter = [display_state_filter]
-    else:
-        display_state_filter = done_column_names
-
-    # NOTE: done can not be
-    active_taskstatus = KippoTaskStatus.objects.filter(
-        effort_date__gte=active_taskstatus_startdate,
-        state__in=display_state_filter,
-        task__github_issue_api_url__isnull=False,  # filter out non-linked tasks
-    ).exclude(task__project__is_closed=True)
+    task_state_counts["total"] = total_state_count
 
     # apply specific user filter if defined
     script = None
     div = None
     latest_effort_date = None
     if github_login:
-        active_taskstatus = active_taskstatus.filter(task__assignee__github_login=github_login)
-
         try:
             (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization, assignee_filter=github_login)
         except ProjectConfigurationError as e:
-            logger.error(f'ProjectConfigurationError: ({e.args}): {request.build_absolute_uri()}')
-            msg = f'ProjectConfigurationError: {e.args}'
+            logger.error(f"ProjectConfigurationError: ({e.args}): {request.build_absolute_uri()}")
+            msg = f"ProjectConfigurationError: {e.args}"
             messages.add_message(request, messages.ERROR, msg)
 
     # collect unique Tasks
@@ -120,14 +104,14 @@ def view_inprogress_task_status(request):
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=assignee_project_keyfunc)
     context = {
-        'tasks': sorted_tasks,
-        'active_projects': active_projects,
-        'user_effort_totals': dict(user_effort_totals),
-        'task_state_counts': task_state_counts,
-        'chart_script': script,
-        'chart_div': div,
-        'latest_effort_date': latest_effort_date,
-        'messages': messages.get_messages(request),
+        "tasks": sorted_tasks,
+        "active_projects": active_projects,
+        "user_effort_totals": dict(user_effort_totals),
+        "task_state_counts": task_state_counts,
+        "chart_script": script,
+        "chart_div": div,
+        "latest_effort_date": latest_effort_date,
+        "messages": messages.get_messages(request),
     }
 
-    return render(request, 'tasks/view_inprogress_task_status.html', context)
+    return render(request, "tasks/view_inprogress_task_status.html", context)

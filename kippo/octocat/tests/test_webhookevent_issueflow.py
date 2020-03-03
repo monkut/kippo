@@ -333,6 +333,48 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         # make sure that originally assigned user does NOT have previously related estimate days
         self.assertEqual(self.user1.get_estimatedays(), 0.0)
 
+    def test_webhookevents_issue_from_note__get_events(self):
+        scenario_directory = TESTDATA_DIRECTORY / "issue_creation_from_note"
+        for event_filepath in sorted(scenario_directory.glob("0*")):
+            event, _ = load_webhookevent(event_filepath, secret_encoded=self.secret_encoded, decode=True)
+            event_type = "project_card"
+            if "issues" in event_filepath.name:
+                event_type = "issues"
+            webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type=event_type, event=event)
+            webhookevent.save()
+        assert GithubWebhookEvent.objects.all().count() == 6
+        assert KippoTask.objects.all().count() == 0
+
+        issue_json = {"issue": json.loads((scenario_directory / "issue43_opened.json").read_text(encoding="utf8"))}
+        issue_opened = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
+
+        issue_json = {"issue": json.loads((scenario_directory / "issue43_assigned.json").read_text(encoding="utf8"))}
+        issue_assigned = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
+
+        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_1.json").read_text(encoding="utf8"))}
+        issue_labeled_1 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
+
+        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_2.json").read_text(encoding="utf8"))}
+        issue_labeled_2 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
+
+        side_effects = (issue_opened, issue_assigned, issue_labeled_1, issue_labeled_2)
+        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", side_effect=side_effects):
+            self.githubwebhookprocessor.process_webhook_events()
+
+        self.assertEqual(GithubWebhookEvent.objects.filter(state="processed").count(), 5)
+        self.assertEqual(GithubWebhookEvent.objects.filter(state="ignore").count(), 1)
+
+        tasks = list(KippoTask.objects.all())
+        self.assertEqual(len(tasks), 1)
+
+        task = tasks[0]
+        self.assertEqual(task.assignee, self.user2)
+        self.assertEqual(task.category, "setup")
+
+        lastest_taskstatus = task.latest_kippotaskstatus()
+        self.assertEqual(lastest_taskstatus.state, "planning")
+        self.assertEqual(lastest_taskstatus.estimate_days, 3)
+
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
     #     raise NotImplementedError
     #
