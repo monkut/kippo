@@ -78,7 +78,7 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         self.assertTrue(actual == expected, f"actual({actual}) != expected({expected})")
 
         # confirm that the order of events is as expected
-        expected = ("issues", "issue_comment", "project_card")
+        expected = ("project_card", "issues", "issue_comment")
         actual = tuple([e.event_type for e in events])
         self.assertTrue(actual == expected, f"actual({actual}) != expected({expected})")
 
