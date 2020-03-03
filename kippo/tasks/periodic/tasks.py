@@ -204,10 +204,11 @@ class OrganizationIssueProcessor:
                 logger.warning(f"Not assigned ({issue_assignee}): {issue.html_url}")
             else:
                 # only add task if issue is assigned to someone in the system!
+                category = get_github_issue_category_label(issue)
+                if not category:
+                    category = default_task_category
+
                 if not existing_task:
-                    category = get_github_issue_category_label(issue)
-                    if not category:
-                        category = default_task_category
                     existing_task = KippoTask(
                         created_by=self.github_manager_user,
                         updated_by=self.github_manager_user,
@@ -238,11 +239,12 @@ class OrganizationIssueProcessor:
                     existing_task.milestone = kippo_milestone
                     existing_task.save()
 
+                existing_changed = False
                 if issue.title != existing_task.title or issue.body != existing_task.description:
                     logger.debug(f"Updating KippoTask.(title|description)")
                     existing_task.title = issue.title
                     existing_task.description = issue.body
-                    existing_task.save()
+                    existing_changed = True
 
                 latest_comment = build_latest_comment(issue)
 
@@ -267,6 +269,19 @@ class OrganizationIssueProcessor:
                 task_state = issue.project_column if issue.project_column else default_column
                 logger.debug(f"KippoTask({existing_task.github_issue_html_url}) task_state: {task_state}")
 
+                # check if title was updated, if updated, update related kippotask
+                if issue.title != existing_task.title:
+                    existing_task.title = issue.title
+                    existing_changed = True
+                if issue.is_closed != existing_task.is_closed:
+                    existing_task.is_closed = issue.is_closed
+                    existing_changed = True
+                if existing_task.category != category:
+                    existing_task.category = category
+                    existing_changed = True
+                if existing_changed:
+                    existing_task.save()
+
                 # create or update KippoTaskStatus with updated estimate
                 status_values = {
                     "created_by": self.github_manager_user,
@@ -281,13 +296,6 @@ class OrganizationIssueProcessor:
                 status, created = KippoTaskStatus.objects.get_or_create(
                     task=existing_task, effort_date=self.status_effort_date, defaults=status_values
                 )
-                # check if title was updated, if updated, update related kippotask
-                if issue.title != existing_task.title:
-                    existing_task.title = issue.title
-                    existing_task.save()
-                if issue.is_closed != existing_task.is_closed:
-                    existing_task.is_closed = issue.is_closed
-                    existing_task.save()
 
                 if created:
                     new_taskstatus_objects.append(status)

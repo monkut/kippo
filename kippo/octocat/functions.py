@@ -469,14 +469,24 @@ class GithubWebhookProcessor:
 
     def _get_events(self) -> Generator:
         # process event_types in the following order
-        #  - To assure that task/taskstatus exist before processing 'issue_comment' & 'project_card' events
-        event_types_to_process = ("issues", "issue_comment", "project_card")
-
+        # - Make sure that issue is created and linked to the appropriate project (via project_card)
+        event_types_to_process = ("project_card", "issues", "issue_comment")
         for event_type in event_types_to_process:
             unprocessed_events_for_update = GithubWebhookEvent.objects.filter(state="unprocessed", event_type=event_type).order_by("created_datetime")
             unprocessed_events = copy.copy(unprocessed_events_for_update)
             unprocessed_events_for_update.update(state="processing")
-            yield from unprocessed_events
+            if event_type == "issues":
+                # make sure "opened" action events are processed first
+                other_actions = []
+                for e in unprocessed_events:
+                    if e.event["action"] == "opened":
+                        yield e
+                    else:
+                        other_actions.append(e)
+                for e in other_actions:
+                    yield e
+            else:
+                yield from unprocessed_events
 
     def process_webhook_events(self, webhookevents: Optional[List[GithubWebhookEvent]] = None) -> Counter:
         processed_events = Counter()
