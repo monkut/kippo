@@ -146,7 +146,7 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
 
 @admin.register(GithubWebhookEvent)
 class GithubWebhookEventAdmin(admin.ModelAdmin):
-    list_display = ("id", "organization", "created_datetime", "updated_datetime", "event_type", "state")
+    list_display = ("id", "organization", "created_datetime", "updated_datetime", "event_type", "get_event_action", "state")
     readonly_fields = ("id", "organization", "created_datetime", "updated_datetime", "event_type", "state", "get_pprint_event")
 
     actions = ["process_webhook_events", "reset_webhook_events"]
@@ -160,6 +160,14 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
         return result
 
     get_pprint_event.short_description = "event"
+
+    def get_event_action(self, obj=None):
+        action = ""
+        if obj and obj.event:
+            action = obj.event.get("action", "")
+        return action
+
+    get_event_action.short_description = _("ACTION")
 
     def process_webhook_events(self, request, queryset):
         queryset = queryset.filter(state="unprocessed")
