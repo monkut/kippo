@@ -73,6 +73,17 @@ def setup_basic_project(organization=None, repository_name="Hello-World", github
     )
     kippo_project2.save()
 
+    github_repo = GithubRepository(
+        organization=organization,
+        name=repository_name,
+        api_url=f"https://api.github.com/repos/{organization.github_organization_name}/{repository_name}",
+        html_url=f"https://github.com/{organization.github_organization_name}/{repository_name}",
+        created_by=user,
+        updated_by=user,
+    )
+    github_repo.save()
+    created_objects["GithubRepository"] = github_repo
+
     kippo_task = KippoTask(
         title="githubcodesorg test task-1",
         category="test category",
@@ -85,17 +96,6 @@ def setup_basic_project(organization=None, repository_name="Hello-World", github
     )
     kippo_task.save()
     created_objects["KippoTask"] = kippo_task
-
-    github_repo = GithubRepository(
-        organization=organization,
-        name=repository_name,
-        api_url=f"https://api.github.com/repos/{organization.github_organization_name}/{repository_name}",
-        html_url=f"https://github.com/{organization.github_organization_name}/{repository_name}",
-        created_by=user,
-        updated_by=user,
-    )
-    github_repo.save()
-    created_objects["GithubRepository"] = github_repo
 
     return created_objects
 

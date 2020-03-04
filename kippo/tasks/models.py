@@ -1,3 +1,5 @@
+import logging
+import urllib.parse
 from typing import Optional
 
 from common.models import UserCreatedBaseModel
@@ -5,6 +7,8 @@ from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
+
+logger = logging.getLogger(__name__)
 
 
 class KippoTask(UserCreatedBaseModel):
@@ -45,8 +49,39 @@ class KippoTask(UserCreatedBaseModel):
         return latest_task_status.estimate_days
 
     def save(self, *args, **kwargs):
+        from accounts.models import get_climanager_user
+        from octocat.models import GithubRepository
+
         if self.is_closed and not self.closed_datetime:
             self.closed_datetime = timezone.now()
+
+        # check if repository already exists
+        if self.github_issue_html_url:
+            # issue url structure:
+            # https://github.com/{ORGANIZATION}/{REPOSITORY}/issues/1
+            parsed_url = urllib.parse.urlparse(self.github_issue_html_url)
+            repo_name_index = 2
+            repository_name = parsed_url.path.split("/")[repo_name_index]
+            repository_api_url = f"https://api.github.com/repos/{self.project.organization.github_organization_name}/{repository_name}"
+            repository_html_url = f"https://github.com/{self.project.organization.github_organization_name}/{repository_name}"
+            try:
+                existing_repository = GithubRepository.objects.get(name=repository_name, api_url=repository_api_url, html_url=repository_html_url)
+                logger.debug(f"respository exists: {existing_repository.name}")
+            except GithubRepository.DoesNotExist:
+                logger.info(f"Creating *NEW* repository({repository_name})...")
+                climanager_user = get_climanager_user()
+                new_repository = GithubRepository(
+                    organization=self.project.organization,
+                    name=repository_name,
+                    api_url=repository_api_url,
+                    html_url=repository_html_url,
+                    label_set=self.project.organization.default_labelset,  # may be Null/None
+                    created_by=climanager_user,
+                    updated_by=climanager_user,
+                )
+                new_repository.save()
+                logger.info(f"Creating *NEW* repository({repository_name})...SUCCESS!")
+
         super().save(*args, **kwargs)
 
     def __str__(self):
