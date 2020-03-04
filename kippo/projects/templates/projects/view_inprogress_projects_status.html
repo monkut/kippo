@@ -70,8 +70,7 @@
         <tr>
             {% if task.assignee %}
                 <td>
-                    {{ task.assignee.first_name }} {{ task.assignee.last_name }}
-                    (<a href="{{URL_PREFIX}}/tasks/?github_login={{ task.assignee.github_login }}">{{ task.assignee.github_login }}</a>)
+                    <a href="{{URL_PREFIX}}/tasks/?github_login={{ task.assignee.github_login }}">{{ task.assignee.display_name }}</a>
                 </td>
             {% else %}
                 <td></td>

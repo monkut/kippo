@@ -230,7 +230,10 @@ class KippoUser(AbstractUser):
 
     @property
     def display_name(self):
-        return f"{self.last_name}, {self.first_name} ({self.github_login})"
+        github_login_display = self.github_login
+        if self.github_login.startswith("unassigned"):
+            github_login_display = "unassigned"
+        return f" {self.first_name} {self.last_name} ({github_login_display})"
 
     def personal_holiday_dates(self) -> Generator[datetime.date, None, None]:
         for holiday in PersonalHoliday.objects.filter(user=self):
