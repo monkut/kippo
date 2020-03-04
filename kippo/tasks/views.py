@@ -60,7 +60,7 @@ def view_inprogress_task_status(request):
         additional_filters["task__assignee__github_login"] = github_login
 
     active_taskstatus = []
-    for project in KippoProject.objects.filter(is_closed=False):
+    for project in active_projects:
         project_active_taskstatuses, _ = project.get_active_taskstatus(additional_filters=additional_filters)
         active_taskstatus.extend(project_active_taskstatuses)
 
@@ -104,6 +104,8 @@ def view_inprogress_task_status(request):
     # sort tasks by assignee.username, project.name
     sorted_tasks = sorted(unique_tasks, key=assignee_project_keyfunc)
     context = {
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
         "tasks": sorted_tasks,
         "active_projects": active_projects,
         "user_effort_totals": dict(user_effort_totals),
