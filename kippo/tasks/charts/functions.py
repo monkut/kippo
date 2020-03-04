@@ -65,7 +65,7 @@ def prepare_project_schedule_chart_components(
 
     plots = []
     chart_minimum_height = 120
-    chart_minimum_width = 155
+    chart_minimum_width = 175
     legend_added = False
     for project_id, project_start_date, project_target_date, project_estimated_date, data in project_data:
         legend_items = []
