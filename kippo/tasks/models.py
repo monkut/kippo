@@ -65,7 +65,10 @@ class KippoTask(UserCreatedBaseModel):
             repository_api_url = f"https://api.github.com/repos/{self.project.organization.github_organization_name}/{repository_name}"
             repository_html_url = f"https://github.com/{self.project.organization.github_organization_name}/{repository_name}"
             try:
-                existing_repository = GithubRepository.objects.get(name=repository_name, api_url=repository_api_url, html_url=repository_html_url)
+                # using '__startswith' to assure match in cases where an *older* url as added with an ending '/'.
+                existing_repository = GithubRepository.objects.get(
+                    name=repository_name, api_url__startswith=repository_api_url, html_url__startswith=repository_html_url
+                )
                 logger.debug(f"respository exists: {existing_repository.name}")
             except GithubRepository.DoesNotExist:
                 logger.info(f"Creating *NEW* repository({repository_name})...")

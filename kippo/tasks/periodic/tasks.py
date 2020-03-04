@@ -89,7 +89,6 @@ class OrganizationIssueProcessor:
             try:
                 github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
             except GithubRepository.DoesNotExist as e:
-                logger.exception(e)
                 logger.error(f"GithubRepository.DoesNotExist: {issue.repository_url}")
                 raise
 
@@ -140,6 +139,7 @@ class OrganizationIssueProcessor:
             html_url = html_url[:-1]
         try:
             # using '__startswith' to assure match in cases where an *older* url as added with an ending '/'.
+            logger.debug(f"retrieving repo_name={repo_name}, api_url={api_url}, html_url={html_url}")
             kippo_github_repository = GithubRepository.objects.get(name=repo_name, api_url__startswith=api_url, html_url__startswith=html_url)
         except GithubRepository.DoesNotExist:
             logger.warning(f"GithubRepository.DoesNotExist: name={repo_name}, api_url={api_url}, html_url={html_url}")
@@ -157,7 +157,7 @@ class OrganizationIssueProcessor:
                     label_set=self.organization.default_labelset,  # may be Null/None
                 )
                 kippo_github_repository.save()
-                logger.info(f">>> Created GithubRepository({repo_name})!")
+                logger.info(f">>> Created GithubRepository: repo_name={repo_name}, api_url={api_url}, html_url={html_url}")
             else:
                 message = f"XXX Invalid html_url for GithubRepository, SKIPPING: {html_url}"
                 logger.error(message)
@@ -224,7 +224,6 @@ class OrganizationIssueProcessor:
                     try:
                         existing_task.save()
                     except IntegrityError as e:
-                        logger.exception(e)
                         logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
                         continue
                     is_new_task = True
