@@ -88,7 +88,7 @@ class OrganizationIssueProcessor:
             # collect repository
             try:
                 github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
-            except GithubRepository.DoesNotExist as e:
+            except GithubRepository.DoesNotExist:
                 logger.error(f"GithubRepository.DoesNotExist: {issue.repository_url}")
                 raise
 
@@ -223,7 +223,7 @@ class OrganizationIssueProcessor:
                     )
                     try:
                         existing_task.save()
-                    except IntegrityError as e:
+                    except IntegrityError:
                         logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
                         continue
                     is_new_task = True
