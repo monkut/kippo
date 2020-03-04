@@ -452,6 +452,9 @@ def _add_assignee_project_data(
         project_start_date = task.project.start_date
         project_target_date = task.project.target_date
         project_assignee_group = (task.project.name, assignee_github_login)
+        if assignee_github_login.startswith("unassigned"):
+            project_assignee_group = (task.project.name, "unassigned")
+
         for task_date in task.qlu_task.scheduled_dates:
             if not assignee_max_task_date:
                 assignee_max_task_date = task_date
