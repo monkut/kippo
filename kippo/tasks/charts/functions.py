@@ -1,14 +1,18 @@
 import datetime
 import logging
-from typing import Dict, List, Tuple
+from collections import defaultdict
+from math import pi
+from typing import Any, Dict, List, Tuple
 
+import pandas as pd
 from bokeh.embed import components
-from bokeh.layouts import column
+from bokeh.layouts import column, layout
 from bokeh.models import ColumnDataSource, DatetimeTicker, FactorRange, HoverTool, Label, Legend
 from bokeh.models.glyphs import VBar
-from bokeh.palettes import Category20
+from bokeh.palettes import Category20, Category20c
 from bokeh.plotting import figure
 from bokeh.resources import CDN
+from bokeh.transform import cumsum
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +20,7 @@ ONE_DAY = (3600000 * 24) - 25
 
 
 def prepare_project_schedule_chart_components(
-    project_data: List[Tuple[str, datetime.date, datetime.date, datetime.date, dict]],
+    project_data: List[Tuple[str, datetime.date, datetime.date, datetime.date, dict, Dict[str, Any]]],
     start_date: datetime.date,
     project_milestones: Dict[str, List[dict]] = None,
     display_days: int = 65,
@@ -63,11 +67,12 @@ def prepare_project_schedule_chart_components(
         tooltips=display_tooltips,
     )
 
-    plots = []
+    schedule_plots = []
+    project_effort_plots = []
     chart_minimum_height = 120
     chart_minimum_width = 175
     legend_added = False
-    for project_id, project_start_date, project_target_date, project_estimated_date, data in project_data:
+    for project_id, project_start_date, project_target_date, project_estimated_date, data, assignee_data in project_data:
         legend_items = []
         logger.debug(f"preparing project_id; {project_id}")
         source = ColumnDataSource(data)
@@ -239,10 +244,52 @@ def prepare_project_schedule_chart_components(
         p.xaxis.axis_label = "Dates"
         p.xaxis.major_label_orientation = "vertical"
         p.outline_line_color = None
-        plots.append(p)
-    if len(plots) > 1:
-        script, div = components(column(*plots), CDN)
-    else:
-        plot = plots[0]
-        script, div = components(plot, CDN)
+        schedule_plots.append(p)
+
+        # prepare project work effort plot
+        processed_data = defaultdict(list)
+        for assignee, assignee_specific_data in assignee_data.items():
+            processed_data["assignee"].append(assignee)
+            processed_data["value"].append(assignee_specific_data["total_scheduled_days"])
+            date_str = ""
+            if assignee_specific_data["estimated_complete_date"]:
+                date_str = assignee_specific_data["estimated_complete_date"].strftime("%Y-%m-%d")
+            processed_data["last_scheduled_date"].append(date_str)
+
+        data = pd.DataFrame(processed_data)
+        data["angle"] = data["value"] / data["value"].sum() * 2 * pi
+        data["perc"] = data["value"] / data["value"].sum() * 100
+        if len(assignee_data) < 3:
+            data["color"] = Category20c[3][: len(assignee_data)]
+        else:
+            data["color"] = Category20c[len(assignee_data)]
+
+        p = figure(
+            plot_height=calculated_plot_height,
+            plot_width=200,
+            toolbar_location=None,
+            tools="hover",
+            tooltips="@assignee: @value days (@perc%) @last_scheduled_date",
+        )
+
+        p.wedge(
+            x=0,
+            y=1,
+            radius=0.5,
+            start_angle=cumsum("angle", include_zero=True),
+            end_angle=cumsum("angle"),
+            line_color="white",
+            fill_color="color",
+            source=data,
+        )
+
+        p.axis.axis_label = None
+        p.axis.visible = False
+        p.grid.grid_line_color = None
+        p.outline_line_color = None
+        project_effort_plots.append(p)
+
+        # add effort pie chart
+    layouts = layout([[column(*schedule_plots), column(*project_effort_plots)]])
+    script, div = components(layouts, CDN)
     return script, div
