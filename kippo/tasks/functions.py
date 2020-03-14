@@ -453,7 +453,8 @@ def _add_assignee_project_data(
         project_start_date = task.project.start_date
         project_target_date = task.project.target_date
         project_assignee_group = (task.project.name, assignee_kippouser.display_name)
-        assignee_total_scheduled_days += latest_kippotaskstatus.estimate_days
+        if latest_kippotaskstatus and latest_kippotaskstatus.estimate_days:
+            assignee_total_scheduled_days += latest_kippotaskstatus.estimate_days
 
         for task_date in task.qlu_task.scheduled_dates:
             if not assignee_max_task_date:
