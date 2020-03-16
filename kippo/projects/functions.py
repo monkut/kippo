@@ -6,7 +6,6 @@ from urllib.parse import urlsplit
 from accounts.models import KippoOrganization, KippoUser
 from django.http import HttpRequest
 from ghorgs.managers import GithubOrganizationManager
-from tasks.models import KippoTaskStatus
 
 from .models import KippoProject
 

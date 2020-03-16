@@ -12,8 +12,7 @@ from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Count, Max, QuerySet, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Max, QuerySet, Sum
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
