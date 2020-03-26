@@ -12,7 +12,7 @@ from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Max, Sum
+from django.db.models import Max, QuerySet, Sum
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -279,6 +279,30 @@ class KippoProject(UserCreatedBaseModel):
         if any(status.estimate_days for status in taskstatus_results):
             has_estimates = True
         return taskstatus_results, has_estimates
+
+    def get_latest_taskstatuses(
+        self, current_date: Optional[timezone.datetime.date] = None, active_only: bool = False
+    ) -> QuerySet:  # KippoTaskStatus
+        """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
+        if not current_date:
+            current_date = timezone.now().date()
+
+        target_kippotaskstatus_ids = (
+            KippoTaskStatus.objects.filter(
+                task__github_issue_api_url__isnull=False, task__project=self, effort_date__lte=current_date  # filter out non-linked tasks
+            )
+            .order_by("task__github_issue_api_url", "-effort_date")
+            .distinct("task__github_issue_api_url")
+            .values_list("pk", flat=True)
+        )
+
+        # filter by active columns and get desired values
+        valid_column_states = self.get_column_names()
+        if active_only:
+            valid_column_states = self.get_active_column_names() + ["open"]
+
+        status_entries = KippoTaskStatus.objects.filter(pk__in=target_kippotaskstatus_ids, state__in=valid_column_states)
+        return status_entries
 
     def get_projectsurvey_url(self):
         """
