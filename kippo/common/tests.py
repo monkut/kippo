@@ -72,6 +72,7 @@ def setup_basic_project(organization=None, repository_name="Hello-World", github
         updated_by=user,
     )
     kippo_project2.save()
+    created_objects["KippoProject2"] = kippo_project2
 
     github_repo = GithubRepository(
         organization=organization,

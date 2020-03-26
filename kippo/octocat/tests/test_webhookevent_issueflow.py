@@ -7,6 +7,7 @@ from accounts.models import KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
+from projects.models import KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import GithubWebhookProcessor
@@ -35,6 +36,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         self.organization = results["KippoOrganization"]
         self.secret_encoded = self.organization.webhook_secret.encode("utf8")
         self.project = results["KippoProject"]
+        self.project2 = results["KippoProject2"]
         self.user1 = results["KippoUser"]
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
@@ -424,6 +426,115 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         new_repo = new_repos[0]
         self.assertEqual(new_repo.name, "myotherrepo")
         self.assertEqual(new_repo.label_set, self.organization.default_labelset)
+
+    def test_webhookevent_issue_unassigned_closed_task_github_user_removed(self):
+        assert KippoTask.objects.count() == 0
+
+        # --> to test multiple tasks created issue
+        assert KippoProject.objects.count() == 2
+
+        # create initially related task and status entry
+        task0 = KippoTask(
+            title="sample+title",
+            category="cat1",
+            github_issue_html_url="https://github.com/myorg/myrepo/issues/2",
+            github_issue_api_url="https://api.github.com/repos/myorg/myrepo/issues/2",
+            project=self.project,
+            assignee=self.user1,  # octocat
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0.save()
+        taskstatus_estimate_days = 3
+        task0status = KippoTaskStatus(
+            task=task0,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="done",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0status.save()
+
+        task1 = KippoTask(
+            title="sample+title",
+            category="cat1",
+            github_issue_html_url="https://github.com/myorg/myrepo/issues/657",
+            github_issue_api_url="https://api.github.com/repos/myorg/myrepo/issues/657",
+            project=self.project,
+            assignee=self.user1,  # octocat
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task1.save()
+        taskstatus_estimate_days = 3
+        task1status = KippoTaskStatus(
+            task=task1,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="done",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task1status.save()
+
+        # create task in same repository in other project
+        task2 = KippoTask(
+            title="sample+title2",
+            category="cat1",
+            github_issue_html_url="https://github.com/myorg/myrepo/issues/1",
+            github_issue_api_url="https://api.github.com/repos/myorg/myrepo/issues/1",
+            project=self.project2,
+            assignee=self.user1,  # octocat
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task2.save()
+        taskstatus_estimate_days = 3
+        task2status = KippoTaskStatus(
+            task=task2,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="done",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task2status.save()
+
+        # confirm that initial user has related estimate days as expected
+        assert self.user1.get_estimatedays() == 0  # task is "done" and therefore does not issue a estimate
+
+        scenario_directory = TESTDATA_DIRECTORY / "github_user_removed"
+
+        # issue created -- planning
+        # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
+        event_1_filepath = scenario_directory / "issues_webhook_unassigned.json"
+        event_1, _ = load_webhookevent(event_1_filepath, secret_encoded=self.secret_encoded, decode=True)
+        unassigned_webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_1)
+        unassigned_webhookevent.save()
+
+        self.githubwebhookprocessor.process_webhook_events([unassigned_webhookevent])
+        unassigned_webhookevent.refresh_from_db()
+        self.assertEqual(unassigned_webhookevent.state, "processed")
+
+        task_count = KippoTask.objects.filter(github_issue_html_url="https://github.com/myorg/myrepo/issues/657").count()
+        self.assertEqual(task_count, 1)
+
+        # check that related task was changed/updated to new assignee
+        task1 = KippoTask.objects.get(github_issue_html_url="https://github.com/myorg/myrepo/issues/657")
+        organization_unassigned_kippouser = self.organization.get_unassigned_kippouser()
+        self.assertEqual(task1.assignee, organization_unassigned_kippouser)
+
+        # check that new assignee (octocat2) has current KippoTaskStatus
+        # -- NOTE: all TaskStatus is changed to new assignee
+        actual_estimate_days = organization_unassigned_kippouser.get_estimatedays()
+        self.assertEqual(actual_estimate_days, 0.0)
+
+        # check that a new status is created
+        latest_kippotaskstatus = task1.latest_kippotaskstatus()
+        self.assertNotEqual(latest_kippotaskstatus.id, task1status.id)
+
+        self.assertEqual(latest_kippotaskstatus.state, "done")
 
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
     #     raise NotImplementedError
