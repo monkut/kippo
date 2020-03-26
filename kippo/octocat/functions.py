@@ -237,12 +237,12 @@ class GithubWebhookProcessor:
             else:
                 logger.info(f"processing {kippo_project} webhook event...")
                 task_api_url = webhookevent.event["project_card"]["content_url"]
-                github_column_id = webhookevent.event["project_card"]["column_id"]
-                columnid2name_mapping = kippo_project.get_columnset_id_to_name_mapping()
-                column_name = columnid2name_mapping.get(github_column_id, None)
+                github_column_id = int(webhookevent.event["project_card"]["column_id"])
+                column_name = kippo_project.get_columnname_from_id(github_column_id)
                 if not column_name:
                     logger.error(
-                        f"column_name for column_id({github_column_id}) not in KippProject.get_columnset_id_to_name_mapping(): {columnid2name_mapping}"
+                        f"column_name for column_id({github_column_id}) not in KippProject.get_columnset_id_to_name_mapping(): "
+                        f"{kippo_project.get_columnset_id_to_name_mapping()}"
                     )
                     state = "error"
                 else:
@@ -399,10 +399,20 @@ class GithubWebhookProcessor:
 
         # get related kippo project
         # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
-        repository_api_url = githubissue.repository_url
-        candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)}
+
+        # get project with existing task
+        candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url=githubissue.url)}
+        if not candidate_projects:
+            repository_api_url = githubissue.repository_url
+            logger.warning(
+                f"No exact match found for github_issue_api_url={githubissue.url}, finding projects by repository_api_url={repository_api_url}"
+            )
+            candidate_projects = {
+                p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)
+            }
+
+        logger.debug(f"len(candidate_projects)={candidate_projects}")
         if len(candidate_projects) > 1:
-            logger.debug(f"len(candidate_projects)={candidate_projects}")
             logger.warning(f"More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}")
         elif len(candidate_projects) <= 0:
             raise ProjectNotFoundError(
@@ -415,6 +425,7 @@ class GithubWebhookProcessor:
             try:
                 is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
                 result = "processed"
+                logger.info(f"project_name={project_name}, is_new_task={is_new_task}")
             except GithubRepositoryUrlError as e:
                 logger.exception(e)
                 result = "error"

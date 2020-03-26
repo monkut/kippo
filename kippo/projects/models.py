@@ -214,6 +214,10 @@ class KippoProject(UserCreatedBaseModel):
             mapping[int(column_id)] = name
         return mapping
 
+    def get_columnname_from_id(self, column_id: int) -> Optional[str]:
+        mapping = self.get_columnset_id_to_name_mapping()
+        return mapping.get(column_id, None)
+
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
             raise ValidationError(_("Given date is in the future"))
