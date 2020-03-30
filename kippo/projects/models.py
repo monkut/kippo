@@ -160,7 +160,7 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("ProjectColumnSet to use if/when a related Github project is created through Kippo"),
     )
     project_manager = models.ForeignKey(
-        "accounts.KippoUser", on_delete=models.CASCADE, null=True, blank=True, help_text=_("Project Manager assigned to the project")
+        "accounts.KippoUser", on_delete=models.SET_NULL, null=True, blank=True, help_text=_("Project Manager assigned to the project")
     )
     is_closed = models.BooleanField(_("Project is Closed"), default=False, help_text=_("Manually set when project is complete"))
     display_as_active = models.BooleanField(
