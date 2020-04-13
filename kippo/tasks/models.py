@@ -17,7 +17,7 @@ class KippoTask(UserCreatedBaseModel):
     is_closed = models.BooleanField(default=False)
     project = models.ForeignKey("projects.KippoProject", on_delete=models.CASCADE, null=True, blank=True, related_name="kippotask_project")
     milestone = models.ForeignKey("projects.KippoMilestone", on_delete=models.CASCADE, null=True, blank=True, related_name="kippotask_milestone")
-    assignee = models.ForeignKey("accounts.KippoUser", on_delete=models.CASCADE, null=True, blank=True, help_text=_("Assigned to User"))
+    assignee = models.ForeignKey("accounts.KippoUser", on_delete=models.SET_NULL, null=True, blank=True, help_text=_("Assigned to User"))
     depends_on = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True)
     github_issue_api_url = models.URLField(null=True, blank=True)
     github_issue_html_url = models.URLField(null=True, blank=True)
