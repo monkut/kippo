@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Dict, Tuple
 
 from accounts.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from common.admin import PrettyJSONWidget
@@ -9,11 +10,38 @@ from django.db.models import Q
 from django.utils.html import format_html, mark_safe
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
+from zappa.asynchronous import task
 
 from .functions import process_webhookevent_ids
 from .models import GithubMilestone, GithubRepository, GithubRepositoryLabelSet, GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
+
+
+@task
+def update_repository_labels(
+    github_orgainization_name: str, token: str, repository_name: str, label_definitions: Tuple[Dict[str, str]], delete: bool = False
+):
+    deleted_labels = []
+    created_labels = []
+    github_manager = GithubOrganizationManager(organization=github_orgainization_name, token=token)
+    repository_name_filter = (repository_name,)
+    logger.debug(f"repository_name_filter: {repository_name_filter}")
+    for ghorgs_repository in github_manager.repositories(names=repository_name_filter):
+        existing_label_names = [label["name"] for label in ghorgs_repository.labels]
+
+        # get label definitions
+        for label_definition in label_definitions:
+            ghorgs_repository.create_label(label_definition["name"], label_definition["description"], label_definition["color"])
+            created_labels.append(label_definition)
+
+        if delete:
+            undefined_label_names = set(existing_label_names) - set(created_labels)
+            for label_name in undefined_label_names:
+                ghorgs_repository.delete_label(label_name)
+                deleted_labels.append(label_name)
+    logger.info(f"{github_orgainization_name} ({repository_name}) created: {created_labels}")
+    logger.info(f"{github_orgainization_name} ({repository_name}) deleted: {deleted_labels}")
 
 
 @admin.register(GithubRepository)
@@ -39,8 +67,6 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     def update_labels(self, request, queryset):
         delete = False  # Do not delete existing labels atm
-        created_labels = []
-        deleted_labels = []
         for kippo_repository in queryset:
             if not kippo_repository.label_set:
                 msg = f"No GithubRepositoryLabelSet defined for ({kippo_repository.name}) cannot update labels!"
@@ -48,24 +74,15 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             else:
                 github_organization_name = kippo_repository.organization.github_organization_name
                 githubaccesstoken = kippo_repository.organization.githubaccesstoken
-                github_manager = GithubOrganizationManager(organization=github_organization_name, token=githubaccesstoken.token)
-                repository_name_filter = (kippo_repository.name,)
-                logger.debug(f"repository_name_filter: {repository_name_filter}")
-                for ghorgs_repository in github_manager.repositories(names=repository_name_filter):
-                    existing_label_names = [label["name"] for label in ghorgs_repository.labels]
-
-                    # get label definitions
-                    defined_label_names = [l["name"] for l in kippo_repository.label_set.labels]
-                    for label_definition in kippo_repository.label_set.labels:
-                        ghorgs_repository.create_label(label_definition["name"], label_definition["description"], label_definition["color"])
-                        created_labels.append(label_definition)
-
-                    if delete:
-                        undefined_label_names = set(existing_label_names) - set(defined_label_names)
-                        for label_name in undefined_label_names:
-                            ghorgs_repository.delete_label(label_name)
-                            deleted_labels.append(label_name)
-                msg = f"({kippo_repository.name}) Labels updated using: {kippo_repository.label_set.name}"
+                label_definitions = tuple(kippo_repository.label_set.labels)
+                update_repository_labels(
+                    github_organization_name,
+                    githubaccesstoken.token,
+                    repository_name=kippo_repository.name,
+                    label_definitions=label_definitions,
+                    delete=delete,
+                )
+                msg = f"({kippo_repository.name}) updating labels with: {kippo_repository.label_set.name}"
                 self.message_user(request, msg, level=messages.INFO)
 
     update_labels.short_description = "Update Repository Labels"
