@@ -3,7 +3,7 @@ import logging
 import random
 import string
 import uuid
-from typing import Generator, List
+from typing import Generator, List, Tuple
 
 from common.models import UserCreatedBaseModel
 from django.conf import settings
@@ -172,7 +172,7 @@ class OrganizationMembership(UserCreatedBaseModel):
                 weekdays.append(weekday)
         return weekdays
 
-    def get_workday_identifers(self) -> List[str]:
+    def get_workday_identifers(self) -> Tuple[str]:
         """Convert membership workdays to string list used by qlu scheduler"""
         workday_attrs = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
         identifiers = []
