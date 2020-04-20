@@ -1,0 +1,50 @@
+{% extends "projects/base.html" %}
+
+{% block title %}Kippo: Members{% endblock %}
+{% if chart_script %}
+    {% block bootstrap4_extra_head %}
+      <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.css" type="text/css" />
+    {% endblock %}
+{% endif %}
+
+{% block bootstrap4_content %}
+<h1>
+    Members
+</h1>
+
+
+  <table class="table table-striped">
+      <caption>Member Workday Availability</caption>
+      <thead  class="thead-dark">
+        <tr>
+            <th scope="col">Month</th>
+            <th scope="col">Total Available Work Days</th>
+            {% for membership in organization_memberships %}
+                <th scope="col">
+                    {{ membership.user.display_name }}<br/>
+                    {% for workday_id in membership.get_workday_identifers %}
+                        {{ workday_id }}&nbsp;
+                    {% endfor %}
+                </th>
+            {% endfor %}
+        </tr>
+      </thead>
+      {% for month, monthly_sum, membership_days in monthly_available_workdays %}
+        <tr>
+            <td>{{ month }}</td>
+            <td>{{ monthly_sum }}</td>
+            {% for member_days in membership_days %}
+                <td>{{ member_days }}</td>
+            {% endfor %}
+        </tr>
+      {% endfor %}
+  </table>
+
+{% endblock bootstrap4_content %}
+
+{% if chart_script %}
+    {% block bootstrap4_extra_script %}
+      <script type="text/javascript" src="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.js"></script>
+      {{ chart_script|safe }}
+    {% endblock %}
+{% endif %}
