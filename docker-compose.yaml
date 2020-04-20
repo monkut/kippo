@@ -1,0 +1,26 @@
+version: '3.7'
+
+services:
+
+  db:
+    image: postgres:12
+    container_name: "kippo-postgres-12"
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: mysecretpassword
+
+  localstack:
+    image: localstack/localstack:0.10.5
+    container_name: "kippo-localstack-0.10.5"
+    ports:
+      - "4567-4593:4567-4593"
+    environment:
+      - SERVICES=s3,sqs
+
+  wait:
+    image: waisbrot/wait
+    depends_on:
+      - localstack
+    environment:
+      - TARGETS=localstack:4572,localstack:4575,localstack:5432
