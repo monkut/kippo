@@ -1,4 +1,5 @@
-from common.admin import AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin
+from typing import List
+
 from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.models import Group
@@ -7,10 +8,12 @@ from django.utils import timezone
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
+from social_django.models import Association, Nonce, UserSocialAuth
+
+from common.admin import AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin
 from octocat.models import GithubAccessToken
 from projects.functions import collect_existing_github_projects
 from projects.models import CollectIssuesAction
-from social_django.models import Association, Nonce, UserSocialAuth
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .models import Country, EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
@@ -164,7 +167,8 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if getattr(obj, "pk", None) is None:
-            obj.user = request.user
+            if not obj.user:
+                obj.user = request.user
         obj.save()
 
     def get_queryset(self, request):
@@ -172,6 +176,17 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(user__organizationmembership__organization__in=request.user.organizations).distinct()
+
+    def get_fields(self, request, obj=None) -> List[str]:
+        fields = [
+            'created_datetime',
+            'is_half',
+            'day',
+            'duration'
+        ]
+        if request.user.is_superuser:
+            fields.insert(0, 'user')
+        return fields
 
 
 @admin.register(Country)

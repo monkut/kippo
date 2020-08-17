@@ -97,3 +97,25 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for personalholiday in queryset:
             self.assertTrue(set(o.id for o in personalholiday.user.organizations).intersection(staff_user_orgids))
+
+    def test_personalholidays_fields__is_staff(self):
+        modeladmin = PersonalHolidayAdmin(PersonalHoliday, self.site)
+        actual = modeladmin.get_fields(self.staff_user_request)
+        expected = [
+            'created_datetime',
+            'is_half',
+            'day',
+            'duration'
+        ]
+        self.assertListEqual(actual, expected)
+
+    def test_personalholidays__fields__is_superuser(self):
+        modeladmin = PersonalHolidayAdmin(PersonalHoliday, self.site)
+        actual = list(modeladmin.get_queryset(self.super_user_request))
+        expected = [
+            'created_datetime',
+            'is_half',
+            'day',
+            'duration'
+        ]
+        self.assertListEqual(actual, expected)
