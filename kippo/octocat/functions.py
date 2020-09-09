@@ -396,14 +396,11 @@ class GithubWebhookProcessor:
     def _process_issues_event(self, webhookevent: GithubWebhookEvent) -> str:
         assert webhookevent.event_type == "issues"
         githubissue = self._load_event_to_githubissue(webhookevent.event)
-
+        repository_api_url = githubissue.repository_url
         # get related kippo project
-        # -- NOTE: Currently a GithubIssue may only be assigned to 1 Project
-
-        # get project with existing task
+        # -- get project with existing task
         candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url=githubissue.url)}
         if not candidate_projects:
-            repository_api_url = githubissue.repository_url
             logger.warning(
                 f"No exact match found for github_issue_api_url={githubissue.url}, finding projects by repository_api_url={repository_api_url}"
             )
@@ -419,17 +416,23 @@ class GithubWebhookProcessor:
                 f"KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}"
             )
 
-        result = "error"
-        issue_processor = self.get_organization_issue_processor(webhookevent.organization)
-        for project_name, project in candidate_projects.items():
-            try:
-                is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
-                result = "processed"
-                logger.info(f"project_name={project_name}, is_new_task={is_new_task}")
-            except GithubRepositoryUrlError as e:
-                logger.exception(e)
-                result = "error"
-                break
+        # only process if KippoTask already exists for GithubIssue
+        # --> Introduced to avoid issue where multiple tasks were created for all available projects
+        if KippoTask.objects.filter(github_issue_html_url=githubissue.html_url).exists():
+            result = "error"
+            issue_processor = self.get_organization_issue_processor(webhookevent.organization)
+            for project_name, project in candidate_projects.items():
+                try:
+                    is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+                    result = "processed"
+                    logger.info(f"project_name={project_name}, is_new_task={is_new_task}")
+                except GithubRepositoryUrlError as e:
+                    logger.exception(e)
+                    result = "error"
+                    break
+        else:
+            logger.info(f"Related KippoTask does not exist ({githubissue.html_url}) ignoring.")
+            result = "ignore"
         return result
 
     def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent) -> str:
