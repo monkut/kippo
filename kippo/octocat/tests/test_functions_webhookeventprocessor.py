@@ -154,8 +154,8 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
             project=self.project,
             assignee=self.user1,
             description="existing task body",
-            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository_name}/issues/1",
-            github_issue_html_url=f"https://github.com/{self.organization.github_organization_name}/{self.repository_name}/issues/1",
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository_name}/issues/9",
+            github_issue_html_url=f"https://github.com/{self.organization.github_organization_name}/{self.repository_name}/issues/9",
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -176,17 +176,18 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # test event processor
         processor = GithubWebhookProcessor()
         processed_event_count = processor.process_webhook_events()
-        self.assertTrue(processed_event_count[event_type] == 1)
+        self.assertEqual(processed_event_count[event_type], 1)
 
         # check updated webhookevents
         expected_unprocessed_events_count = 0
         actual_unprocessed_events_count = GithubWebhookEvent.objects.filter(state__in=("unprocessed", "processing")).count()
-        self.assertTrue(actual_unprocessed_events_count == expected_unprocessed_events_count)
+        self.assertEqual(actual_unprocessed_events_count, expected_unprocessed_events_count)
 
         expected_processed_events_count = 1
         actual_processed_events_count = GithubWebhookEvent.objects.filter(state="processed").count()
-        self.assertTrue(
-            actual_processed_events_count == expected_processed_events_count,
+        self.assertEqual(
+            actual_processed_events_count,
+            expected_processed_events_count,
             f"actual({actual_processed_events_count}) != expected({expected_processed_events_count}): {list(GithubWebhookEvent.objects.all())}",
         )
 
@@ -195,14 +196,14 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         self.assertTrue(tasks)
         task = tasks[0]
 
-        self.assertTrue(task.title == event["issue"]["title"], f'actual(title="{task.title}") != expected(title="{event["issue"]["title"]}")')
-        self.assertTrue(task.assignee == self.user2, f"actual({task.assignee.username}) != expected({self.user2.username})")
+        self.assertEqual(task.title, event["issue"]["title"], f'actual(title="{task.title}") != expected(title="{event["issue"]["title"]}")')
+        self.assertEqual(task.assignee, self.user2, f"actual({task.assignee.username}) != expected({self.user2.username})")
 
         # check taskstatus updated
         taskstatuses = KippoTaskStatus.objects.filter(task=task)
         self.assertTrue(taskstatuses)
         taskstatus = taskstatuses[0]
-        self.assertTrue(taskstatus.estimate_days == 1, f"actual({taskstatus.estimate_days}) != expected({1})")  # as defined by "estimate:1d" label
+        self.assertEqual(taskstatus.estimate_days, 1, f"actual({taskstatus.estimate_days}) != expected({1})")  # as defined by "estimate:1d" label
 
     def test_issues_event__nonexisting_with_no_same_repo_task(self):
         # create GithubWebhookEvent
