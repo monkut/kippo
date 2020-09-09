@@ -7,6 +7,7 @@ from django.http import HttpResponseBadRequest
 from django.shortcuts import render
 from django.utils import timezone
 from projects.functions import get_user_session_organization
+from projects.models import KippoProject
 
 from .models import KippoOrganization, OrganizationMembership
 
