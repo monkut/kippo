@@ -124,7 +124,15 @@ def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_
     for label in issue.labels:
         if label.name.startswith(prefix):
             if category:
-                raise ValueError(f"Multiple Category labels applied on issue: {issue.html_url}")
+                logger.warning(
+                    f"Multiple Category labels applied on issue: "
+                    f"{issue.html_url}, "
+                    f"prefix={prefix}, "
+                    f"category={category}, "
+                    f"label.name={label.name} "
+                    "-- initial category will be used!"
+                )
+                continue
             category = label.name.split(prefix)[-1].strip()
     return category
 
