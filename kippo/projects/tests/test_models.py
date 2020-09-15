@@ -1,10 +1,9 @@
 import datetime
 
+from accounts.models import KippoUser
+from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import Client, TestCase
 from django.utils import timezone
-
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
-from accounts.models import KippoUser
 from tasks.models import KippoTask, KippoTaskStatus
 
 
@@ -13,39 +12,39 @@ class KippoProjectMethodsTestCase(TestCase):
 
     def setUp(self):
         created = setup_basic_project()
-        self.organization = created['KippoOrganization']
-        self.user = created['KippoUser']
-        self.project = created['KippoProject']
-        self.repository = created['GithubRepository']
-        self.task1 = created['KippoTask']
-        self.github_manager = KippoUser.objects.get(username='github-manager')
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+        self.repository = created["GithubRepository"]
+        self.task1 = created["KippoTask"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
 
         # default columnset done name
-        self.planning_column_name = 'planning'
-        self.done_column_name = 'done'
+        self.planning_column_name = "planning"
+        self.done_column_name = "done"
 
         # create task2
         self.task2 = KippoTask(
-            title='task2',
-            category='test category',
+            title="task2",
+            category="test category",
             project=self.project,
             assignee=self.user,
             created_by=self.github_manager,
             updated_by=self.github_manager,
-            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/2',
+            github_issue_html_url=f"https://github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/2",
             github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/2",
         )
         self.task2.save()
 
         # create task3
         self.task3 = KippoTask(
-            title='task3',
-            category='test category',
+            title="task3",
+            category="test category",
             project=self.project,
             assignee=self.user,
             created_by=self.github_manager,
             updated_by=self.github_manager,
-            github_issue_html_url=f'https://github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/3',
+            github_issue_html_url=f"https://github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/3",
             github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{self.repository.name}/issues/3",
         )
         self.task3.save()
@@ -111,13 +110,10 @@ class KippoProjectMethodsTestCase(TestCase):
 
         expected = 2
         actual = len(results)
-        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected}): {results}')
+        self.assertTrue(actual == expected, f"actual({actual}) != expected({expected}): {results}")
 
         actual_tasks = [s.task for s in results]
-        self.assertTrue(
-            self.task3 not in actual_tasks,
-            f'done task({self.task3}) should not be returned but is: {results}'
-        )
+        self.assertTrue(self.task3 not in actual_tasks, f"done task({self.task3}) should not be returned but is: {results}")
 
         expected_tasks = [self.task1, self.task2]
         self.assertTrue(all(t in expected_tasks for t in actual_tasks))
@@ -136,15 +132,10 @@ class KippoProjectMethodsTestCase(TestCase):
 
     def test__get_active_taskstatus_from_projects__with_max_effort_date(self):
         max_effort_date = timezone.datetime(2019, 8, 15).date()
-        results, has_estimates = self.project.get_active_taskstatus(
-            max_effort_date=max_effort_date
-        )
+        results, has_estimates = self.project.get_active_taskstatus(max_effort_date=max_effort_date)
         self.assertTrue(len(results) == 2)
         actual_tasks = [s.task for s in results]
-        self.assertTrue(
-            self.task3 not in actual_tasks,
-            f'done task({self.task3}) should not be returned but is: {results}'
-        )
+        self.assertTrue(self.task3 not in actual_tasks, f"done task({self.task3}) should not be returned but is: {results}")
 
         expected_tasks = [self.task1, self.task2]
         self.assertTrue(all(t in expected_tasks for t in actual_tasks))
@@ -179,3 +170,12 @@ class KippoProjectMethodsTestCase(TestCase):
         results, has_estimates = self.project.get_active_taskstatus()
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], self.task1_status2)
+
+    def test_related_github_repositories(self):
+        assert self.repository
+        assert self.task1.project == self.project
+        assert self.task1.github_issue_html_url
+        assert self.repository.html_url
+        expected = [self.repository]
+        actual = list(self.project.related_github_repositories())
+        self.assertEqual(actual, expected)
