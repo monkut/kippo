@@ -326,14 +326,24 @@ class KippoProject(UserCreatedBaseModel):
         today = timezone.now().date()
         return KippoMilestone.objects.filter(project=self, target_date__gte=today).order_by("-target_date")
 
-    def related_github_repositories(self):
+    def related_github_repositories(self) -> QuerySet:
+        """Returns octocat.GithubRepository objects attached to this project."""
         # get kippotask github_repository_html_url
         from tasks.models import KippoTask
 
-        repository_html_urls = {
-            issue_html_url.rsplit("/", 2)[0] + "/"
-            for issue_html_url in KippoTask.objects.filter(project=self).values_list("github_issue_html_url", flat=True)
-        }
+        # get related repositories through the KippoTask(s) attached to the KippoProject
+        # Includes both formats:
+        # -- {repository_url}
+        # -- {repository_url}/
+        repository_html_urls = set()
+        for issue_html_url in KippoTask.objects.filter(project=self).values_list("github_issue_html_url", flat=True):
+            logger.debug(f"issue_html_url={issue_html_url}")
+            root_repository_url = issue_html_url.rsplit("/", 2)[0]
+            # add root
+            repository_html_urls.add(root_repository_url)
+            # add with
+            repository_html_url = f"{root_repository_url}/"
+            repository_html_urls.add(repository_html_url)
         return GithubRepository.objects.filter(html_url__in=tuple(repository_html_urls))
 
     @property
@@ -439,7 +449,7 @@ class KippoMilestone(UserCreatedBaseModel):
             return True
         return False
 
-    def update_github_milestones(self, user=None, close=False) -> List[Tuple[bool, object]]:
+    def update_github_milestones(self, user: Optional[KippoUser] = None, close: bool = False) -> List[Tuple[bool, object]]:
         """
         Create or Update related github milestones belonging to github repositories attached to the related project.
         :return:
