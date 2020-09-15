@@ -516,9 +516,10 @@ class KippoMilestone(UserCreatedBaseModel):
                         status_code, milestone_content = response
                         if status_code == UNPROCESSABLE_ENTITY_422:
                             # indicates milestone already exists on github
-                            raise GithubMilestoneAlreadyExists(
-                                f"422 response from github, milestone may already exist for repository: " f"{repository.name}"
+                            logger.warning(
+                                f"422 response from github, milestone may already exist for repository({repository.name}): {milestone_content}"
                             )
+                            continue
 
                         number = milestone_content["number"]
                         api_url = milestone_content["url"]
