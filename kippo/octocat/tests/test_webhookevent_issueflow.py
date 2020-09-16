@@ -7,11 +7,11 @@ from accounts.models import KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
-from projects.models import KippoProject
+from projects.models import KippoMilestone, KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import GithubWebhookProcessor
-from ..models import GithubRepository, GithubWebhookEvent
+from ..models import GithubMilestone, GithubRepository, GithubWebhookEvent
 from .utils import load_webhookevent
 
 assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
@@ -38,6 +38,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         self.project = results["KippoProject"]
         self.project2 = results["KippoProject2"]
         self.user1 = results["KippoUser"]
+
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
         # create user2 for task assignement check
@@ -535,6 +536,139 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         self.assertNotEqual(latest_kippotaskstatus.id, task1status.id)
 
         self.assertEqual(latest_kippotaskstatus.state, "done")
+
+    def test_webhookevent_issue_existing_issues_milestoned__with_existing_milestone(self):
+        assert KippoTask.objects.count() == 0
+
+        # --> to test multiple tasks created issue
+        assert KippoProject.objects.count() == 2
+
+        assert KippoMilestone.objects.count() == 0
+
+        milestone_startdate = timezone.datetime(2019, 6, 1).date()
+        milestone_enddate = timezone.datetime(2019, 6, 10).date()
+
+        # create existing KippoMilestone/GithubMilestone
+        kippo_milestone = KippoMilestone(project=self.project, title="milestone1", start_date=milestone_startdate, target_date=milestone_enddate)
+        kippo_milestone.save()
+
+        github_milestone_number = 5
+        github_milestone_api_url = f"https://api.github.com/repos/myorg/myrepo/milestones/{github_milestone_number}"
+        github_milestone_html_url = f"https://github.com/myorg/myrepo/milestone/{github_milestone_number}"
+        github_milestone = GithubMilestone(
+            milestone=kippo_milestone,
+            number=github_milestone_number,
+            api_url=github_milestone_api_url,
+            html_url=github_milestone_html_url,
+        )
+        github_milestone.save()
+
+        # create initially related task and status entry
+        issue_number = 809
+        task0 = KippoTask(
+            title="sample+title",
+            category="cat1",
+            github_issue_html_url=f"https://github.com/myorg/myrepo/issues/{issue_number}",
+            github_issue_api_url=f"https://api.github.com/repos/myorg/myrepo/issues/{issue_number}",
+            project=self.project,
+            assignee=self.user2,  # octocat2
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0.save()
+        taskstatus_estimate_days = 3
+        task0status = KippoTaskStatus(
+            task=task0,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="done",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0status.save()
+
+        # issue milestoned
+        # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
+        milestoned_event_filepath = TESTDATA_DIRECTORY / "issues_webhook_milestoned.json"
+        milestoned_event, _ = load_webhookevent(milestoned_event_filepath, secret_encoded=self.secret_encoded, decode=True)
+        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=milestoned_event)
+        webhookevent.save()
+
+        self.githubwebhookprocessor.process_webhook_events([webhookevent])
+        webhookevent.refresh_from_db()
+        self.assertEqual(webhookevent.state, "processed")
+
+        task0.refresh_from_db()
+        self.assertEqual(task0.milestone, kippo_milestone)
+
+    def test_webhookevent_issue_existing_issues_milestoned__without_existing_milestone(self):
+        assert KippoTask.objects.count() == 0
+
+        # --> to test multiple tasks created issue
+        assert KippoProject.objects.count() == 2
+
+        assert KippoMilestone.objects.count() == 0
+        assert GithubMilestone.objects.count() == 0
+
+        # create initially related task and status entry
+        issue_number = 809
+        task0 = KippoTask(
+            title="sample+title",
+            category="cat1",
+            github_issue_html_url=f"https://github.com/myorg/myrepo/issues/{issue_number}",
+            github_issue_api_url=f"https://api.github.com/repos/myorg/myrepo/issues/{issue_number}",
+            project=self.project,
+            assignee=self.user2,  # octocat2
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0.save()
+        taskstatus_estimate_days = 3
+        task0status = KippoTaskStatus(
+            task=task0,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=taskstatus_estimate_days,
+            state="done",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        task0status.save()
+
+        # issue milestoned
+        # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
+        milestoned_event_filepath = TESTDATA_DIRECTORY / "issues_webhook_milestoned.json"
+        milestoned_event, _ = load_webhookevent(milestoned_event_filepath, secret_encoded=self.secret_encoded, decode=True)
+        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=milestoned_event)
+        webhookevent.save()
+
+        self.githubwebhookprocessor.process_webhook_events([webhookevent])
+        webhookevent.refresh_from_db()
+        self.assertEqual(webhookevent.state, "processed")
+
+        expected = 1
+        self.assertEqual(KippoMilestone.objects.count(), expected)
+
+        expected = 1
+        self.assertEqual(GithubMilestone.objects.count(), expected)
+
+        github_milestone = GithubMilestone.objects.all()[0]
+
+        expected_github_milestone_number = 5  # number from event
+        self.assertEqual(github_milestone.number, expected_github_milestone_number)
+
+        expected_github_milestone_api_url = f"https://api.github.com/repos/myorg/myrepo/milestones/{expected_github_milestone_number}"
+        self.assertEqual(github_milestone.api_url, expected_github_milestone_api_url)
+
+        github_milestone_html_url = f"https://github.com/myorg/myrepo/milestone/{expected_github_milestone_number}"
+        self.assertEqual(github_milestone.html_url, github_milestone_html_url)
+
+        expected_milestone_enddate = timezone.datetime(2020, 10, 11).date()  # due_on
+        kippo_milestone = KippoMilestone.objects.all()[0]
+        self.assertEqual(kippo_milestone.start_date, None)  # webhook event created milestone does not have start_date set
+        self.assertEqual(kippo_milestone.target_date, expected_milestone_enddate)
+        # internal management number (unrelated to GithubMilestone.number
+        expected = 0
+        self.assertEqual(kippo_milestone.number, expected)
 
     # def test_webhookevent_issue_created_to_backlog_lifecycle(self):
     #     raise NotImplementedError
