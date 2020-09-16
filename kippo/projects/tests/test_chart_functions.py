@@ -5,7 +5,7 @@ from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..charts.functions import get_project_weekly_effort, prepare_project_plot_data
-from ..models import KippoProject, ProjectColumnSet
+from ..models import KippoMilestone, KippoProject, ProjectColumnSet
 
 
 class ProjectsChartFunctionsTestCase(TestCase):
@@ -178,3 +178,33 @@ class ProjectsChartFunctionsTestCase(TestCase):
                 self.assertEqual(len(assignee_data), effort_date_count, data)
 
         self.assertTrue(assignees)
+
+    def test_get_project_weekly_effort__with_kippomilestone(self):
+        assert KippoMilestone.objects.count() == 0
+
+        milestone_startdate = timezone.datetime(2019, 6, 1).date()
+        milestone_enddate = timezone.datetime(2019, 6, 10).date()
+
+        # create existing KippoMilestone/GithubMilestone
+        kippo_milestone = KippoMilestone(project=self.kippoproject, title="milestone1", start_date=milestone_startdate, target_date=milestone_enddate)
+        kippo_milestone.save()
+
+        assert KippoTaskStatus.objects.filter(task__project=self.kippoproject).count() == 4
+        assert KippoTaskStatus.objects.filter(task__project=self.kippoproject, effort_date=timezone.datetime(2019, 6, 5).date()).count() == 4
+
+        wednesday_weekday = 3
+        date_keyed_status_entries = get_project_weekly_effort(
+            project=self.kippoproject, current_date=timezone.datetime(2019, 6, 5).date(), representative_day=wednesday_weekday
+        )
+        self.assertTrue(date_keyed_status_entries)
+        user_status = {}
+        for period_date, status_entries in date_keyed_status_entries.items():
+            for entry in status_entries:
+                user = entry["task__assignee__github_login"]
+                user_status[user] = {"task_count": entry["task_count"], "estimate_days_sum": entry["estimate_days_sum"]}
+        self.assertTrue(user_status)
+        self.assertEqual(user_status["user1"]["task_count"], 2)
+        self.assertEqual(user_status["user1"]["estimate_days_sum"], self.user1effort_total)
+
+        self.assertEqual(user_status["user2"]["task_count"], 2)
+        self.assertEqual(user_status["user2"]["estimate_days_sum"], self.user2effort_total)
