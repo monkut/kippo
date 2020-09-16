@@ -103,6 +103,7 @@ class OrganizationIssueProcessor:
                     title=milestone_title,
                     project=kippo_project,
                     target_date=dueon_date,  # start date is unknown
+                    number=issue.milestone.number,
                     description=issue.milestone.description,
                     created_by=self.github_manager_user,
                     updated_by=self.github_manager_user,
@@ -114,7 +115,7 @@ class OrganizationIssueProcessor:
             github_milestone = GithubMilestone(
                 milestone=kippo_milestone,
                 repository=github_repository,
-                number=kippo_milestone.number,
+                number=issue.milestone.number,
                 api_url=issue.milestone.url,
                 html_url=issue.milestone.html_url,
                 created_by=self.github_manager_user,
