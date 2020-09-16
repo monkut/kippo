@@ -406,6 +406,11 @@ class GithubMilestoneAlreadyExists(Exception):
     pass
 
 
+# class GroupedKippoMilestone(UserCreatedBaseModel):
+#     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+#     title = models.CharField(max_length=256, verbose_name=_("Title"))
+
+
 @reversion.register()
 class KippoMilestone(UserCreatedBaseModel):
     """Provides milestone definition and mapping to a Github Repository Milestone"""

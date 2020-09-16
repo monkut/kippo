@@ -59,7 +59,7 @@
         <tr>
             <th scope="col">Assignee</th>
             <th scope="col">Project</th>
-            <th scope="col">Last 2 weeks Effort (hours)</th>
+            <th scope="col">Milestone</th>
             <th scope="col">State</th>
             <th scope="col">Task</th>
             <th scope="col">Estimate <br/> (staff days)</th>
@@ -85,18 +85,11 @@
                     ( <a href="{{ task.project.github_project_html_url }}">github</a> )
                 {% endif %}
             </td>
-            {% for username, effort_total in user_effort_totals.items %}
-                {% if task.assignee %}
-                    {% if task.assignee.username == username %}
-                        <td>
-                            <progress value="{{ task.hours_spent_sum_over_days }}" max="{{ effort_total }}"></progress>
-                            <font color="#e6e6e6">
-                                <i>{{ task.hours_spent_sum_over_days }}/{{ effort_total }}</i>
-                            </font>
-                        </td>
-                    {% endif %}
-                {% endif %}
-            {% endfor %}
+            {% if task.milestone %}
+                <td>{{ task.milestone.title }}</td>
+            {% else %}
+                <td></td>
+            {% endif %}
             <td>{{ task.latest_kippotaskstatus.state }}</td>
             {% if task.github_issue_html_url %}
                 <td><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>

@@ -9,10 +9,10 @@ urlpatterns = [
         views.set_user_session_organization,
         name="set_session_organization_id",
     ),
-    path(
-        "milestone/<uuid:milestone_id>/",
-        views.view_milestone_status,
-        name="view_milestone_status",
-    ),
+    # path(
+    #     "milestone/<uuid:milestone_id>/",
+    #     views.view_milestone_status,
+    #     name="view_milestone_status",
+    # ),
     url("$", views.view_inprogress_projects_status, name="view_project_status"),
 ]

@@ -20,22 +20,23 @@ from .models import KippoProject
 logger = logging.getLogger(__name__)
 
 
-def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
+def project_assignee_keyfunc(task: KippoTask) -> tuple:
     """
     A keying function that returns the values to use for sorting
-
-    :param task_object: KippoTask task object
-    :return: (task_object.assignee.username, task_object.project.name)
     """
     username = ""
-    if task_object.assignee:
-        username = task_object.assignee.username
+    if task.assignee:
+        username = task.assignee.username
 
     project = ""
-    if task_object.project:
-        project = task_object.project.name
+    if task.project:
+        project = task.project.name
 
-    return project, username
+    milestone = ""
+    if task.milestone:
+        milestone = task.milestone.target_date.isoformat()
+
+    return project, username, milestone
 
 
 def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
@@ -170,10 +171,13 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
 
 
-@staff_member_required
-def view_inprogress_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
-    warning = None
-    try:
-        selected_organization, user_organizations = get_user_session_organization(request)
-    except ValueError as e:
-        return HttpResponseBadRequest(str(e.args))
+# @staff_member_required
+# def view_inprogress_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
+#     warning = None
+#     try:
+#         selected_organization, user_organizations = get_user_session_organization(request)
+#     except ValueError as e:
+#         return HttpResponseBadRequest(str(e.args))
+#
+#     for project in projects:
+#         for assignee
