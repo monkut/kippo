@@ -76,6 +76,7 @@ def get_project_weekly_effort(
     active_task_states = project.columnset.get_active_column_names()
 
     all_status_entries = defaultdict(list)
+    previous_status_entries = []
     for current_week_start_date in search_dates:
         logger.debug(f"collecting active tasks for current_week_start_date={current_week_start_date}...")
         if current_week_start_date <= current_date:
@@ -187,8 +188,22 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     colors = all_palettes["Category20"][color_count_index][:required_color_count]
 
     logger.info(f"preparing figure:  {project.name}")
+    # get assignee max effort (y)
+    max_effort_days = 100
+    if burndown_line:
+        _, burndown_line_y_values = burndown_line
+        burndown_line_y = burndown_line_y_values[0]  # the first entry is the highest point
+        if burndown_line_y > max_effort_days:
+            max_effort_days = burndown_line_y
+    assignee_keys = (k for k in data.keys() if k != "effort_date")
+    for assignee_key in assignee_keys:
+        assignee_max = max(data[assignee_key])
+        if assignee_max > max_effort_days:
+            max_effort_days = assignee_max
+    bufferred_max_effort_days = int(max_effort_days * 1.20)
     p = figure(
         x_range=data["effort_date"],
+        y_range=(0, bufferred_max_effort_days),
         plot_height=400,
         plot_width=950,
         title=f"({project.name}) Project Weekly Work Estimates",
@@ -199,7 +214,6 @@ def prepare_burndown_chart_components(project: KippoProject, current_date: datet
     if burndown_line:
         p.line(*burndown_line, line_width=2, line_color="#BCBCBC", line_dash="dashed")
     assignee_effort_per_day_stacked = p.vbar_stack(assignees, x="effort_date", width=0.9, color=colors, source=data)
-    logger.debug(data)
     legend_items = []
     for idx, assignee_name in enumerate(assignees):
         legend_items.append((assignee_name, [assignee_effort_per_day_stacked[idx]]))
