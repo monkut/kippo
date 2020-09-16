@@ -1,5 +1,5 @@
 import logging
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import List, Tuple
 
 from django.conf import settings
@@ -8,7 +8,6 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from tasks.exceptions import ProjectConfigurationError
 from tasks.functions import prepare_project_engineering_load_plot_data
 from tasks.models import KippoTask, KippoTaskStatus
@@ -16,7 +15,7 @@ from tasks.models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_burndown_chart_components
 from .exceptions import ProjectDatesError, TaskStatusError
 from .functions import get_user_session_organization
-from .models import ActiveKippoProject, KippoProject
+from .models import KippoProject
 
 logger = logging.getLogger(__name__)
 
@@ -37,35 +36,6 @@ def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
         project = task_object.project.name
 
     return project, username
-
-
-@staff_member_required
-def view_inprogress_projects_overview(request: HttpRequest) -> HttpResponse:
-    now = timezone.now()
-
-    try:
-        selected_organization, user_organizations = get_user_session_organization(request)
-    except ValueError as e:
-        return HttpResponseBadRequest(str(e.args))
-
-    inprogress_projects = ActiveKippoProject.objects.filter(start_date__lte=now, organization=selected_organization).orderby("category")
-
-    inprogress_category_groups = defaultdict(list)
-    for inprogress_project in inprogress_projects:
-        inprogress_category_groups[inprogress_project.category] = inprogress_project
-
-    upcoming_projects = ActiveKippoProject.objects.filter(start_date__gt=now, organization=selected_organization).orderby("category")
-    upcoming_category_groups = defaultdict(list)
-    for upcoming_project in upcoming_projects:
-        upcoming_category_groups[upcoming_project.category] = upcoming_project
-
-    context = {
-        "inprogress_category_groups": inprogress_category_groups,
-        "upcoming_category_groups": upcoming_category_groups,
-        "selected_organization": selected_organization,
-        "organizations": user_organizations,
-    }
-    return render(request, "projects/view_inprogress_projects_status_overview.html", context)
 
 
 def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
