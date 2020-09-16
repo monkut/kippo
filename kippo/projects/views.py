@@ -184,6 +184,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
 
 @staff_member_required
 def set_user_session_organization(request, organization_id: str = None) -> HttpResponse:
+
     user_organizations = list(request.user.organizations)
     if not organization_id:
         return HttpResponseBadRequest(f'required "organization_id" not given!')
@@ -197,3 +198,12 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     request.session["organization_id"] = str(organization_id)
     logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
+
+
+@staff_member_required
+def view_inprogress_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
+    warning = None
+    try:
+        selected_organization, user_organizations = get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
