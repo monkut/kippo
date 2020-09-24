@@ -145,8 +145,11 @@ class OrganizationMembership(UserCreatedBaseModel):
     user = models.ForeignKey("KippoUser", on_delete=models.DO_NOTHING)
     organization = models.ForeignKey("KippoOrganization", on_delete=models.DO_NOTHING)
     email = models.EmailField(null=True, blank=True, help_text=_("Email address with Organization"))
+    # TODO: add OPTIONAL -- contract_start, contract_end
+    # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
     is_developer = models.BooleanField(default=True)
+    # TODO: Update to allow for fractional days 1.0 - 0.0
     sunday = models.BooleanField(default=False, help_text=_("Works Sunday"))
     monday = models.BooleanField(default=True, help_text=_("Works Monday"))
     tuesday = models.BooleanField(default=True, help_text=_("Works Tuesday"))

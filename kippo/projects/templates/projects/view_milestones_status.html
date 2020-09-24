@@ -1,47 +1,76 @@
 {% extends "projects/base.html" %}
 
-{% block title %}Kippo: In-Progress Tasks{% endblock %}
-
-{% block bootstrap4_extra_head %}
-    <link rel="stylesheet" href="css/styles.css?v=1.0">
-    {% if chart_script %}
-        <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.css" type="text/css" />
-    {% endif %}
-{% endblock %}
+{% block title %}Kippo: Active Projects{% endblock %}
+{% if chart_script %}
+    {% block bootstrap4_extra_head %}
+      <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.css" type="text/css" />
+    {% endblock %}
+{% endif %}
 
 {% block bootstrap4_content %}
-    {% if chart_div %}
-        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a> ( <a href="{{URL_PREFIX}}/tasks/?github_login={{ tasks.0.assignee.github_login }}">{{ tasks.0.assignee.github_login }}</a>) </h1>
-    {% else %}
-        <h1><a href="{{URL_PREFIX}}/tasks/">Active Tasks</a></h1>
-    {% endif %}
-
-  {% if latest_effort_date %}
-      <h4>Latest Effort Date: {{ latest_effort_date }}</h4>
-  {% endif %}
-
+<h1>
+    <a href="{{URL_PREFIX}}/projects/milestones/">Milestones</a>
+</h1>
   {% if chart_div %}
     <center>
         {{ chart_div |safe }}
      </center>
   {% endif %}
 
-  {{ task_state_counts }}
-
   <table class="table table-striped">
-      <caption>Active Member Tasks for Last 2 Weeks</caption>
-      <thead class="thead-dark">
+      <thead  class="thead-dark">
+        <tr>
+            <th scope="col">Project</th>
+            <th scope="col">Milestone</th>
+            <th scope="col">Start Date</th>
+            <th scope="col">Target Date</th>
+            <th scope="col">Estimated Completion Date</th>
+            <th scope="col">Available Work Days</th>
+            <th scope="col">Estimated Work Days</th>
+        </tr>
+      </thead>
+    {% for milestone in milestones %}
+        <tr>
+            <td>
+                {{ milestone.project.name }}
+            </td>
+            <td>
+                {{ milestone.title }}
+            </td>
+
+            <td>
+                {{ milestone.start_date }}
+            </td>
+            <td>
+                {{ milestone.target_date }}
+            </td>
+            <td>
+                {{ milestone.estimated_completion_date }}
+            </td>
+            <td>
+                {{ milestone.available_work_days }}
+            </td>
+            <td>
+                {{ milestone.estimated_work_days }}
+            </td>
+        </tr>
+    {% endfor %}
+
+  </table>
+
+ <table class="table table-striped">
+      <thead  class="thead-dark">
         <tr>
             <th scope="col">Assignee</th>
             <th scope="col">Project</th>
             <th scope="col">Milestone</th>
             <th scope="col">State</th>
             <th scope="col">Task</th>
-            <th scope="col">Estimate (Staff Days)</th>
+            <th scope="col">Estimate <br/> (staff days)</th>
             <th scope="col">Latest Status</th>
         </tr>
       </thead>
-    {% for task in tasks %}
+    {% for task in milestone.tasks %}
         <tr>
             {% if task.assignee %}
                 <td>
@@ -67,12 +96,12 @@
             {% endif %}
             <td>{{ task.latest_kippotaskstatus.state }}</td>
             {% if task.github_issue_html_url %}
-                <td class="w-50"><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
+                <td><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
             {% else %}
-                <td class="w-50">{{ task.title }}</td>
+                <td>{{ task.title }}</td>
             {% endif %}
             <td>{{ task.latest_kippotaskstatus.estimate_days }}</td>
-            {% if task.latest_kippotaskstatus.comment %}
+            {% if task.latest_comment %}
                 <td>{{ task.latest_kippotaskstatus.comment  | linebreaks |urlize }}</td>
             {% else %}
                 <td></td>
@@ -80,11 +109,5 @@
         </tr>
     {% endfor %}
   </table>
-{% endblock %}
 
-{% if chart_script %}
-    {% block bootstrap4_extra_script %}
-      <script type="text/javascript" src="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.js"></script>
-      {{ chart_script|safe }}
-    {% endblock %}
-{% endif %}
+{% endblock bootstrap4_content %}

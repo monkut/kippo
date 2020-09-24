@@ -13,10 +13,11 @@ boto3 = "*"
 requests = "*"
 "django-bootstrap4" = "*"
 ghorgs = {git = "https://github.com/monkut/github-org-manager.git",editable = true}
-qlu = {git = "https://github.com/monkut/qlu-scheduler.git",editable = true}
+qlu = {git = "https://github.com/monkut/qlu-scheduler.git@0.2.5",editable = true}
 pandas = ">=0.23,<0.24"
 zappa = "*"
 django-storages = "*"
+arrow = ">=0.15.6,<0.16.0"
 
 [dev-packages]
 coverage = "*"

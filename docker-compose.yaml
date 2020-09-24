@@ -9,12 +9,13 @@ services:
       - 5432:5432
     environment:
       POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: kippo_local_testing
 
   localstack:
-    image: localstack/localstack:0.10.5
-    container_name: "kippo-localstack-0.10.5"
+    image: localstack/localstack:0.11.5
+    container_name: "kippo-localstack-0.11.5"
     ports:
-      - "4567-4593:4567-4593"
+      - "4566:4566"
     environment:
       - SERVICES=s3,sqs
 
@@ -23,4 +24,4 @@ services:
     depends_on:
       - localstack
     environment:
-      - TARGETS=localstack:4572,localstack:4575,localstack:5432
+      - TARGETS=localstack:4566

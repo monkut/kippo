@@ -1,6 +1,6 @@
 import logging
 from collections import Counter
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib import messages
@@ -15,27 +15,28 @@ from tasks.models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_burndown_chart_components
 from .exceptions import ProjectDatesError, TaskStatusError
 from .functions import get_user_session_organization
-from .models import KippoProject
+from .models import KippoMilestone, KippoProject
 
 logger = logging.getLogger(__name__)
 
 
-def project_assignee_keyfunc(task_object: KippoTask) -> tuple:
+def project_assignee_keyfunc(task: KippoTask) -> tuple:
     """
     A keying function that returns the values to use for sorting
-
-    :param task_object: KippoTask task object
-    :return: (task_object.assignee.username, task_object.project.name)
     """
     username = ""
-    if task_object.assignee:
-        username = task_object.assignee.username
+    if task.assignee:
+        username = task.assignee.username
 
     project = ""
-    if task_object.project:
-        project = task_object.project.name
+    if task.project:
+        project = task.project.name
 
-    return project, username
+    milestone = ""
+    if task.milestone:
+        milestone = task.milestone.target_date.isoformat()
+
+    return project, username, milestone
 
 
 def _get_task_details(active_taskstatus: List[KippoTaskStatus]) -> Tuple[List[int], List[KippoTask]]:
@@ -75,7 +76,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
         active_taskstatus.extend(project_active_taskstatus)
 
     if not all_has_estimates:
-        msg = f'No Estimates defined in tasks (Expect "estimate labels")'
+        msg = 'No Estimates defined in tasks (Expect "estimate labels")'
         messages.add_message(request, messages.WARNING, msg)
 
     project = None
@@ -99,7 +100,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     else:
         # show project schedule chart
         if not selected_organization:
-            return HttpResponseBadRequest(f"KippoUser not registered with an Organization!")
+            return HttpResponseBadRequest("KippoUser not registered with an Organization!")
 
         # check projects for start_date, target_date
         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
@@ -154,9 +155,10 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
 
 @staff_member_required
 def set_user_session_organization(request, organization_id: str = None) -> HttpResponse:
+
     user_organizations = list(request.user.organizations)
     if not organization_id:
-        return HttpResponseBadRequest(f'required "organization_id" not given!')
+        return HttpResponseBadRequest('required "organization_id" not given!')
     elif not user_organizations:
         return HttpResponseBadRequest(f"user({request.user.username}) has no OrganizationMemberships!")
 
@@ -167,3 +169,28 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     request.session["organization_id"] = str(organization_id)
     logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
+
+
+@staff_member_required
+def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = None) -> HttpResponse:
+    try:
+        selected_organization, user_organizations = get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
+
+    milestones = KippoMilestone.objects.filter(project__organization=selected_organization).order_by("target_date")
+    if milestone_id:
+        milestones = milestones.filter(id=milestone_id)
+    if not KippoTaskStatus.objects.filter(task__project__organization=selected_organization):
+        milestones = []
+        messages.add_message(
+            request, messages.ERROR, "No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
+        )
+    context = {
+        "milestones": milestones,
+        "messages": messages.get_messages(request),
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
+    }
+
+    return render(request, "projects/view_milestones_status.html", context)

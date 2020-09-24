@@ -199,7 +199,7 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
     def reset_webhook_events(self, request, queryset):
         queryset.update(state="unprocessed")
 
-        msg = f"Updated Selected GithubWebhookEvent(s)"
+        msg = "Updated Selected GithubWebhookEvent(s)"
         self.message_user(request, msg, level=messages.INFO)
 
     reset_webhook_events.short_description = _("Reset Selected Event(s)")

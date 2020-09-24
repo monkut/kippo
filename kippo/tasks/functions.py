@@ -1,6 +1,8 @@
 import datetime
 import logging
+import time
 from collections import defaultdict
+from functools import lru_cache
 from itertools import islice
 from math import ceil
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -227,8 +229,13 @@ def _get_latest_kippotaskstatus_effortdate(organization: KippoOrganization) -> t
     return latest_taskstatus_effort_date
 
 
+def get_ttlhash(seconds=60) -> int:
+    return round(time.time() / seconds)
+
+
+@lru_cache()
 def get_projects_load(
-    organization: KippoOrganization, schedule_start_date: datetime.date = None
+    organization: KippoOrganization, schedule_start_date: datetime.date = None, ttl_hash: Optional[int] = None
 ) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], Dict[str, Dict[datetime.date, str]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
@@ -242,15 +249,28 @@ def get_projects_load(
         .. code::python
 
             (
+                # project_developer_load
                 { 'PROJECT_ID':  # multiple
                     {
-                        'GITHUB_LOGIN': [  # multiple
+                        'GITHUB_LOGIN': [
                             KippoTask(),  # with 'qlu_task' attribute with scheduled QluTask object
                             KippoTask()   # with 'qlu_task' attribute with scheduled QluTask object
+                            ...
                         ]
                     },
                 },
-                datetime.date(2018, 9, 21)  # Latest available Effort Date (latest_taskstatus_effort_date) from which the schedule is calculated
+                # assignee_date_keyed_scheduled_projects_names
+                {
+                    'GITHUB_LOGIN':
+                    {
+                        # scheduled task date
+                        datetime.date(2018, 9, 21): 'PROJECT_NAME',
+                        ...
+                    },
+                    ...
+                },
+                # latest_taskstatus_effort_date from which the schedule is calculated
+                datetime.date(2018, 9, 21)
             )
 
     """
@@ -266,7 +286,8 @@ def get_projects_load(
     )
     if not projects:
         raise ProjectConfigurationError(
-            "No projects found! Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined)"
+            "No projects found! Project(s) Not properly configured! (Check that 1 or more project has a start_date and target_date defined) "
+            "-- start_date, target_date *MUST* be defined for projects!"
         )
 
     # prepare absolute priority
@@ -356,6 +377,11 @@ def get_projects_load(
             qlu_tasks.append(qtask)
 
     project_developer_load = {}
+
+    def nesteddictlist():
+        return defaultdict(list)
+
+    milestone_developer_load = defaultdict(nesteddictlist)  # TODO: finish --- is this needed?
     if not qlu_tasks:
         raise ValueError('No "qlu_tasks" defined!')
 
@@ -389,11 +415,16 @@ def get_projects_load(
         kippo_task.qlu_task = qlu_task
         project_id = kippo_task.project.id
         project_name = kippo_task.project.name
+        assignee_github_login = kippo_task.assignee.github_login
         if project_id not in project_developer_load:
             project_developer_load[project_id] = defaultdict(list)
-        project_developer_load[project_id][kippo_task.assignee.github_login].append(kippo_task)
+        project_developer_load[project_id][assignee_github_login].append(kippo_task)
+        if kippo_task.milestone:
+            milestone_id = kippo_task.milestone.id
+            if milestone_id not in milestone_developer_load:
+                milestone_developer_load[milestone_id][assignee_github_login].append(kippo_task)
         for task_date in qlu_task.scheduled_dates:
-            assignee_date_keyed_scheduled_projects_ids[kippo_task.assignee.github_login][task_date] = str(project_name)
+            assignee_date_keyed_scheduled_projects_ids[assignee_github_login][task_date] = str(project_name)
     return project_developer_load, assignee_date_keyed_scheduled_projects_ids, latest_taskstatus_effort_date
 
 
@@ -654,7 +685,9 @@ def prepare_project_engineering_load_plot_data(
         schedule_start_date = timezone.now().date()
     logger.info(f"schedule_start_date={schedule_start_date}")
     max_days = 70
-    projects_results, assignee_date_keyed_scheduled_projects_ids, latest_effort_date = get_projects_load(organization, schedule_start_date)
+    projects_results, assignee_date_keyed_scheduled_projects_ids, latest_effort_date = get_projects_load(
+        organization, schedule_start_date, ttl_hash=get_ttlhash(seconds=60)
+    )
     if not projects_results:
         raise ValueError("(get_projects_load) project_results is empty!")
 
@@ -695,7 +728,14 @@ def prepare_project_engineering_load_plot_data(
             if assignee_filter and assignee not in assignee_filter:
                 logger.debug(f"assignee_filter({assignee_filter}) applied, skipping: {assignee}")
                 continue
-            assignee_data, project_start_date, project_target_date, assignee_total_days, assignee_max_task_date, populated = _add_assignee_project_data(
+            (
+                assignee_data,
+                project_start_date,
+                project_target_date,
+                assignee_total_days,
+                assignee_max_task_date,
+                populated,
+            ) = _add_assignee_project_data(
                 organization,
                 schedule_start_date,
                 assignee,
