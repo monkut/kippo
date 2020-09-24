@@ -7,7 +7,7 @@ jobs:
   build:
     docker:
       # specify the version you desire here
-      - image: circleci/python:3.7.2
+      - image: circleci/python:3.7
         environment:
           PIPENV_VENV_IN_PROJECT: true
       - image: mdillon/postgis:9.6
@@ -25,9 +25,9 @@ jobs:
       # Download and cache dependencies
       - restore_cache:
           keys:
-          - v1-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          - v2-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           # fallback to using the latest cache if no exact match is found
-          - v1-dependencies-{{ .Branch }}-
+          - v2-dependencies-{{ .Branch }}-
       - run:
           name: Upgrade pipenv
           command: |
@@ -38,7 +38,7 @@ jobs:
             python3.7 -m pipenv sync --dev
 
       - save_cache:
-          key: v1-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          key: v2-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           paths:
             - ./venv
             - /usr/local/bin
