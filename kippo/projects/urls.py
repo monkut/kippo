@@ -10,7 +10,12 @@ urlpatterns = [
         name="set_session_organization_id",
     ),
     path(
-        "milestone/<uuid:milestone_id>/",
+        "milestones/<uuid:milestone_id>/",
+        views.view_milestone_status,
+        name="view_milestone_status_single",
+    ),
+    path(
+        "milestones/",
         views.view_milestone_status,
         name="view_milestone_status",
     ),

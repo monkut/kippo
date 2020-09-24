@@ -456,7 +456,7 @@ class KippoMilestone(UserCreatedBaseModel):
         return False
 
     @property
-    def estimated_completion_date(self) -> datetime.datetime.date:
+    def estimated_completion_date(self) -> Optional[datetime.datetime.date]:
         from tasks.functions import get_projects_load, get_ttlhash
 
         # project_developer_load
@@ -472,6 +472,7 @@ class KippoMilestone(UserCreatedBaseModel):
         project_developer_load, _, _ = get_projects_load(organization=self.project.organization, ttl_hash=get_ttlhash(seconds=60))
 
         # retrieve the number of estimated days assigned to this milestone
+        max_effort_date = None
         milestone_scheduled_effort_dates = []
         for project_id, project_task_data in project_developer_load.items():
             if project_id != self.project.id:
@@ -484,7 +485,9 @@ class KippoMilestone(UserCreatedBaseModel):
                         for date in task.qlu_task.get_scheduled_dates():
                             logger.debug(f"scheduled task({task.title}) date: {date}")
                             milestone_scheduled_effort_dates.append(date)
-        return max(milestone_scheduled_effort_dates)
+        if milestone_scheduled_effort_dates:
+            max_effort_date = max(milestone_scheduled_effort_dates)
+        return max_effort_date
 
     def get_assignee_workdays(self, start_date: Optional[datetime.date] = None) -> Counter:
         if not start_date:

@@ -1,6 +1,6 @@
 import logging
 from collections import Counter
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib import messages
@@ -172,14 +172,20 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
 
 
 @staff_member_required
-def view_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
-    warning = None
+def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = None) -> HttpResponse:
     try:
         selected_organization, user_organizations = get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
     milestones = KippoMilestone.objects.filter(project__organization=selected_organization).order_by("target_date")
+    if milestone_id:
+        milestones = milestones.filter(id=milestone_id)
+    if not KippoTaskStatus.objects.filter(task__project__organization=selected_organization):
+        milestones = []
+        messages.add_message(
+            request, messages.ERROR, f"No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
+        )
     context = {
         "milestones": milestones,
         "messages": messages.get_messages(request),

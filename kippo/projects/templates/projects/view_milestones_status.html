@@ -9,7 +9,7 @@
 
 {% block bootstrap4_content %}
 <h1>
-    <a href="{{URL_PREFIX}}/projects/">Milestones</a>
+    <a href="{{URL_PREFIX}}/projects/milestones/">Milestones</a>
 </h1>
   {% if chart_div %}
     <center>
@@ -20,20 +20,24 @@
   <table class="table table-striped">
       <thead  class="thead-dark">
         <tr>
+            <th scope="col">Project</th>
             <th scope="col">Milestone</th>
             <th scope="col">Start Date</th>
             <th scope="col">Target Date</th>
             <th scope="col">Estimated Completion Date</th>
             <th scope="col">Available Work Days</th>
             <th scope="col">Estimated Work Days</th>
-            <th scope="col">On Target (%)</th>
         </tr>
       </thead>
     {% for milestone in milestones %}
         <tr>
             <td>
+                {{ milestone.project.name }}
+            </td>
+            <td>
                 {{ milestone.title }}
             </td>
+
             <td>
                 {{ milestone.start_date }}
             </td>
@@ -48,11 +52,6 @@
             </td>
             <td>
                 {{ milestone.estimated_work_days }}
-            </td>
-            <td>
-                {% if milestone.on_target_percentage %}
-                    {{ milestone.on_target_percentage }}
-                {% endif %}
             </td>
         </tr>
     {% endfor %}
