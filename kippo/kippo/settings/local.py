@@ -7,7 +7,7 @@ DEBUG = True
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "kippo_new_20190725",
+        "NAME": os.getenv("DBNAME"),
         "HOST": "127.0.0.1",
         "PORT": 5432,
         "USER": "postgres",

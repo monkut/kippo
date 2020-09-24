@@ -15,7 +15,7 @@ from tasks.models import KippoTask, KippoTaskStatus
 from .charts.functions import prepare_burndown_chart_components
 from .exceptions import ProjectDatesError, TaskStatusError
 from .functions import get_user_session_organization
-from .models import KippoProject
+from .models import KippoMilestone, KippoProject
 
 logger = logging.getLogger(__name__)
 
@@ -171,13 +171,20 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
 
 
-# @staff_member_required
-# def view_inprogress_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
-#     warning = None
-#     try:
-#         selected_organization, user_organizations = get_user_session_organization(request)
-#     except ValueError as e:
-#         return HttpResponseBadRequest(str(e.args))
-#
-#     for project in projects:
-#         for assignee
+@staff_member_required
+def view_milestone_status(request: HttpRequest, milestone_id: str) -> HttpResponse:
+    warning = None
+    try:
+        selected_organization, user_organizations = get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
+
+    milestones = KippoMilestone.objects.filter(project__organization=selected_organization).order_by("target_date")
+    context = {
+        "milestones": milestones,
+        "messages": messages.get_messages(request),
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
+    }
+
+    return render(request, "projects/view_milestones_status.html", context)

@@ -1,11 +1,12 @@
 import datetime
 import logging
 import uuid
+from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import reversion
-from accounts.models import KippoUser
+from accounts.models import KippoUser, OrganizationMembership
 from common.models import UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField, JSONField
@@ -454,6 +455,115 @@ class KippoMilestone(UserCreatedBaseModel):
             return True
         return False
 
+    @property
+    def estimated_completion_date(self) -> datetime.datetime.date:
+        from tasks.functions import get_projects_load, get_ttlhash
+
+        # project_developer_load
+        # {'PROJECT_ID':  # multiple
+        #     {
+        #         'GITHUB_LOGIN': [
+        #             KippoTask(),  # with 'qlu_task' attribute with scheduled QluTask object
+        #             KippoTask()  # with 'qlu_task' attribute with scheduled QluTask object
+        #                 ...
+        #         ]
+        #     },
+        # }
+        project_developer_load, _, _ = get_projects_load(organization=self.project.organization, ttl_hash=get_ttlhash(seconds=60))
+
+        # retrieve the number of estimated days assigned to this milestone
+        milestone_scheduled_effort_dates = []
+        for project_id, project_task_data in project_developer_load.items():
+            if project_id != self.project.id:
+                logger.debug(f"project_id({project_id}) != milestone.project.id({self.project.id})")
+                continue
+            for user_assigned_tasks in project_task_data.values():
+                for task in user_assigned_tasks:
+                    if task.milestone == self:
+                        # get assigned dates
+                        for date in task.qlu_task.get_scheduled_dates():
+                            logger.debug(f"scheduled task({task.title}) date: {date}")
+                            milestone_scheduled_effort_dates.append(date)
+        return max(milestone_scheduled_effort_dates)
+
+    def get_assignee_workdays(self, start_date: Optional[datetime.date] = None) -> Counter:
+        if not start_date:
+            current_datetime = timezone.now()
+            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
+            current_date = start_datetime.date()
+
+        # get organization memberships
+        organization_memberships = list(
+            OrganizationMembership.objects.filter(organization=self.project.organization, user__github_login__isnull=False, is_developer=True)
+            .exclude(user__github_login__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)
+            .order_by("user__github_login")
+        )
+        member_personal_holiday_dates = {m.user.github_login: tuple(m.user.personal_holiday_dates()) for m in organization_memberships}
+        member_public_holiday_dates = {m.user.github_login: tuple(m.user.public_holiday_dates()) for m in organization_memberships}
+
+        assignee_available_workdays = Counter()
+        while current_date <= self.target_date:  # noqa
+            for membership in organization_memberships:
+                if (
+                    current_date not in member_personal_holiday_dates[membership.user.github_login]
+                    and current_date not in member_public_holiday_dates[membership.user.github_login]
+                ):
+                    if current_date.weekday() in membership.committed_weekdays:
+                        assignee_available_workdays[membership.user] += 1
+            current_date += datetime.timedelta(days=1)
+        return assignee_available_workdays
+
+    @property
+    def available_work_days(self, start_date: Optional[datetime.date] = None) -> int:
+        """Calculated the work days available considering the FULL OrganizationMembership available assignments"""
+        assignee_available_workdays = self.get_assignee_workdays(start_date)
+        total_available_workdays = sum(assignee_available_workdays.values())
+        return total_available_workdays
+
+    @property
+    def estimated_work_days(self) -> int:
+        """Return the effort days assigned to tasks in the given milestone"""
+        from tasks.functions import get_projects_load, get_ttlhash
+
+        # project_developer_load
+        # {'PROJECT_ID':  # multiple
+        #     {
+        #         'GITHUB_LOGIN': [
+        #             KippoTask(),  # with 'qlu_task' attribute with scheduled QluTask object
+        #             KippoTask()  # with 'qlu_task' attribute with scheduled QluTask object
+        #                 ...
+        #         ]
+        #     },
+        # }
+        cache_hash = get_ttlhash(seconds=60)
+        if hasattr(self, "skip_cache") and self.skip_cache is True:  # for testing only
+            # bust the cache so each call generates a new result
+            import time
+
+            cache_hash = time.time()
+
+        project_developer_load, _, _ = get_projects_load(organization=self.project.organization, ttl_hash=cache_hash)
+
+        # retrieve the number of estimated days assigned to this milestone
+        total_milestone_assigned_workdays = 0
+        for project_id, project_task_data in project_developer_load.items():
+            if project_id != self.project.id:
+                logger.debug(f"project_id({project_id}) != milestone.project.id({self.project.id})")
+                continue
+            for user_assigned_tasks in project_task_data.values():
+                for task in user_assigned_tasks:
+                    if task.milestone == self:
+                        # get assigned dates
+                        for date in task.qlu_task.get_scheduled_dates():
+                            logger.debug(f"scheduled task({task.title}) date: {date}")
+                            total_milestone_assigned_workdays += 1
+
+        return total_milestone_assigned_workdays
+
+    @property
+    def tasks(self) -> QuerySet:
+        return self.kippotask_milestone.all()  # reverse relation to KippoTask
+
     def update_github_milestones(self, user: Optional[KippoUser] = None, close: bool = False) -> List[Tuple[bool, object]]:
         """
         Create or Update related github milestones belonging to github repositories attached to the related project.
@@ -581,7 +691,12 @@ class KippoMilestone(UserCreatedBaseModel):
 @receiver(pre_delete, sender=KippoMilestone)
 def cleanup_github_milestones(sender, instance, **kwargs):
     """Close related Github milestones when  KippoMilestone is deleted."""
-    instance.update_github_milestones(close=True)
+    try:
+        related_github_milestone = GithubMilestone.objects.get(milestone=instance)
+        if related_github_milestone:
+            instance.update_github_milestones(close=True)
+    except GithubMilestone.DoesNotExist:
+        logger.info("no related GithubMilestone, will not attempt to close on github")
 
 
 class ProjectAssignment(UserCreatedBaseModel):

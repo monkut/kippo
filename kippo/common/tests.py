@@ -40,6 +40,7 @@ def setup_basic_project(organization=None, repository_name="Hello-World", github
 
     orgmembership = OrganizationMembership(user=user, organization=organization, is_developer=True, created_by=user, updated_by=user)
     orgmembership.save()
+    created_objects["OrganizationMembership"] = orgmembership
 
     access_token = GithubAccessToken(organization=organization, token="kdakkfj", created_by=user, updated_by=user)
     access_token.save()

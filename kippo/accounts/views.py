@@ -2,6 +2,7 @@ import datetime
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
+from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponseBadRequest
 from django.shortcuts import render
@@ -15,7 +16,7 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     # get organization memberships
     organization_memberships = list(
         OrganizationMembership.objects.filter(organization=organization, user__github_login__isnull=False, is_developer=True)
-        .exclude(user__github_login__contains="unassigned")
+        .exclude(user__github_login__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)
         .order_by("user__github_login")
     )
     member_personal_holiday_dates = {m.user.github_login: tuple(m.user.personal_holiday_dates()) for m in organization_memberships}

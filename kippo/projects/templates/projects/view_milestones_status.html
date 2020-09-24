@@ -1,0 +1,114 @@
+{% extends "projects/base.html" %}
+
+{% block title %}Kippo: Active Projects{% endblock %}
+{% if chart_script %}
+    {% block bootstrap4_extra_head %}
+      <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.css" type="text/css" />
+    {% endblock %}
+{% endif %}
+
+{% block bootstrap4_content %}
+<h1>
+    <a href="{{URL_PREFIX}}/projects/">Milestones</a>
+</h1>
+  {% if chart_div %}
+    <center>
+        {{ chart_div |safe }}
+     </center>
+  {% endif %}
+
+  <table class="table table-striped">
+      <thead  class="thead-dark">
+        <tr>
+            <th scope="col">Milestone</th>
+            <th scope="col">Start Date</th>
+            <th scope="col">Target Date</th>
+            <th scope="col">Estimated Completion Date</th>
+            <th scope="col">Available Work Days</th>
+            <th scope="col">Estimated Work Days</th>
+            <th scope="col">On Target (%)</th>
+        </tr>
+      </thead>
+    {% for milestone in milestones %}
+        <tr>
+            <td>
+                {{ milestone.title }}
+            </td>
+            <td>
+                {{ milestone.start_date }}
+            </td>
+            <td>
+                {{ milestone.target_date }}
+            </td>
+            <td>
+                {{ milestone.estimated_completion_date }}
+            </td>
+            <td>
+                {{ milestone.available_work_days }}
+            </td>
+            <td>
+                {{ milestone.estimated_work_days }}
+            </td>
+            <td>
+                {% if milestone.on_target_percentage %}
+                    {{ milestone.on_target_percentage }}
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+
+  </table>
+
+ <table class="table table-striped">
+      <thead  class="thead-dark">
+        <tr>
+            <th scope="col">Assignee</th>
+            <th scope="col">Project</th>
+            <th scope="col">Milestone</th>
+            <th scope="col">State</th>
+            <th scope="col">Task</th>
+            <th scope="col">Estimate <br/> (staff days)</th>
+            <th scope="col">Latest Status</th>
+        </tr>
+      </thead>
+    {% for task in milestone.tasks %}
+        <tr>
+            {% if task.assignee %}
+                <td>
+                    <a href="{{URL_PREFIX}}/tasks/?github_login={{ task.assignee.github_login }}">{{ task.assignee.display_name }}</a>
+                </td>
+            {% else %}
+                <td></td>
+            {% endif %}
+            <td>
+                {% if task.project.slug %}
+                    <a href="{{ task.project.get_absolute_url }}">{{ task.project.name }}</a>
+                {% else %}
+                    {{ task.project.name }}
+                {% endif %}
+                {% if task.project.github_project_html_url %}
+                    ( <a href="{{ task.project.github_project_html_url }}">github</a> )
+                {% endif %}
+            </td>
+            {% if task.milestone %}
+                <td>{{ task.milestone.title }}</td>
+            {% else %}
+                <td></td>
+            {% endif %}
+            <td>{{ task.latest_kippotaskstatus.state }}</td>
+            {% if task.github_issue_html_url %}
+                <td><a href="{{ task.github_issue_html_url }}">{{ task.title }}</a></td>
+            {% else %}
+                <td>{{ task.title }}</td>
+            {% endif %}
+            <td>{{ task.latest_kippotaskstatus.estimate_days }}</td>
+            {% if task.latest_comment %}
+                <td>{{ task.latest_kippotaskstatus.comment  | linebreaks |urlize }}</td>
+            {% else %}
+                <td></td>
+            {% endif %}
+        </tr>
+    {% endfor %}
+  </table>
+
+{% endblock bootstrap4_content %}

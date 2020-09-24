@@ -75,10 +75,11 @@ def get_kippoproject_taskstatus_csv_rows(
     kippo_project: KippoProject, with_headers: bool = True, status_effort_date: Optional[datetime.date] = None
 ) -> Generator:
     """
-    Generate the current taskstaus CSV lines for a given KippoProject
+    Generate the current 'active' taskstaus CSV lines for a given KippoProject
     """
     headers = (
         "kippo_task_id",
+        "kippo_milestone",
         "github_issue_html_url",
         "category",
         "effort_date",
@@ -86,15 +87,20 @@ def get_kippoproject_taskstatus_csv_rows(
         "estimate_days",
         "assignee_github_login",
         "latest_comment",
+        "labels",
     )
     if with_headers:
         yield headers
 
-    qs = kippo_project.get_latest_taskstatuses()
+    qs = kippo_project.get_latest_taskstatuses(active_only=True)
     qs = qs.order_by("state", "task__category", "task__github_issue_html_url")
     for taskstatus in qs:
+        milestone = ""
+        if taskstatus.task.milestone:
+            milestone = taskstatus.task.milestone.title
         row = (
             taskstatus.task.id,
+            milestone,
             taskstatus.task.github_issue_html_url,
             taskstatus.task.category,
             taskstatus.effort_date,
@@ -102,5 +108,6 @@ def get_kippoproject_taskstatus_csv_rows(
             taskstatus.estimate_days,
             taskstatus.task.assignee.github_login,
             taskstatus.comment,
+            taskstatus.tags,
         )
         yield row
