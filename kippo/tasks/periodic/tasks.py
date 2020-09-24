@@ -241,7 +241,7 @@ class OrganizationIssueProcessor:
 
                 existing_changed = False
                 if issue.title != existing_task.title or issue.body != existing_task.description:
-                    logger.debug(f"Updating KippoTask.(title|description)")
+                    logger.debug("Updating KippoTask.(title|description)")
                     existing_task.title = issue.title
                     existing_task.description = issue.body
                     existing_changed = True

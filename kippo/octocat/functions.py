@@ -532,7 +532,7 @@ class GithubWebhookProcessor:
                 logger.exception(e)
                 logger.error(f"ProjectNotFoundError: {e.args}")
                 result_state = "ignore"
-                webhookevent.event["kippoerror"] = f"No related project found for task!"
+                webhookevent.event["kippoerror"] = "No related project found for task!"
             logger.debug(f"result_state={result_state}")
             webhookevent.state = result_state
             webhookevent.save()

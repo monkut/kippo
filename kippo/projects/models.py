@@ -1,7 +1,7 @@
 import datetime
 import logging
 import uuid
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -202,7 +202,7 @@ class KippoProject(UserCreatedBaseModel):
 
     def get_columnset_id_to_name_mapping(self):
         if not self.column_info:
-            raise ValueError(f"KippoProject.column_info not populated, unable to generate ID to Name Mapping!")
+            raise ValueError("KippoProject.column_info not populated, unable to generate ID to Name Mapping!")
         mapping = {}
         for column_definition in self.column_info:
             name = column_definition["name"]
@@ -440,7 +440,7 @@ class KippoMilestone(UserCreatedBaseModel):
 
     def clean(self):
         if self.actual_date and (self.actual_date > timezone.now().date()):
-            raise ValidationError(_(f"Given date is in the future"))
+            raise ValidationError(_("Given date is in the future"))
 
         # check start/target date
         if (self.start_date and self.target_date) and self.target_date < self.start_date:

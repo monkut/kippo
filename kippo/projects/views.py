@@ -76,7 +76,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
         active_taskstatus.extend(project_active_taskstatus)
 
     if not all_has_estimates:
-        msg = f'No Estimates defined in tasks (Expect "estimate labels")'
+        msg = 'No Estimates defined in tasks (Expect "estimate labels")'
         messages.add_message(request, messages.WARNING, msg)
 
     project = None
@@ -100,7 +100,7 @@ def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
     else:
         # show project schedule chart
         if not selected_organization:
-            return HttpResponseBadRequest(f"KippoUser not registered with an Organization!")
+            return HttpResponseBadRequest("KippoUser not registered with an Organization!")
 
         # check projects for start_date, target_date
         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
@@ -158,7 +158,7 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
 
     user_organizations = list(request.user.organizations)
     if not organization_id:
-        return HttpResponseBadRequest(f'required "organization_id" not given!')
+        return HttpResponseBadRequest('required "organization_id" not given!')
     elif not user_organizations:
         return HttpResponseBadRequest(f"user({request.user.username}) has no OrganizationMemberships!")
 
@@ -184,7 +184,7 @@ def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = No
     if not KippoTaskStatus.objects.filter(task__project__organization=selected_organization):
         milestones = []
         messages.add_message(
-            request, messages.ERROR, f"No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
+            request, messages.ERROR, "No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
         )
     context = {
         "milestones": milestones,

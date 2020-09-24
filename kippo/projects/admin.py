@@ -169,7 +169,7 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
                 )
 
 
-create_github_repository_milestones_action.short_description = _(f"Create related Github Repository Milestone(s) for selected")  # noqa: E305
+create_github_repository_milestones_action.short_description = _("Create related Github Repository Milestone(s) for selected")  # noqa: E305
 
 
 def collect_project_github_repositories_action(modeladmin, request, queryset) -> None:
@@ -304,7 +304,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         user_initial_organization, user_organizations = get_user_session_organization(request)
         if not user_initial_organization:
             self.message_user(
-                request, f"User has not OrganizationMembership defined! Must belong to an Organization to create a project", level=messages.ERROR
+                request, "User has not OrganizationMembership defined! Must belong to an Organization to create a project", level=messages.ERROR
             )
         form.base_fields["organization"].initial = user_initial_organization
         form.base_fields["organization"].queryset = request.user.memberships.all()
@@ -339,14 +339,12 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     get_project_name.short_description = _("Project")
 
     def response_add(self, request, obj, post_url_continue=None):
-        """Overridding Redirect to the KippoProject page after edit.
-        """
+        """Overridding Redirect to the KippoProject page after edit."""
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
 
     def response_change(self, request, obj):
-        """Overriding Redirect to the KippoProject page after edit.
-        """
+        """Overriding Redirect to the KippoProject page after edit."""
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
 
