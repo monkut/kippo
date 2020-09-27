@@ -178,17 +178,27 @@ def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = No
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
-    milestones = KippoMilestone.objects.filter(project__organization=selected_organization).order_by("target_date")
+    milestones = KippoMilestone.objects.filter(project__organization=selected_organization, is_completed=False, project__is_closed=False).order_by(
+        "target_date", "project", "title"
+    )
     if milestone_id:
         milestones = milestones.filter(id=milestone_id)
+        if not milestones:
+            return HttpResponseBadRequest(f"milestone_id does not exist: {milestone_id}")
     if not KippoTaskStatus.objects.filter(task__project__organization=selected_organization):
         milestones = []
         messages.add_message(
             request, messages.ERROR, "No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
         )
+    selected_milestone = None
+    if milestone_id:
+        selected_milestone = milestones[0]
+    active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by("name")
     context = {
         "milestones": milestones,
+        "milestone": selected_milestone,
         "messages": messages.get_messages(request),
+        "active_projects": active_projects,
         "selected_organization": selected_organization,
         "organizations": user_organizations,
     }

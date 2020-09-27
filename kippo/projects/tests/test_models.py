@@ -376,6 +376,7 @@ class KippoMilestoneMethodsTestCase(TestCase):
 
     def test_estimated_work_days(self):
         assert KippoProject.objects.count() > 0
+        assert KippoTaskStatus.objects.count() == 5, KippoTaskStatus.objects.count()
         # set start_date, target_date for project
         self.project.start_date = timezone.datetime(2020, 9, 1).date()
         self.project.target_date = timezone.datetime(2020, 11, 1).date()

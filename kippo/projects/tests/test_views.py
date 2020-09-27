@@ -129,6 +129,7 @@ class ProjectMilestonesTestCase(TestCase):
         self.kippomilestone_1 = KippoMilestone(
             project=self.project,
             title="test milestone 1",
+            is_completed=False,
             start_date=milestone1_startdate,
             target_date=milestone1_targetdate,
         )
@@ -174,7 +175,8 @@ class ProjectMilestonesTestCase(TestCase):
         )
         self.task1_status1.save()
 
+        self.client.session.update({"organization_id": str(self.kippomilestone_1.project.organization.id)})
         url = reverse("view_milestone_status")
         url = f"{url}{self.kippomilestone_1.id}/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
