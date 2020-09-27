@@ -1,6 +1,6 @@
 {% extends "projects/base.html" %}
 
-{% block title %}Kippo: Active Projects{% endblock %}
+{% block title %}Kippo: Active Milestones{% endblock %}
 {% if chart_script %}
     {% block bootstrap4_extra_head %}
       <link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.2.0.min.css" type="text/css" />
@@ -10,6 +10,9 @@
 {% block bootstrap4_content %}
 <h1>
     <a href="{{URL_PREFIX}}/projects/milestones/">Milestones</a>
+    {% if milestone %}
+    - (<a href="{{URL_PREFIX}}/projects/?slug={{milestone.project.slug}}">{{ milestone.project.name }}</a>) {{ milestone.title }}
+    {% endif %}
 </h1>
   {% if chart_div %}
     <center>
@@ -25,6 +28,7 @@
             <th scope="col">Start Date</th>
             <th scope="col">Target Date</th>
             <th scope="col">Estimated Completion Date</th>
+            <th scope="col">Tasks</th>
             <th scope="col">Available Work Days</th>
             <th scope="col">Estimated Work Days</th>
         </tr>
@@ -32,12 +36,11 @@
     {% for milestone in milestones %}
         <tr>
             <td>
-                {{ milestone.project.name }}
+                <a href="{{URL_PREFIX}}/projects/?slug={{milestone.project.slug}}">{{ milestone.project.name }}</a>
             </td>
             <td>
-                {{ milestone.title }}
+                <a href="{{ milestone.get_url }}">{{ milestone.title }}</a>
             </td>
-
             <td>
                 {{ milestone.start_date }}
             </td>
@@ -48,7 +51,10 @@
                 {{ milestone.estimated_completion_date }}
             </td>
             <td>
-                {{ milestone.available_work_days }}
+                {{ milestone.tasks|length }}
+            </td>
+            <td>
+                <span title="{{ milestone.assignee_available_workdays }}">{{ milestone.available_work_days }}</span>
             </td>
             <td>
                 {{ milestone.estimated_work_days }}

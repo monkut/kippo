@@ -95,7 +95,7 @@ class OrganizationIssueProcessor:
             # check for KippoMilestone
             milestone_title = issue.milestone.title
             try:
-                kippo_milestone = KippoMilestone.objects.get(title=milestone_title)
+                kippo_milestone = KippoMilestone.objects.get(title=milestone_title, project=kippo_project)
             except KippoMilestone.DoesNotExist:
                 logger.info(f"Creating KippoMilestone for issue: {issue.html_url}")
                 dueon_date = datetime.datetime.fromisoformat(issue.milestone.due_on.replace("Z", "+00:00")).date()

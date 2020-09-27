@@ -449,6 +449,10 @@ class KippoMilestone(UserCreatedBaseModel):
     def get_absolute_url(self):
         return f"{settings.URL_PREFIX}/admin/projects/kippomilestone/{self.id}/change/"
 
+    def get_url(self):
+        """Url for non-admin page"""
+        return f"{settings.URL_PREFIX}/projects/milestones/{self.id}/"
+
     @property
     def is_delayed(self):
         if not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date():
@@ -517,6 +521,11 @@ class KippoMilestone(UserCreatedBaseModel):
         return assignee_available_workdays
 
     @property
+    def assignee_available_workdays(self) -> str:
+        assignee_available_workdays = self.get_assignee_workdays()
+        return ", ".join(f"{assignee}={workdays}" for assignee, workdays in assignee_available_workdays.items())
+
+    @property
     def available_work_days(self, start_date: Optional[datetime.date] = None) -> int:
         """Calculated the work days available considering the FULL OrganizationMembership available assignments"""
         assignee_available_workdays = self.get_assignee_workdays(start_date)
@@ -526,46 +535,18 @@ class KippoMilestone(UserCreatedBaseModel):
     @property
     def estimated_work_days(self) -> int:
         """Return the effort days assigned to tasks in the given milestone"""
-        from tasks.functions import get_projects_load, get_ttlhash
-
-        # project_developer_load
-        # {'PROJECT_ID':  # multiple
-        #     {
-        #         'GITHUB_LOGIN': [
-        #             KippoTask(),  # with 'qlu_task' attribute with scheduled QluTask object
-        #             KippoTask()  # with 'qlu_task' attribute with scheduled QluTask object
-        #                 ...
-        #         ]
-        #     },
-        # }
-        cache_hash = get_ttlhash(seconds=60)
-        if hasattr(self, "skip_cache") and self.skip_cache is True:  # for testing only
-            # bust the cache so each call generates a new result
-            import time
-
-            cache_hash = time.time()
-
-        project_developer_load, _, _ = get_projects_load(organization=self.project.organization, ttl_hash=cache_hash)
-
         # retrieve the number of estimated days assigned to this milestone
         total_milestone_assigned_workdays = 0
-        for project_id, project_task_data in project_developer_load.items():
-            if project_id != self.project.id:
-                logger.debug(f"project_id({project_id}) != milestone.project.id({self.project.id})")
-                continue
-            for user_assigned_tasks in project_task_data.values():
-                for task in user_assigned_tasks:
-                    if task.milestone == self:
-                        # get assigned dates
-                        for date in task.qlu_task.get_scheduled_dates():
-                            logger.debug(f"scheduled task({task.title}) date: {date}")
-                            total_milestone_assigned_workdays += 1
-
+        active_task_states = self.project.columnset.get_active_column_names()
+        results = KippoTaskStatus.objects.filter(task__in=self.tasks, state__in=active_task_states).order_by("task", "-effort_date").distinct("task")
+        for r in results:
+            print(r)
+            total_milestone_assigned_workdays += r.estimate_days
         return total_milestone_assigned_workdays
 
     @property
     def tasks(self) -> QuerySet:
-        return self.kippotask_milestone.all()  # reverse relation to KippoTask
+        return self.kippotask_milestone.order_by("assignee")  # reverse relation to KippoTask
 
     def update_github_milestones(self, user: Optional[KippoUser] = None, close: bool = False) -> List[Tuple[bool, object]]:
         """
