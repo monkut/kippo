@@ -1,5 +1,6 @@
 import datetime
 import logging
+from operator import attrgetter
 from typing import Generator, List, Optional, Tuple
 from urllib.parse import urlsplit
 
@@ -20,13 +21,14 @@ def get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganizati
     organization_id = request.session.get("organization_id", None)
     logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
     # check that user belongs to organization
-    user_organizations = list(request.user.organizations)
+    user_organizations = list(sorted(request.user.organizations, key=attrgetter("name")))
     user_organization_ids = {str(o.id): o for o in user_organizations}
     if not user_organization_ids:
         raise ValueError(f"No OrganizationMembership for user: {request.user.username}")
 
     if organization_id not in user_organization_ids.keys():
-        # set to user first orgA
+        # set to user first org
+        # logger.debug(f"organization_id={organization_id} not in user_organization_ids.keys({user_organization_ids.keys()})")
         logger.warning(f'User({request.user.username}) invalid "organization_id" given, setting to "first".')
         organization = user_organizations[0]  # use first
         request.session["organization_id"] = str(organization_id)
