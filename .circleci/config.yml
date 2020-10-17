@@ -46,10 +46,26 @@ jobs:
             - /usr/local/bin/lib/python3.7/site-packages
 
       - run:
-          name: prepare database
+          name: prepare boto3 credentials and awscli (Set via ENVARS[AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY])
           command: |
-            cd kippo
-            python3.7 -m pipenv run python manage.py migrate
+            # create ~/.aws/config
+            echo "Creating: ~/.aws/config"
+            mkdir -p ~/.aws
+            cat <<EOT > ~/.aws/config
+            [default]
+            region = ${AWS_DEFAULT_REGION}
+            output = json
+            [profile ${AWS_PROFILE}]
+            region = ${AWS_DEFAULT_REGION}
+            source_profile = default
+            EOT
+            # create .aws/credentials
+            echo "Creating: ~/.aws/credentials"
+            cat <<EOT > ~/.aws/credentials
+            [default]
+            aws_access_key_id = ${CIRCLECI_AWS_ACCESS_KEY_ID}
+            aws_secret_access_key = ${CIRCLECI_AWS_SECRET_ACCESS_KEY}
+            EOT
 
       - run:
           name: run tests
