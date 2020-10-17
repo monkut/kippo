@@ -103,3 +103,23 @@ Prerequisites:
     # load country holidays
     python manage.py loaddata jp_vn_publicholidays.json
     ```
+
+## Optional Features
+
+### ProjectId Mapping file output
+
+Optionally, the environment variable, `PROJECTID_MAPPING_JSON_S3URI` may be defined to periodically write the *Active* 
+ProjectIds to Project names in the following json format:
+
+```json
+{
+    "last_updated": "2020-10-01T01:10:00+9:00",
+    "{KippoProject.id (uuid)}":  "{KippoProject.name}"
+}
+```
+
+> NOTE: appropriate permissions need to be applied to the related kippo execution role
+
+To enable this feature the envar must be defined and related Cloudwatch event set to fire the following handler periodically (daily expected):
+
+`projects.handlers.functions.handle_write_projectid_mapping_event` 
