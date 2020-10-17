@@ -497,7 +497,7 @@ class KippoMilestone(UserCreatedBaseModel):
         if not start_date:
             current_datetime = timezone.now()
             start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-            current_date = start_datetime.date()
+            start_date = start_datetime.date()
 
         # get organization memberships
         organization_memberships = list(
@@ -509,6 +509,7 @@ class KippoMilestone(UserCreatedBaseModel):
         member_public_holiday_dates = {m.user.github_login: tuple(m.user.public_holiday_dates()) for m in organization_memberships}
 
         assignee_available_workdays = Counter()
+        current_date = start_date
         while current_date <= self.target_date:  # noqa
             for membership in organization_memberships:
                 if (
@@ -525,7 +526,6 @@ class KippoMilestone(UserCreatedBaseModel):
         assignee_available_workdays = self.get_assignee_workdays()
         return ", ".join(f"{assignee}={workdays}" for assignee, workdays in assignee_available_workdays.items())
 
-    @property
     def available_work_days(self, start_date: Optional[datetime.date] = None) -> int:
         """Calculated the work days available considering the FULL OrganizationMembership available assignments"""
         assignee_available_workdays = self.get_assignee_workdays(start_date)

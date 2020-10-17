@@ -341,7 +341,7 @@ class KippoMilestoneMethodsTestCase(TestCase):
         self.task1.milestone = kippomilestone_1
         self.task1.save()
 
-        actual = kippomilestone_1.available_work_days
+        actual = kippomilestone_1.available_work_days(start_date=timezone.datetime(2020, 9, 1).date())
         self.assertTrue(actual)
 
         # all days mon-fri between 9/1 to 9/20
@@ -356,7 +356,7 @@ class KippoMilestoneMethodsTestCase(TestCase):
             day=timezone.datetime(2020, 9, 7).date(),  # monday
         )
         personalholiday.save()
-        actual = kippomilestone_1.available_work_days
+        actual = kippomilestone_1.available_work_days(start_date=timezone.datetime(2020, 9, 1).date())
         self.assertTrue(actual)
         expected -= 1
         self.assertEqual(actual, expected)
@@ -369,7 +369,7 @@ class KippoMilestoneMethodsTestCase(TestCase):
         )
         public_holiday.save()
 
-        actual = kippomilestone_1.available_work_days
+        actual = kippomilestone_1.available_work_days(start_date=timezone.datetime(2020, 9, 1).date())
         self.assertTrue(actual)
         expected -= 1
         self.assertEqual(actual, expected)

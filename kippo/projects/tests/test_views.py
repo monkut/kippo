@@ -162,6 +162,7 @@ class ProjectMilestonesTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_view_milestone_status__with_milestone_id(self):
+        assert KippoMilestone.objects.filter(id=self.kippomilestone_1.id).exists()
         self.client.force_login(self.user)
         # create KippoTaskStatus object and confirm 200 is returned as expected
         # create existing taskstatus
@@ -175,7 +176,10 @@ class ProjectMilestonesTestCase(TestCase):
         )
         self.task1_status1.save()
 
-        self.client.session.update({"organization_id": str(self.kippomilestone_1.project.organization.id)})
+        assert self.kippomilestone_1.project.organization.id
+        session = self.client.session  # *MUST* pull out 'session' as variable to update
+        session.update({"organization_id": str(self.kippomilestone_1.project.organization.id)})
+        session.save()
         url = reverse("view_milestone_status")
         url = f"{url}{self.kippomilestone_1.id}/"
         response = self.client.get(url)

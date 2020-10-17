@@ -9,11 +9,14 @@ https://docs.djangoproject.com/en/2.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.0/ref/settings/
 """
+import logging
 import os
 from pathlib import PurePath
 
 from django.conf.locale.en import formats as en_formats
 from django.conf.locale.ja import formats as ja_formats
+
+logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = PurePath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -193,3 +196,18 @@ DAY_WORKHOURS = 7
 
 DEFAULT_WEBHOOK_DELETE_DAYS = "30"
 WEBHOOK_DELETE_DAYS = int(os.getenv("WEBHOOK_DELETE_DAYS", DEFAULT_WEBHOOK_DELETE_DAYS))
+
+PROJECTID_MAPPING_JSON_S3URI = os.getenv("PROJECTID_MAPPING_JSON_S3URI", None)
+
+# AWS/BOTO3 Configuration
+BOTO3_CONNECT_TIMEOUT = 15
+AWS_DEFAULT_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1")
+
+DEFAULT_S3_SERVICE_ENDPOINT = f"https://s3.{AWS_DEFAULT_REGION}.amazonaws.com"
+DEFAULT_SQS_SERVICE_ENDPOINT = f"https://sqs.{AWS_DEFAULT_REGION}.amazonaws.com"
+
+AWS_SERVICE_ENDPOINTS = {
+    "s3": os.getenv("S3_SERVICE_ENDPOINT", DEFAULT_S3_SERVICE_ENDPOINT),
+    "sqs": os.getenv("SQS_SERVICE_ENDPOINT", DEFAULT_SQS_SERVICE_ENDPOINT),
+}
+logger.info(f"AWS_SERVICE_ENDPOINTS: {AWS_SERVICE_ENDPOINTS}")
