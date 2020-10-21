@@ -150,7 +150,9 @@ DUMPDATA_S3_BUCKETNAME = "kippo-dumpdata-bucket-123xyz"
 # Authentication
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends
 AUTHENTICATION_BACKENDS = ("social_core.backends.google.GoogleOAuth2", "django.contrib.auth.backends.ModelBackend")
-URL_PREFIX = ""  # needed to support a prefix on urls (for zappa deployment)
+
+DEFAULT_URL_PREFIX = ""
+URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)  # needed to support a prefix on urls (for zappa deployment)
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_KEY", None)  # client ID
@@ -176,7 +178,6 @@ DEFAULT_KIPPOPROJECT_CATEGORY = "poc"
 DEFAULT_KIPPOTASK_CATEGORY = "study"
 DEFAULT_TASK_DISPLAY_STATE = "in-progress"
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
-URL_PREFIX = ""
 
 TEST = False
 
