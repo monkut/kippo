@@ -1,5 +1,5 @@
 import logging
-from collections import Counter
+from collections import Counter, namedtuple
 from typing import List, Optional, Tuple
 
 from django.conf import settings
@@ -18,6 +18,9 @@ from .functions import get_user_session_organization
 from .models import KippoMilestone, KippoProject
 
 logger = logging.getLogger(__name__)
+
+
+AssigneeStatus = namedtuple("AssigneeStatus", ("assignee", "task_count", "available_workdays", "estimated_workdays", "load_percentage"))
 
 
 def project_assignee_keyfunc(task: KippoTask) -> tuple:
@@ -171,6 +174,42 @@ def set_user_session_organization(request, organization_id: str = None) -> HttpR
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
 
 
+def _get_milestone_assignee_status(milestone: KippoMilestone) -> List[AssigneeStatus]:
+    """Prepare the milestone specific assignee status"""
+    assignee_status = []
+    # build assignee_status
+    # - AssigneeStatus.assignee
+    # - AssineeStatus.task_count
+    # - AssigneeStatus.available_workdays
+    # - AssigneeStatus.estimated_workdays
+    # - AssigneeStatus.load_percentage
+    assignee_available_workdays: Counter = milestone.get_assignee_workdays()
+    assignee_estimated_workdays: Counter = milestone.get_assignee_estimated_workdays()
+    assignee_task_counts: Counter = milestone.get_assignee_task_counts()
+    for assignee, available_workdays in assignee_available_workdays.items():
+        estimated_workdays = assignee_estimated_workdays[assignee]
+        percentage_display = "-"
+        if available_workdays:
+            exceeded_workdays_display = ""
+            if estimated_workdays > available_workdays:
+                exceeded_workdays = estimated_workdays - available_workdays
+                exceeded_workdays_display = f"( + {exceeded_workdays:>3} days )"
+            percentage = round((estimated_workdays / available_workdays) * 100, 2)
+            percentage_display = f"{percentage:>6} % {exceeded_workdays_display}"
+        elif not available_workdays and estimated_workdays:
+            exceeded_workdays_display = f"( + {estimated_workdays} days )"
+            percentage_display = exceeded_workdays_display
+        status = AssigneeStatus(
+            assignee=str(assignee),
+            task_count=assignee_task_counts[assignee],
+            available_workdays=available_workdays,
+            estimated_workdays=estimated_workdays,
+            load_percentage=percentage_display,
+        )
+        assignee_status.append(status)
+    return assignee_status
+
+
 @staff_member_required
 def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = None) -> HttpResponse:
     try:
@@ -191,12 +230,16 @@ def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = No
             request, messages.ERROR, "No KippoTaskStatus Items defined For Organization Projects -- Unable to prepare Milestone Data!"
         )
     selected_milestone = None
+    assignee_status = []
     if milestone_id:
         selected_milestone = milestones[0]
+        assignee_status = _get_milestone_assignee_status(milestone=selected_milestone)
+
     active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by("name")
     context = {
         "milestones": milestones,
         "milestone": selected_milestone,
+        "assignee_status": assignee_status,
         "messages": messages.get_messages(request),
         "active_projects": active_projects,
         "selected_organization": selected_organization,

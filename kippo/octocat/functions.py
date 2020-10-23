@@ -13,13 +13,13 @@ from django.conf import settings
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
-from projects.models import KippoProject
+from projects.models import KippoMilestone, KippoProject
 from tasks.exceptions import GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
 
-from .models import GithubWebhookEvent
+from .models import GithubMilestone, GithubRepository, GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,31 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     return webhook_event
 
 
+def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional[KippoMilestone]:
+    milestone = None
+    if issue.milestone:
+        try:
+            github_milestone = GithubMilestone.objects.get(html_url=issue.milestone.html_url)
+            if github_milestone.milestone:
+                milestone = github_milestone.milestone
+                if milestone.title != issue.milestone.title:
+                    milestone.title = issue.milestone.title
+        except GithubMilestone.DoesNotExist:
+            logger.warning(f"GithubMilestone.DoesNotExist, html_url={issue.milestone.html_url}")
+            # try to find related existing github repository
+            try:
+                repository = GithubRepository.objects.get(organization=organization, api_url=issue.repository_url)
+                logger.info(f"Creating GithubMilestone({issue.milestone.html_url})...")
+                # create GithubMilestone
+                github_milestone = GithubMilestone(
+                    repository=repository, number=issue.milestone.number, api_url=issue.milestone.url, html_url=issue.milestone.html_url
+                )
+                github_milestone.save()
+            except GithubRepository.DoesNotExist:
+                logger.warning(f"respository({issue.repository_url}) not found for issue: {issue.html_url}")
+    return milestone
+
+
 @zappa_task
 def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
     logger.info(f"Processing GithubWebhookEvent(s): {webhookevent_ids}")
@@ -299,6 +324,7 @@ class GithubWebhookProcessor:
                         )
                         tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
                         issue = github_manager.get_github_issue(api_url=task_api_url)
+                        kippo_milestone = get_kippomilestone_from_github_issue(issue, organization=webhookevent.organization)
                         if not tasks:
                             logger.warning(f"Related KippoTask not found for: {task_api_url}")
                             # Create related KippoTask
@@ -333,7 +359,7 @@ class GithubWebhookProcessor:
                                     title=issue.title,
                                     category=category,
                                     project=kippo_project,
-                                    milestone=None,
+                                    milestone=kippo_milestone,
                                     assignee=organization_user,
                                     project_card_id=card_id,
                                     github_issue_api_url=task_api_url,
@@ -356,10 +382,8 @@ class GithubWebhookProcessor:
                             if task.project is None:
                                 logger.warning(f"Updating task.project to: {kippo_project}")
                                 task.project = kippo_project
+                            task.milestone = kippo_milestone
                             task.save()
-
-                            # get latest github taskstatus
-                            # TODO: Update to retrieve latest github issue status
 
                             # create/update KippoTaskStatus
                             # KippoTask created with 'issues' event

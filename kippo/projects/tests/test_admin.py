@@ -1,10 +1,12 @@
+from http import HTTPStatus
+
+from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from django.urls import reverse
 from django.utils import timezone
+from projects.models import KippoProject, ProjectColumnSet
 
-from common.tests import IsStaffModelAdminTestCaseBase, setup_basic_project, DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES
-from projects.models import ProjectColumnSet, KippoProject
-
-from ..models import KippoProject, KippoMilestone
-from ..admin import KippoProjectAdmin, KippoMilestoneAdmin
+from ..admin import KippoMilestoneAdmin, KippoProjectAdmin
+from ..models import KippoMilestone, KippoProject
 
 
 class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase):
@@ -18,8 +20,8 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         # create projects from 2 orgs
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
-            name='project1',
-            category='testing',
+            name="project1",
+            category="testing",
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -27,15 +29,15 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         )
         self.milestone1 = KippoMilestone.objects.create(
             project=self.project1,
-            title='milestone1',
+            title="milestone1",
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
 
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
-            name='project2',
-            category='testing',
+            name="project2",
+            category="testing",
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -43,7 +45,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         )
         self.milestone2 = KippoMilestone.objects.create(
             project=self.project2,
-            title='milestone2',
+            title="milestone2",
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -60,10 +62,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_results = list(qs)
         expected_count = KippoProject.objects.filter(organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(
-            len(queryset_results) == expected_count,
-            f'actual({len(queryset_results)}) != expected({expected_count})'
-        )
+        self.assertTrue(len(queryset_results) == expected_count, f"actual({len(queryset_results)}) != expected({expected_count})")
         for result in queryset_results:
             self.assertTrue(result.organization == self.organization)
 
@@ -79,8 +78,8 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         # create projects from 2 orgs
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
-            name='project1',
-            category='testing',
+            name="project1",
+            category="testing",
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -88,15 +87,15 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         )
         self.milestone1 = KippoMilestone.objects.create(
             project=self.project1,
-            title='milestone1',
+            title="milestone1",
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
 
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
-            name='project2',
-            category='testing',
+            name="project2",
+            category="testing",
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -104,7 +103,7 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         )
         self.milestone2 = KippoMilestone.objects.create(
             project=self.project2,
-            title='milestone2',
+            title="milestone2",
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -121,10 +120,61 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_results = list(qs)
         expected_count = KippoProject.objects.filter(organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(
-            len(queryset_results) == expected_count,
-            f'actual({len(queryset_results)}) != expected({expected_count})'
-        )
+        self.assertTrue(len(queryset_results) == expected_count, f"actual({len(queryset_results)}) != expected({expected_count})")
         for result in queryset_results:
             self.assertTrue(result.project.organization == self.organization)
 
+
+class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.current_date = timezone.now().date()
+
+        # create projects from 2 orgs
+        self.project1 = KippoProject.objects.create(
+            organization=self.organization,
+            name="project1",
+            category="testing",
+            columnset=columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.milestone1 = KippoMilestone.objects.create(
+            project=self.project1,
+            title="milestone1",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        self.project2 = KippoProject.objects.create(
+            organization=self.other_organization,
+            name="project2",
+            category="testing",
+            columnset=columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.milestone2 = KippoMilestone.objects.create(
+            project=self.project2,
+            title="milestone2",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_kippomilestone_view(self):
+
+        url = reverse("admin:projects_kippomilestone_changelist")
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "admin/change_list.html")
+
+        # self.client.force_login(self.client_user)
+        # response = self.client.get(url)
+        # self.assertEqual(response.status_code, HTTPStatus.OK)
+        # self.assertTemplateUsed(response, "admin/change_list.html")

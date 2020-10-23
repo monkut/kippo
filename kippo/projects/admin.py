@@ -329,7 +329,18 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
 @admin.register(KippoMilestone)
 class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("title", "get_project_name", "is_completed", "start_date", "target_date", "actual_date", "updated_by", "updated_datetime")
+    list_display = (
+        "title",
+        "get_project_name",
+        "get_task_count",
+        "is_completed",
+        "start_date",
+        "target_date",
+        "actual_date",
+        "updated_by",
+        "updated_datetime",
+    )
+    readonly_fields = ("project",)
     search_fields = ("title", "description")
     ordering = ("project", "target_date")
 
@@ -337,6 +348,14 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return obj.project.name
 
     get_project_name.short_description = _("Project")
+
+    def get_task_count(self, obj) -> int:
+        result = 0
+        if obj:
+            result = obj.kippotask_milestone.count()
+        return result
+
+    get_task_count.short_description = _("Task Count")
 
     def response_add(self, request, obj, post_url_continue=None):
         """Overridding Redirect to the KippoProject page after edit."""

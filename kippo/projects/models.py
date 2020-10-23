@@ -496,8 +496,12 @@ class KippoMilestone(UserCreatedBaseModel):
     def get_assignee_workdays(self, start_date: Optional[datetime.date] = None) -> Counter:
         if not start_date:
             current_datetime = timezone.now()
-            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
+            # TODO: review -- this was set to day = 1... not sure if there was a specific reason for that
+            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, current_datetime.day, tzinfo=datetime.timezone.utc)
             start_date = start_datetime.date()
+            if start_date < self.start_date:
+                # update so counting starts from start of milestone
+                start_date = self.start_date
 
         # get organization memberships
         organization_memberships = list(
@@ -508,7 +512,8 @@ class KippoMilestone(UserCreatedBaseModel):
         member_personal_holiday_dates = {m.user.github_login: tuple(m.user.personal_holiday_dates()) for m in organization_memberships}
         member_public_holiday_dates = {m.user.github_login: tuple(m.user.public_holiday_dates()) for m in organization_memberships}
 
-        assignee_available_workdays = Counter()
+        # initialize counter for organization_memberships to zero (0)
+        assignee_available_workdays = Counter({m.user: 0 for m in organization_memberships})
         current_date = start_date
         while current_date <= self.target_date:  # noqa
             for membership in organization_memberships:
@@ -536,17 +541,49 @@ class KippoMilestone(UserCreatedBaseModel):
     def estimated_work_days(self) -> int:
         """Return the effort days assigned to tasks in the given milestone"""
         # retrieve the number of estimated days assigned to this milestone
-        total_milestone_assigned_workdays = 0
+        assignee_estimated_workdays = self.get_assignee_estimated_workdays()
+        total_assignee_estimated_workdays = sum(assignee_estimated_workdays.values())
+        return total_assignee_estimated_workdays
+
+    def get_assignee_task_counts(self) -> Counter:
+        assignee_task_counts = Counter()
         active_task_states = self.project.columnset.get_active_column_names()
-        results = KippoTaskStatus.objects.filter(task__in=self.tasks, state__in=active_task_states).order_by("task", "-effort_date").distinct("task")
+        results = KippoTaskStatus.objects.filter(task__in=self.tasks).order_by("task", "-effort_date").distinct("task")
         for r in results:
-            print(r)
-            total_milestone_assigned_workdays += r.estimate_days
-        return total_milestone_assigned_workdays
+            if r.state in active_task_states:
+                assignee_task_counts[r.task.assignee] += 1
+        return assignee_task_counts
+
+    def get_assignee_estimated_workdays(self) -> Counter:
+        assignee_estimated_workdays = Counter()
+        active_task_states = self.project.columnset.get_active_column_names()
+        results = KippoTaskStatus.objects.filter(task__in=self.tasks).order_by("task", "-effort_date").distinct("task")
+        for r in results:
+            if r.state in active_task_states:
+                logger.info(f"adding estimate {r} estimate_days={r.estimate_days}")
+                estimate_days = settings.FALLBACK_ESTIMATE_DAYS
+                if r.estimate_days:
+                    estimate_days = r.estimate_days
+                else:
+                    logger.warning(f"{r} estimate_days is None, using settings.FALLBACK_ESTIMATE_DAYS={settings.FALLBACK_ESTIMATE_DAYS}")
+                assignee = r.task.assignee
+                assignee_estimated_workdays[assignee] += estimate_days
+        return assignee_estimated_workdays
 
     @property
     def tasks(self) -> QuerySet:
         return self.kippotask_milestone.order_by("assignee")  # reverse relation to KippoTask
+
+    @property
+    def active_tasks(self) -> QuerySet:
+        active_task_states = self.project.columnset.get_active_column_names()
+        task_ids = (
+            KippoTaskStatus.objects.filter(task__in=self.tasks).order_by("task", "-effort_date").distinct("task").values_list("state", "task__id")
+        )
+        # filter out non-active tasks
+        active_task_ids = [task_id for task_state, task_id in task_ids if task_state in active_task_states]
+        results = self.kippotask_milestone.filter(pk__in=active_task_ids).order_by("assignee")
+        return results
 
     def update_github_milestones(self, user: Optional[KippoUser] = None, close: bool = False) -> List[Tuple[bool, object]]:
         """
