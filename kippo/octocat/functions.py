@@ -192,11 +192,11 @@ def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: Kippo
             logger.warning(f"GithubMilestone.DoesNotExist, html_url={issue.milestone.html_url}")
             # try to find related existing github repository
             try:
-                respository = GithubRepository.objects.get(organization=organization, api_url=issue.repository_url)
+                repository = GithubRepository.objects.get(organization=organization, api_url=issue.repository_url)
                 logger.info(f"Creating GithubMilestone({issue.milestone.html_url})...")
                 # create GithubMilestone
                 github_milestone = GithubMilestone(
-                    respository=respository, number=issue.milestone.number, api_url=issue.milestone.url, html_url=issue.milestone.html_url
+                    repository=repository, number=issue.milestone.number, api_url=issue.milestone.url, html_url=issue.milestone.html_url
                 )
                 github_milestone.save()
             except GithubRepository.DoesNotExist:
