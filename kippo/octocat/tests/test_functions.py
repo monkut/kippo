@@ -1,7 +1,6 @@
 import json
 import os
 from pathlib import Path
-from unittest import mock
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
@@ -11,8 +10,7 @@ from projects.models import KippoMilestone
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import GithubWebhookProcessor, get_kippomilestone_from_github_issue
-from ..models import GithubMilestone, GithubWebhookEvent
-from .utils import load_webhookevent
+from ..models import GithubMilestone, GithubRepository
 
 assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
 
@@ -52,13 +50,40 @@ class OctocatFunctionsTestCase(TestCase):
         KippoTask.objects.all().delete()
 
     def test_get_kippomilestone_from_github_issue__without__githubmilestone(self):
+        assert GithubRepository.objects.count() == 1
+
         github_issue = GITHUBAPI_ISSUE_NO_MILESTONE
-        result = get_kippomilestone_from_github_issue(github_issue)
+        result = get_kippomilestone_from_github_issue(github_issue, organization=self.organization)
         self.assertIsNone(result)
+        assert GithubRepository.objects.count() == 1
+
+    def test_get_kippomilestone_from_github_issue__with__githubmilestone__with__githubrepository(self):
+        # expect that githubmilestone will be created
+        assert GithubRepository.objects.count() == 1
+        assert GithubMilestone.objects.count() == 0
+
+        # create existing github entry, to confirm if milestone is created
+        repo_html_url = "https://github.com/octocat/Hello-World"
+        repo_api_url = "https://api.github.com/repos/octocat/Hello-World"
+        name = "Hello-World"
+        repo = GithubRepository(
+            organization=self.organization, name=name, label_set=self.organization.default_labelset, api_url=repo_api_url, html_url=repo_html_url
+        )
+        repo.save()
+
+        github_issue = GITHUBAPI_ISSUE
+        result = get_kippomilestone_from_github_issue(github_issue, organization=self.organization)
+        self.assertIsNone(result)
+
+        # confirm that githubmilestone is created
+        result = GithubMilestone.objects.filter(repository=repo)
+        self.assertTrue(result)
+        expected = 1
+        self.assertEqual(len(result), expected)
 
     def test_get_kippomilestone_from_github_issue__githubmilestone__with__kippomilestone(self):
         github_issue = GITHUBAPI_ISSUE
-        result = get_kippomilestone_from_github_issue(github_issue)
+        result = get_kippomilestone_from_github_issue(github_issue, organization=self.organization)
         self.assertIsNone(result)
 
         # create related KippoMilestone
@@ -84,5 +109,5 @@ class OctocatFunctionsTestCase(TestCase):
         )
         github_milestone.save()
 
-        result = get_kippomilestone_from_github_issue(github_issue)
+        result = get_kippomilestone_from_github_issue(github_issue, organization=self.organization)
         self.assertEqual(result, kippomilestone_1)
