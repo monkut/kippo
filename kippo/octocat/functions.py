@@ -346,7 +346,7 @@ class GithubWebhookProcessor:
                                     title=issue.title,
                                     category=category,
                                     project=kippo_project,
-                                    milestone=None,
+                                    milestone=kippo_milestone,
                                     assignee=organization_user,
                                     project_card_id=card_id,
                                     github_issue_api_url=task_api_url,
@@ -369,10 +369,8 @@ class GithubWebhookProcessor:
                             if task.project is None:
                                 logger.warning(f"Updating task.project to: {kippo_project}")
                                 task.project = kippo_project
+                            task.milestone = kippo_milestone
                             task.save()
-
-                            # get latest github taskstatus
-                            # TODO: Update to retrieve latest github issue status
 
                             # create/update KippoTaskStatus
                             # KippoTask created with 'issues' event
