@@ -16,6 +16,11 @@ from pathlib import PurePath
 from django.conf.locale.en import formats as en_formats
 from django.conf.locale.ja import formats as ja_formats
 
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("boto3").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
