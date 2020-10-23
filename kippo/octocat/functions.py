@@ -14,7 +14,7 @@ from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
 from projects.models import KippoMilestone, KippoProject
-from tasks.exceptions import GithubRepositoryUrlError, ProjectNotFoundError
+from tasks.exceptions import GithubPullRequestUrl, GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
@@ -458,6 +458,10 @@ class GithubWebhookProcessor:
                     is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
                     result = "processed"
                     logger.info(f"project_name={project_name}, is_new_task={is_new_task}")
+                except GithubPullRequestUrl as e:
+                    logger.warning(e.args)
+                    result = "ignore"
+                    break
                 except GithubRepositoryUrlError as e:
                     logger.exception(e)
                     result = "error"
@@ -506,6 +510,10 @@ class GithubWebhookProcessor:
             try:
                 is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
                 result = "processed"
+            except GithubPullRequestUrl as e:
+                logger.warning(e.args)
+                result = "ignore"
+                break
             except GithubRepositoryUrlError as e:
                 logger.exception(e)
                 result = "error"
