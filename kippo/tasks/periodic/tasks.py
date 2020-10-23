@@ -15,7 +15,7 @@ from octocat.models import GithubMilestone, GithubRepository
 from projects.models import ActiveKippoProject, CollectIssuesAction, CollectIssuesProjectResult, KippoMilestone, KippoProject
 from zappa.asynchronous import task
 
-from ..exceptions import GithubRepositoryUrlError
+from ..exceptions import GithubPullRequestUrl, GithubRepositoryUrlError
 from ..functions import (
     build_latest_comment,
     get_github_issue_category_label,
@@ -147,6 +147,7 @@ class OrganizationIssueProcessor:
             html_path_expected_path_component_count = 2
             parsed_html_url = urlsplit(html_url)
             path_components = [c for c in parsed_html_url.path.split("/") if c]
+            url_type = path_components[-2]
             if len(path_components) == html_path_expected_path_component_count:
                 kippo_github_repository = GithubRepository(
                     organization=self.organization,
@@ -159,6 +160,9 @@ class OrganizationIssueProcessor:
                 )
                 kippo_github_repository.save()
                 logger.info(f">>> Created GithubRepository: repo_name={repo_name}, api_url={api_url}, html_url={html_url}")
+            elif url_type == "pull":
+                message = f"PullRequest detected, ignoring: {html_url}"
+                raise GithubPullRequestUrl(message)
             else:
                 message = f"XXX Invalid html_url for GithubRepository, SKIPPING: {html_url}"
                 logger.error(message)
