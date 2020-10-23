@@ -39,7 +39,7 @@ def write_projectid_json(projectid_mapping_json_s3uri: str) -> bool:
     return updated
 
 
-def handle_write_projectid_mapping_event(event=None, context=None):
+def handle_projectid_mapping(event=None, context=None):
     if settings.PROJECTID_MAPPING_JSON_S3URI:
         logger.info(f"PROJECTID_MAPPING_JSON_S3URI={settings.PROJECTID_MAPPING_JSON_S3URI}")
         write_projectid_json(projectid_mapping_json_s3uri=settings.PROJECTID_MAPPING_JSON_S3URI)

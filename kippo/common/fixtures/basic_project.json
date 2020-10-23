@@ -1,0 +1,2160 @@
+[
+{
+    "model": "contenttypes.contenttype",
+    "pk": 1,
+    "fields": {
+        "app_label": "projects",
+        "model": "kippoproject"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 2,
+    "fields": {
+        "app_label": "projects",
+        "model": "activekippoproject"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 3,
+    "fields": {
+        "app_label": "social_django",
+        "model": "association"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 4,
+    "fields": {
+        "app_label": "social_django",
+        "model": "code"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 5,
+    "fields": {
+        "app_label": "social_django",
+        "model": "nonce"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 6,
+    "fields": {
+        "app_label": "social_django",
+        "model": "usersocialauth"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 7,
+    "fields": {
+        "app_label": "social_django",
+        "model": "partial"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 8,
+    "fields": {
+        "app_label": "reversion",
+        "model": "revision"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 9,
+    "fields": {
+        "app_label": "reversion",
+        "model": "version"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 10,
+    "fields": {
+        "app_label": "admin",
+        "model": "logentry"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 11,
+    "fields": {
+        "app_label": "auth",
+        "model": "permission"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 12,
+    "fields": {
+        "app_label": "auth",
+        "model": "group"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 13,
+    "fields": {
+        "app_label": "contenttypes",
+        "model": "contenttype"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 14,
+    "fields": {
+        "app_label": "sessions",
+        "model": "session"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 15,
+    "fields": {
+        "app_label": "accounts",
+        "model": "kippouser"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 16,
+    "fields": {
+        "app_label": "accounts",
+        "model": "country"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 17,
+    "fields": {
+        "app_label": "accounts",
+        "model": "emaildomain"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 18,
+    "fields": {
+        "app_label": "accounts",
+        "model": "kippoorganization"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 19,
+    "fields": {
+        "app_label": "accounts",
+        "model": "publicholiday"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 20,
+    "fields": {
+        "app_label": "accounts",
+        "model": "personalholiday"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 21,
+    "fields": {
+        "app_label": "accounts",
+        "model": "organizationmembership"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 22,
+    "fields": {
+        "app_label": "projects",
+        "model": "projectcolumnset"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 23,
+    "fields": {
+        "app_label": "projects",
+        "model": "projectassignment"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 24,
+    "fields": {
+        "app_label": "projects",
+        "model": "kippoprojectstatus"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 25,
+    "fields": {
+        "app_label": "projects",
+        "model": "projectcolumn"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 26,
+    "fields": {
+        "app_label": "projects",
+        "model": "kippomilestone"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 27,
+    "fields": {
+        "app_label": "projects",
+        "model": "collectissuesaction"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 28,
+    "fields": {
+        "app_label": "projects",
+        "model": "collectissuesprojectresult"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 29,
+    "fields": {
+        "app_label": "tasks",
+        "model": "kippotask"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 30,
+    "fields": {
+        "app_label": "tasks",
+        "model": "kippotaskstatus"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 31,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githubrepositorylabelset"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 32,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githubwebhookevent"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 33,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githubrepository"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 34,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githuborganizationalwebhook"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 35,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githubaccesstoken"
+    }
+},
+{
+    "model": "contenttypes.contenttype",
+    "pk": 36,
+    "fields": {
+        "app_label": "octocat",
+        "model": "githubmilestone"
+    }
+},
+{
+    "model": "projects.projectcolumnset",
+    "pk": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+    "fields": {
+        "organization": null,
+        "name": "Standard Five Column Set",
+        "default_column_name": "planning",
+        "created_datetime": "2018-08-31T22:31:06.468Z",
+        "updated_datetime": "2018-08-31T22:31:06.468Z",
+        "label_category_prefixes": "[\"category:\", \"cat:\"]",
+        "label_estimate_prefixes": "[\"estimate:\", \"est:\"]"
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 1,
+    "fields": {
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "index": 0,
+        "name": "backlog",
+        "github_id": null,
+        "is_active": false,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 2,
+    "fields": {
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "index": 1,
+        "name": "planning",
+        "github_id": null,
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 3,
+    "fields": {
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "index": 2,
+        "name": "in-progress",
+        "github_id": null,
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 4,
+    "fields": {
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "index": 3,
+        "name": "in-review",
+        "github_id": null,
+        "is_active": true,
+        "is_done": false
+    }
+},
+{
+    "model": "projects.projectcolumn",
+    "pk": 5,
+    "fields": {
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "index": 4,
+        "name": "done",
+        "github_id": null,
+        "is_active": false,
+        "is_done": true
+    }
+},
+{
+    "model": "octocat.githubrepositorylabelset",
+    "pk": "209fc2af-fb7f-4232-93a3-31409c93b18e",
+    "fields": {
+        "organization": null,
+        "name": "Standard Label Set",
+        "labels": [
+            {
+                "name": "category:documentation",
+                "color": "AED6F1",
+                "description": ""
+            },
+            {
+                "name": "category:feature",
+                "color": "5DADE2",
+                "description": ""
+            },
+            {
+                "name": "category:model-design",
+                "color": "BB8FCE",
+                "description": ""
+            },
+            {
+                "name": "category:model-training",
+                "color": "D2B4DE",
+                "description": ""
+            },
+            {
+                "name": "category:study",
+                "color": "F8C471",
+                "description": ""
+            },
+            {
+                "name": "category:testing",
+                "color": "F8C471",
+                "description": ""
+            },
+            {
+                "name": "category:activity",
+                "color": "F8C471",
+                "description": ""
+            },
+            {
+                "name": "category:design",
+                "color": "F8C471",
+                "description": ""
+            },
+            {
+                "name": "category:analysis",
+                "color": "73C6B6",
+                "description": ""
+            },
+            {
+                "name": "category:data-preparation",
+                "color": "73C6B6",
+                "description": ""
+            },
+            {
+                "name": "category:setup",
+                "color": "F7DC6F",
+                "description": ""
+            },
+            {
+                "name": "category:bug",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "estimate:1d",
+                "color": "0000FF",
+                "description": ""
+            },
+            {
+                "name": "estimate:3d",
+                "color": "0000FF",
+                "description": ""
+            },
+            {
+                "name": "estimate:5d",
+                "color": "00FF00",
+                "description": ""
+            },
+            {
+                "name": "estimate:7d",
+                "color": "00FF00",
+                "description": ""
+            },
+            {
+                "name": "estimate:10d",
+                "color": "FFFF00",
+                "description": ""
+            },
+            {
+                "name": "estimate:15d",
+                "color": "FFFF00",
+                "description": ""
+            },
+            {
+                "name": "estimate:30d",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "cancel:duplicate",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "cancel:wontfix",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "cancel:invalid",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "flag:blocker",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "flag:help-wanted",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "flag:question",
+                "color": "FF0000",
+                "description": ""
+            },
+            {
+                "name": "flag:needs-triage",
+                "color": "FFFF00",
+                "description": ""
+            },
+            {
+                "name": "flag:on-hold",
+                "color": "FFFF00",
+                "description": ""
+            },
+            {
+                "name": "category:feature-change",
+                "color": "5DADE2",
+                "description": ""
+            }
+        ],
+        "created_datetime": "2018-08-31T23:18:56.333Z",
+        "updated_datetime": "2018-08-31T23:36:01.854Z"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 1,
+    "fields": {
+        "name": "Can add association",
+        "content_type": 3,
+        "codename": "add_association"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 2,
+    "fields": {
+        "name": "Can change association",
+        "content_type": 3,
+        "codename": "change_association"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 3,
+    "fields": {
+        "name": "Can delete association",
+        "content_type": 3,
+        "codename": "delete_association"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 4,
+    "fields": {
+        "name": "Can view association",
+        "content_type": 3,
+        "codename": "view_association"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 5,
+    "fields": {
+        "name": "Can add code",
+        "content_type": 4,
+        "codename": "add_code"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 6,
+    "fields": {
+        "name": "Can change code",
+        "content_type": 4,
+        "codename": "change_code"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 7,
+    "fields": {
+        "name": "Can delete code",
+        "content_type": 4,
+        "codename": "delete_code"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 8,
+    "fields": {
+        "name": "Can view code",
+        "content_type": 4,
+        "codename": "view_code"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 9,
+    "fields": {
+        "name": "Can add nonce",
+        "content_type": 5,
+        "codename": "add_nonce"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 10,
+    "fields": {
+        "name": "Can change nonce",
+        "content_type": 5,
+        "codename": "change_nonce"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 11,
+    "fields": {
+        "name": "Can delete nonce",
+        "content_type": 5,
+        "codename": "delete_nonce"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 12,
+    "fields": {
+        "name": "Can view nonce",
+        "content_type": 5,
+        "codename": "view_nonce"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 13,
+    "fields": {
+        "name": "Can add user social auth",
+        "content_type": 6,
+        "codename": "add_usersocialauth"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 14,
+    "fields": {
+        "name": "Can change user social auth",
+        "content_type": 6,
+        "codename": "change_usersocialauth"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 15,
+    "fields": {
+        "name": "Can delete user social auth",
+        "content_type": 6,
+        "codename": "delete_usersocialauth"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 16,
+    "fields": {
+        "name": "Can view user social auth",
+        "content_type": 6,
+        "codename": "view_usersocialauth"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 17,
+    "fields": {
+        "name": "Can add partial",
+        "content_type": 7,
+        "codename": "add_partial"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 18,
+    "fields": {
+        "name": "Can change partial",
+        "content_type": 7,
+        "codename": "change_partial"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 19,
+    "fields": {
+        "name": "Can delete partial",
+        "content_type": 7,
+        "codename": "delete_partial"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 20,
+    "fields": {
+        "name": "Can view partial",
+        "content_type": 7,
+        "codename": "view_partial"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 21,
+    "fields": {
+        "name": "Can add revision",
+        "content_type": 8,
+        "codename": "add_revision"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 22,
+    "fields": {
+        "name": "Can change revision",
+        "content_type": 8,
+        "codename": "change_revision"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 23,
+    "fields": {
+        "name": "Can delete revision",
+        "content_type": 8,
+        "codename": "delete_revision"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 24,
+    "fields": {
+        "name": "Can view revision",
+        "content_type": 8,
+        "codename": "view_revision"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 25,
+    "fields": {
+        "name": "Can add version",
+        "content_type": 9,
+        "codename": "add_version"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 26,
+    "fields": {
+        "name": "Can change version",
+        "content_type": 9,
+        "codename": "change_version"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 27,
+    "fields": {
+        "name": "Can delete version",
+        "content_type": 9,
+        "codename": "delete_version"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 28,
+    "fields": {
+        "name": "Can view version",
+        "content_type": 9,
+        "codename": "view_version"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 29,
+    "fields": {
+        "name": "Can add log entry",
+        "content_type": 10,
+        "codename": "add_logentry"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 30,
+    "fields": {
+        "name": "Can change log entry",
+        "content_type": 10,
+        "codename": "change_logentry"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 31,
+    "fields": {
+        "name": "Can delete log entry",
+        "content_type": 10,
+        "codename": "delete_logentry"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 32,
+    "fields": {
+        "name": "Can view log entry",
+        "content_type": 10,
+        "codename": "view_logentry"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 33,
+    "fields": {
+        "name": "Can add permission",
+        "content_type": 11,
+        "codename": "add_permission"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 34,
+    "fields": {
+        "name": "Can change permission",
+        "content_type": 11,
+        "codename": "change_permission"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 35,
+    "fields": {
+        "name": "Can delete permission",
+        "content_type": 11,
+        "codename": "delete_permission"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 36,
+    "fields": {
+        "name": "Can view permission",
+        "content_type": 11,
+        "codename": "view_permission"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 37,
+    "fields": {
+        "name": "Can add group",
+        "content_type": 12,
+        "codename": "add_group"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 38,
+    "fields": {
+        "name": "Can change group",
+        "content_type": 12,
+        "codename": "change_group"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 39,
+    "fields": {
+        "name": "Can delete group",
+        "content_type": 12,
+        "codename": "delete_group"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 40,
+    "fields": {
+        "name": "Can view group",
+        "content_type": 12,
+        "codename": "view_group"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 41,
+    "fields": {
+        "name": "Can add content type",
+        "content_type": 13,
+        "codename": "add_contenttype"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 42,
+    "fields": {
+        "name": "Can change content type",
+        "content_type": 13,
+        "codename": "change_contenttype"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 43,
+    "fields": {
+        "name": "Can delete content type",
+        "content_type": 13,
+        "codename": "delete_contenttype"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 44,
+    "fields": {
+        "name": "Can view content type",
+        "content_type": 13,
+        "codename": "view_contenttype"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 45,
+    "fields": {
+        "name": "Can add session",
+        "content_type": 14,
+        "codename": "add_session"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 46,
+    "fields": {
+        "name": "Can change session",
+        "content_type": 14,
+        "codename": "change_session"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 47,
+    "fields": {
+        "name": "Can delete session",
+        "content_type": 14,
+        "codename": "delete_session"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 48,
+    "fields": {
+        "name": "Can view session",
+        "content_type": 14,
+        "codename": "view_session"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 49,
+    "fields": {
+        "name": "Can add user",
+        "content_type": 15,
+        "codename": "add_kippouser"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 50,
+    "fields": {
+        "name": "Can change user",
+        "content_type": 15,
+        "codename": "change_kippouser"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 51,
+    "fields": {
+        "name": "Can delete user",
+        "content_type": 15,
+        "codename": "delete_kippouser"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 52,
+    "fields": {
+        "name": "Can view user",
+        "content_type": 15,
+        "codename": "view_kippouser"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 53,
+    "fields": {
+        "name": "Can add country",
+        "content_type": 16,
+        "codename": "add_country"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 54,
+    "fields": {
+        "name": "Can change country",
+        "content_type": 16,
+        "codename": "change_country"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 55,
+    "fields": {
+        "name": "Can delete country",
+        "content_type": 16,
+        "codename": "delete_country"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 56,
+    "fields": {
+        "name": "Can view country",
+        "content_type": 16,
+        "codename": "view_country"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 57,
+    "fields": {
+        "name": "Can add email domain",
+        "content_type": 17,
+        "codename": "add_emaildomain"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 58,
+    "fields": {
+        "name": "Can change email domain",
+        "content_type": 17,
+        "codename": "change_emaildomain"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 59,
+    "fields": {
+        "name": "Can delete email domain",
+        "content_type": 17,
+        "codename": "delete_emaildomain"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 60,
+    "fields": {
+        "name": "Can view email domain",
+        "content_type": 17,
+        "codename": "view_emaildomain"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 61,
+    "fields": {
+        "name": "Can add kippo organization",
+        "content_type": 18,
+        "codename": "add_kippoorganization"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 62,
+    "fields": {
+        "name": "Can change kippo organization",
+        "content_type": 18,
+        "codename": "change_kippoorganization"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 63,
+    "fields": {
+        "name": "Can delete kippo organization",
+        "content_type": 18,
+        "codename": "delete_kippoorganization"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 64,
+    "fields": {
+        "name": "Can view kippo organization",
+        "content_type": 18,
+        "codename": "view_kippoorganization"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 65,
+    "fields": {
+        "name": "Can add public holiday",
+        "content_type": 19,
+        "codename": "add_publicholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 66,
+    "fields": {
+        "name": "Can change public holiday",
+        "content_type": 19,
+        "codename": "change_publicholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 67,
+    "fields": {
+        "name": "Can delete public holiday",
+        "content_type": 19,
+        "codename": "delete_publicholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 68,
+    "fields": {
+        "name": "Can view public holiday",
+        "content_type": 19,
+        "codename": "view_publicholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 69,
+    "fields": {
+        "name": "Can add personal holiday",
+        "content_type": 20,
+        "codename": "add_personalholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 70,
+    "fields": {
+        "name": "Can change personal holiday",
+        "content_type": 20,
+        "codename": "change_personalholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 71,
+    "fields": {
+        "name": "Can delete personal holiday",
+        "content_type": 20,
+        "codename": "delete_personalholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 72,
+    "fields": {
+        "name": "Can view personal holiday",
+        "content_type": 20,
+        "codename": "view_personalholiday"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 73,
+    "fields": {
+        "name": "Can add organization membership",
+        "content_type": 21,
+        "codename": "add_organizationmembership"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 74,
+    "fields": {
+        "name": "Can change organization membership",
+        "content_type": 21,
+        "codename": "change_organizationmembership"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 75,
+    "fields": {
+        "name": "Can delete organization membership",
+        "content_type": 21,
+        "codename": "delete_organizationmembership"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 76,
+    "fields": {
+        "name": "Can view organization membership",
+        "content_type": 21,
+        "codename": "view_organizationmembership"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 77,
+    "fields": {
+        "name": "Can add kippo project",
+        "content_type": 1,
+        "codename": "add_kippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 78,
+    "fields": {
+        "name": "Can change kippo project",
+        "content_type": 1,
+        "codename": "change_kippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 79,
+    "fields": {
+        "name": "Can delete kippo project",
+        "content_type": 1,
+        "codename": "delete_kippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 80,
+    "fields": {
+        "name": "Can view kippo project",
+        "content_type": 1,
+        "codename": "view_kippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 81,
+    "fields": {
+        "name": "Can add project column set",
+        "content_type": 22,
+        "codename": "add_projectcolumnset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 82,
+    "fields": {
+        "name": "Can change project column set",
+        "content_type": 22,
+        "codename": "change_projectcolumnset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 83,
+    "fields": {
+        "name": "Can delete project column set",
+        "content_type": 22,
+        "codename": "delete_projectcolumnset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 84,
+    "fields": {
+        "name": "Can view project column set",
+        "content_type": 22,
+        "codename": "view_projectcolumnset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 85,
+    "fields": {
+        "name": "Can add project assignment",
+        "content_type": 23,
+        "codename": "add_projectassignment"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 86,
+    "fields": {
+        "name": "Can change project assignment",
+        "content_type": 23,
+        "codename": "change_projectassignment"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 87,
+    "fields": {
+        "name": "Can delete project assignment",
+        "content_type": 23,
+        "codename": "delete_projectassignment"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 88,
+    "fields": {
+        "name": "Can view project assignment",
+        "content_type": 23,
+        "codename": "view_projectassignment"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 89,
+    "fields": {
+        "name": "Can add kippo project status",
+        "content_type": 24,
+        "codename": "add_kippoprojectstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 90,
+    "fields": {
+        "name": "Can change kippo project status",
+        "content_type": 24,
+        "codename": "change_kippoprojectstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 91,
+    "fields": {
+        "name": "Can delete kippo project status",
+        "content_type": 24,
+        "codename": "delete_kippoprojectstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 92,
+    "fields": {
+        "name": "Can view kippo project status",
+        "content_type": 24,
+        "codename": "view_kippoprojectstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 93,
+    "fields": {
+        "name": "Can add active kippo project",
+        "content_type": 2,
+        "codename": "add_activekippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 94,
+    "fields": {
+        "name": "Can change active kippo project",
+        "content_type": 2,
+        "codename": "change_activekippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 95,
+    "fields": {
+        "name": "Can delete active kippo project",
+        "content_type": 2,
+        "codename": "delete_activekippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 96,
+    "fields": {
+        "name": "Can view active kippo project",
+        "content_type": 2,
+        "codename": "view_activekippoproject"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 97,
+    "fields": {
+        "name": "Can add project column",
+        "content_type": 25,
+        "codename": "add_projectcolumn"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 98,
+    "fields": {
+        "name": "Can change project column",
+        "content_type": 25,
+        "codename": "change_projectcolumn"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 99,
+    "fields": {
+        "name": "Can delete project column",
+        "content_type": 25,
+        "codename": "delete_projectcolumn"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 100,
+    "fields": {
+        "name": "Can view project column",
+        "content_type": 25,
+        "codename": "view_projectcolumn"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 101,
+    "fields": {
+        "name": "Can add kippo milestone",
+        "content_type": 26,
+        "codename": "add_kippomilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 102,
+    "fields": {
+        "name": "Can change kippo milestone",
+        "content_type": 26,
+        "codename": "change_kippomilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 103,
+    "fields": {
+        "name": "Can delete kippo milestone",
+        "content_type": 26,
+        "codename": "delete_kippomilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 104,
+    "fields": {
+        "name": "Can view kippo milestone",
+        "content_type": 26,
+        "codename": "view_kippomilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 105,
+    "fields": {
+        "name": "Can add collect issues action",
+        "content_type": 27,
+        "codename": "add_collectissuesaction"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 106,
+    "fields": {
+        "name": "Can change collect issues action",
+        "content_type": 27,
+        "codename": "change_collectissuesaction"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 107,
+    "fields": {
+        "name": "Can delete collect issues action",
+        "content_type": 27,
+        "codename": "delete_collectissuesaction"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 108,
+    "fields": {
+        "name": "Can view collect issues action",
+        "content_type": 27,
+        "codename": "view_collectissuesaction"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 109,
+    "fields": {
+        "name": "Can add collect issues project result",
+        "content_type": 28,
+        "codename": "add_collectissuesprojectresult"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 110,
+    "fields": {
+        "name": "Can change collect issues project result",
+        "content_type": 28,
+        "codename": "change_collectissuesprojectresult"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 111,
+    "fields": {
+        "name": "Can delete collect issues project result",
+        "content_type": 28,
+        "codename": "delete_collectissuesprojectresult"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 112,
+    "fields": {
+        "name": "Can view collect issues project result",
+        "content_type": 28,
+        "codename": "view_collectissuesprojectresult"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 113,
+    "fields": {
+        "name": "Can add kippo task",
+        "content_type": 29,
+        "codename": "add_kippotask"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 114,
+    "fields": {
+        "name": "Can change kippo task",
+        "content_type": 29,
+        "codename": "change_kippotask"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 115,
+    "fields": {
+        "name": "Can delete kippo task",
+        "content_type": 29,
+        "codename": "delete_kippotask"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 116,
+    "fields": {
+        "name": "Can view kippo task",
+        "content_type": 29,
+        "codename": "view_kippotask"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 117,
+    "fields": {
+        "name": "Can add kippo task status",
+        "content_type": 30,
+        "codename": "add_kippotaskstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 118,
+    "fields": {
+        "name": "Can change kippo task status",
+        "content_type": 30,
+        "codename": "change_kippotaskstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 119,
+    "fields": {
+        "name": "Can delete kippo task status",
+        "content_type": 30,
+        "codename": "delete_kippotaskstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 120,
+    "fields": {
+        "name": "Can view kippo task status",
+        "content_type": 30,
+        "codename": "view_kippotaskstatus"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 121,
+    "fields": {
+        "name": "Can add github repository label set",
+        "content_type": 31,
+        "codename": "add_githubrepositorylabelset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 122,
+    "fields": {
+        "name": "Can change github repository label set",
+        "content_type": 31,
+        "codename": "change_githubrepositorylabelset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 123,
+    "fields": {
+        "name": "Can delete github repository label set",
+        "content_type": 31,
+        "codename": "delete_githubrepositorylabelset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 124,
+    "fields": {
+        "name": "Can view github repository label set",
+        "content_type": 31,
+        "codename": "view_githubrepositorylabelset"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 125,
+    "fields": {
+        "name": "Can add github webhook event",
+        "content_type": 32,
+        "codename": "add_githubwebhookevent"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 126,
+    "fields": {
+        "name": "Can change github webhook event",
+        "content_type": 32,
+        "codename": "change_githubwebhookevent"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 127,
+    "fields": {
+        "name": "Can delete github webhook event",
+        "content_type": 32,
+        "codename": "delete_githubwebhookevent"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 128,
+    "fields": {
+        "name": "Can view github webhook event",
+        "content_type": 32,
+        "codename": "view_githubwebhookevent"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 129,
+    "fields": {
+        "name": "Can add github repository",
+        "content_type": 33,
+        "codename": "add_githubrepository"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 130,
+    "fields": {
+        "name": "Can change github repository",
+        "content_type": 33,
+        "codename": "change_githubrepository"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 131,
+    "fields": {
+        "name": "Can delete github repository",
+        "content_type": 33,
+        "codename": "delete_githubrepository"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 132,
+    "fields": {
+        "name": "Can view github repository",
+        "content_type": 33,
+        "codename": "view_githubrepository"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 133,
+    "fields": {
+        "name": "Can add github organizational webhook",
+        "content_type": 34,
+        "codename": "add_githuborganizationalwebhook"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 134,
+    "fields": {
+        "name": "Can change github organizational webhook",
+        "content_type": 34,
+        "codename": "change_githuborganizationalwebhook"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 135,
+    "fields": {
+        "name": "Can delete github organizational webhook",
+        "content_type": 34,
+        "codename": "delete_githuborganizationalwebhook"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 136,
+    "fields": {
+        "name": "Can view github organizational webhook",
+        "content_type": 34,
+        "codename": "view_githuborganizationalwebhook"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 137,
+    "fields": {
+        "name": "Can add github access token",
+        "content_type": 35,
+        "codename": "add_githubaccesstoken"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 138,
+    "fields": {
+        "name": "Can change github access token",
+        "content_type": 35,
+        "codename": "change_githubaccesstoken"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 139,
+    "fields": {
+        "name": "Can delete github access token",
+        "content_type": 35,
+        "codename": "delete_githubaccesstoken"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 140,
+    "fields": {
+        "name": "Can view github access token",
+        "content_type": 35,
+        "codename": "view_githubaccesstoken"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 141,
+    "fields": {
+        "name": "Can add github milestone",
+        "content_type": 36,
+        "codename": "add_githubmilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 142,
+    "fields": {
+        "name": "Can change github milestone",
+        "content_type": 36,
+        "codename": "change_githubmilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 143,
+    "fields": {
+        "name": "Can delete github milestone",
+        "content_type": 36,
+        "codename": "delete_githubmilestone"
+    }
+},
+{
+    "model": "auth.permission",
+    "pk": 144,
+    "fields": {
+        "name": "Can view github milestone",
+        "content_type": 36,
+        "codename": "view_githubmilestone"
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": "00000000-0000-0000-0000-000000000004",
+    "fields": {
+        "password": "v3432c32szq2aasd",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "github-manager",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2018-08-07T01:31:04Z",
+        "github_login": null,
+        "is_github_outside_collaborator": false,
+        "holiday_country": null,
+        "groups": [],
+        "user_permissions": []
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": "00000000-0000-0000-0000-000000000005",
+    "fields": {
+        "password": "asdf889189u12j118518512csa;k;h",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "cli-manager",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2018-08-07T01:34:31Z",
+        "github_login": null,
+        "is_github_outside_collaborator": false,
+        "holiday_country": null,
+        "groups": [],
+        "user_permissions": []
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": "548df7f8-416f-4f81-9c31-4249de3f902f",
+    "fields": {
+        "password": "test",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "octocat",
+        "first_name": "",
+        "last_name": "",
+        "email": "a@github.com",
+        "is_staff": true,
+        "is_active": true,
+        "date_joined": "2020-10-22T09:53:26.617Z",
+        "github_login": "octocat",
+        "is_github_outside_collaborator": false,
+        "holiday_country": null,
+        "groups": [],
+        "user_permissions": []
+    }
+},
+{
+    "model": "accounts.kippouser",
+    "pk": "f9467fce-1b66-4702-adcb-c70382880fc2",
+    "fields": {
+        "password": "",
+        "last_login": null,
+        "is_superuser": false,
+        "username": "unassigned-myorg-full",
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "is_staff": false,
+        "is_active": true,
+        "date_joined": "2020-10-22T09:53:26.642Z",
+        "github_login": "unassigned-myorg-full",
+        "is_github_outside_collaborator": false,
+        "holiday_country": null,
+        "groups": [],
+        "user_permissions": []
+    }
+},
+{
+    "model": "projects.kippoproject",
+    "pk": "2f9dcdb8-0efd-45a1-a162-198057d979f8",
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.668Z",
+        "updated_datetime": "2020-10-22T09:53:26.668Z",
+        "closed_datetime": null,
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "name": "octocat-test-project2",
+        "slug": "octocat-test-project2",
+        "phase": "lead-evaluation",
+        "confidence": 80,
+        "category": "poc",
+        "slack_channel_name": null,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "project_manager": null,
+        "is_closed": false,
+        "display_as_active": true,
+        "github_project_html_url": "https://github.com/orgs/myorg/projects/2",
+        "github_project_api_url": "https://api.github.com/projects/1234567",
+        "allocated_staff_days": null,
+        "start_date": null,
+        "target_date": "2021-01-20",
+        "actual_date": null,
+        "document_url": null,
+        "problem_definition": null,
+        "survey_issued": false,
+        "survey_issued_datetime": null,
+        "column_info": [
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1",
+                "name": "in-progress",
+                "resourcePath": "/orgs/myorg/projects/21/columns/6119645"
+            },
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1",
+                "name": "in-review",
+                "resourcePath": "/orgs/myorg/projects/21/columns/2803722"
+            }
+        ]
+    }
+},
+{
+    "model": "projects.kippoproject",
+    "pk": "8bca92e8-fa54-4117-b227-18f25dd23d04",
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.662Z",
+        "updated_datetime": "2020-10-22T09:53:26.662Z",
+        "closed_datetime": null,
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "name": "octocat-test-project",
+        "slug": "octocat-test-project",
+        "phase": "lead-evaluation",
+        "confidence": 80,
+        "category": "poc",
+        "slack_channel_name": null,
+        "columnset": "414e69c8-8ea3-4c9c-8129-6f5aac108fa2",
+        "project_manager": null,
+        "is_closed": false,
+        "display_as_active": true,
+        "github_project_html_url": "https://github.com/orgs/myorg/projects/1",
+        "github_project_api_url": "https://api.github.com/projects/2640902",
+        "allocated_staff_days": null,
+        "start_date": null,
+        "target_date": "2021-01-20",
+        "actual_date": null,
+        "document_url": null,
+        "problem_definition": null,
+        "survey_issued": false,
+        "survey_issued_datetime": null,
+        "column_info": [
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1",
+                "name": "in-progress",
+                "resourcePath": "/orgs/myorg/projects/21/columns/6119645"
+            },
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1",
+                "name": "in-review",
+                "resourcePath": "/orgs/myorg/projects/21/columns/2803722"
+            }
+        ]
+    }
+},
+{
+    "model": "projects.kippomilestone",
+    "pk": "49eb934e-0b37-49a7-8182-0b3159a58118",
+    "fields": {
+        "created_by": null,
+        "updated_by": null,
+        "created_datetime": "2020-10-22T09:56:09.393Z",
+        "updated_datetime": "2020-10-22T09:56:09.393Z",
+        "closed_datetime": null,
+        "project": "8bca92e8-fa54-4117-b227-18f25dd23d04",
+        "title": "m1",
+        "number": 0,
+        "allocated_staff_days": null,
+        "is_completed": false,
+        "start_date": null,
+        "target_date": null,
+        "actual_date": null,
+        "description": null
+    }
+},
+{
+    "model": "tasks.kippotask",
+    "pk": 1,
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.683Z",
+        "updated_datetime": "2020-10-22T09:53:26.683Z",
+        "closed_datetime": null,
+        "title": "githubcodesorg test task-1",
+        "category": "test category",
+        "is_closed": false,
+        "project": "8bca92e8-fa54-4117-b227-18f25dd23d04",
+        "milestone": null,
+        "assignee": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "depends_on": null,
+        "github_issue_api_url": "https://api.github.com/repos/myorg/Hello-World/issues/1347",
+        "github_issue_html_url": "https://github.com/myorg/Hello-World/issues/1347",
+        "project_card_id": null,
+        "description": null
+    }
+},
+{
+    "model": "tasks.kippotask",
+    "pk": 2,
+    "fields": {
+        "created_by": null,
+        "updated_by": null,
+        "created_datetime": "2020-10-22T09:57:25.721Z",
+        "updated_datetime": "2020-10-22T09:57:25.722Z",
+        "closed_datetime": null,
+        "title": "t1",
+        "category": "testcat",
+        "is_closed": false,
+        "project": "8bca92e8-fa54-4117-b227-18f25dd23d04",
+        "milestone": "49eb934e-0b37-49a7-8182-0b3159a58118",
+        "assignee": null,
+        "depends_on": null,
+        "github_issue_api_url": null,
+        "github_issue_html_url": null,
+        "project_card_id": null,
+        "description": "t1-description"
+    }
+},
+{
+    "model": "octocat.githubrepository",
+    "pk": "e3628819-198f-4563-9d8b-4d806815d314",
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.674Z",
+        "updated_datetime": "2020-10-22T09:53:26.674Z",
+        "closed_datetime": null,
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "name": "Hello-World",
+        "label_set": null,
+        "api_url": "https://api.github.com/repos/myorg/Hello-World",
+        "html_url": "https://github.com/myorg/Hello-World"
+    }
+},
+{
+    "model": "octocat.githubaccesstoken",
+    "pk": 1,
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.655Z",
+        "updated_datetime": "2020-10-22T09:53:26.655Z",
+        "closed_datetime": null,
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "token": "kdakkfj"
+    }
+},
+{
+    "model": "accounts.organizationmembership",
+    "pk": 1,
+    "fields": {
+        "created_by": "00000000-0000-0000-0000-000000000005",
+        "updated_by": "00000000-0000-0000-0000-000000000005",
+        "created_datetime": "2020-10-22T09:53:26.644Z",
+        "updated_datetime": "2020-10-22T09:53:26.644Z",
+        "closed_datetime": null,
+        "user": "f9467fce-1b66-4702-adcb-c70382880fc2",
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "email": null,
+        "is_project_manager": false,
+        "is_developer": true,
+        "sunday": false,
+        "monday": true,
+        "tuesday": true,
+        "wednesday": true,
+        "thursday": true,
+        "friday": true,
+        "saturday": false
+    }
+},
+{
+    "model": "accounts.organizationmembership",
+    "pk": 2,
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.650Z",
+        "updated_datetime": "2020-10-22T09:53:26.650Z",
+        "closed_datetime": null,
+        "user": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "email": null,
+        "is_project_manager": false,
+        "is_developer": true,
+        "sunday": false,
+        "monday": true,
+        "tuesday": true,
+        "wednesday": true,
+        "thursday": true,
+        "friday": true,
+        "saturday": false
+    }
+},
+{
+    "model": "accounts.emaildomain",
+    "pk": 1,
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.648Z",
+        "updated_datetime": "2020-10-22T09:53:26.648Z",
+        "closed_datetime": null,
+        "organization": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+        "domain": "github.com",
+        "is_staff_domain": true
+    }
+},
+{
+    "model": "accounts.kippoorganization",
+    "pk": "32c1adcc-104f-4df1-a1e7-44c5d5409677",
+    "fields": {
+        "created_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "updated_by": "548df7f8-416f-4f81-9c31-4249de3f902f",
+        "created_datetime": "2020-10-22T09:53:26.638Z",
+        "updated_datetime": "2020-10-22T09:53:26.638Z",
+        "closed_datetime": null,
+        "name": "myorg-full",
+        "github_organization_name": "myorg",
+        "day_workhours": 8,
+        "default_task_category": "study",
+        "default_task_display_state": "in-progress",
+        "default_columnset": null,
+        "default_labelset": null,
+        "google_forms_project_survey_url": null,
+        "google_forms_project_survey_projectid_entryid": null,
+        "webhook_secret": "g2s7TkwSu4TpYYU8Cc5U",
+        "slack_api_token": null,
+        "slack_bot_name": "kippo",
+        "slack_bot_iconurl": null
+    }
+}
+]

@@ -439,6 +439,42 @@ class KippoMilestoneMethodsTestCase(TestCase):
         milestone_task = milestone_tasks[0]
         self.assertEqual(milestone_task.id, self.task1.id)
 
+    def test_active_tasks(self):
+        milestone1_startdate = timezone.datetime(2020, 9, 1).date()
+        milestone1_targetdate = timezone.datetime(2020, 9, 20).date()
+        kippomilestone_1 = KippoMilestone(
+            project=self.project,
+            title="test milestone 1",
+            start_date=milestone1_startdate,
+            target_date=milestone1_targetdate,
+        )
+        kippomilestone_1.save()
+
+        # assign milestone to tasks
+        self.task1.milestone = kippomilestone_1
+        self.task1.save()
+
+        # assign task3 (done) to milestone
+        self.task3.milestone = kippomilestone_1
+        self.task3.save()
+
+        all_tasks = list(kippomilestone_1.tasks)
+        expected = 2
+        self.assertEqual(len(all_tasks), expected)
+
+        active_tasks = list(kippomilestone_1.active_tasks)
+
+        expected = 1
+        self.assertEqual(len(active_tasks), expected)
+
+        milestone_task = active_tasks[0]
+        self.assertEqual(milestone_task.id, self.task1.id)
+
+        active_task_states = self.project.columnset.get_active_column_names()
+        for task in active_tasks:
+            status = task.latest_kippotaskstatus()
+            self.assertIn(status.state, active_task_states)
+
     def test_delete_milestone(self):
         """Confirm that deleting the milestone does NOT delete attached tasks"""
         milestone1_startdate = timezone.datetime(2020, 9, 1).date()
@@ -461,3 +497,68 @@ class KippoMilestoneMethodsTestCase(TestCase):
 
         # confirm task still exists
         self.assertTrue(KippoTask.objects.filter(id=task1_id).exists())
+
+    def test_get_assignee_task_counts(self):
+        milestone1_startdate = timezone.datetime(2020, 9, 1).date()
+        milestone1_targetdate = timezone.datetime(2020, 9, 20).date()
+        kippomilestone_1 = KippoMilestone(
+            project=self.project,
+            title="test milestone 1",
+            start_date=milestone1_startdate,
+            target_date=milestone1_targetdate,
+        )
+        kippomilestone_1.save()
+
+        # assign milestone to tasks
+        self.task1.milestone = kippomilestone_1
+        self.task1.save()
+
+        self.task2.milestone = kippomilestone_1
+        self.task2.save()
+
+        # assign task3 (done) to milestone
+        self.task3.milestone = kippomilestone_1
+        self.task3.save()
+
+        user1_active_tasks = 1
+        user2_active_tasks = 1
+        expected = user1_active_tasks + user2_active_tasks
+        # returns "active" task counts
+        actual = kippomilestone_1.get_assignee_task_counts()
+        self.assertEqual(sum(actual.values()), expected)
+
+        expected = 2
+        self.assertEqual(len(actual.keys()), expected)
+
+    def test_get_assignee_estimated_workdays(self):
+        milestone1_startdate = timezone.datetime(2020, 9, 1).date()
+        milestone1_targetdate = timezone.datetime(2020, 9, 20).date()
+        kippomilestone_1 = KippoMilestone(
+            project=self.project,
+            title="test milestone 1",
+            start_date=milestone1_startdate,
+            target_date=milestone1_targetdate,
+        )
+        kippomilestone_1.save()
+
+        # assign milestone to tasks
+        self.task1.milestone = kippomilestone_1
+        self.task1.save()
+
+        self.task2.milestone = kippomilestone_1
+        self.task2.save()
+
+        # assign task3 (done) to milestone
+        self.task3.milestone = kippomilestone_1
+        self.task3.save()
+
+        expected_user1_estimated_workdays = 3
+        expected_user2_estimated_workdays = 3
+        expected = expected_user1_estimated_workdays + expected_user2_estimated_workdays
+        actual = kippomilestone_1.get_assignee_estimated_workdays()
+        self.assertEqual(sum(actual.values()), expected, actual)
+
+        expected_assignee_count = 2
+        self.assertEqual(len(actual), expected_assignee_count)
+        self.assertIn(self.task1.assignee, actual)
+        self.assertIn(self.task2.assignee, actual)

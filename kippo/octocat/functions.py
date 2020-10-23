@@ -13,13 +13,13 @@ from django.conf import settings
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
-from projects.models import KippoProject
+from projects.models import KippoMilestone, KippoProject
 from tasks.exceptions import GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
 
-from .models import GithubWebhookEvent
+from .models import GithubMilestone, GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,18 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     return webhook_event
 
 
+def get_kippomilestone_from_github_issue(issue: GithubIssue) -> Optional[KippoMilestone]:
+    milestone = None
+    if issue.milestone:
+        try:
+            github_milestone = GithubMilestone.objects.get(html_url=issue.milestone.html_url)
+            if github_milestone.milestone:
+                milestone = github_milestone.milestone
+        except GithubMilestone.DoesNotExist:
+            logger.warning(f"GithubMilestone.DoesNotExist, html_url={issue.milestone.html_url}")
+    return milestone
+
+
 @zappa_task
 def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
     logger.info(f"Processing GithubWebhookEvent(s): {webhookevent_ids}")
@@ -299,6 +311,7 @@ class GithubWebhookProcessor:
                         )
                         tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
                         issue = github_manager.get_github_issue(api_url=task_api_url)
+                        kippo_milestone = get_kippomilestone_from_github_issue(issue)
                         if not tasks:
                             logger.warning(f"Related KippoTask not found for: {task_api_url}")
                             # Create related KippoTask
