@@ -1,6 +1,8 @@
 from common.admin import AllowIsStaffAdminMixin, AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
@@ -126,7 +128,7 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
 
 
 @admin.register(KippoUser)
-class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, admin.ModelAdmin):
+class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserAdmin):
     list_display = (
         "username",
         "id",
@@ -141,7 +143,6 @@ class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMi
         "is_staff",
         "is_superuser",
     )
-    exclude = ("user_permissions", "groups", "last_login")
 
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator
@@ -162,8 +163,15 @@ class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMi
 class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = ("user", "is_half", "day", "duration")
 
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser:
+            form.base_fields["user"].widget = forms.HiddenInput()
+            form.base_fields["user"].initial = request.user
+        return form
+
     def save_model(self, request, obj, form, change):
-        if getattr(obj, "pk", None) is None:
+        if not request.user.is_superuser:
             obj.user = request.user
         obj.save()
 
@@ -171,6 +179,8 @@ class PersonalHolidayAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
+        if not request.user.organizations:
+            return qs.filter(user=request.user)
         return qs.filter(user__organizationmembership__organization__in=request.user.organizations).distinct()
 
 
