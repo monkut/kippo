@@ -160,4 +160,11 @@ class IsStaffModelAdminTestCaseBase(TestCase):
         self.otherstaff_user_request = MockRequest()
         self.otherstaff_user_request.user = self.otherstaffuser_with_org
 
+        # create staff user with no org and related request mock
+        self.staffuser2_username = "staffuser_no_org"
+        self.staffuser2_no_org = KippoUser.objects.create(username=self.staffuser2_username, is_superuser=False, is_staff=True)
+        PersonalHoliday.objects.create(user=self.staffuser2_no_org, day=(timezone.now() + timezone.timedelta(days=5)).date())
+        self.staff_user2_request = MockRequest()
+        self.staff_user2_request.user = self.staffuser2_no_org
+
         self.site = KippoAdminSite()
