@@ -2,6 +2,7 @@ import datetime
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponseBadRequest
@@ -28,7 +29,8 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
 
     # get the last full month 2 years from now
-    end_datetime = two_years_from_now.replace(month=two_years_from_now.month + 1, day=1) - datetime.timedelta(days=1)
+    two_years_from_now += relativedelta(months=1)
+    end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
     current_date = start_datetime.date()
     end_date = end_datetime.date()

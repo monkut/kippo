@@ -2,6 +2,7 @@ import datetime
 from http import HTTPStatus
 
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from dateutil.relativedelta import relativedelta
 from django.test import Client, TestCase
 from django.utils import timezone
 
@@ -57,7 +58,8 @@ class AccountsViewsTestCase(TestCase):
         start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
         two_years = 365 * 2
         two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
-        end_datetime = two_years_from_now.replace(month=two_years_from_now.month + 1, day=1) - datetime.timedelta(days=1)
+        two_years_from_now += relativedelta(months=1)
+        end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
         # create public holidays
         current_date = start_datetime.date()
@@ -80,7 +82,8 @@ class AccountsViewsTestCase(TestCase):
         start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
         two_years = 365 * 2
         two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
-        end_datetime = two_years_from_now.replace(month=two_years_from_now.month + 1, day=1) - datetime.timedelta(days=1)
+        two_years_from_now += relativedelta(months=1)
+        end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
         # create public holidays
         current_date = start_datetime.date()
