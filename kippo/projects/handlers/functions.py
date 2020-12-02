@@ -25,7 +25,7 @@ def write_projectid_json(projectid_mapping_json_s3uri: str) -> bool:
     mapping = _prepare_mapping()
     logger.debug(f"mapping={mapping}")
     logger.info("_prepare_mapping() ... DONE!")
-    encoded_json_mapping_bytesio = BytesIO(json.dumps(mapping).encode("utf8"))
+    encoded_json_mapping_bytesio = BytesIO(json.dumps(mapping, indent=4, ensure_ascii=False).encode("utf8"))
     bucket, key = parse_s3_uri(projectid_mapping_json_s3uri)
     logger.info(f"uploading mapping file ({projectid_mapping_json_s3uri}) ... ")
     updated = False
