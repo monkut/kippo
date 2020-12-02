@@ -1,26 +1,25 @@
+from common.tests import DEFAULT_COLUMNSET_PK, IsStaffModelAdminTestCaseBase, setup_basic_project
+from django import forms
 from django.utils import timezone
+from projects.models import KippoProject, ProjectColumnSet
 
-from common.tests import IsStaffModelAdminTestCaseBase, setup_basic_project, DEFAULT_COLUMNSET_PK
-from projects.models import ProjectColumnSet, KippoProject
-
-from ..models import KippoTask, KippoTaskStatus
 from ..admin import KippoTaskAdmin, KippoTaskStatusAdmin
+from ..models import KippoTask, KippoTaskStatus
 
 
 class IsStaffOrganizationKippoTaskAdminTestCase(IsStaffModelAdminTestCaseBase):
-
     def test_list_objects(self):
         # create other org tasks
         create_objects = setup_basic_project(organization=self.organization)
         org_unassigned_user = self.organization.get_unassigned_kippouser()
         # create task with staff_user org
-        self.kippoproject = create_objects['KippoProject']
+        self.kippoproject = create_objects["KippoProject"]
         active_states = self.kippoproject.columnset.get_active_column_names()
         active_state = active_states[0]
 
         task1 = KippoTask(
-            title='task1',
-            category='cat1',
+            title="task1",
+            category="cat1",
             project=self.kippoproject,
             assignee=org_unassigned_user,
             created_by=self.github_manager,
@@ -41,16 +40,16 @@ class IsStaffOrganizationKippoTaskAdminTestCase(IsStaffModelAdminTestCaseBase):
         default_columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         other_kippo_project = KippoProject(
             organization=self.other_organization,
-            name='octocat-test-otherproject',
-            github_project_html_url='https://github.com/orgs/githubcodesorg/projects/1',
+            name="octocat-test-otherproject",
+            github_project_html_url="https://github.com/orgs/githubcodesorg/projects/1",
             columnset=default_columnset,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
         other_kippo_project.save()
         task2 = KippoTask(
-            title='task2',
-            category='cat2',
+            title="task2",
+            category="cat2",
             project=other_kippo_project,
             assignee=other_org_unassigned_user,
             created_by=self.github_manager,
@@ -78,10 +77,7 @@ class IsStaffOrganizationKippoTaskAdminTestCase(IsStaffModelAdminTestCaseBase):
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_results = list(qs)
         expected_count = KippoTask.objects.filter(project__organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(
-            len(queryset_results) == expected_count,
-            f'actual({len(queryset_results)}) != expected({expected_count})'
-        )
+        self.assertTrue(len(queryset_results) == expected_count, f"actual({len(queryset_results)}) != expected({expected_count})")
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for task in queryset_results:
@@ -90,19 +86,18 @@ class IsStaffOrganizationKippoTaskAdminTestCase(IsStaffModelAdminTestCaseBase):
 
 
 class IsStaffOrganizationKippoTaskStatusAdminTestCase(IsStaffModelAdminTestCaseBase):
-
     def test_list_objects(self):
         # create other org tasks
         create_objects = setup_basic_project(organization=self.organization)
         org_unassigned_user = self.organization.get_unassigned_kippouser()
         # create task with staff_user org
-        self.kippoproject = create_objects['KippoProject']
+        self.kippoproject = create_objects["KippoProject"]
         active_states = self.kippoproject.columnset.get_active_column_names()
         active_state = active_states[0]
 
         task1 = KippoTask(
-            title='task1',
-            category='cat1',
+            title="task1",
+            category="cat1",
             project=self.kippoproject,
             assignee=org_unassigned_user,
             created_by=self.github_manager,
@@ -123,16 +118,16 @@ class IsStaffOrganizationKippoTaskStatusAdminTestCase(IsStaffModelAdminTestCaseB
         default_columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         other_kippo_project = KippoProject(
             organization=self.other_organization,
-            name='octocat-test-otherproject',
-            github_project_html_url='https://github.com/orgs/githubcodesorg/projects/1',
+            name="octocat-test-otherproject",
+            github_project_html_url="https://github.com/orgs/githubcodesorg/projects/1",
             columnset=default_columnset,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
         other_kippo_project.save()
         task2 = KippoTask(
-            title='task2',
-            category='cat2',
+            title="task2",
+            category="cat2",
             project=other_kippo_project,
             assignee=other_org_unassigned_user,
             created_by=self.github_manager,
@@ -154,19 +149,27 @@ class IsStaffOrganizationKippoTaskStatusAdminTestCase(IsStaffModelAdminTestCaseB
         actual = len(qs)
         # should list all tasks
         expected = KippoTaskStatus.objects.count()
-        self.assertTrue(actual == expected, f'actual({actual}) != expected({expected})')
+        self.assertTrue(actual == expected, f"actual({actual}) != expected({expected})")
 
         # with staff user only single user with same org should be returned
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_results = list(qs)
         expected_count = KippoTaskStatus.objects.filter(task__project__organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(
-            len(queryset_results) == expected_count,
-            f'actual({len(queryset_results)}) != expected({expected_count})'
-        )
+        self.assertTrue(len(queryset_results) == expected_count, f"actual({len(queryset_results)}) != expected({expected_count})")
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for taskstatus in queryset_results:
             taskstatus_org = {taskstatus.task.project.organization.id}
             self.assertTrue(staff_user_orgids.intersection(taskstatus_org))
 
+    def test_is_estimate_days_float(self):
+        modeladmin = KippoTaskStatusAdmin(KippoTaskStatus, self.site)
+
+        estimate_widget = modeladmin.get_form(self.super_user_request).base_fields["minimum_estimate_days"].widget
+        self.assertTrue(isinstance(estimate_widget, forms.NumberInput))
+
+        estimate_widget = modeladmin.get_form(self.super_user_request).base_fields["estimate_days"].widget
+        self.assertTrue(isinstance(estimate_widget, forms.NumberInput))
+
+        estimate_widget = modeladmin.get_form(self.super_user_request).base_fields["maximum_estimate_days"].widget
+        self.assertTrue(isinstance(estimate_widget, forms.NumberInput))

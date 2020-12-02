@@ -1,5 +1,6 @@
 import datetime
 import logging
+import math
 import time
 from collections import defaultdict
 from functools import lru_cache
@@ -317,11 +318,11 @@ def get_projects_load(
         for status in active_taskstatus:
             # create qlu estimates and tasks
             # - create estimates for task
-            minimum_estimate = int(status.minimum_estimate_days) if status.minimum_estimate_days else default_minimum
-            suggested_estimate = int(status.estimate_days) if status.estimate_days else default_suggested
+            minimum_estimate = int(math.ceil(status.minimum_estimate_days)) if status.minimum_estimate_days else default_minimum
+            suggested_estimate = int(math.ceil(status.estimate_days)) if status.estimate_days else default_suggested
             maximum_estimate = status.maximum_estimate_days
             if not maximum_estimate:
-                maximum_estimate = int(round(suggested_estimate * maximum_multiplier, 0))
+                maximum_estimate = int(math.ceil(suggested_estimate * maximum_multiplier))
             qestimates = QluTaskEstimates(minimum_estimate, suggested_estimate, maximum_estimate)
 
             # TODO: review milestone handling

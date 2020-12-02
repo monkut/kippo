@@ -1,5 +1,6 @@
 from accounts.admin import UserCreatedBaseModelAdmin
 from common.admin import OrganizationTaskQuerysetModelAdminMixin, PrettyJSONWidget
+from django import forms
 from django.contrib import admin
 from django.contrib.postgres.fields import JSONField
 from django.utils.html import format_html
@@ -57,6 +58,13 @@ class KippoTaskStatusAdmin(UserCreatedBaseModelAdmin):
     list_display = ("display_name", "effort_date", "state", "get_assignee", "minimum_estimate_days", "estimate_days", "maximum_estimate_days")
     search_fields = ("task__assignee__github_login", "task__github_issue_html_url", "task__title")
     formfield_overrides = {JSONField: {"widget": PrettyJSONWidget}}
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        form.base_fields["minimum_estimate_days"].widget = forms.NumberInput(attrs={"min": "0", "step": "0.5"})
+        form.base_fields["estimate_days"].widget = forms.NumberInput(attrs={"min": "0", "step": "0.5"})
+        form.base_fields["maximum_estimate_days"].widget = forms.NumberInput(attrs={"min": "0", "step": "0.5"})
+        return form
 
     def get_assignee(self, obj=None) -> str:
         result = ""

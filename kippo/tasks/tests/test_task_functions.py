@@ -186,6 +186,18 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user2_membership.save()
 
+        self.user3 = KippoUser(username="user3", github_login="user3", password="test", email="user3@github.com", is_staff=True)
+        self.user3.save()
+        self.user3_membership = OrganizationMembership(
+            user=self.user3,
+            organization=self.organization,
+            is_developer=True,
+            email=f"otheruser@{self.domain}",
+            created_by=self.cli_manager,
+            updated_by=self.cli_manager,
+        )
+        self.user3_membership.save()
+
         columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         self.kippoproject = KippoProject(
             name="testproject",
@@ -286,6 +298,28 @@ class GetKippoProjectLoadTestCase(TestCase):
         task4status.save()
         self.user2effort_total = task3status.estimate_days + task4status.estimate_days
 
+        task5 = KippoTask(
+            title="task5",
+            category="cat5",
+            project=self.kippoproject,
+            assignee=self.user3,
+            github_issue_html_url=f"https://github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/5",
+            github_issue_api_url=f"https://api.github.com/repos/{self.organization.github_organization_name}/{repo_name}/issues/5",
+            created_by=self.cli_manager,
+            updated_by=self.cli_manager,
+        )
+        task5.save()
+        task5status = KippoTaskStatus(
+            task=task5,
+            effort_date=timezone.datetime(2019, 6, 5).date(),
+            estimate_days=6.5,
+            state=active_state,
+            created_by=self.cli_manager,
+            updated_by=self.cli_manager,
+        )
+        task5status.save()
+        self.user3effort_total = task5status.estimate_days
+
     def test_get_projects_load(self):
         project_developer_load, _, latest_taskstatus_effort_date = get_projects_load(
             organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
@@ -354,3 +388,22 @@ class GetKippoProjectLoadTestCase(TestCase):
 
         expected_last_effort_date = timezone.datetime(2019, 6, 5).date()
         self.assertEqual(lastest_effort_date, expected_last_effort_date)
+
+    def test_is_project_estimate_days_rounded_up(self):
+        project_developer_load, _, latest_taskstatus_effort_date = get_projects_load(
+            organization=self.organization,
+            schedule_start_date=timezone.datetime(2019, 6, 5).date(),
+        )
+        self.assertTrue(project_developer_load)
+        self.assertTrue(latest_taskstatus_effort_date)
+
+        expected_tasktitles = "task5"
+        user3tasks = project_developer_load[self.kippoproject.id]["user3"]
+        self.assertTrue(any(t.title in expected_tasktitles for t in user3tasks))
+
+        # 7(6.5) days estimate total starting 6/5
+        expected_effort_end_date = timezone.datetime(2019, 6, 13).date()
+        actual_effort_end_date = max(t.qlu_task.end_date for t in user3tasks)
+        self.assertEqual(
+            actual_effort_end_date, expected_effort_end_date, f"actual({actual_effort_end_date}) != expected({expected_effort_end_date})"
+        )
