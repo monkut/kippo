@@ -7,7 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 from kippo.aws import S3_CLIENT, parse_s3_uri
 
-from ..models import ActiveKippoProject
+from ..models import KippoProject
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def _prepare_mapping() -> dict:
     now = timezone.now().replace(microsecond=0)
     mapping = {"last_updated": now.isoformat()}
-    for project in ActiveKippoProject.objects.all():
+    for project in KippoProject.objects.all():
         mapping[str(project.pk)] = project.name
     return mapping
 
