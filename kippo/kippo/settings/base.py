@@ -11,7 +11,6 @@ https://docs.djangoproject.com/en/2.0/ref/settings/
 """
 import logging
 import os
-from distutils.util import strtobool
 from pathlib import PurePath
 
 from django.conf.locale.en import formats as en_formats
