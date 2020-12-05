@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/2.0/ref/settings/
 """
 import logging
 import os
+from distutils.util import strtobool
 from pathlib import PurePath
 
 from django.conf.locale.en import formats as en_formats
@@ -220,3 +221,7 @@ logger.info(f"AWS_SERVICE_ENDPOINTS: {AWS_SERVICE_ENDPOINTS}")
 
 DEFAULT_FALLBACK_ESTIMATE_DAYS = "3"
 FALLBACK_ESTIMATE_DAYS = int(os.getenv("FALLBACK_ESTIMATE_DAYS", DEFAULT_FALLBACK_ESTIMATE_DAYS))
+
+TWO_YEARS_IN_DAYS = 365 * 2
+DEFAULT_PROJECTID_MAPPING_CLOSED_IGNORED_DAYS = str(TWO_YEARS_IN_DAYS)
+PROJECTID_MAPPING_CLOSED_IGNORED_DAYS = int(os.getenv("PROJECTID_MAPPING_CLOSED_IGNORED_DAYS", DEFAULT_PROJECTID_MAPPING_CLOSED_IGNORED_DAYS))
