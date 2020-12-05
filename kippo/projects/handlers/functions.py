@@ -12,10 +12,16 @@ from ..models import KippoProject
 logger = logging.getLogger(__name__)
 
 
+def _get_projectid_mapping_ignore_date() -> timezone.datetime:
+    lte_ignore_datetime = timezone.now() - timezone.timedelta(days=settings.PROJECTID_MAPPING_CLOSED_IGNORED_DAYS)
+    return lte_ignore_datetime
+
+
 def _prepare_mapping() -> dict:
     now = timezone.now().replace(microsecond=0)
     mapping = {"last_updated": now.isoformat()}
-    for project in KippoProject.objects.all():
+    lte_ignore_datetime = _get_projectid_mapping_ignore_date()
+    for project in KippoProject.objects.exclude(closed_datetime__lte=lte_ignore_datetime):
         mapping[str(project.pk)] = project.name
     return mapping
 
