@@ -24,6 +24,7 @@ from octocat.models import GITHUB_MILESTONE_CLOSE_STATE, GithubMilestone, Github
 from tasks.models import KippoTaskStatus
 
 from .exceptions import ProjectColumnSetError
+from .functions import previous_week_startdate
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +726,15 @@ class ProjectAssignment(UserCreatedBaseModel):
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectassignment_user")
     percentage = models.SmallIntegerField(
         help_text=_("Workload percentage assigned to project from available workload available for project organization")
+    )
+
+
+class ProjectWeeklyEffort(UserCreatedBaseModel):
+    week_start = models.DateField(default=previous_week_startdate, help_text="Effort Week Start (MONDAY)")
+    project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_project")
+    user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_user")
+    percentage = models.SmallIntegerField(
+        help_text=_("Actual workload percentage assigned to project from available workload available for project organization")
     )
 
 
