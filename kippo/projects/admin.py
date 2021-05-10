@@ -60,8 +60,8 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
 class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectWeeklyEffort
     extra = 0
-    fields = ("week_start", "user", "percentage")
-    readonly_fields = ("week_start", "user", "percentage")
+    fields = ("week_start", "user", "hours")
+    readonly_fields = ("week_start", "user", "hours")
 
     def has_add_permission(self, request, obj):  # No Add button
         return False
@@ -75,7 +75,7 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
 class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectWeeklyEffort
     extra = 1
-    fields = ("week_start", "user", "percentage")
+    fields = ("week_start", "user", "hours")
 
     def get_queryset(self, request):
         # clear the queryset so that no EDITABLE entries are displayed
