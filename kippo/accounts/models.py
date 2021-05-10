@@ -274,7 +274,7 @@ class KippoUser(AbstractUser):
     def __str__(self) -> str:
         display_name = f"{self.username}"
         if self.last_name and self.first_name:
-            display_name = f"({self.last_name}, {self.first_name}) {self.username}"
+            display_name = f"({self.last_name.capitalize()}, {self.first_name.capitalize()}) {self.username}"
         return display_name
 
 
