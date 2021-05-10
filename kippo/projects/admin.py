@@ -3,6 +3,7 @@ import logging
 from base64 import b64decode
 from string import ascii_lowercase
 
+from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django.contrib import admin, messages
 from django.http import HttpResponse, HttpResponseRedirect
@@ -24,6 +25,7 @@ from .models import (
     ProjectAssignment,
     ProjectColumn,
     ProjectColumnSet,
+    ProjectWeeklyEffort,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,41 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
         # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
+
+
+class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = ProjectWeeklyEffort
+    extra = 0
+    fields = ("week_start", "user", "percentage")
+    readonly_fields = ("week_start", "user", "percentage")
+
+    def has_add_permission(self, request, obj):  # No Add button
+        return False
+
+    def get_queryset(self, request):
+        # order milestones as expected
+        qs = super().get_queryset(request).order_by("week_start")
+        return qs
+
+
+class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = ProjectWeeklyEffort
+    extra = 1
+    fields = ("week_start", "user", "percentage")
+
+    def get_queryset(self, request):
+        # clear the queryset so that no EDITABLE entries are displayed
+        qs = super().get_queryset(request).none()
+        return qs
+
+    def get_formset(self, request, obj=None, **kwargs):
+        """Added to filter the user selection list so that only user's belonging to the project's organization will be listed"""
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj:  # parent model
+            # get users belonging to the organization this project belongs to
+            related_organization_user_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user__id", flat=True)
+            formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by("username")
+        return formset
 
 
 class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -221,7 +258,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         collect_project_github_repositories_action,
         "export_project_kippotaskstatus_csv",
     ]
-    inlines = [KippoMilestoneReadOnlyInline, KippoMilestoneAdminInline, KippoProjectStatusReadOnlyInine, KippoProjectStatusAdminInline]
+    inlines = [
+        KippoMilestoneReadOnlyInline,
+        KippoMilestoneAdminInline,
+        ProjectWeeklyEffortReadOnlyInine,
+        KippoProjectStatusReadOnlyInine,
+        ProjectWeeklyEffortAdminInline,
+        KippoProjectStatusAdminInline,
+    ]
 
     def get_confidence_display(self, obj):
         result = ""

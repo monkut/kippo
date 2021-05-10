@@ -1,10 +1,12 @@
+import datetime
+
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
-from ..functions import get_kippoproject_taskstatus_csv_rows
+from ..functions import get_kippoproject_taskstatus_csv_rows, previous_week_startdate
 
 
 class ProjectsFunctionsTestCase(TestCase):
@@ -110,3 +112,21 @@ class ProjectsFunctionsTestCase(TestCase):
 
         # check that the rows contain the expected number of values
         self.assertTrue(all(len(row) == len(expected_headers) for row in actual_rows))
+
+    def test_previous_week_startdate__monday(self):
+        today = datetime.date(2021, 5, 10)  # monday
+        expected = datetime.date(2021, 5, 3)  # previous week's monday
+        actual = previous_week_startdate(today=today)
+        self.assertEqual(actual, expected)
+
+    def test_previous_week_startdate__tuesday(self):
+        today = datetime.date(2021, 5, 11)  # tuesday
+        expected = datetime.date(2021, 5, 3)  # previous week's monday
+        actual = previous_week_startdate(today=today)
+        self.assertEqual(actual, expected)
+
+    def test_previous_week_startdate__sunday(self):
+        today = datetime.date(2021, 5, 9)  # sunday
+        expected = datetime.date(2021, 5, 3)  # previous week's monday
+        actual = previous_week_startdate(today=today)
+        self.assertEqual(actual, expected)

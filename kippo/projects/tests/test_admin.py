@@ -1,12 +1,29 @@
 from http import HTTPStatus
+from unittest.mock import MagicMock
 
+from accounts.models import KippoUser, OrganizationMembership
 from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
 from django.urls import reverse
 from django.utils import timezone
 from projects.models import KippoProject, ProjectColumnSet
 
-from ..admin import KippoMilestoneAdmin, KippoProjectAdmin
+from ..admin import KippoMilestoneAdmin, KippoProjectAdmin, ProjectWeeklyEffortAdminInline
 from ..models import KippoMilestone, KippoProject
+
+
+class MockRequest:
+    GET = {}
+    POST = {}
+    path = ""
+    _messages = MagicMock()
+
+    def __init__(self, *args, **kwargs):
+        self.GET = {}
+        self.POST = {}
+        self._messages = MagicMock()
+
+    def get_full_path(self):
+        return self.path
 
 
 class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase):
@@ -49,6 +66,12 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        self.organization_usera = KippoUser.objects.create(username="organization_usera")
+        organization_usera_membership = OrganizationMembership.objects.create(organization=self.organization, user=self.organization_usera)
+        self.organization_users = OrganizationMembership.objects.filter(organization=self.organization).values_list("user", flat=True)
+
+        other_organization_usera = KippoUser.objects.create(username="other_organization_usera")
+        other_organization_usera_membership = OrganizationMembership.objects.create(organization=self.organization, user=other_organization_usera)
 
     def test_list_objects(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
@@ -65,6 +88,20 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         self.assertTrue(len(queryset_results) == expected_count, f"actual({len(queryset_results)}) != expected({expected_count})")
         for result in queryset_results:
             self.assertTrue(result.organization == self.organization)
+
+    def test_projectweeklyeffort_inlineadmin(self):
+        assert KippoUser.objects.all().count() > self.organization_users.count()
+
+        # modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        orguser_request = MockRequest()
+        orguser_request.user = self.organization_usera
+        inline = ProjectWeeklyEffortAdminInline(parent_model=KippoProject, admin_site=self.site)
+        formset = inline.get_formset(request=orguser_request, obj=self.project1)
+        # check project form users
+        # -- compare user ids
+        expected = set(self.organization_users)
+        actual = set(u.id for u in formset.form.base_fields["user"].queryset)
+        self.assertEqual(actual, expected)
 
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):

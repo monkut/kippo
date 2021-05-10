@@ -1,14 +1,17 @@
 import datetime
 import logging
 from operator import attrgetter
-from typing import Generator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from accounts.models import KippoOrganization, KippoUser
 from django.http import HttpRequest
+from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 
-from .models import KippoProject
+if TYPE_CHECKING:
+    from .models import KippoProject
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +40,9 @@ def get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganizati
     return organization, user_organizations
 
 
-def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> List[KippoProject]:
+def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> List["KippoProject"]:
     """Collect existing github organizational projects for a configured KippoOrganization"""
+    from .models import KippoProject
 
     manager = GithubOrganizationManager(organization=organization.github_organization_name, token=organization.githubaccesstoken.token)
 
@@ -74,7 +78,7 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
 
 
 def get_kippoproject_taskstatus_csv_rows(
-    kippo_project: KippoProject, with_headers: bool = True, status_effort_date: Optional[datetime.date] = None
+    kippo_project: "KippoProject", with_headers: bool = True, status_effort_date: Optional[datetime.date] = None
 ) -> Generator:
     """
     Generate the current 'active' taskstaus CSV lines for a given KippoProject
@@ -113,3 +117,16 @@ def get_kippoproject_taskstatus_csv_rows(
             taskstatus.tags,
         )
         yield row
+
+
+def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.datetime:
+    """Get the previous week's start date"""
+    MONDAY = 0
+    week_start_day = MONDAY
+    if not today:
+        today = timezone.now().date()
+    last_week = today - datetime.timedelta(days=5)
+    current_date = last_week
+    while current_date.weekday() != week_start_day:
+        current_date -= datetime.timedelta(days=1)
+    return current_date
