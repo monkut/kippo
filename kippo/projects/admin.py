@@ -272,8 +272,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def get_updated_by_display(self, obj) -> str:
         result = ""
         if obj:
-            result = self.updated_by.username
+            result = obj.updated_by.username
         return result
+
+    get_updated_by_display.short_description = "updated by"
 
     def get_confidence_display(self, obj):
         result = ""
