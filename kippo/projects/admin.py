@@ -269,6 +269,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectStatusAdminInline,
     ]
 
+    def get_updated_by_display(self, obj) -> str:
+        result = ""
+        if obj:
+            result = self.updated_by.username
+        return result
+
     def get_confidence_display(self, obj):
         result = ""
         if obj.confidence:
