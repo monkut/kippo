@@ -88,7 +88,9 @@ class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline
         if obj:  # parent model
             # get users belonging to the organization this project belongs to
             related_organization_user_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user__id", flat=True)
-            formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by("last_name")
+            formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by(
+                "last_name", "username"
+            )
         return formset
 
 
