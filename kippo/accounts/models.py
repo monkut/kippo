@@ -271,6 +271,12 @@ class KippoUser(AbstractUser):
                 total_estimatedays += lastest_taskstatus.estimate_days if lastest_taskstatus.estimate_days else 0
         return float(total_estimatedays)
 
+    def __str__(self) -> str:
+        display_name = f"{self.username}"
+        if self.last_name and self.first_name:
+            display_name = f"({self.last_name}, {self.first_name}) {self.username}"
+        return display_name
+
 
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser, on_delete=models.CASCADE, editable=True)
