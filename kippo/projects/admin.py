@@ -242,7 +242,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "phase",
         "category",
         "get_confidence_display",
-        "updated_by",
+        "get_updated_by_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
