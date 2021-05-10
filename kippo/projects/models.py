@@ -737,6 +737,9 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
         help_text=_("Actual workload percentage assigned to project from available workload available for project organization")
     )
 
+    class Meta:
+        unique_together = ("week_start", "project", "user")
+
 
 class CollectIssuesAction(UserCreatedBaseModel):
     start_datetime = models.DateTimeField(default=timezone.now)

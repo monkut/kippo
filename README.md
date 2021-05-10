@@ -103,6 +103,14 @@ Prerequisites:
     # load country holidays
     python manage.py loaddata jp_vn_publicholidays.json
     ```
+   
+### Test Fixtures
+
+The following fixtures are prepared for local testing and development of the admin:
+
+```bash
+python manage.py loaddata ~basic_project~
+```
 
 ## Optional Features
 
