@@ -1,13 +1,17 @@
 import datetime
 import logging
 from operator import attrgetter
-from typing import Generator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from accounts.models import KippoOrganization, KippoUser
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
+
+if TYPE_CHECKING:
+    from .models import KippoProject
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +127,6 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
         today = timezone.now().date()
     last_week = today - datetime.timedelta(days=5)
     current_date = last_week
-    while current_date.weekday() != MONDAY:
+    while current_date.weekday() != week_start_day:
         current_date -= datetime.timedelta(days=1)
     return current_date
