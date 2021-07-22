@@ -68,7 +68,9 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
 
     def get_queryset(self, request):
         # order milestones as expected
-        qs = super().get_queryset(request).order_by("week_start")
+        three_weeks_ago = (timezone.now() - timezone.timedelta(days=21)).date()
+        # filter output
+        qs = super().get_queryset(request).filter(week_start__gte=three_weeks_ago).order_by("week_start")
         return qs
 
 
@@ -87,10 +89,12 @@ class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline
         formset = super().get_formset(request, obj, **kwargs)
         if obj:  # parent model
             # get users belonging to the organization this project belongs to
+            formset.form.base_fields["user"].initial = request.user
             related_organization_user_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user__id", flat=True)
             formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by(
                 "last_name", "username"
             )
+
         return formset
 
 
@@ -105,7 +109,9 @@ class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInlin
 
     def get_queryset(self, request):
         # order milestones as expected
-        qs = super().get_queryset(request).order_by("created_datetime")
+        five_weeks_ago_days = 7 * 5
+        five_weeks_ago = timezone.now() - timezone.timedelta(days=five_weeks_ago_days)
+        qs = super().get_queryset(request).filter(created_datetime__gte=five_weeks_ago).order_by("created_datetime")
         return qs
 
 
