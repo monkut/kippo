@@ -1,11 +1,16 @@
 import csv
 import logging
-from base64 import b64decode
+from abc import abstractmethod
+from collections import OrderedDict
 from string import ascii_lowercase
+from typing import List, Tuple, Union
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django.contrib import admin, messages
+from django.contrib.admin.templatetags.admin_list import label_for_field
+from django.contrib.admin.views.main import ChangeList
+from django.db.models import QuerySet, Sum
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.utils.html import format_html
@@ -166,10 +171,7 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             for item in responses:
                 if isinstance(item, dict):  # get "project_id"
                     if "createProject" in item["data"]:
-                        project_encoded_id = item["data"]["createProject"]["project"]["id"]
-                        decoded_id = b64decode(project_encoded_id).decode("utf8").lower()
-                        # parse out project id portion
-                        github_project_id = decoded_id.split("project")[-1]
+                        github_project_id = item["data"]["createProject"]["project"]["databaseId"]
                 elif isinstance(item, list):  # get column_info
                     for column_response in item:
                         if "addProjectColumn" in column_response["data"]:
@@ -360,14 +362,18 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         form.base_fields["project_manager"].initial = request.user.id
-
-        user_initial_organization, user_organizations = get_user_session_organization(request)
+        try:
+            user_initial_organization, user_organizations = get_user_session_organization(request)
+            user_memberships = request.user.memberships.all()
+        except ValueError:
+            user_initial_organization = None
+            user_memberships = request.user.memberships.none()
         if not user_initial_organization:
             self.message_user(
-                request, "User has not OrganizationMembership defined! Must belong to an Organization to create a project", level=messages.ERROR
+                request, "OrganizationMembership not defined for user! Must belong to an Organization to create a project", level=messages.ERROR
             )
         form.base_fields["organization"].initial = user_initial_organization
-        form.base_fields["organization"].queryset = request.user.memberships.all()
+        form.base_fields["organization"].queryset = user_memberships
         return form
 
     def save_model(self, request, obj, form, change):
@@ -468,6 +474,79 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
         "new_taskstatus_count",
         "updated_taskstatus_count",
     )
+
+
+class ProjectWeeklyEffortChangeList(ChangeList):
+    def result_headers(self) -> OrderedDict:
+        """ref django.contrib.admin.templatetags.admin_list.result_headers(cl)"""
+        headers = OrderedDict()
+        for field_name in self.list_display:
+            label = label_for_field(field_name, self.model, model_admin=self.model_admin, return_attr=False)
+            headers[str(field_name)] = str(label)
+        return headers
+
+    def get_results(self, request) -> None:
+        super().get_results(request)  # populates self.result_list with filtered queryset
+
+        self.result_list_all = self.queryset._clone()
+        self.aggregation_list_all = None
+        self.aggregation_list = None
+
+
+class AggregationPeriodFilter(admin.filters.SimpleListFilter):
+    title = _("集計期間")
+    parameter_name = "period_aggregation"
+
+    @classmethod
+    @abstractmethod
+    def get_default_choice(cls) -> str:
+        pass
+
+    def choices(self, changelist):
+        for lookup, title in self.lookup_choices:
+            if str(lookup) == self.get_default_choice():
+                yield {
+                    "selected": self.value() in [None, str(lookup)],
+                    "query_string": changelist.get_query_string(remove=[self.parameter_name]),
+                    "display": title,
+                }
+            else:
+                yield {
+                    "selected": self.value() == str(lookup),
+                    "query_string": changelist.get_query_string({self.parameter_name: lookup}),
+                    "display": title,
+                }
+
+    def queryset(self, request, queryset) -> QuerySet:
+        return queryset
+
+
+class ProjectWeeklyEffortAggregationPeriodFilter(AggregationPeriodFilter):
+    @classmethod
+    def get_default_choice(cls) -> str:
+        return "weekly"
+
+    def lookups(self, request, model_admin) -> Tuple[Tuple]:
+        return (
+            ("weekly", _("週別")),
+            ("monthly", _("月別")),
+            ("yearly", _("年別")),
+        )
+
+
+@admin.register(ProjectWeeklyEffort)
+class ProjectWeeklyEffortAdmin(UserCreatedBaseModelAdmin):
+    list_display = ("project",)
+
+    def get_changelist(self, request) -> ChangeList:
+        return ProjectWeeklyEffortChangeList
+
+    def get_list_filter(self, request) -> List[Union[str, admin.ListFilter, Tuple[str, admin.ListFilter]]]:
+        filter_columns = [self.get_aggregation_period_filter()]
+        return filter_columns
+
+    def get_aggregation_period_filter(self) -> admin.ListFilter:
+        return ProjectWeeklyEffortAggregationPeriodFilter
 
 
 # allow additional admin to filtered ActiveKippoProject model
