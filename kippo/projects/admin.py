@@ -576,3 +576,9 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         form.base_fields["project"].initial = user_projects.first()
         form.base_fields["project"].queryset = user_projects
         return form
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
