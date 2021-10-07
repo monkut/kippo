@@ -19,5 +19,7 @@ urlpatterns = [
         views.view_milestone_status,
         name="view_milestone_status",
     ),
+    path("download/", views.data_download_waiter, name="download_waiter"),
+    path("download/done/", views.data_download_done, name="download_done"),
     url("$", views.view_inprogress_projects_status, name="view_project_status"),
 ]

@@ -1,0 +1,13 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block extrahead %}
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="1">
+{% endblock %}
+
+
+{% block content %}
+  <h1>ダウンロードは自動的に始まります。始まらない場合は再度ダウンロードしてみてください。</h1>
+  <i><a href="{{back_path}}">戻る</a></i>
+{% endblock %}

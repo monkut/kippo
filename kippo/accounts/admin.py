@@ -143,6 +143,13 @@ class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMi
         "is_staff",
         "is_superuser",
     )
+    # limit displayed fields
+    fieldsets = (
+        (None, {"fields": ("username", "password")}),
+        (_("Personal info"), {"fields": ("first_name", "last_name", "email", "holiday_country")}),
+        (_("Permissions"), {"fields": ("is_active", "is_staff", "is_superuser")}),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
+    )
 
     def get_is_collaborator(self, obj):
         return obj.is_github_outside_collaborator

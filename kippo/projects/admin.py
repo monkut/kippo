@@ -1,16 +1,15 @@
 import csv
 import logging
-from abc import abstractmethod
-from collections import OrderedDict
+import urllib.parse
 from string import ascii_lowercase
-from typing import List, Tuple, Union
+from typing import Optional
+from uuid import uuid4
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
-from django.contrib.admin.templatetags.admin_list import label_for_field
-from django.contrib.admin.views.main import ChangeList
-from django.db.models import QuerySet, Sum
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.utils.html import format_html
@@ -19,7 +18,7 @@ from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .functions import get_kippoproject_taskstatus_csv_rows, get_user_session_organization
+from .functions import generate_projectweeklyeffort_csv, get_kippoproject_taskstatus_csv_rows, get_user_session_organization
 from .models import (
     ActiveKippoProject,
     CollectIssuesAction,
@@ -250,13 +249,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "phase",
         "category",
         "get_confidence_display",
-        "get_updated_by_display",
+        "get_projecteffort_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
         "display_as_active",
+        "get_updated_by_display",
         "updated_datetime",
     )
     list_display_links = ("id", "name")
@@ -276,6 +276,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         ProjectWeeklyEffortAdminInline,
         KippoProjectStatusAdminInline,
     ]
+
+    def has_add_permission(self, request, obj: Optional[KippoProject] = None):  # No Add button
+        # check if user has organization memberships
+        # - if not can't add new projects
+        return request.user.memberships.exists()
 
     def get_updated_by_display(self, obj) -> str:
         result = ""
@@ -338,6 +343,27 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
 
+    def get_projecteffort_display(self, obj: Optional[KippoProject] = None) -> str:
+        result = "-"
+        if obj:
+            # get project total effort
+            actual_effort_hours = obj.get_total_effort()
+            total_effort_percentage_str = ""
+            allocated_effort_hours = None
+            if obj.allocated_staff_days and obj.organization.day_workhours:
+                allocated_effort_hours = obj.allocated_staff_days * obj.organization.day_workhours
+            else:
+                logger.warning(
+                    f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={obj}, organization={obj.organization}"
+                )
+            if allocated_effort_hours:
+                total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
+                total_effort_percentage_str = f" ( {total_effort_percentage:.2f}% )"
+            result = f"{actual_effort_hours}{total_effort_percentage_str}"
+        return result
+
+    get_projecteffort_display.short_description = _("Effort Hours")
+
     def show_github_project_html_url(self, obj):
         url = ""
         if obj.github_project_html_url:
@@ -391,6 +417,24 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations).order_by("organization").distinct()
+
+
+@admin.register(ActiveKippoProject)
+class ActiveKippoProjectAdmin(KippoProjectAdmin):
+    list_display = (
+        "id",
+        "name",
+        "phase",
+        "get_confidence_display",
+        "get_projecteffort_display",
+        "get_latest_kippoprojectstatus_comment",
+        "start_date",
+        "target_date",
+        "get_projectsurvey_display_url",
+        "show_github_project_html_url",
+        "get_updated_by_display",
+        "updated_datetime",
+    )
 
 
 @admin.register(KippoMilestone)
@@ -476,78 +520,59 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
     )
 
 
-class ProjectWeeklyEffortChangeList(ChangeList):
-    def result_headers(self) -> OrderedDict:
-        """ref django.contrib.admin.templatetags.admin_list.result_headers(cl)"""
-        headers = OrderedDict()
-        for field_name in self.list_display:
-            label = label_for_field(field_name, self.model, model_admin=self.model_admin, return_attr=False)
-            headers[str(field_name)] = str(label)
-        return headers
-
-    def get_results(self, request) -> None:
-        super().get_results(request)  # populates self.result_list with filtered queryset
-
-        self.result_list_all = self.queryset._clone()
-        self.aggregation_list_all = None
-        self.aggregation_list = None
-
-
-class AggregationPeriodFilter(admin.filters.SimpleListFilter):
-    title = _("集計期間")
-    parameter_name = "period_aggregation"
-
-    @classmethod
-    @abstractmethod
-    def get_default_choice(cls) -> str:
-        pass
-
-    def choices(self, changelist):
-        for lookup, title in self.lookup_choices:
-            if str(lookup) == self.get_default_choice():
-                yield {
-                    "selected": self.value() in [None, str(lookup)],
-                    "query_string": changelist.get_query_string(remove=[self.parameter_name]),
-                    "display": title,
-                }
-            else:
-                yield {
-                    "selected": self.value() == str(lookup),
-                    "query_string": changelist.get_query_string({self.parameter_name: lookup}),
-                    "display": title,
-                }
-
-    def queryset(self, request, queryset) -> QuerySet:
-        return queryset
-
-
-class ProjectWeeklyEffortAggregationPeriodFilter(AggregationPeriodFilter):
-    @classmethod
-    def get_default_choice(cls) -> str:
-        return "weekly"
-
-    def lookups(self, request, model_admin) -> Tuple[Tuple]:
-        return (
-            ("weekly", _("週別")),
-            ("monthly", _("月別")),
-            ("yearly", _("年別")),
-        )
-
-
 @admin.register(ProjectWeeklyEffort)
-class ProjectWeeklyEffortAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project",)
+class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
+    ordering = ("project", "-week_start", "user")
+    actions = ("download_csv",)
 
-    def get_changelist(self, request) -> ChangeList:
-        return ProjectWeeklyEffortChangeList
+    def get_project_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
+        result = "-"
+        if obj and obj.project and obj.project.name:
+            result = obj.project.name
+        return result
 
-    def get_list_filter(self, request) -> List[Union[str, admin.ListFilter, Tuple[str, admin.ListFilter]]]:
-        filter_columns = [self.get_aggregation_period_filter()]
-        return filter_columns
+    get_project_name.short_description = _("Project")
 
-    def get_aggregation_period_filter(self) -> admin.ListFilter:
-        return ProjectWeeklyEffortAggregationPeriodFilter
+    def get_user_display_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
+        result = "-"
+        if obj:
+            result = obj.user.display_name
+        return result
 
+    get_user_display_name.short_description = _("user")
 
-# allow additional admin to filtered ActiveKippoProject model
-admin.site.register(ActiveKippoProject, KippoProjectAdmin)
+    def download_csv(self, request, queryset):
+        if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
+            self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
+        else:
+            # initiate creation
+            key = "tmp/download/{}.csv".format(str(uuid4()))
+            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+
+    download_csv.description = _("Download ProjectWeeklyEffort CSV")
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Set defaults based on request user"""
+        # update user field with logged user as default
+        form = super().get_form(request, obj, **kwargs)
+        form.base_fields["user"].initial = request.user.id
+        form.base_fields["user"].widget = forms.HiddenInput()
+        try:
+            user_initial_organization, user_organizations = get_user_session_organization(request)
+            user_memberships = request.user.memberships.all()
+        except ValueError:
+            user_initial_organization = None
+            user_memberships = request.user.memberships.none()
+        if not user_initial_organization:
+            self.message_user(
+                request, "OrganizationMembership not defined for user! Must belong to an Organization to create a project", level=messages.ERROR
+            )
+        user_projects = KippoProject.objects.filter(organization__in=user_memberships)
+        form.base_fields["project"].initial = user_projects.first()
+        form.base_fields["project"].queryset = user_projects
+        return form

@@ -28,12 +28,17 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
 
 
 class AllowIsStaffAdminMixin:
+    """NOTE: Must be placed BEFORE admin.ModelAdmin"""
+
     def check_perm(self, user_obj):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
         if user_obj.is_superuser or user_obj.is_staff:
             return True
         return False
+
+    def has_view_permission(self, request, obj=None):
+        return self.check_perm(request.user)
 
     def has_add_permission(self, request):
         return self.check_perm(request.user)
