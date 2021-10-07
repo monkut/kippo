@@ -9,7 +9,7 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
-from kippo.aws import s3_upload_csv
+from kippo.aws import upload_s3_csv
 from zappa.asynchronous import task
 
 if TYPE_CHECKING:
@@ -160,4 +160,4 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             }
             for effort in effort_entries
         )
-        s3_upload_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
+        upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
