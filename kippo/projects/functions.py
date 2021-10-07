@@ -5,9 +5,12 @@ from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from accounts.models import KippoOrganization, KippoUser
+from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
+from kippo.aws import s3_upload_csv
+from zappa.asynchronous import task
 
 if TYPE_CHECKING:
     from .models import KippoProject
@@ -130,3 +133,31 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
     while current_date.weekday() != week_start_day:
         current_date -= datetime.timedelta(days=1)
     return current_date
+
+
+@task
+def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isoformat: Optional[str] = None) -> None:
+    from projects.models import KippoProject, ProjectWeeklyEffort
+
+    user = KippoUser.objects.filter(pk=user_id).first()
+    if not user:
+        logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
+    else:
+        projects = KippoProject.objects.filter(organization__in=user.organizations)
+        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects).order_by("project", "week_start", "user")
+        if from_datetime_isoformat:
+            from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
+            logger.info(f"applying datetime filter: from_datetime={from_datetime}")
+            effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
+
+        headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
+        g = (
+            {
+                "project": effort.project.name,
+                "week_start": effort.week_start.strftime("%Y%m%d"),
+                "user": effort.user.display_name,
+                "hours": effort.hours,
+            }
+            for effort in effort_entries
+        )
+        s3_upload_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
