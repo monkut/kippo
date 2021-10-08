@@ -9,13 +9,14 @@ from projects.admin import ProjectWeeklyEffortAdmin
 from projects.functions import previous_week_startdate
 from projects.models import KippoProject, ProjectWeeklyEffort
 
-from .utils import MockRequest
+from .utils import MockRequest, reset_buckets
 
 
 class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
     fixtures = DEFAULT_FIXTURES
 
     def setUp(self):
+        reset_buckets()
         super().setUp()
         created_objects = setup_basic_project(organization=self.organization)
         self.project1 = created_objects["KippoProject"]
