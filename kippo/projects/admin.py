@@ -3,7 +3,6 @@ import logging
 import urllib.parse
 from string import ascii_lowercase
 from typing import Optional
-from uuid import uuid4
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
