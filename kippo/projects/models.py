@@ -348,6 +348,13 @@ class KippoProject(UserCreatedBaseModel):
             repository_html_urls.add(repository_html_url)
         return GithubRepository.objects.filter(html_url__in=tuple(repository_html_urls))
 
+    def get_total_effort(self) -> int:
+        result = 0
+        total_effort_hours = ProjectWeeklyEffort.objects.filter(project=self).aggregate(Sum("hours"))
+        if total_effort_hours and "hours__sum" in total_effort_hours:
+            result = total_effort_hours["hours__sum"]
+        return result
+
     @property
     def github_project_name(self):
         return self.name
@@ -736,6 +743,7 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
     hours = models.SmallIntegerField(help_text=_("Actual effort in hours performed on the project for the given 'week start'"))
 
     class Meta:
+        verbose_name_plural = _("ProjectWeeklyEffort")
         unique_together = ("week_start", "project", "user")
 
 

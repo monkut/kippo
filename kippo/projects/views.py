@@ -1,4 +1,5 @@
 import logging
+import urllib.parse
 from collections import Counter, namedtuple
 from typing import List, Optional, Tuple
 
@@ -7,7 +8,8 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from kippo.aws import S3_CLIENT, s3_key_exists
 from tasks.exceptions import ProjectConfigurationError
 from tasks.functions import prepare_project_engineering_load_plot_data
 from tasks.models import KippoTask, KippoTaskStatus
@@ -247,3 +249,54 @@ def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = No
     }
 
     return render(request, "projects/view_milestones_status.html", context)
+
+
+@staff_member_required
+def data_download_waiter(request):
+    raw_filename = request.GET.get("filename", None)
+    back_path = request.GET.get("back_path", f"{settings.URL_PREFIX}/admin/projects/projectweeklyeffort/")
+    referer = request.META.get("HTTP_REFERER", None)
+    parsed_full_path = urllib.parse.urlparse(request.get_full_path())
+    current_path = parsed_full_path.path
+    query = parsed_full_path.query
+
+    filename = None
+    if raw_filename:
+        filename = urllib.parse.unquote(raw_filename)
+
+    referer_path = None
+    if referer:
+        referer_path = urllib.parse.urlparse(referer).path
+    if all((referer, current_path == referer_path, filename, s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, filename))):
+        return redirect(f"{settings.URL_PREFIX}/projects/download/done/?{query}")
+
+    return render(request, "projects/download_waiter.html", {"back_path": back_path})
+
+
+@staff_member_required
+def data_download_done(request):
+    raw_filename = request.GET.get("filename", None)
+    back_path = request.GET.get("back_path", f"{settings.URL_PREFIX}/admin/projects/projectweeklyeffort/")
+    referer = request.META.get("HTTP_REFERER", None)
+    current_path = urllib.parse.urlparse(request.get_full_path()).path
+
+    filename = None
+    if raw_filename:
+        filename = urllib.parse.unquote(raw_filename)
+
+    referer_path = None
+    if referer:
+        referer_path = urllib.parse.urlparse(referer).path
+    expired_seconds = request.GET.get("expired_seconds", 3600)
+
+    if all((referer, current_path == referer_path, filename, s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, filename))):
+        presigned_url = S3_CLIENT.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": settings.DUMPDATA_S3_BUCKETNAME, "Key": filename},
+            ExpiresIn=expired_seconds,
+            HttpMethod="GET",
+        )
+        print(presigned_url)
+        return HttpResponseRedirect(redirect_to=presigned_url)
+
+    return render(request, "projects/download_done.html", {"back_path": back_path})

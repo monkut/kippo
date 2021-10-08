@@ -7,7 +7,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from projects.models import KippoMilestone
-from tasks.models import KippoTask, KippoTaskStatus
+from tasks.models import KippoTaskStatus
 
 
 class SetOrganizationTestCase(TestCase):

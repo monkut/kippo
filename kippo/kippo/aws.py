@@ -1,4 +1,7 @@
-from typing import Tuple
+import csv
+from collections import OrderedDict
+from io import BytesIO, StringIO
+from typing import Dict, Generator, List, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -36,3 +39,27 @@ def s3_key_exists(bucket: str, key: str) -> bool:
         else:
             raise
     return exists
+
+
+def upload_s3_csv(bucket: str, key: str, headers: Dict[str, str], row_generator: Generator) -> Tuple[str, str]:
+    fieldnames = headers.values()
+    with StringIO() as csvout:
+        writer = csv.DictWriter(csvout, fieldnames=list(fieldnames))
+        writer.writeheader()
+        writer.writerows(row_generator)
+        csvout.seek(0)
+        # encode to utf8 fileobj
+        bytesout = BytesIO(csvout.read().encode("utf8"))
+        bytesout.seek(0)
+        S3_CLIENT.upload_fileobj(bytesout, bucket, key)
+    return bucket, key
+
+
+def download_s3_csv(bucket: str, key: str) -> List[OrderedDict]:
+    with BytesIO() as bytesin:
+        S3_CLIENT.download_fileobj(bucket, key, bytesin)
+        bytesin.seek(0)
+        stringin = StringIO(bytesin.read().decode("utf8"))
+        reader = csv.DictReader(stringin)
+        rows = [row for row in reader]
+    return rows

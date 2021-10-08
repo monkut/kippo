@@ -100,8 +100,9 @@ Prerequisites:
     # Create management users
     python manage.py loaddata required_bot_users
     
-    # load country holidays
-    python manage.py loaddata jp_vn_publicholidays.json
+    # load countries to database
+    # - loads countries from accounts/fixtures/countries.csv
+    python manage.py loadcountires
     ```
    
 ### Test Fixtures
@@ -109,8 +110,29 @@ Prerequisites:
 The following fixtures are prepared for local testing and development of the admin:
 
 ```bash
-python manage.py loaddata ~basic_project~
+python manage.py loaddata testdata
 ```
+
+creates the following:
+
+Organizations:
+- org1
+- org2
+
+User:
+- admin (org1, org2)
+- org1-user1 (org1)
+- org2-user1 (org2)
+- dualorg-user3 (org1, org2)
+- unassigned-org1 (auto-created for org)
+- unassigned-org2 (auto-created for org)
+
+Required Bot Users:
+- cli-manager
+- github-manager
+
+Where userpasswords are set to: 5up3r-53cr3t-p@$$w0rd
+
 
 ## Optional Features
 

@@ -7,7 +7,7 @@ jobs:
   build:
     docker:
       # specify the version you desire here
-      - image: circleci/python:3.7
+      - image: circleci/python:3.8
         environment:
           PIPENV_VENV_IN_PROJECT: true
           AWS_ACCESS_KEY_ID: dummyaccesskey
@@ -23,29 +23,29 @@ jobs:
     steps:
       - checkout
       - run: sudo chown -R circleci:circleci /usr/local/bin
-      - run: sudo chown -R circleci:circleci /usr/local/lib/python3.7/site-packages
+      - run: sudo chown -R circleci:circleci /usr/local/lib/python3.8/site-packages
 
       # Download and cache dependencies
       - restore_cache:
           keys:
-          - v2-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          - v3-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           # fallback to using the latest cache if no exact match is found
-          - v2-dependencies-{{ .Branch }}-
+          - v3-dependencies-{{ .Branch }}-
       - run:
           name: Upgrade pipenv
           command: |
-            python3.7 -m pip install pipenv -U
+            python3.8 -m pip install pipenv -U
       - run:
           name: install dependencies
           command: |
-            python3.7 -m pipenv sync --dev
+            python3.8 -m pipenv sync --dev
 
       - save_cache:
-          key: v2-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          key: v3-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
           paths:
             - ./venv
             - /usr/local/bin
-            - /usr/local/bin/lib/python3.7/site-packages
+            - /usr/local/bin/lib/python3.8/site-packages
 
       - run:
           name: prepare boto3 credentials and awscli (Set via ENVARS[AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY])
@@ -77,7 +77,7 @@ jobs:
       - run:
           name: run code checks
           command: |
-            python3.7 -m pipenv run make check
+            python3.8 -m pipenv run make check
 
       - store_artifacts:
           path: test-reports

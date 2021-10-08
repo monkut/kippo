@@ -1,5 +1,5 @@
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK
+from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
@@ -9,7 +9,7 @@ from ..models import KippoMilestone, KippoProject, ProjectColumnSet
 
 
 class ProjectsChartFunctionsTestCase(TestCase):
-    fixtures = ["required_bot_users", "default_columnset", "default_labelset"]
+    fixtures = DEFAULT_FIXTURES
 
     def setUp(self):
         self.cli_manager = KippoUser.objects.get(username="cli-manager")

@@ -36,7 +36,7 @@ SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -122,8 +122,12 @@ USE_L10N = True
 USE_TZ = True
 
 TIME_ZONE = "Asia/Tokyo"
-en_formats.DATETIME_FORMAT = "Y-n-j G:i:s (T)"
-ja_formats.DATETIME_FORMAT = "Y-n-j G:i:s (T)"
+# ISO 8601, ex: 2008-01-02T10:30:00.000123+02:00 "c"
+# NOTE: Will not show timezone offset if datetime object is "naive"
+ja_formats.DATETIME_FORMAT = "Y-m-d H:i:s (T)"  # "c"
+ja_formats.DATE_FORMAT = "Y-m-d"
+en_formats.DATETIME_FORMAT = "Y-m-d H:i:s (T)"  # "c"
+en_formats.DATE_FORMAT = "Y-m-d"
 
 DJANGO_LOG_LEVEL = "DEBUG"
 LOGGING = {
@@ -159,7 +163,7 @@ AUTHENTICATION_BACKENDS = ("social_core.backends.google.GoogleOAuth2", "django.c
 DEFAULT_URL_PREFIX = ""
 URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)  # needed to support a prefix on urls (for zappa deployment)
 
-SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_KEY", None)  # client ID
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET", None)
 
