@@ -356,10 +356,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 logger.warning(
                     f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={obj}, organization={obj.organization}"
                 )
-            if allocated_effort_hours:
+            if actual_effort_hours and allocated_effort_hours:
                 total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
-                total_effort_percentage_str = f" ( {total_effort_percentage:.2f}% )"
-            result = f"{actual_effort_hours}{total_effort_percentage_str}"
+                total_effort_percentage_str = f" ({total_effort_percentage:.2f}%)"
+            if actual_effort_hours:
+                result = f"{actual_effort_hours}h{total_effort_percentage_str}"
         return result
 
     get_projecteffort_display.short_description = _("Effort Hours")
@@ -524,6 +525,10 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
     ordering = ("project", "-week_start", "user")
+    search_fields = (
+        "project__name",
+        "user__last_name",
+    )
     actions = ("download_csv",)
 
     def get_project_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
@@ -547,7 +552,9 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
         else:
             # initiate creation
-            key = "tmp/download/{}.csv".format(str(uuid4()))
+            now = timezone.now()
+            filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
+            key = "tmp/download/{}.csv".format(filename)
             generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)

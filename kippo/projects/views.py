@@ -254,7 +254,7 @@ def view_milestone_status(request: HttpRequest, milestone_id: Optional[str] = No
 @staff_member_required
 def data_download_waiter(request):
     raw_filename = request.GET.get("filename", None)
-    back_path = request.GET.get("back_path", "/admin/projects/projectweeklyeffort/")
+    back_path = request.GET.get("back_path", f"{settings.URL_PREFIX}/admin/projects/projectweeklyeffort/")
     referer = request.META.get("HTTP_REFERER", None)
     parsed_full_path = urllib.parse.urlparse(request.get_full_path())
     current_path = parsed_full_path.path
@@ -276,7 +276,7 @@ def data_download_waiter(request):
 @staff_member_required
 def data_download_done(request):
     raw_filename = request.GET.get("filename", None)
-    back_path = request.GET.get("back_path", "/admin/projects/projectweeklyeffort/")
+    back_path = request.GET.get("back_path", f"{settings.URL_PREFIX}/admin/projects/projectweeklyeffort/")
     referer = request.META.get("HTTP_REFERER", None)
     current_path = urllib.parse.urlparse(request.get_full_path()).path
 

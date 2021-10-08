@@ -1,6 +1,7 @@
 kippo/kippo/db.sqlite3
 kippo/zappa_settings.json
 .idea
+old-packages/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
