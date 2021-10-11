@@ -1,0 +1,9 @@
+{% extends "admin/base.html" %}
+{% load i18n admin_urls %}
+
+{% block welcome-msg %}
+    <strong>{% firstof user.get_short_name user.get_username %}</strong>
+    {% if USER_WEEKLYEFFORT_HOURS_TOTAL >= 0 %}
+<span title="Last week's effort hours CURRENT/EXPECTED">( {{ USER_WEEKLYEFFORT_HOURS_TOTAL }}/{{ USER_WEEKLYEFFORT_HOURS_EXPECTED }} {{ USER_WEEKLYEFFORT_HOURS_PERCENTAGE }}% )</span>
+    {% endif %}
+{% endblock %}
