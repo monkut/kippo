@@ -3,6 +3,7 @@ from typing import Dict
 from django.conf import settings
 from django.db.models import Sum
 from django.http.request import HttpRequest
+from django.utils import timezone
 
 
 def global_view_additional_context(request: HttpRequest) -> Dict:
@@ -16,6 +17,7 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
     user_weeklyeffort_expected_total = None
     user_weeklyeffort_percentage = None
     if request.user and request.user.is_authenticated:
+        from accounts.models import PublicHoliday
         from projects.models import ProjectWeeklyEffort
         from projects.functions import previous_week_startdate
 
@@ -25,7 +27,14 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
             org_membership = request.user.get_membership(organization=user_first_org)
             org_commiteddays = org_membership.committed_days
             user_weeklyeffort_expected_total = org_commiteddays * user_first_org.day_workhours
+
             week_startdate = previous_week_startdate()
+            week_enddate = week_startdate + timezone.timedelta(days=4)
+
+            # remove public holidays from total
+            public_holidays = PublicHoliday.objects.filter(day__gte=week_startdate, day__lte=week_enddate).count()
+            user_weeklyeffort_expected_total -= public_holidays * user_first_org.day_workhours
+
             user_weeklyeffort_hours_result = ProjectWeeklyEffort.objects.filter(user=request.user, week_start=week_startdate).aggregate(Sum("hours"))
             if user_weeklyeffort_hours_result and "hours__sum" in user_weeklyeffort_hours_result:
                 user_weeklyeffort_hours_sum = user_weeklyeffort_hours_result["hours__sum"]

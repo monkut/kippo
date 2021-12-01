@@ -134,7 +134,7 @@ class ProjectColumn(models.Model):
 
 DEFAULT_PROJECT_PHASE = "lead-evaluation"
 VALID_PROJECT_PHASES = (
-    ("non-project", "Non-Project"),
+    ("anon-project", "Non-Project"),
     ("lead-evaluation", "Lead Evaluation"),
     ("project-proposal", "Project Proposal Preparation"),
     ("project-development", "Project Development"),
