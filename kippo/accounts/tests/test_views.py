@@ -1,3 +1,4 @@
+import calendar
 import datetime
 from http import HTTPStatus
 
@@ -56,8 +57,13 @@ class AccountsViewsTestCase(TestCase):
     def test___get_organization_monthly_available_workdays__publicholidays(self):
         current_datetime = timezone.now()
         start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-        two_years = 365 * 2
-        two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
+        two_years_in_days = 0
+        for i in range(2):
+            if calendar.isleap(current_datetime.year + i):
+                two_years_in_days += 366
+            else:
+                two_years_in_days += 365
+        two_years_from_now = start_datetime + datetime.timedelta(days=two_years_in_days)
         two_years_from_now += relativedelta(months=1)
         end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
