@@ -42,7 +42,7 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     end_date = end_datetime.date()
 
     monthly_available_workdays = defaultdict(Counter)
-    while current_date <= end_date:
+    while current_date < end_date:
         month_key = current_date.strftime("%Y-%m")
         for membership in organization_memberships:
             if (
