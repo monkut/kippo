@@ -52,7 +52,7 @@ class AccountsViewsTestCase(TestCase):
         organization_memberships, monthly_available_workdays = _get_organization_monthly_available_workdays(self.organization)
         self.assertEqual(len(organization_memberships), 1)
         two_years_plus_one_month = (12 * 2) + 1
-        self.assertEqual(len(monthly_available_workdays.keys()), two_years_plus_one_month)
+        self.assertEqual(len(monthly_available_workdays.keys()), two_years_plus_one_month, list(monthly_available_workdays.keys()))
 
     def test___get_organization_monthly_available_workdays__publicholidays(self):
         current_datetime = timezone.now()
