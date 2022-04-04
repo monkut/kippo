@@ -1,4 +1,5 @@
 import datetime
+from calendar import isleap
 from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
@@ -25,8 +26,13 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
 
     current_datetime = timezone.now()
     start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-    two_years = 365 * 2
-    two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
+    two_years_in_days = 0
+    for i in range(2):
+        if isleap(current_datetime.year + i):
+            two_years_in_days += 366
+        else:
+            two_years_in_days += 365
+    two_years_from_now = start_datetime + datetime.timedelta(days=two_years_in_days)
 
     # get the last full month 2 years from now
     two_years_from_now += relativedelta(months=1)
