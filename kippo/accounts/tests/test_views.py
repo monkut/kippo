@@ -1,3 +1,4 @@
+import calendar
 import datetime
 from http import HTTPStatus
 
@@ -51,14 +52,13 @@ class AccountsViewsTestCase(TestCase):
         organization_memberships, monthly_available_workdays = _get_organization_monthly_available_workdays(self.organization)
         self.assertEqual(len(organization_memberships), 1)
         two_years_plus_one_month = (12 * 2) + 1
-        self.assertEqual(len(monthly_available_workdays.keys()), two_years_plus_one_month)
+        self.assertEqual(len(monthly_available_workdays.keys()), two_years_plus_one_month, list(monthly_available_workdays.keys()))
 
     def test___get_organization_monthly_available_workdays__publicholidays(self):
         current_datetime = timezone.now()
         start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-        two_years = 365 * 2
-        two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
-        two_years_from_now += relativedelta(months=1)
+
+        two_years_from_now = start_datetime + relativedelta(months=1, years=2)
         end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
         # create public holidays
@@ -80,9 +80,7 @@ class AccountsViewsTestCase(TestCase):
     def test___get_organization_monthly_available_workdays__persionalholidays(self):
         current_datetime = timezone.now()
         start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-        two_years = 365 * 2
-        two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
-        two_years_from_now += relativedelta(months=1)
+        two_years_from_now = start_datetime + relativedelta(months=1, years=2)
         end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
         # create public holidays

@@ -25,18 +25,16 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
 
     current_datetime = timezone.now()
     start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
-    two_years = 365 * 2
-    two_years_from_now = start_datetime + datetime.timedelta(days=two_years)
 
     # get the last full month 2 years from now
-    two_years_from_now += relativedelta(months=1)
-    end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
+    end_datetime = start_datetime + relativedelta(months=1, years=2)
+    end_datetime = end_datetime.replace(day=1)
 
     current_date = start_datetime.date()
     end_date = end_datetime.date()
 
     monthly_available_workdays = defaultdict(Counter)
-    while current_date <= end_date:
+    while current_date < end_date:
         month_key = current_date.strftime("%Y-%m")
         for membership in organization_memberships:
             if (
