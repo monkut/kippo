@@ -35,7 +35,7 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     two_years_from_now = start_datetime + datetime.timedelta(days=two_years_in_days)
 
     # get the last full month 2 years from now
-    two_years_from_now += relativedelta(months=1)
+    two_years_from_now += relativedelta(months=2)
     end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 
     current_date = start_datetime.date()
