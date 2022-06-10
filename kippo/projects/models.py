@@ -807,3 +807,32 @@ class CollectIssuesProjectResult(models.Model):
     new_taskstatus_count = models.PositiveSmallIntegerField(default=0)
     updated_taskstatus_count = models.PositiveSmallIntegerField(default=0)
     unhandled_issues = JSONField()
+
+
+class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE)
+    SCORE_CHOICES = ((1, 1), (2, 2), (3, 3), (4, 4), (5, 5))
+    fullfillment_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("充実した時間"))
+    growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))
+
+    def __str__(self, *args, **kwargs) -> str:
+        return f"{self._meta.verbose_name} {self.project.name} {self.created_by.display_name}"
+
+    class Meta:
+        verbose_name = _("振り返り従業員アンケート")
+        verbose_name_plural = verbose_name
+        unique_together = ("project", "created_by")
+
+
+class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE)
+    SCORE_CHOICES = ((1, 1), (2, 2), (3, 3), (4, 4), (5, 5))
+    fullfillment_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("充実した時間"))
+    growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))
+
+    def __str__(self, *args, **kwargs) -> str:
+        return f"{self._meta.verbose_name} {self.project.name} ({self.created_datetime.strftime('%Y-%m')}) {self.created_by.display_name}"
+
+    class Meta:
+        verbose_name = _("（月）従業員アンケート")
+        verbose_name_plural = verbose_name
