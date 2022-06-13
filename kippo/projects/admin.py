@@ -638,13 +638,14 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         def get_project_display_name(project: KippoProject) -> str:
             return project.name
 
-        user_organizations = request.user.organizations
-        open_projects = (
-            KippoProject.objects.filter(is_closed=False, organization__in=user_organizations).exclude(phase="anon-project").order_by("name")
-        )
-        form.base_fields["project"].initial = open_projects.first()
-        form.base_fields["project"].queryset = open_projects
-        form.base_fields["project"].label_from_instance = get_project_display_name
+        if "project" in form.base_fields:
+            user_organizations = request.user.organizations
+            open_projects = (
+                KippoProject.objects.filter(is_closed=False, organization__in=user_organizations).exclude(phase="anon-project").order_by("name")
+            )
+            form.base_fields["project"].initial = open_projects.first()
+            form.base_fields["project"].queryset = open_projects
+            form.base_fields["project"].label_from_instance = get_project_display_name
         return form
 
     def has_change_permission(self, request, obj=None) -> bool:
@@ -723,11 +724,12 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
         def get_project_display_name(project: KippoProject) -> str:
             return project.name
 
-        user_organizations = request.user.organizations
-        open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, phase="anon-project").order_by("name")
-        form.base_fields["project"].initial = open_projects.first()
-        form.base_fields["project"].queryset = open_projects
-        form.base_fields["project"].label_from_instance = get_project_display_name
+        if "project" in form.base_fields:
+            user_organizations = request.user.organizations
+            open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, phase="anon-project").order_by("name")
+            form.base_fields["project"].initial = open_projects.first()
+            form.base_fields["project"].queryset = open_projects
+            form.base_fields["project"].label_from_instance = get_project_display_name
         return form
 
     def has_change_permission(self, request, obj=None) -> bool:
