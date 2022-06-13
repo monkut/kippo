@@ -9,6 +9,7 @@ from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.utils.html import format_html
@@ -25,6 +26,8 @@ from .models import (
     KippoMilestone,
     KippoProject,
     KippoProjectStatus,
+    KippoProjectUserMonthlyStatisfactionResult,
+    KippoProjectUserStatisfactionResult,
     ProjectAssignment,
     ProjectColumn,
     ProjectColumnSet,
@@ -588,3 +591,152 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         if request.user.is_superuser:
             return qs
         return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
+
+
+@admin.register(KippoProjectUserStatisfactionResult)
+class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    list_display = (
+        "get_project_name",
+        "get_project_targetdate",
+        "get_user_display_name",
+    )
+    ordering = (
+        "project",
+        "-project__target_date",
+        "created_datetime",
+    )
+
+    def get_project_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj and obj.project and obj.project.name:
+            result = obj.project.name
+        return result
+
+    get_project_name.short_description = _("Project")
+
+    def get_user_display_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj:
+            result = obj.created_by.display_name
+        return result
+
+    get_user_display_name.short_description = _("User")
+
+    def get_project_targetdate(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj:
+            result = str(obj.project.target_date)
+        return result
+
+    get_project_targetdate.short_description = _("プロジェクト目標完了日")
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Filter to use only opened projects"""
+        # update user field with logged user as default
+        form = super().get_form(request, obj, **kwargs)
+
+        def get_project_display_name(project: KippoProject) -> str:
+            return project.name
+
+        user_organizations = request.user.organizations
+        open_projects = (
+            KippoProject.objects.filter(is_closed=False, organization__in=user_organizations).exclude(phase="anon-project").order_by("name")
+        )
+        form.base_fields["project"].initial = open_projects.first()
+        form.base_fields["project"].queryset = open_projects
+        form.base_fields["project"].label_from_instance = get_project_display_name
+        return form
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        has_permission = False
+        if request.user.is_superuser:
+            has_permission = True
+        elif obj and request.user == obj.created_by:
+            has_permission = True
+        return has_permission
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return self.has_change_permission(request, obj)
+
+
+class KippoProjectUserMonthlyStatisfactionResultAdminForm(forms.ModelForm):
+    def clean(self):
+        cleaned_data = super().clean()
+        now = timezone.now()
+        existing_obj = KippoProjectUserMonthlyStatisfactionResult.objects.filter(
+            project=cleaned_data["project"], created_by=self.request.user, created_datetime__year=now.year, created_datetime__month=now.month
+        ).exists()
+        if existing_obj:
+            raise ValidationError(f"Entry Already exists: {cleaned_data['project'].name} {self.request.user.display_name} {now.year}-{now.month}")
+        return cleaned_data
+
+
+@admin.register(KippoProjectUserMonthlyStatisfactionResult)
+class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    list_display = (
+        "get_project_name",
+        "get_project_targetdate",
+        "get_entry_yearmonth",
+        "get_user_display_name",
+    )
+    ordering = ("project", "-project__target_date", "created_by", "created_datetime")
+    form = KippoProjectUserMonthlyStatisfactionResultAdminForm
+
+    def get_project_name(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj and obj.project and obj.project.name:
+            result = obj.project.name
+        return result
+
+    get_project_name.short_description = _("Project")
+
+    def get_user_display_name(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj:
+            result = obj.created_by.display_name
+        return result
+
+    get_user_display_name.short_description = _("User")
+
+    def get_project_targetdate(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj:
+            result = str(obj.project.target_date)
+        return result
+
+    get_project_targetdate.short_description = _("プロジェクト目標完了日")
+
+    def get_entry_yearmonth(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+        result = "-"
+        if obj:
+            result = obj.created_datetime.strftime("%Y-%m")
+        return result
+
+    get_entry_yearmonth.short_description = _("月")
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Filter to use only opened projects"""
+        # update user field with logged user as default
+        form = super().get_form(request, obj, **kwargs)
+        form.request = request
+
+        def get_project_display_name(project: KippoProject) -> str:
+            return project.name
+
+        user_organizations = request.user.organizations
+        open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, phase="anon-project").order_by("name")
+        form.base_fields["project"].initial = open_projects.first()
+        form.base_fields["project"].queryset = open_projects
+        form.base_fields["project"].label_from_instance = get_project_display_name
+        return form
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        has_permission = False
+        if request.user.is_superuser:
+            has_permission = True
+        elif obj and request.user == obj.created_by:
+            has_permission = True
+        return has_permission
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return self.has_change_permission(request, obj)
