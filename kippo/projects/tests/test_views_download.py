@@ -92,7 +92,7 @@ class DownloadViewTestCase(TestCase):
     def test_data_download_waiter__generate_projectstatuscomments_csv(self):
         key = "tmp/download/{}.csv".format(str(uuid4()))
 
-        generate_projectstatuscomments_csv(project_ids=str(self.user.id), key=key)
+        generate_projectstatuscomments_csv(project_ids=[str(self.project.id)], key=key)
         assert s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, key=key)
 
         urlencoded_key = urllib.parse.quote_plus(key)

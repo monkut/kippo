@@ -165,9 +165,9 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
 
 @task
 def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None:
-    from projects.models import KippoProject, KippoProjectStatus
+    from projects.models import KippoProjectStatus
 
-    projectstatus = KippoProjectStatus.objects.filter(project__id__in=project_ids).order_by("project__name")
+    projectstatus = KippoProjectStatus.objects.filter(project__id__in=project_ids).order_by("project__name", "created_datetime")
 
     headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
     g = (
