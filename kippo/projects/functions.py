@@ -169,11 +169,11 @@ def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None
 
     projectstatus = KippoProjectStatus.objects.filter(project__id__in=project_ids).order_by("project__name", "created_datetime")
 
-    headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
+    headers = {"project": "project", "created_datetime": "created_datetime", "created_by": "created_by", "comment": "comment"}
     g = (
         {
             "project": status.project.name,
-            "created_datetime": status.week_start.strftime("%Y%m%d"),
+            "created_datetime": status.created_datetime.strftime("%Y%m%d"),
             "created_by": status.user.created_by.username,
             "comment": status.comment,
         }
