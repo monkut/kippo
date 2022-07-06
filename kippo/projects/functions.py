@@ -161,3 +161,22 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             for effort in effort_entries
         )
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
+
+
+@task
+def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None:
+    from projects.models import KippoProject, KippoProjectStatus
+
+    projectstatus = KippoProjectStatus.objects.filter(project__id__in=project_ids).order_by("project__name")
+
+    headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
+    g = (
+        {
+            "project": status.project.name,
+            "created_datetime": status.week_start.strftime("%Y%m%d"),
+            "created_by": status.user.created_by.username,
+            "comment": status.comment,
+        }
+        for status in projectstatus
+    )
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
