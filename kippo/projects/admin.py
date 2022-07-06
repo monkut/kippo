@@ -350,7 +350,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             generate_projectstatuscomments_csv(project_ids=project_ids, key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
-            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            backpath_urlencoded_key = urllib.parse.quote_plus(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}&back_path={backpath_urlencoded_key}"
             return HttpResponseRedirect(redirect_to=download_waiter_url)
         else:
             self.message_user(request, _("No Projects selected!"), level=messages.ERROR)
