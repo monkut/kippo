@@ -346,7 +346,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             # initiate creation
             now = timezone.now()
             filename = now.strftime("project-statuscomments-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}.csv".format(filename)
+            key = "tmp/download/{}".format(filename)
             generate_projectstatuscomments_csv(project_ids=project_ids, key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
@@ -579,7 +579,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             # initiate creation
             now = timezone.now()
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}.csv".format(filename)
+            key = "tmp/download/{}".format(filename)
             generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)

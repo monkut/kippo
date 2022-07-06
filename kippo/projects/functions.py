@@ -174,7 +174,7 @@ def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None
         {
             "project": status.project.name,
             "created_datetime": status.created_datetime.strftime("%Y%m%d"),
-            "created_by": status.user.created_by.username,
+            "created_by": status.created_by.username,
             "comment": status.comment,
         }
         for status in projectstatus
