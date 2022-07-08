@@ -18,7 +18,12 @@ from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .functions import generate_projectweeklyeffort_csv, get_kippoproject_taskstatus_csv_rows, get_user_session_organization
+from .functions import (
+    generate_projectstatuscomments_csv,
+    generate_projectweeklyeffort_csv,
+    get_kippoproject_taskstatus_csv_rows,
+    get_user_session_organization,
+)
 from .models import (
     ActiveKippoProject,
     CollectIssuesAction,
@@ -269,6 +274,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         create_github_repository_milestones_action,
         collect_project_github_repositories_action,
         "export_project_kippotaskstatus_csv",
+        "export_kippoprojectstatus_comments_csv",
     ]
     inlines = [
         KippoMilestoneReadOnlyInline,
@@ -333,6 +339,24 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 self.message_user(request, _(f"No status entries exist for project: {project.name}"), level=messages.WARNING)
 
     export_project_kippotaskstatus_csv.short_description = _("Export KippoTaskStatus CSV")
+
+    def export_kippoprojectstatus_comments_csv(self, request, queryset):
+        project_ids = [str(i) for i in queryset.values_list("id", flat=True)]
+        if project_ids:
+            # initiate creation
+            now = timezone.now()
+            filename = now.strftime("project-statuscomments-%Y%m%d%H%M%S.csv")
+            key = "tmp/download/{}".format(filename)
+            generate_projectstatuscomments_csv(project_ids=project_ids, key=key)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            backpath_urlencoded_key = urllib.parse.quote_plus(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}&back_path={backpath_urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+        else:
+            self.message_user(request, _("No Projects selected!"), level=messages.ERROR)
+
+    export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
 
     def get_latest_kippoprojectstatus_comment(self, obj):
         result = ""
@@ -556,7 +580,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             # initiate creation
             now = timezone.now()
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}.csv".format(filename)
+            key = "tmp/download/{}".format(filename)
             generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
