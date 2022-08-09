@@ -6,6 +6,23 @@ from django.http.request import HttpRequest
 from django.utils import timezone
 
 
+def get_personal_holiday_hours(personal_holidays, day_workhours, end_date: timezone.datetime.date) -> float:
+    total_days = 0
+    for holiday in personal_holidays:
+        if holiday.is_half:
+            assert holiday.duration == 1
+            total_days += 0.5
+        elif holiday.duration > 1:
+            current_date = holiday.day
+            while current_date <= end_date:
+                total_days += 1
+                current_date += timezone.timedelta(days=1)
+        else:
+            total_days += 1
+    personal_holiday_hours = total_days * day_workhours
+    return personal_holiday_hours
+
+
 def global_view_additional_context(request: HttpRequest) -> Dict:
     """
     context defined here is provided additionally to the template rendering contexxt
@@ -17,7 +34,7 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
     user_weeklyeffort_expected_total = None
     user_weeklyeffort_percentage = None
     if request.user and request.user.is_authenticated:
-        from accounts.models import PublicHoliday
+        from accounts.models import PublicHoliday, PersonalHoliday
         from projects.models import ProjectWeeklyEffort
         from projects.functions import previous_week_startdate
 
@@ -33,7 +50,17 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
 
             # remove public holidays from total
             public_holidays = PublicHoliday.objects.filter(day__gte=week_startdate, day__lte=week_enddate).count()
-            user_weeklyeffort_expected_total -= public_holidays * user_first_org.day_workhours
+            public_holiday_hours = public_holidays * user_first_org.day_workhours
+            user_weeklyeffort_expected_total -= public_holiday_hours
+
+            # remove personal holidays from total
+            personal_holidays = PersonalHoliday.objects.filter(day__gte=week_startdate, day__lte=week_enddate)
+            personal_holiday_hours = get_personal_holiday_hours(
+                personal_holidays,
+                day_workhours=user_first_org.day_workhours,
+                end_date=week_enddate,
+            )
+            user_weeklyeffort_expected_total -= personal_holiday_hours
 
             user_weeklyeffort_hours_result = ProjectWeeklyEffort.objects.filter(user=request.user, week_start=week_startdate).aggregate(Sum("hours"))
             if user_weeklyeffort_hours_result and "hours__sum" in user_weeklyeffort_hours_result:
