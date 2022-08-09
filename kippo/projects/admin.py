@@ -260,6 +260,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
+        "get_kippoprojectuserstatisfactionresult_count",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
         "display_as_active",
@@ -306,6 +307,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_confidence_display.admin_order_field = "confidence"
     get_confidence_display.short_description = "confidence"
+
+    def get_kippoprojectuserstatisfactionresult_count(self, obj: Optional[KippoProject] = None) -> int:
+        result = 0
+        if obj:
+            result = KippoProjectUserStatisfactionResult.objects.filter(project=obj).count()
+        return result
+
+    get_kippoprojectuserstatisfactionresult_count.short_description = f"{KippoProjectUserStatisfactionResult._meta.verbose_name} Count"
 
     def get_projectsurvey_display_url(self, obj):
         url = obj.get_projectsurvey_url()
@@ -457,6 +466,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
+        "get_kippoprojectuserstatisfactionresult_count",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
         "get_updated_by_display",
