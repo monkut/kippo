@@ -268,7 +268,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "updated_datetime",
     )
     list_display_links = ("id", "name")
-    search_fields = ("name", "phase", "category", "problem_definition")
+    search_fields = ("id", "name", "phase", "category", "problem_definition")
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
         create_github_organizational_project_action,
