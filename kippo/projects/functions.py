@@ -1,9 +1,11 @@
 import datetime
 import logging
+from itertools import chain
 from operator import attrgetter
 from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
 from django.conf import settings
 from django.http import HttpRequest
@@ -145,13 +147,14 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
     else:
         projects = KippoProject.objects.filter(organization__in=user.organizations)
         effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects).order_by("project", "week_start", "user")
+        from_datetime = None
         if from_datetime_isoformat:
             from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
             logger.info(f"applying datetime filter: from_datetime={from_datetime}")
             effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
 
         headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
-        g = (
+        weeklyeffort_generator = (
             {
                 "project": effort.project.name,
                 "week_start": effort.week_start.strftime("%Y%m%d"),
@@ -160,6 +163,9 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             }
             for effort in effort_entries
         )
+        personal_holidays_generator = get_personal_holidays_generator(from_datetime)
+        g = chain(weeklyeffort_generator, personal_holidays_generator)
+
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
 
 

@@ -3,6 +3,7 @@ import logging
 import random
 import string
 import uuid
+from collections import Counter
 from typing import Generator, List, Tuple
 
 from common.models import UserCreatedBaseModel
@@ -287,6 +288,27 @@ class PersonalHoliday(models.Model):
     is_half = models.BooleanField(default=False, help_text=_("Select if taking only a half day"))
     day = models.DateField()
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
+
+    def get_weeklyeffort_hours(self) -> Generator:
+        # "project": effort.project.name,
+        # "week_start": effort.week_start.strftime("%Y%m%d"),
+        # "user": effort.user.display_name,
+        # "hours": effort.hours,
+        today = timezone.now().date()
+        public_holidays = PublicHoliday.objects.filter(day__gte=today, country=self.user.holiday_country).values_list("day", flat=True)
+        SATURDAY = 5
+        SUNDAY = 6
+        c = Counter()
+        for day_count in range(self.duration):
+            target_day = self.day + timezone.timedelta(days=day_count)
+            week_start = target_day - timezone.timedelta(days=target_day.weekday())
+            if target_day.weekday() not in (SATURDAY, SUNDAY) and target_day not in public_holidays:
+                if self.is_half:
+                    hours = 4
+                else:
+                    hours = 8
+                c[week_start.strftime("%Y%m%d")] += hours
+        return ({"project": "PersonalHoliday", "week_start": week_start, "user": self.user.display_name, "hours": c[week_start]} for week_start in c)
 
     def __str__(self):
         return f"PersonalHoliday({self.user.username} [{self.day} ({self.duration})])"
