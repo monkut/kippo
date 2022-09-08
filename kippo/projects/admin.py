@@ -379,9 +379,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         result = ""
         latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
+            display_date = latest_status.created_datetime.strftime("(%m/%d) ")
             result = latest_status.comment
             spaces = "&nbsp;" * 75
-            result = format_html("{result}<br/>" + spaces, result=result)
+            result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=result)
         return result
 
     get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
