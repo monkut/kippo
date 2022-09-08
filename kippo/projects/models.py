@@ -824,8 +824,13 @@ class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
         unique_together = ("project", "created_by")
 
 
+def get_current_month() -> datetime.date:
+    return timezone.now().replace(day=1).date()
+
+
 class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
     project = models.ForeignKey(KippoProject, on_delete=models.CASCADE)
+    date = models.DateField(default=get_current_month)
     SCORE_CHOICES = ((1, 1), (2, 2), (3, 3), (4, 4), (5, 5))
     fullfillment_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("充実した時間"))
     growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))

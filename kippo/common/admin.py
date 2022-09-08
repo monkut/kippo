@@ -144,7 +144,7 @@ class PrettyJSONWidget(widgets.Textarea):
         try:
             value = json.dumps(json.loads(value), indent=4, ensure_ascii=False, sort_keys=True)
         except json.JSONDecodeError:
-            return super(PrettyJSONWidget, self).format_value(value)
+            return super().format_value(value)
         # these lines will try to adjust size of TextArea to fit to content
         row_lengths = [len(r) for r in value.split("\n")]
         self.attrs["rows"] = min(max(len(row_lengths) + 2, 10), 30)
