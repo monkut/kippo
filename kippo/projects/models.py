@@ -378,10 +378,12 @@ class KippoProject(UserCreatedBaseModel):
 
         if self.is_closed and not self.closed_datetime:
             self.closed_datetime = timezone.now()
-
+        elif not self.is_closed and self.closed_datetime:
+            self.closed_datetime = None
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
+
         super().save(*args, **kwargs)
 
     def __str__(self):
