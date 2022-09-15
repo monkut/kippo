@@ -43,8 +43,6 @@ class MonthYearWidget(Widget):
         choices = []
         for year in self.years:
             for month in range(1, 13, 1):
-                if year == now.year and month < now.month:
-                    continue
                 choices.append((f"{year}-{month}", _(f"{year}年{month}月")))
 
         local_attrs = self.build_attrs(base_attrs=self.attrs)
