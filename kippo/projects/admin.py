@@ -6,10 +6,12 @@ from typing import Optional
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from common.widgets import MonthYearWidget
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import models
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.utils.html import format_html
@@ -377,9 +379,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         result = ""
         latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
+            display_date = latest_status.created_datetime.strftime("(%m/%d) ")
             result = latest_status.comment
             spaces = "&nbsp;" * 75
-            result = format_html("{result}<br/>" + spaces, result=result)
+            result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=result)
         return result
 
     get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
@@ -722,6 +725,9 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
     )
     ordering = ("project", "-project__target_date", "created_by", "created_datetime")
     form = KippoProjectUserMonthlyStatisfactionResultAdminForm
+    formfield_overrides = {
+        models.DateField: {"widget": MonthYearWidget},
+    }
 
     def get_project_name(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
         result = "-"

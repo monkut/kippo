@@ -163,8 +163,11 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             }
             for effort in effort_entries
         )
-        personal_holidays_generator = get_personal_holidays_generator(from_datetime)
-        g = chain(weeklyeffort_generator, personal_holidays_generator)
+        if settings.INCLUDE_PERSIONALHOLIDAYS_IN_WORKEFFORT_CSV:
+            personal_holidays_generator = get_personal_holidays_generator(from_datetime)
+            g = chain(weeklyeffort_generator, personal_holidays_generator)
+        else:
+            g = weeklyeffort_generator
 
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
 
