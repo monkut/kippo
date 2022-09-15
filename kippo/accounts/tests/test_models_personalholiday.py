@@ -80,7 +80,9 @@ class PersonalHolidayTestCase(TestCase):
         week_start = timezone.datetime(2022, 8, 22).date()
         days = 6
         holiday = PersonalHoliday.objects.create(user=self.user, day=start, duration=days)
-        results = list(holiday.get_weeklyeffort_hours())
+
+        calculation_date = timezone.datetime(2022, 8, 1).date()
+        results = list(holiday.get_weeklyeffort_hours(today=calculation_date))
         self.assertEqual(len(results), 1)
         first = results[0]
         first_expected = {

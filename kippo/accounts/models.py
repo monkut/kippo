@@ -4,7 +4,7 @@ import random
 import string
 import uuid
 from collections import Counter
-from typing import Generator, List, Tuple
+from typing import Generator, List, Optional, Tuple
 
 from common.models import UserCreatedBaseModel
 from django.conf import settings
@@ -289,12 +289,13 @@ class PersonalHoliday(models.Model):
     day = models.DateField()
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
 
-    def get_weeklyeffort_hours(self) -> Generator:
+    def get_weeklyeffort_hours(self, today: Optional[datetime.date] = None) -> Generator:
         # "project": effort.project.name,
         # "week_start": effort.week_start.strftime("%Y%m%d"),
         # "user": effort.user.display_name,
         # "hours": effort.hours,
-        today = timezone.now().date()
+        if not today:
+            today = timezone.now().date()
         public_holidays = PublicHoliday.objects.filter(day__gte=today, country=self.user.holiday_country).values_list("day", flat=True)
         SATURDAY = 5
         SUNDAY = 6
