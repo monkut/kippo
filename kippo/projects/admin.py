@@ -756,7 +756,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
     def get_entry_yearmonth(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
         result = "-"
         if obj:
-            result = obj.created_datetime.strftime("%Y-%m")
+            result = obj.date.strftime("%Y-%m")
         return result
 
     get_entry_yearmonth.short_description = _("月")
