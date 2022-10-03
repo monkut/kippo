@@ -147,6 +147,7 @@ LOGGING = {
 
 
 STATIC_URL = ""
+STATIC_ROOT = ""
 
 BOOTSTRAP4 = {
     "include_jquery": True,

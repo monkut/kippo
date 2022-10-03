@@ -10,7 +10,7 @@ from common.models import UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.core.validators import validate_email
+from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
 from django.db import models
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
@@ -20,6 +20,9 @@ from django.utils.text import slugify
 from django.utils.translation import ugettext_lazy as _
 
 logger = logging.getLogger(__name__)
+
+
+JAPAN_FISCALYEAR_START_MONTH = 4
 
 
 def generate_random_secret(n: int = 20) -> str:
@@ -72,6 +75,9 @@ class KippoOrganization(UserCreatedBaseModel):
         max_length=60, null=True, blank=True, default="kippo", help_text=_("REQUIRED if slack channel reporting is desired")
     )
     slack_bot_iconurl = models.URLField(null=True, blank=True, default=None, help_text=_("URL link to slack bot display image"))
+    fiscalyear_start_month = models.PositiveSmallIntegerField(
+        default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
+    )
 
     @property
     def email_domains(self):
@@ -81,6 +87,11 @@ class KippoOrganization(UserCreatedBaseModel):
     @property
     def slug(self):
         return slugify(self.name, allow_unicode=True)
+
+    def get_membership_kippousers(self) -> List["KippoUser"]:
+        memberships = OrganizationMembership.objects.filter(organization=self).order_by("user__username").select_related("user")
+        users = [m.user for m in memberships]
+        return users
 
     def get_github_developer_kippousers(self) -> List["KippoUser"]:
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""

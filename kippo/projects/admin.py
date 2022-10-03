@@ -1,8 +1,9 @@
 import csv
 import logging
 import urllib.parse
+from collections import Counter, OrderedDict
 from string import ascii_lowercase
-from typing import Optional
+from typing import Optional, Tuple
 
 from accounts.models import KippoUser, OrganizationMembership
 from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
@@ -13,6 +14,7 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.http import HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
@@ -634,6 +636,68 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         if request.user.is_superuser:
             return qs
         return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
+
+    def get_fiscal_year_org_per_user_weeklyeffort(self, organizations) -> Tuple:
+        from accounts.models import PublicHoliday
+
+        all_months = set()
+        monthly_expected_hours = Counter()
+        results = {}
+        now = timezone.now()
+        for org in organizations:
+            results[org.name] = {}
+            if now.month < org.fiscalyear_start_month:
+                current_fiscal_year = timezone.datetime(now.year - 1, org.fiscalyear_start_month, 1, tzinfo=timezone.timezone.utc)
+            else:
+                current_fiscal_year = timezone.datetime(now.year, org.fiscalyear_start_month, 1, tzinfo=timezone.timezone.utc)
+            # get organization users
+            # -- aggregate projectweeklyeffort per user per month
+            users = org.get_membership_kippousers()
+            projectweeklyeffort = ProjectWeeklyEffort.objects.filter(user__in=users, week_start__gte=current_fiscal_year.date())
+            for effort in projectweeklyeffort:
+                if effort.user.username not in results[org.name]:
+                    results[org.name][effort.user.username] = {}
+                if effort.week_start.month not in results[org.name][effort.user.username]:
+                    results[org.name][effort.user.username][effort.week_start.month] = 0
+                results[org.name][effort.user.username][effort.week_start.month] += effort.hours
+
+            # remove public holidays from total
+            # -- calculate total workdays from fiscal start
+            current = current_fiscal_year
+            while current <= now:
+                all_months.add(current.month)
+                if current.weekday() < 5:  # SAT=5, SUN=6
+                    monthly_expected_hours[current.month] += 1
+                current += timezone.timedelta(days=1)
+            # apply hours
+            for month in monthly_expected_hours.keys():
+                monthly_expected_hours[month] *= org.day_workhours
+                # -- update user dictionaries with 0s
+                for org_key, user_info in results.items():
+                    for user, user_month_data in user_info.items():
+                        if month not in user_month_data:
+                            user_month_data[month] = 0
+            # re-sort user_data
+            for org_key in results.keys():
+                for user_key in results[org_key].keys():
+                    results[org_key][user_key] = OrderedDict(sorted(results[org_key][user_key].items()))
+
+            # -- calculate public holidays
+            for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date()):
+                # -- subtract public holidays from current total
+                monthly_expected_hours[holiday.day.month] -= 1 * org.day_workhours
+
+        return dict(results), dict(monthly_expected_hours), tuple(all_months)
+
+    def changelist_view(self, request, extra_context=None):
+        original_response = super().changelist_view(request, extra_context)
+        organizations = request.user.organizations
+        summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
+
+        context = dict(self.admin_site.each_context(request), summary=summary_results, expected=expected_hours, months=all_months)
+        if original_response.context_data:
+            context.update(original_response.context_data)
+        return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", context)
 
 
 @admin.register(KippoProjectUserStatisfactionResult)
