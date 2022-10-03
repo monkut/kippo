@@ -778,6 +778,12 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
             form.base_fields["project"].label_from_instance = get_project_display_name
         return form
 
+    def save_model(self, request, obj, form, change):
+        year_month = request.POST.get("date_yearmonth", None)
+        y, m = year_month.split("-")
+        obj.date = timezone.datetime(int(y), int(m), 1, tzinfo=timezone.timezone.utc).date()
+        super().save_model(request, obj, form, change)
+
     def has_change_permission(self, request, obj=None) -> bool:
         has_permission = False
         if request.user.is_superuser:
