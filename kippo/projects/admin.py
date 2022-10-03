@@ -711,8 +711,10 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
 
         context = dict(self.admin_site.each_context(request), summary=summary_results, expected=expected_hours, months=all_months)
-        if original_response.context_data:
+        if hasattr(original_response, "context_data") and original_response.context_data:
             context.update(original_response.context_data)
+        elif isinstance(original_response, HttpResponseRedirect):
+            return original_response
         return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", context)
 
 
