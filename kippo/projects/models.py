@@ -838,7 +838,7 @@ class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
     growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))
 
     def __str__(self, *args, **kwargs) -> str:
-        return f"{self._meta.verbose_name} {self.project.name} ({self.created_datetime.strftime('%Y-%m')}) {self.created_by.display_name}"
+        return f"{self._meta.verbose_name} {self.project.name} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"
 
     class Meta:
         verbose_name = _("（月）従業員アンケート")
