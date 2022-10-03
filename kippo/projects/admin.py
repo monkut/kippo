@@ -1,7 +1,7 @@
 import csv
 import logging
 import urllib.parse
-from collections import Counter, OrderedDict
+from collections import Counter, defaultdict
 from string import ascii_lowercase
 from typing import Optional, Tuple
 
@@ -642,9 +642,13 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
         all_months = set()
         monthly_expected_hours = Counter()
+
+        monthly_week_starts = []
         results = {}
         now = timezone.now()
+        monthly_expected_hours_processed = False
         for org in organizations:
+            user_weekstarts = defaultdict(list)
             results[org.name] = {}
             if now.month < org.fiscalyear_start_month:
                 current_fiscal_year = timezone.datetime(now.year - 1, org.fiscalyear_start_month, 1, tzinfo=timezone.timezone.utc)
@@ -653,39 +657,51 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             # get organization users
             # -- aggregate projectweeklyeffort per user per month
             users = org.get_membership_kippousers()
-            projectweeklyeffort = ProjectWeeklyEffort.objects.filter(user__in=users, week_start__gte=current_fiscal_year.date())
+            projectweeklyeffort = ProjectWeeklyEffort.objects.filter(
+                user__in=users, week_start__gte=current_fiscal_year.date(), project__organization=org
+            )
             for effort in projectweeklyeffort:
                 if effort.user.username not in results[org.name]:
                     results[org.name][effort.user.username] = {}
                 if effort.week_start.month not in results[org.name][effort.user.username]:
                     results[org.name][effort.user.username][effort.week_start.month] = 0
                 results[org.name][effort.user.username][effort.week_start.month] += effort.hours
+                user_weekstarts[effort.user.username].append(effort.week_start)
 
             # remove public holidays from total
             # -- calculate total workdays from fiscal start
-            current = current_fiscal_year
-            while current <= now:
-                all_months.add(current.month)
-                if current.weekday() < 5:  # SAT=5, SUN=6
-                    monthly_expected_hours[current.month] += 1
-                current += timezone.timedelta(days=1)
+            if not monthly_expected_hours:
+                current = current_fiscal_year
+                while current <= now:
+                    all_months.add(current.month)
+                    if current.weekday() < 5:  # SAT=5, SUN=6
+                        monthly_expected_hours[current.month] += 1
+                    if current.weekday() == 0:
+                        monthly_week_starts.append(current.date())
+                    current += timezone.timedelta(days=1)
             # apply hours
             for month in monthly_expected_hours.keys():
-                monthly_expected_hours[month] *= org.day_workhours
+                if not monthly_expected_hours_processed:
+                    monthly_expected_hours[month] *= org.day_workhours
                 # -- update user dictionaries with 0s
                 for org_key, user_info in results.items():
                     for user, user_month_data in user_info.items():
-                        if month not in user_month_data:
+                        if month and month not in user_month_data:
                             user_month_data[month] = 0
+            monthly_expected_hours_processed = True
             # re-sort user_data
             for org_key in results.keys():
                 for user_key in results[org_key].keys():
-                    results[org_key][user_key] = OrderedDict(sorted(results[org_key][user_key].items()))
+                    if "missing" not in results[org_key][user_key]:
+                        results[org_key][user_key] = dict(sorted(results[org_key][user_key].items()))
+                        # add missing
+                        user_missing_weekstarts = set(monthly_week_starts) - set(user_weekstarts[user_key])
+                        results[org_key][user_key]["missing"] = ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts))
 
-            # -- calculate public holidays
-            for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date()):
-                # -- subtract public holidays from current total
-                monthly_expected_hours[holiday.day.month] -= 1 * org.day_workhours
+        # -- calculate public holidays
+        for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date(), day__lte=now):
+            # -- subtract public holidays from current total
+            monthly_expected_hours[holiday.day.month] -= 1 * org.day_workhours
 
         return dict(results), dict(monthly_expected_hours), tuple(all_months)
 

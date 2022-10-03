@@ -41,24 +41,26 @@
   <div id="content-main">
      <table>
         {% for org_name, user_data in summary.items %}
-            {% if forloop.counter == 1 %}
-                <th>
-                    <td>{{ org_name }}</td>
-                </th>
-                <tr>
-                    <td>username</td>
-                    {% for month in months %}
-                        <td>{{ month }}月</td>
-                    {% endfor %}
-                </tr>
-                <tr>
-                    <td><i>expected</i></td>
-                    {% for month, value in expected.items %}
-                        <td><i>{{value}}</i></td>
-                    {% endfor %}
-                </tr>
-            {% endif %}
             {% for username, user_info in user_data.items %}
+                {% if forloop.counter == 1 %}
+                    <th>
+                        <td>{{ org_name }}</td>
+                    </th>
+                    <tr>
+                        <td>username</td>
+                        {% for month in months %}
+                            <td>{{ month }}月</td>
+                        {% endfor %}
+                        <td><i>missing</i></td>
+                    </tr>
+                    <tr>
+                        <td><i>expected</i></td>
+                        {% for month, value in expected.items %}
+                            <td><i>{{value}}</i></td>
+                        {% endfor %}
+                        <td><i>-</i></td>
+                    </tr>
+                {% endif %}
                 <tr>
                     <td>{{ username }}</td>
                     {% for month, value in user_info.items %}
