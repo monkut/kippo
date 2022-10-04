@@ -660,12 +660,14 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             projectweeklyeffort = ProjectWeeklyEffort.objects.filter(
                 user__in=users, week_start__gte=current_fiscal_year.date(), project__organization=org
             )
+            sum_index = 0
+            flag_index = 1
             for effort in projectweeklyeffort:
                 if effort.user.username not in results[org.name]:
                     results[org.name][effort.user.username] = {}
                 if effort.week_start.month not in results[org.name][effort.user.username]:
-                    results[org.name][effort.user.username][effort.week_start.month] = 0
-                results[org.name][effort.user.username][effort.week_start.month] += effort.hours
+                    results[org.name][effort.user.username][effort.week_start.month] = [0, False]
+                results[org.name][effort.user.username][effort.week_start.month][sum_index] += effort.hours
                 user_weekstarts[effort.user.username].append(effort.week_start)
 
             # remove public holidays from total
@@ -687,16 +689,28 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                 for org_key, user_info in results.items():
                     for user, user_month_data in user_info.items():
                         if month and month not in user_month_data:
-                            user_month_data[month] = 0
+                            user_month_data[month] = [0, False]
+                        elif (
+                            user_month_data[month][sum_index]
+                            > monthly_expected_hours[month] + monthly_expected_hours[month] * settings.PROJECT_EFFORT_EXCEED_PERCENTAGE
+                        ):
+                            user_month_data[month][flag_index] = True
             monthly_expected_hours_processed = True
             # re-sort user_data
             for org_key in results.keys():
                 for user_key in results[org_key].keys():
                     if "missing" not in results[org_key][user_key]:
+                        this_week_start = now
+                        while this_week_start.weekday() != 0:
+                            this_week_start -= timezone.timedelta(days=1)
+
                         results[org_key][user_key] = dict(sorted(results[org_key][user_key].items()))
                         # add missing
                         user_missing_weekstarts = set(monthly_week_starts) - set(user_weekstarts[user_key])
-                        results[org_key][user_key]["missing"] = ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts))
+                        results[org_key][user_key]["missing"] = [
+                            ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts) if d != this_week_start.date()),
+                            False,
+                        ]
 
         # -- calculate public holidays
         for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date(), day__lte=now):
@@ -710,7 +724,13 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         organizations = request.user.organizations
         summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
 
-        context = dict(self.admin_site.each_context(request), summary=summary_results, expected=expected_hours, months=all_months)
+        context = dict(
+            self.admin_site.each_context(request),
+            summary=summary_results,
+            expected=expected_hours,
+            months=all_months,
+            monthly_exceed_percentage=int(settings.PROJECT_EFFORT_EXCEED_PERCENTAGE * 100),
+        )
         if hasattr(original_response, "context_data") and original_response.context_data:
             context.update(original_response.context_data)
         elif isinstance(original_response, HttpResponseRedirect):
