@@ -43,9 +43,12 @@
         {% for org_name, user_data in summary.items %}
             {% for username, user_info in user_data.items %}
                 {% if forloop.counter == 1 %}
-                    <th>
-                        <td>{{ org_name }}</td>
-                    </th>
+                    <thead>
+                        <th>
+                            <td colspan="8">{{ org_name }} ( 月稼働超過 {{ monthly_exceed_percentage }}% )</td>
+                        </th>
+                    </thead>
+                    <tbody>
                     <tr>
                         <td>username</td>
                         {% for month in months %}
@@ -64,10 +67,15 @@
                 <tr>
                     <td>{{ username }}</td>
                     {% for month, value in user_info.items %}
-                        <td>{{ value }}</td>
+                        {% if value.1 %}
+                            <td style="color:rgb(255,0,0);"><b>{{ value.0 }}</b></td>
+                        {% else %}
+                            <td>{{ value.0 }}</td>
+                        {% endif %}
                     {% endfor %}
                 </tr>
             {% endfor %}
+            </tbody>
         {% endfor %}
     </table>
     <br/>
