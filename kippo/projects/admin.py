@@ -808,12 +808,14 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
 class KippoProjectUserMonthlyStatisfactionResultAdminForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
-        now = timezone.now()
+        submitted_date = cleaned_data["date"]
         existing_obj = KippoProjectUserMonthlyStatisfactionResult.objects.filter(
-            project=cleaned_data["project"], created_by=self.request.user, created_datetime__year=now.year, created_datetime__month=now.month
+            project=cleaned_data["project"], created_by=self.request.user, date__year=submitted_date.year, date__month=submitted_date.month
         ).exists()
         if existing_obj:
-            raise ValidationError(f"Entry Already exists: {cleaned_data['project'].name} {self.request.user.display_name} {now.year}-{now.month}")
+            raise ValidationError(
+                f"Entry Already exists: {cleaned_data['project'].name} {self.request.user.display_name} {submitted_date.year}-{submitted_date.month}"
+            )
         return cleaned_data
 
 
@@ -881,9 +883,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
         return form
 
     def save_model(self, request, obj, form, change):
-        year_month = request.POST.get("date_yearmonth", None)
-        y, m = year_month.split("-")
-        obj.date = timezone.datetime(int(y), int(m), 1, tzinfo=timezone.timezone.utc).date()
+        obj.date = form.cleaned_data["date"]
         super().save_model(request, obj, form, change)
 
     def has_change_permission(self, request, obj=None) -> bool:
