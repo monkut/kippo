@@ -843,3 +843,4 @@ class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
     class Meta:
         verbose_name = _("（月）従業員アンケート")
         verbose_name_plural = verbose_name
+        unique_together = ("created_by", "project", "date")
