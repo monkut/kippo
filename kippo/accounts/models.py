@@ -134,6 +134,13 @@ class KippoOrganization(UserCreatedBaseModel):
         else:
             super().save(*args, **kwargs)
 
+    def get_next_fiscal_year(self) -> timezone.datetime:
+        current = timezone.now()
+        while current.month != self.fiscalyear_start_month:
+            current += timezone.timedelta(days=1)
+        next_fiscal_year = current.replace(day=1)
+        return next_fiscal_year
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}-{self.github_organization_name})"
 
