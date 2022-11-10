@@ -189,3 +189,72 @@ def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None
         for status in projectstatus
     )
     upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
+
+
+@task
+def generate_kippoprojectuserstatisfactionresult_csv(organization_pks: List[str], key: str) -> None:
+    from projects.models import KippoProjectUserStatisfactionResult
+
+    # get results for projects ending in the current fiscal year
+    first_organization = KippoOrganization.objects.filter(pk__in=organization_pks).first()
+    next_fiscal_year_datetime = first_organization.get_next_fiscal_year()
+    logger.info(f"organization_pks={organization_pks}")
+    logger.info(f"next_fiscal_year_datetime={next_fiscal_year_datetime}")
+    results = KippoProjectUserStatisfactionResult.objects.filter(
+        project__organization__pk__in=organization_pks,
+        created_datetime__lte=next_fiscal_year_datetime,
+    ).order_by("project", "created_by__username")
+    headers = (
+        "project_id",
+        "project_name",
+        "username",
+        "fullfillment_score",
+        "growth_score",
+    )
+    headers_dict = dict(zip(headers, headers))
+    g = (
+        {
+            "project_id": str(r.project.pk),
+            "project_name": r.project.name,
+            "username": r.created_by.username,
+            "fullfillment_score": r.fullfillment_score,
+            "growth_score": r.growth_score,
+        }
+        for r in results
+    )
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers_dict, row_generator=g)
+
+
+@task
+def generate_kippoprojectusermonthlystatisfaction_csv(organization_pks: List[str], key: str) -> None:
+    from projects.models import KippoProjectUserMonthlyStatisfactionResult
+
+    first_organization = KippoOrganization.objects.filter(pk__in=organization_pks).first()
+    next_fiscal_year_datetime = first_organization.get_next_fiscal_year()
+    logger.info(f"organization_pks={organization_pks}")
+    logger.info(f"next_fiscal_year_datetime={next_fiscal_year_datetime}")
+    results = KippoProjectUserMonthlyStatisfactionResult.objects.filter(
+        project__organization__pk__in=organization_pks,
+        created_datetime__lte=next_fiscal_year_datetime,
+    ).order_by("date", "project", "created_by__username")
+    headers = (
+        "project_id",
+        "project_name",
+        "date",
+        "username",
+        "fullfillment_score",
+        "growth_score",
+    )
+    headers_dict = dict(zip(headers, headers))
+    g = (
+        {
+            "project_id": str(r.project.pk),
+            "project_name": r.project.name,
+            "date": r.date.isoformat(),
+            "username": r.created_by.username,
+            "fullfillment_score": r.fullfillment_score,
+            "growth_score": r.growth_score,
+        }
+        for r in results
+    )
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers_dict, row_generator=g)

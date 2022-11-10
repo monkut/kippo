@@ -23,6 +23,8 @@ from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .functions import (
+    generate_kippoprojectusermonthlystatisfaction_csv,
+    generate_kippoprojectuserstatisfactionresult_csv,
     generate_projectstatuscomments_csv,
     generate_projectweeklyeffort_csv,
     get_kippoproject_taskstatus_csv_rows,
@@ -78,7 +80,7 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
     fields = ("week_start", "user", "hours")
     readonly_fields = ("week_start", "user", "hours")
 
-    def has_add_permission(self, request, obj):  # No Add button
+    def has_add_permission(self, request, obj) -> bool:  # No Add button
         return False
 
     def get_queryset(self, request):
@@ -750,6 +752,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         "-project__target_date",
         "created_datetime",
     )
+    actions = ("download_csv",)
 
     def get_project_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
         result = "-"
@@ -804,6 +807,24 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
     def has_delete_permission(self, request, obj=None) -> bool:
         return self.has_change_permission(request, obj)
 
+    def download_csv(self, request, queryset):
+        if not KippoProjectUserStatisfactionResult.objects.filter(project__organization__in=request.user.organizations).exists():
+            self.message_user(request, _(f"No {KippoProjectUserStatisfactionResult._meta.verbose_name} exists!"), level=messages.WARNING)
+        else:
+            self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
+            # initiate creation
+            now = timezone.now()
+            filename = now.strftime("project-userstatisfactionresult-%Y%m%d%H%M%S.csv")
+            key = f"tmp/download/{filename}"
+            organization_pks = [str(org.pk) for org in request.user.organizations]
+            generate_kippoprojectuserstatisfactionresult_csv(organization_pks=organization_pks, key=key)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+
+    download_csv.short_description = _(f"Download {KippoProjectUserStatisfactionResult._meta.verbose_name} CSV")
+
 
 class KippoProjectUserMonthlyStatisfactionResultAdminForm(forms.ModelForm):
     def clean(self):
@@ -828,6 +849,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
         "get_user_display_name",
     )
     ordering = ("project", "-project__target_date", "created_by", "created_datetime")
+    actions = ("download_csv",)
     form = KippoProjectUserMonthlyStatisfactionResultAdminForm
     formfield_overrides = {
         models.DateField: {"widget": MonthYearWidget},
@@ -896,3 +918,21 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return self.has_change_permission(request, obj)
+
+    def download_csv(self, request, queryset):
+        if not KippoProjectUserMonthlyStatisfactionResult.objects.filter(project__organization__in=request.user.organizations).exists():
+            self.message_user(request, _(f"No {KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name} exists!"), level=messages.WARNING)
+        else:
+            self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
+            # initiate creation
+            now = timezone.now()
+            filename = now.strftime("project-monthlystatisfaction-%Y%m%d%H%M%S.csv")
+            key = f"tmp/download/{filename}"
+            organization_pks = [str(org.pk) for org in request.user.organizations]
+            generate_kippoprojectusermonthlystatisfaction_csv(organization_pks=organization_pks, key=key)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+
+    download_csv.short_description = _(f"Download {KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name} CSV")
