@@ -235,7 +235,7 @@ class GithubWebhookProcessor:
         # clean quoted data
         unquote_keys = ("body", "title")
         for key in unquote_keys:
-            if key in event["issue"]:
+            if key in event["issue"] and event["issue"][key] is not None:
                 event["issue"][key] = unquote_plus(event["issue"][key])
         issue_json = json.dumps(event["issue"])
 
@@ -561,7 +561,6 @@ class GithubWebhookProcessor:
             try:
                 result_state = eventtype_processing_method(webhookevent)
             except ProjectNotFoundError as e:
-                logger.exception(e)
                 logger.error(f"ProjectNotFoundError: {e.args}")
                 result_state = "ignore"
                 webhookevent.event["kippoerror"] = "No related project found for task!"
