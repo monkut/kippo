@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from accounts.models import KippoOrganization, KippoUser
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from common.tests import DEFAULT_COLUMNSET_PK
 from django.test import TestCase
 from django.utils import timezone
@@ -96,6 +96,24 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             actual_date=end_date,
             columnset=default_columnset,
         )
+
+        self.user1 = KippoUser(
+            username="user1",
+            github_login="user1",
+            password="test",
+            email="user1@github.com",
+            is_staff=True,
+        )
+        self.user1.save()
+
+        orgmembership = OrganizationMembership(
+            user=self.user1,
+            organization=self.dummy_organization,
+            is_developer=True,
+            created_by=self.user1,
+            updated_by=self.user1,
+        )
+        orgmembership.save()
 
     def test_delete_open_project(self):
         # create existing KippoTask & KippoTaskStatus matching sample 'issue.json'
