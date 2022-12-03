@@ -15,21 +15,7 @@ DEFAULT_GITHUB_PROJECT_URL = "https://github.com/ghdummyorg/reponame/"
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 
 
-class GithubOrganizationProjectMock:
-    def __init__(self, html_url=DEFAULT_GITHUB_PROJECT_URL):
-        self.html_url = html_url
-
-
-def load_json_to_githubissue(json_filepath: Path):
-    """Convert a given Github Issue JSON representation to a ghorgs.wrappers.GithubIssue"""
-    with json_filepath.open("r", encoding="utf8") as json_in:
-        issue_json = json_in.read()
-    # GithubIssue.from_dict() alone does not perform nested conversion, using json
-    issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
-    return issue
-
-
-class PeriodicTaskFunctionsTestCase(TestCase):
+class TasksHandlerCleanTestCase(TestCase):
     fixtures = [
         "default_columnset",
         "required_bot_users",
@@ -127,14 +113,15 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             created_by=self.github_manager_user,
             updated_by=self.github_manager_user,
         )
-        KippoTaskStatus.objects.create(
+        status = KippoTaskStatus.objects.create(
             task=task,
             state="in-progress",
             effort_date=timezone.datetime(2019, 6, 5).date(),
-            created_datetime=timezone.datetime(2019, 6, 5),
             created_by=self.github_manager_user,
             updated_by=self.github_manager_user,
         )
+        status.created_datetime = timezone.datetime(2019, 6, 5, tzinfo=timezone.timezone.utc)
+        status.save()
         assert KippoTaskStatus.objects.count() == 1
         delete({}, {})
         expected = 1
@@ -153,14 +140,18 @@ class PeriodicTaskFunctionsTestCase(TestCase):
             created_by=self.github_manager_user,
             updated_by=self.github_manager_user,
         )
-        KippoTaskStatus.objects.create(
+        status = KippoTaskStatus.objects.create(
             task=task,
             state="in-progress",
             effort_date=timezone.datetime(2019, 6, 5).date(),
-            created_datetime=timezone.datetime(2019, 6, 5),
             created_by=self.github_manager_user,
             updated_by=self.github_manager_user,
         )
+        status.created_datetime = timezone.datetime(2019, 6, 5, tzinfo=timezone.timezone.utc)
+        status.save()
+        status.refresh_from_db()
+        print(f"task__project__is_closed={status.task.project.is_closed}")
+        print(f"created_datetime={status.created_datetime}")
         assert KippoTaskStatus.objects.count() == 1
         delete({}, {})
         expected = 0
