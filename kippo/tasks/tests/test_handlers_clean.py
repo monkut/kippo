@@ -108,7 +108,7 @@ class PeriodicTaskFunctionsTestCase(TestCase):
 
         orgmembership = OrganizationMembership(
             user=self.user1,
-            organization=self.dummy_organization,
+            organization=dummy_organization,
             is_developer=True,
             created_by=self.user1,
             updated_by=self.user1,
