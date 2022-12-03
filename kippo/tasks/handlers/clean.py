@@ -13,6 +13,6 @@ def delete(event, context):
     older_than_date = now - timezone.timedelta(days=settings.DELETE_DAYS)
     logger.debug(f"DELETE_DAYS={settings.DELETE_DAYS}")
     logger.info(f"deleting KippoTaskStatus older than {older_than_date} with closed project...")
-    deleted_count, deleted_entries = KippoTaskStatus.objects.filter(created_datetime__lte=older_than_date, task__project__is_closed=False)
+    deleted_count, deleted_entries = KippoTaskStatus.objects.filter(created_datetime__lte=older_than_date, task__project__is_closed=False).delete()
     logger.info(f"-- {deleted_count} KippoTaskStatus deleted")
     logger.info(f"deleting KippoTaskStatus older than {older_than_date}...DONE")
