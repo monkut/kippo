@@ -150,8 +150,6 @@ class TasksHandlerCleanTestCase(TestCase):
         status.created_datetime = timezone.datetime(2019, 6, 5, tzinfo=timezone.timezone.utc)
         status.save()
         status.refresh_from_db()
-        print(f"task__project__is_closed={status.task.project.is_closed}")
-        print(f"created_datetime={status.created_datetime}")
         assert KippoTaskStatus.objects.count() == 1
         delete({}, {})
         expected = 0
