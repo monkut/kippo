@@ -5,7 +5,7 @@ import os
 from collections import Counter
 from distutils.util import strtobool
 from math import ceil
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Tuple
 from urllib.parse import unquote_plus
 
 from accounts.models import KippoOrganization, KippoUser
@@ -13,13 +13,10 @@ from django.conf import settings
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
-from projects.models import KippoMilestone, KippoProject
 from tasks.exceptions import GithubPullRequestUrl, GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
-
-from .models import GithubMilestone, GithubRepository, GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +162,9 @@ def get_repo_url_from_issuecomment_url(url: str) -> str:
     return repo_url
 
 
-def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> GithubWebhookEvent:
+def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> "GithubWebhookEvent":  # noqa: F821
+    from .models import GithubWebhookEvent
+
     # NOTE: Consider moving to SQS
     # card should contain a 'content_url' representing the issue attached (if an issue card)
     # - Use the 'content_url' to retrieve the internally managed issue,
@@ -179,7 +178,9 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     return webhook_event
 
 
-def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional[KippoMilestone]:
+def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional["KippoMilestone"]:  # noqa: F821
+    from .models import GithubMilestone, GithubRepository
+
     milestone = None
     if issue.milestone:
         try:
@@ -206,6 +207,8 @@ def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: Kippo
 
 @zappa_task
 def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
+    from .models import GithubWebhookEvent
+
     logger.info(f"Processing GithubWebhookEvent(s): {webhookevent_ids}")
     webhookevents_for_update = GithubWebhookEvent.objects.filter(id__in=webhookevent_ids)
     webhookevents = copy.copy(webhookevents_for_update)
@@ -243,11 +246,13 @@ class GithubWebhookProcessor:
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
 
-    def _process_projectcard_event(self, webhookevent: GithubWebhookEvent) -> str:
+    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
         """
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "project_card"
 
         # identify project, retrieve related KippoProject
@@ -425,7 +430,9 @@ class GithubWebhookProcessor:
                             logger.info(f"KippoTaskStatus.state updated to: {column_name}")
             return state
 
-    def _process_issues_event(self, webhookevent: GithubWebhookEvent) -> str:
+    def _process_issues_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "issues"
         githubissue = self._load_event_to_githubissue(webhookevent.event)
         repository_api_url = githubissue.repository_url
@@ -471,7 +478,9 @@ class GithubWebhookProcessor:
             result = "ignore"
         return result
 
-    def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent) -> str:
+    def _process_issuecomment_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "issue_comment"
         githubissue = self._load_event_to_githubissue(webhookevent.event)
 
@@ -522,6 +531,8 @@ class GithubWebhookProcessor:
         return result
 
     def _get_events(self) -> Generator:
+        from .models import GithubWebhookEvent
+
         # process event_types in the following order
         # - Make sure that issue is created and linked to the appropriate project (via project_card)
         event_types_to_process = ("project_card", "issues", "issue_comment")
@@ -542,7 +553,7 @@ class GithubWebhookProcessor:
             else:
                 yield from unprocessed_events
 
-    def process_webhook_events(self, webhookevents: Optional[List[GithubWebhookEvent]] = None) -> Counter:
+    def process_webhook_events(self, webhookevents: Optional[List["GithubWebhookEvent"]] = None) -> Counter:  # noqa: F821
         processed_events = Counter()
 
         if not webhookevents:
@@ -569,3 +580,29 @@ class GithubWebhookProcessor:
             webhookevent.save()
             processed_events[webhookevent.event_type] += 1
         return processed_events
+
+
+@zappa_task
+def update_repository_labels(
+    github_orgainization_name: str, token: str, repository_name: str, label_definitions: Tuple[Dict[str, str]], delete: bool = False
+):
+    deleted_labels = []
+    created_labels = []
+    github_manager = GithubOrganizationManager(organization=github_orgainization_name, token=token)
+    repository_name_filter = (repository_name,)
+    logger.debug(f"repository_name_filter: {repository_name_filter}")
+    for ghorgs_repository in github_manager.repositories(names=repository_name_filter):
+        existing_label_names = [label["name"] for label in ghorgs_repository.labels]
+
+        # get label definitions
+        for label_definition in label_definitions:
+            ghorgs_repository.create_label(label_definition["name"], label_definition["description"], label_definition["color"])
+            created_labels.append(label_definition)
+
+        if delete:
+            undefined_label_names = set(existing_label_names) - set(created_labels)
+            for label_name in undefined_label_names:
+                ghorgs_repository.delete_label(label_name)
+                deleted_labels.append(label_name)
+    logger.info(f"{github_orgainization_name} ({repository_name}) created: {created_labels}")
+    logger.info(f"{github_orgainization_name} ({repository_name}) deleted: {deleted_labels}")

@@ -20,7 +20,6 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
-from octocat.models import GITHUB_MILESTONE_CLOSE_STATE, GithubMilestone, GithubRepository
 from tasks.models import KippoTaskStatus
 
 from .exceptions import ProjectColumnSetError
@@ -331,6 +330,8 @@ class KippoProject(UserCreatedBaseModel):
 
     def related_github_repositories(self) -> QuerySet:
         """Returns octocat.GithubRepository objects attached to this project."""
+        from octocat.models import GithubRepository
+
         # get kippotask github_repository_html_url
         from tasks.models import KippoTask
 
@@ -605,6 +606,8 @@ class KippoMilestone(UserCreatedBaseModel):
                     (CREATED, GithubMilestone Object),
                 ]
         """
+        from octocat.models import GITHUB_MILESTONE_CLOSE_STATE, GithubMilestone
+
         github_milestones = []
         if not user:
             logger.warning(f"user object not given, using: {GITHUB_MANAGER_USERNAME}")
@@ -723,6 +726,8 @@ class KippoMilestone(UserCreatedBaseModel):
 @receiver(pre_delete, sender=KippoMilestone)
 def cleanup_github_milestones(sender, instance, **kwargs):
     """Close related Github milestones when  KippoMilestone is deleted."""
+    from octocat.models import GithubMilestone
+
     try:
         related_github_milestone = GithubMilestone.objects.get(milestone=instance)
         if related_github_milestone:
