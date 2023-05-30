@@ -478,7 +478,7 @@ class GithubWebhookProcessor:
             result = "ignore"
         return result
 
-    def _process_issuecomment_event(self, webhookevent: "GithubWebhookEvent") -> str:
+    def _process_issuecomment_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         from projects.models import KippoProject
 
         assert webhookevent.event_type == "issue_comment"
