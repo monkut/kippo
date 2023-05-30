@@ -162,7 +162,7 @@ def get_repo_url_from_issuecomment_url(url: str) -> str:
     return repo_url
 
 
-def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> "GithubWebhookEvent":
+def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> "GithubWebhookEvent":  # noqa: F821
     from .models import GithubWebhookEvent
 
     # NOTE: Consider moving to SQS
@@ -178,7 +178,7 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     return webhook_event
 
 
-def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional["KippoMilestone"]:
+def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional["KippoMilestone"]:  # noqa: F821
     from .models import GithubMilestone, GithubRepository
 
     milestone = None
@@ -246,7 +246,7 @@ class GithubWebhookProcessor:
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
 
-    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str:
+    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
@@ -430,7 +430,7 @@ class GithubWebhookProcessor:
                             logger.info(f"KippoTaskStatus.state updated to: {column_name}")
             return state
 
-    def _process_issues_event(self, webhookevent: "GithubWebhookEvent") -> str:
+    def _process_issues_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         from projects.models import KippoProject
 
         assert webhookevent.event_type == "issues"
@@ -553,7 +553,7 @@ class GithubWebhookProcessor:
             else:
                 yield from unprocessed_events
 
-    def process_webhook_events(self, webhookevents: Optional[List["GithubWebhookEvent"]] = None) -> Counter:
+    def process_webhook_events(self, webhookevents: Optional[List["GithubWebhookEvent"]] = None) -> Counter:  # noqa: F821
         processed_events = Counter()
 
         if not webhookevents:

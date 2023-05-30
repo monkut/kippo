@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Dict, Tuple
 
 from accounts.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from common.admin import PrettyJSONWidget
@@ -9,8 +8,6 @@ from django.contrib.postgres.fields import JSONField
 from django.db.models import Q
 from django.utils.html import format_html, mark_safe
 from django.utils.translation import ugettext_lazy as _
-from ghorgs.managers import GithubOrganizationManager
-from zappa.asynchronous import task
 
 from .functions import process_webhookevent_ids, update_repository_labels
 from .models import GithubMilestone, GithubRepository, GithubRepositoryLabelSet, GithubWebhookEvent

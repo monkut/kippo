@@ -134,9 +134,9 @@ class OrganizationIssueProcessor:
             milestone = kippo_milestone
         return milestone
 
-    def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> "GithubRepository":
+    def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> "GithubRepository":  # noqa: F821
         """Get the existing GithubRepository or create a new one"""
-        from octocat.models import GithubMilestone, GithubRepository
+        from octocat.models import GithubRepository
 
         # normalize urls
         if api_url.endswith("/"):
