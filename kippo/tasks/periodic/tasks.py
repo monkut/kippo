@@ -11,7 +11,6 @@ from django.db.utils import IntegrityError
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue, GithubOrganizationProject
-from octocat.models import GithubMilestone, GithubRepository
 from projects.models import ActiveKippoProject, CollectIssuesAction, CollectIssuesProjectResult, KippoMilestone, KippoProject
 from zappa.asynchronous import task
 
@@ -34,6 +33,8 @@ class KippoConfigurationError(Exception):
 
 class OrganizationIssueProcessor:
     def __init__(self, organization: KippoOrganization, status_effort_date: datetime.date = None, github_project_html_urls: List[str] = None):
+        from octocat.models import GithubMilestone
+
         self.organization = organization
         self.status_effort_date = status_effort_date
         self.manager = GithubOrganizationManager(organization=organization.github_organization_name, token=organization.githubaccesstoken.token)
@@ -82,6 +83,8 @@ class OrganizationIssueProcessor:
 
     def get_kippo_milestone_by_html_url(self, kippo_project: KippoProject, issue: GithubIssue, html_url: str) -> KippoMilestone:
         """Get the existing related KippoMilestone for a GithubIssues's Milestone entry, if doesn't exist create it"""
+        from octocat.models import GithubMilestone, GithubRepository
+
         assert hasattr(issue, "milestone")
         milestone = self.existing_kippo_milestones_by_html_url.get(html_url, None)
         if not milestone:
@@ -131,8 +134,10 @@ class OrganizationIssueProcessor:
             milestone = kippo_milestone
         return milestone
 
-    def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> GithubRepository:
+    def get_githubrepository(self, repo_name: str, api_url: str, html_url: str) -> "GithubRepository":
         """Get the existing GithubRepository or create a new one"""
+        from octocat.models import GithubMilestone, GithubRepository
+
         # normalize urls
         if api_url.endswith("/"):
             api_url = api_url[:-1]
