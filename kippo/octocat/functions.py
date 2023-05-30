@@ -569,3 +569,29 @@ class GithubWebhookProcessor:
             webhookevent.save()
             processed_events[webhookevent.event_type] += 1
         return processed_events
+
+
+@task
+def update_repository_labels(
+    github_orgainization_name: str, token: str, repository_name: str, label_definitions: Tuple[Dict[str, str]], delete: bool = False
+):
+    deleted_labels = []
+    created_labels = []
+    github_manager = GithubOrganizationManager(organization=github_orgainization_name, token=token)
+    repository_name_filter = (repository_name,)
+    logger.debug(f"repository_name_filter: {repository_name_filter}")
+    for ghorgs_repository in github_manager.repositories(names=repository_name_filter):
+        existing_label_names = [label["name"] for label in ghorgs_repository.labels]
+
+        # get label definitions
+        for label_definition in label_definitions:
+            ghorgs_repository.create_label(label_definition["name"], label_definition["description"], label_definition["color"])
+            created_labels.append(label_definition)
+
+        if delete:
+            undefined_label_names = set(existing_label_names) - set(created_labels)
+            for label_name in undefined_label_names:
+                ghorgs_repository.delete_label(label_name)
+                deleted_labels.append(label_name)
+    logger.info(f"{github_orgainization_name} ({repository_name}) created: {created_labels}")
+    logger.info(f"{github_orgainization_name} ({repository_name}) deleted: {deleted_labels}")

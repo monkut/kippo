@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from accounts.models import KippoOrganization
@@ -8,8 +9,13 @@ from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 
+from .functions import update_repository_labels
+
 GITHUB_MILESTONE_CLOSE_STATE = "closed"
 GITHUB_REPOSITORY_NAME_MAX_LENGTH = 100
+
+
+logger = logging.getLogger(__name__)
 
 
 class GithubRepositoryLabelSet(models.Model):
@@ -35,6 +41,25 @@ class GithubRepository(UserCreatedBaseModel):
     )
     api_url = models.URLField(help_text=_("Github Repository API URL"))
     html_url = models.URLField(help_text=_("Github Repository HTML URL"))
+
+    def save(self, *args, **kwargs):
+        if self.organization and not self.label_set:
+            self.label_set = self.organization.default_labelset
+        if self._state.adding is True and settings.OCTOCAT_APPLY_DEFAULT_LABELSET:
+            github_organization_name = self.organization.github_organization_name
+            githubaccesstoken = self.organization.githubaccesstoken
+            label_definitions = tuple(self.label_set.labels)
+            delete = settings.OCTOCAT_DELETE_EXISTING_LABELS_ON_UPDATE
+            update_repository_labels(
+                github_organization_name,
+                githubaccesstoken.token,
+                repository_name=str(self.name),
+                label_definitions=label_definitions,
+                delete=delete,
+            )
+            msg = f"({self.name}) updating labels with: {self.label_set.name}"
+            logger.info(msg)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}) html_url={self.html_url}"
