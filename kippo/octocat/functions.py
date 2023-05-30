@@ -5,7 +5,7 @@ import os
 from collections import Counter
 from distutils.util import strtobool
 from math import ceil
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Tuple
 from urllib.parse import unquote_plus
 
 from accounts.models import KippoOrganization, KippoUser
@@ -13,7 +13,6 @@ from django.conf import settings
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
-from projects.models import KippoMilestone, KippoProject
 from tasks.exceptions import GithubPullRequestUrl, GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
@@ -179,7 +178,7 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     return webhook_event
 
 
-def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional[KippoMilestone]:
+def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: KippoOrganization) -> Optional["KippoMilestone"]:
     milestone = None
     if issue.milestone:
         try:
@@ -248,6 +247,8 @@ class GithubWebhookProcessor:
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
         """
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "project_card"
 
         # identify project, retrieve related KippoProject
@@ -426,6 +427,8 @@ class GithubWebhookProcessor:
             return state
 
     def _process_issues_event(self, webhookevent: GithubWebhookEvent) -> str:
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "issues"
         githubissue = self._load_event_to_githubissue(webhookevent.event)
         repository_api_url = githubissue.repository_url
@@ -472,6 +475,8 @@ class GithubWebhookProcessor:
         return result
 
     def _process_issuecomment_event(self, webhookevent: GithubWebhookEvent) -> str:
+        from projects.models import KippoProject
+
         assert webhookevent.event_type == "issue_comment"
         githubissue = self._load_event_to_githubissue(webhookevent.event)
 
@@ -571,7 +576,7 @@ class GithubWebhookProcessor:
         return processed_events
 
 
-@task
+@zappa_task
 def update_repository_labels(
     github_orgainization_name: str, token: str, repository_name: str, label_definitions: Tuple[Dict[str, str]], delete: bool = False
 ):
