@@ -1,7 +1,9 @@
 import csv
+import datetime
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from string import ascii_lowercase
 from typing import Optional, Tuple
 
@@ -13,18 +15,20 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
+from rangefilter.filters import DateRangeFilter, DateRangeFilterBuilder, DateTimeRangeFilterBuilder, NumericRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
+    generate_projectmonthlyeffort_csv,
     generate_projectstatuscomments_csv,
     generate_projectweeklyeffort_csv,
     get_kippoproject_taskstatus_csv_rows,
@@ -573,12 +577,22 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
+    list_filter = (
+        (
+            "week_start",
+            DateTimeRangeFilterBuilder(
+                title="date filter",
+                default_start=datetime(2023, 8, 1),
+                default_end=datetime(2023, 8, 31),
+            ),
+        ),
+    )
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",
         "user__last_name",
     )
-    actions = ("download_csv",)
+    actions = ("download_csv", "download_monthly_csv")
 
     def get_project_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
         result = "-"
@@ -604,13 +618,31 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             now = timezone.now()
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
             key = "tmp/download/{}".format(filename)
-            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
+            selected_query_id = list(queryset.values_list("id", flat=True))
+            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, queryid=selected_query_id)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
             download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
             return HttpResponseRedirect(redirect_to=download_waiter_url)
 
     download_csv.description = _("Download ProjectWeeklyEffort CSV")
+
+    def download_monthly_csv(self, request, queryset):
+        if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
+            self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
+        else:
+            # initiate creation
+            now = timezone.now()
+            filename = now.strftime("project-monthly-effort-%Y%m%d%H%M%S.csv")
+            key = "tmp/download/{}".format(filename)
+            selected_query_id = list(queryset.values_list("id", flat=True))
+            generate_projectmonthlyeffort_csv(user_id=str(request.user.pk), key=key, queryid=selected_query_id)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+
+    download_monthly_csv.description = _("Download ProjectMonthlyEffort CSV")
 
     def get_form(self, request, obj=None, **kwargs):
         """Set defaults based on request user"""
@@ -752,7 +784,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         "-project__target_date",
         "created_datetime",
     )
-    actions = ("download_csv",)
+    actions = "download_csv"
 
     def get_project_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
         result = "-"

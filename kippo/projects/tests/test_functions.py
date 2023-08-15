@@ -1,12 +1,20 @@
 import datetime
+from random import choice, randint
 
-from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from accounts.functions import get_personal_holidays_generator
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
+from common.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from django.db import connection, models, transaction
 from django.test import TestCase
-from django.utils import timezone
+from octocat.tests.test_admin import DEFAULT_COLUMNSET_PK
 from tasks.models import KippoTask, KippoTaskStatus
 
-from ..functions import get_kippoproject_taskstatus_csv_rows, previous_week_startdate
+from kippo import settings
+from kippo.aws import download_s3_csv, s3_key_exists
+
+from ..functions import generate_projectmonthlyeffort_csv, get_kippoproject_taskstatus_csv_rows, logger, previous_week_startdate
+from ..models import KippoProject, ProjectColumnSet, ProjectWeeklyEffort
+from .utils import reset_buckets
 
 
 class ProjectsFunctionsTestCase(TestCase):
@@ -130,3 +138,77 @@ class ProjectsFunctionsTestCase(TestCase):
         expected = datetime.date(2021, 5, 3)  # previous week's monday
         actual = previous_week_startdate(today=today)
         self.assertEqual(actual, expected)
+
+
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
+from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from django.conf import settings
+from django.test import TestCase
+from django.utils import timezone
+from projects.functions import generate_projectmonthlyeffort_csv, previous_week_startdate
+from projects.models import ProjectWeeklyEffort
+
+from kippo.aws import download_s3_csv, s3_key_exists
+
+from .utils import reset_buckets
+
+
+class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        reset_buckets()
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.project = created["KippoProject"]
+        self.user = created["KippoUser"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+        self.other_organization = KippoOrganization.objects.create(
+            name="other-test-organization",
+            github_organization_name="isstaffmodeladmintestcasebase-other-testorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        # add membership
+        membership = OrganizationMembership(
+            user=self.user, organization=self.other_organization, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+        )
+        membership.save()
+        self.nonmember_organization = KippoOrganization.objects.create(
+            name="nonmember-test-organization",
+            github_organization_name="isstaffmodeladmintestcasebase-nonmember-testorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        self.no_org_user = KippoUser(
+            username="noorguser",
+            github_login="noorguser",
+            password="test",
+            email="noorguser@github.com",
+            is_staff=True,
+        )
+        self.no_org_user.save()
+
+        # create ProjectMonthlyEffort
+        self.previous_week_date = previous_week_startdate()
+        older = self.previous_week_date - timezone.timedelta(days=7)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=self.previous_week_date, user=self.user, hours=5)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=older, user=self.user, hours=5)
+
+    def test_generate_projectmonthlyeffort_csv(self):
+        key = "tmp/test/test.csv"
+        queryset_count = str(ProjectWeeklyEffort.objects.all().count())
+        test_queryset = list(range(int(queryset_count) + 1))
+        generate_projectmonthlyeffort_csv(user_id=str(self.user.id), key=key, queryid=test_queryset)
+
+        self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
+
+        rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
+        expected = 1
+        self.assertEqual(len(rows), expected, rows)
+
+        hours_int_value = int(rows[0]["   (octocat)"])
+        expected_hours = 10
+        self.assertEqual(hours_int_value, expected_hours)

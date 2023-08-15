@@ -8,11 +8,13 @@ from urllib.parse import urlsplit
 from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
 from django.conf import settings
+from django.db.models import Sum
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
-from kippo.aws import upload_s3_csv
 from zappa.asynchronous import task
+
+from kippo.aws import upload_s3_csv
 
 if TYPE_CHECKING:
     from .models import KippoProject
@@ -138,7 +140,7 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
 
 
 @task
-def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isoformat: Optional[str] = None) -> None:
+def generate_projectweeklyeffort_csv(user_id: str, key: str, queryid, from_datetime_isoformat: Optional[str] = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -146,7 +148,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
         logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
     else:
         projects = KippoProject.objects.filter(organization__in=user.organizations)
-        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects).order_by("project", "week_start", "user")
+        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=queryid).order_by("project", "week_start", "user")
         from_datetime = None
         if from_datetime_isoformat:
             from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
@@ -170,6 +172,59 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             g = weeklyeffort_generator
 
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
+
+
+@task
+def generate_projectmonthlyeffort_csv(user_id: str, key: str, queryid) -> None:
+    from projects.models import KippoProject, ProjectWeeklyEffort
+
+    user = KippoUser.objects.filter(pk=user_id).first()
+
+    if not user:
+        logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
+        return
+
+    projects = KippoProject.objects.filter(organization__in=user.organizations)
+    effort_monthly_entries = list(
+        ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=queryid).values("project", "user").annotate(hours=Sum("hours"))
+    )
+
+    user_display_names = {u.id: u.display_name for u in KippoUser.objects.filter(id__in=[e["user"] for e in effort_monthly_entries])}
+
+    unique_projects = set(e["project"] for e in effort_monthly_entries)
+    unique_users = set(e["user"] for e in effort_monthly_entries)
+
+    result = {project: {user_display_names[user]: 0 for user in unique_users} for project in unique_projects}
+
+    # Populate the result structure with the effort data
+    for entry in effort_monthly_entries:
+        result[entry["project"]][user_display_names[entry["user"]]] = entry["hours"]
+
+    # Convert the result structure to the desired format for CSV
+    rows = []
+    for project, user_hours in result.items():
+        row = {
+            "project": KippoProject.objects.get(id=project).name,
+        }
+        row.update(user_hours)
+        rows.append(row)
+
+    # Define headers as a dictionary
+    headers_dict = {"project": "project"}
+    for user_id in unique_users:
+        headers_dict[user_display_names[user_id]] = user_display_names[user_id]
+
+    csv_rows = []
+    for row in rows:
+        csv_row = {
+            "project": row["project"],
+        }
+        for header in headers_dict.keys():
+            csv_row[header] = row.get(header, 0)  # Use get to provide a default value if the header is not in the row
+        csv_rows.append(csv_row)
+
+    # Generate CSV
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers_dict, row_generator=csv_rows)
 
 
 @task
