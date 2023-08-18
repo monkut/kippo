@@ -140,7 +140,7 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
 
 
 @task
-def generate_projectweeklyeffort_csv(user_id: str, key: str, queryid, from_datetime_isoformat: Optional[str] = None) -> None:
+def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_id, from_datetime_isoformat: Optional[str] = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -148,7 +148,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, queryid, from_datet
         logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
     else:
         projects = KippoProject.objects.filter(organization__in=user.organizations)
-        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=queryid).order_by("project", "week_start", "user")
+        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_id).order_by("project", "week_start", "user")
         from_datetime = None
         if from_datetime_isoformat:
             from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
@@ -175,7 +175,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, queryid, from_datet
 
 
 @task
-def generate_projectmonthlyeffort_csv(user_id: str, key: str, queryid) -> None:
+def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_id) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -186,7 +186,7 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, queryid) -> None:
 
     projects = KippoProject.objects.filter(organization__in=user.organizations)
     effort_monthly_entries = list(
-        ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=queryid).values("project", "user").annotate(hours=Sum("hours"))
+        ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_id).values("project", "user").annotate(hours=Sum("hours"))
     )
 
     user_display_names = {u.id: u.display_name for u in KippoUser.objects.filter(id__in=[e["user"] for e in effort_monthly_entries])}
