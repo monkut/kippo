@@ -21,7 +21,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
-from rangefilter.filters import DateRangeFilter, DateRangeFilterBuilder, DateTimeRangeFilterBuilder, NumericRangeFilterBuilder
+from rangefilter.filters import DateTimeRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -577,16 +577,27 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
-    list_filter = (
-        (
-            "week_start",
-            DateTimeRangeFilterBuilder(
-                title="date filter",
-                default_start=datetime(2023, 8, 1),
-                default_end=datetime(2023, 8, 31),
-            ),
-        ),
-    )
+    from datetime import datetime, timedelta
+
+    def get_current_month_start_end():
+        # 今日の日付を取得
+        today = datetime.today()
+
+        # 今月の最初の日
+        month_start = datetime(today.year, today.month, 1)
+
+        # 次の月の最初の日を計算し、1日減らして今月の最後の日を得る
+        if today.month == 12:  # 12月の場合、次の月は1月
+            month_end = datetime(today.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            month_end = datetime(today.year, today.month + 1, 1) - timedelta(days=1)
+
+        return month_start, month_end
+
+    # 今月の最初の日と最後の日を取得
+    current_month_start, current_month_end = get_current_month_start_end()
+
+    list_filter = (("week_start", DateTimeRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),)
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",

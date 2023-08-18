@@ -196,17 +196,16 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, queryid) -> None:
 
     result = {project: {user_display_names[user]: 0 for user in unique_users} for project in unique_projects}
 
+    project_names = {project.id: project.name for project in KippoProject.objects.filter(id__in=unique_projects)}
+
     # Populate the result structure with the effort data
     for entry in effort_monthly_entries:
         result[entry["project"]][user_display_names[entry["user"]]] = entry["hours"]
 
     # Convert the result structure to the desired format for CSV
     rows = []
-    for project, user_hours in result.items():
-        row = {
-            "project": KippoProject.objects.get(id=project).name,
-        }
-        row.update(user_hours)
+    for project_id, user_hours in result.items():
+        row = {"project": project_names[project_id], **user_hours}
         rows.append(row)
 
     # Define headers as a dictionary
