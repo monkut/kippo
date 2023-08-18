@@ -795,7 +795,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         "-project__target_date",
         "created_datetime",
     )
-    actions = "download_csv"
+    actions = ("download_csv",)
 
     def get_project_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
         result = "-"
