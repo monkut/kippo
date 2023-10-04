@@ -6,9 +6,10 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import Client, TestCase
-from kippo.aws import s3_key_exists
-from projects.functions import generate_projectstatuscomments_csv, generate_projectweeklyeffort_csv, previous_week_startdate
+from projects.functions import generate_projectstatuscomments_csv, previous_week_startdate
 from projects.models import KippoProjectStatus, ProjectWeeklyEffort
+
+from kippo.aws import s3_key_exists
 
 from .utils import reset_buckets
 

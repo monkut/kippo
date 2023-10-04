@@ -190,15 +190,11 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_id) -> None
     )
 
     user_display_names = {u.id: u.display_name for u in KippoUser.objects.filter(id__in=[e["user"] for e in effort_monthly_entries])}
-
     unique_projects = set(e["project"] for e in effort_monthly_entries)
     unique_users = set(e["user"] for e in effort_monthly_entries)
-
     result = {project: {user_display_names[user]: 0 for user in unique_users} for project in unique_projects}
-
     project_names = {project.id: project.name for project in KippoProject.objects.filter(id__in=unique_projects)}
 
-    # Populate the result structure with the effort data
     for entry in effort_monthly_entries:
         result[entry["project"]][user_display_names[entry["user"]]] = entry["hours"]
 
