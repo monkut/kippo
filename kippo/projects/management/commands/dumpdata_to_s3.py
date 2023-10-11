@@ -17,7 +17,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         s3_bucket_name = settings.DUMPDATA_S3_BUCKETNAME
         if not s3_bucket_name:
-            raise CommandError("_settings.DUMPDATA_S3_BUCKETNAME not configured!")
+            raise CommandError("settings.DUMPDATA_S3_BUCKETNAME not configured!")
 
         self.stdout.write('Collecting "project" related data from Database...')
         string_buffer = StringIO()

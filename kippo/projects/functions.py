@@ -10,8 +10,6 @@ from urllib.parse import urlsplit
 from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
 from django.conf import settings
-from django.db.models import Sum
-from django.db.models.functions import TruncMonth
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager

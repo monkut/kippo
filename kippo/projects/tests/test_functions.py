@@ -193,22 +193,33 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
 
         # create ProjectMonthlyEffort
         self.previous_week_date = previous_week_startdate()
-        older = self.previous_week_date - timezone.timedelta(days=7)
-        ProjectWeeklyEffort.objects.create(project=self.project, week_start=self.previous_week_date, user=self.user, hours=5)
-        ProjectWeeklyEffort.objects.create(project=self.project, week_start=older, user=self.user, hours=5)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 5, 29), user=self.user, hours=70)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 7, 31), user=self.user, hours=35)
 
     def test_generate_projectmonthlyeffort_csv(self):
         key = "tmp/test/test.csv"
-        queryset_count = str(ProjectWeeklyEffort.objects.all().count())
+        queryset_count = ProjectWeeklyEffort.objects.all().count()
         test_queryset = list(range(int(queryset_count) + 1))
-        generate_projectmonthlyeffort_csv(user_id=str(self.user.id), key=key, queryid=test_queryset)
+        generate_projectmonthlyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=test_queryset)
 
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
-        expected = 1
+        expected = 4
         self.assertEqual(len(rows), expected, rows)
 
-        hours_int_value = int(rows[0]["   (octocat)"])
-        expected_hours = 10
-        self.assertEqual(hours_int_value, expected_hours)
+        hours_value_1 = float(rows[0]["totalhours"])
+        expected_hours_1 = 30
+        self.assertEqual(hours_value_1, expected_hours_1)
+
+        hours_value_2 = float(rows[1]["totalhours"])
+        expected_hours_2 = 40
+        self.assertEqual(hours_value_2, expected_hours_2)
+
+        hours_value_3 = float(rows[2]["totalhours"])
+        expected_hours_3 = 5
+        self.assertEqual(hours_value_3, expected_hours_3)
+
+        hours_value_4 = float(rows[3]["totalhours"])
+        expected_hours_4 = 30
+        self.assertEqual(hours_value_4, expected_hours_4)
