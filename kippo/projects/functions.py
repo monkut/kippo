@@ -1,5 +1,7 @@
+import calendar
 import datetime
 import logging
+from collections import defaultdict
 from itertools import chain
 from operator import attrgetter
 from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
@@ -9,6 +11,7 @@ from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
 from django.conf import settings
 from django.db.models import Sum
+from django.db.models.functions import TruncMonth
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
@@ -174,52 +177,54 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_id, from_dat
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
 
 
-@task
-def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_id) -> None:
+def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_id: List[int], from_datetime_isoformat: Optional[str] = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
-
     if not user:
-        logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
+        logger.error(f"KippoUser not found for given user_id({user_id}), projectmonthlyeffort csv not generated!")
         return
 
     projects = KippoProject.objects.filter(organization__in=user.organizations)
-    effort_monthly_entries = list(
-        ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_id).values("project", "user").annotate(hours=Sum("hours"))
+    effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_id).order_by("project", "week_start", "user")
+
+    from_datetime = None
+    if from_datetime_isoformat:
+        from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
+        logger.info(f"applying datetime filter: from_datetime={from_datetime}")
+        effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
+
+    monthly_effort = defaultdict(int)
+
+    for effort in effort_entries:
+        last_day_of_month = calendar.monthrange(effort.week_start.year, effort.week_start.month)[1]
+        days_in_current_month = last_day_of_month - effort.week_start.day + 1
+        days_in_next_month = 7 - days_in_current_month
+
+        if days_in_next_month > 0:
+            month_key_current = f"{effort.week_start.year}/{effort.week_start.month:02}"
+            monthly_effort[(effort.project.name, effort.user.display_name, month_key_current)] += (effort.hours * days_in_current_month) / 7
+
+            if effort.week_start.month == 12:
+                next_month_year = effort.week_start.year + 1
+                next_month_month = 1
+            else:
+                next_month_year = effort.week_start.year
+                next_month_month = effort.week_start.month + 1
+
+            month_key_next = f"{next_month_year}/{next_month_month:02}"
+            monthly_effort[(effort.project.name, effort.user.display_name, month_key_next)] += (effort.hours * days_in_next_month) / 7
+        else:
+            month_key = f"{effort.week_start.year}/{effort.week_start.month:02}"
+            monthly_effort[(effort.project.name, effort.user.display_name, month_key)] += effort.hours
+
+    headers = {"project": "project", "user": "user", "month": "month", "totalhours": "totalhours"}
+    monthlyeffort_generator = (
+        {"project": project_name, "user": user_name, "month": month_key, "totalhours": hours}
+        for (project_name, user_name, month_key), hours in monthly_effort.items()
     )
 
-    user_display_names = {u.id: u.display_name for u in KippoUser.objects.filter(id__in=[e["user"] for e in effort_monthly_entries])}
-    unique_projects = set(e["project"] for e in effort_monthly_entries)
-    unique_users = set(e["user"] for e in effort_monthly_entries)
-    result = {project: {user_display_names[user]: 0 for user in unique_users} for project in unique_projects}
-    project_names = {project.id: project.name for project in KippoProject.objects.filter(id__in=unique_projects)}
-
-    for entry in effort_monthly_entries:
-        result[entry["project"]][user_display_names[entry["user"]]] = entry["hours"]
-
-    # Convert the result structure to the desired format for CSV
-    rows = []
-    for project_id, user_hours in result.items():
-        row = {"project": project_names[project_id], **user_hours}
-        rows.append(row)
-
-    # Define headers as a dictionary
-    headers_dict = {"project": "project"}
-    for user_id in unique_users:
-        headers_dict[user_display_names[user_id]] = user_display_names[user_id]
-
-    csv_rows = []
-    for row in rows:
-        csv_row = {
-            "project": row["project"],
-        }
-        for header in headers_dict.keys():
-            csv_row[header] = row.get(header, 0)  # Use get to provide a default value if the header is not in the row
-        csv_rows.append(csv_row)
-
-    # Generate CSV
-    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers_dict, row_generator=csv_rows)
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=monthlyeffort_generator)
 
 
 @task

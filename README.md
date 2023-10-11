@@ -102,7 +102,7 @@ Prerequisites:
     
     # load countries to database
     # - loads countries from accounts/fixtures/countries.csv
-    python manage.py loadcountires
+    python manage.py loadcountries
     ```
    
 ### Test Fixtures
