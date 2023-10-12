@@ -195,6 +195,8 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
         self.previous_week_date = previous_week_startdate()
         ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 7, 3), user=self.user, hours=70)
         ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 7, 31), user=self.user, hours=35)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 8, 7), user=self.user, hours=70)
+        ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 8, 28), user=self.user, hours=35)
 
     def test_generate_projectmonthlyeffort_csv(self):
         key = "tmp/test/test.csv"
@@ -205,7 +207,7 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
-        expected = 2
+        expected = 3
 
         self.assertEqual(len(rows), expected, rows)
 
@@ -214,5 +216,13 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
         self.assertEqual(hours_value_1, expected_hours_1)
 
         hours_value_2 = float(rows[1]["totalhours"])
-        expected_hours_2 = 30  # 7/30の週のeffort6日分: 35*6/7 = 30h
+        expected_hours_2 = 120
+        # 7/31の週のeffort6日分: 35*6/7 = 30h
+        # 8/7の週のeffort = 70h
+        # 8/28の週のeffort4日分: 35*4/7 = 20h
+        # 30h + 70h + 20h = 120h
         self.assertEqual(hours_value_2, expected_hours_2)
+
+        hours_value_3 = float(rows[2]["totalhours"])
+        expected_hours_3 = 15  # 8/28の週のeffort3日分: 35*3/7 = 15h
+        self.assertEqual(hours_value_3, expected_hours_3)
