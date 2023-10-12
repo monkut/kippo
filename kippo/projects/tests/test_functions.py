@@ -209,7 +209,6 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
         expected = 3
-
         self.assertEqual(len(rows), expected, rows)
 
         hours_value_1 = float(rows[0]["totalhours"])
