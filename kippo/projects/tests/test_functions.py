@@ -193,6 +193,7 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
 
         # create ProjectMonthlyEffort
         self.previous_week_date = previous_week_startdate()
+        # define ProjectWeeklyEffort objects
         ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 7, 3), user=self.user, hours=70)
         ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 7, 31), user=self.user, hours=35)
         ProjectWeeklyEffort.objects.create(project=self.project, week_start=datetime.date(2023, 8, 7), user=self.user, hours=70)
