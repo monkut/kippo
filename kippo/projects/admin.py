@@ -593,10 +593,14 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
         return month_start, month_end
 
-    # 今月の最初の日と最後の日を取得
-    current_month_start, current_month_end = get_current_month_start_end()
+    def __init__(self, model, admin_site):
+        super().__init__(model, admin_site)
 
-    list_filter = (("week_start", DateTimeRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),)
+        current_month_start, current_month_end = self.get_current_month_start_end()
+        self.list_filter = (
+            ("week_start", DateTimeRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),
+        )
+
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",
