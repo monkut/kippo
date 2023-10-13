@@ -576,9 +576,9 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
-    from datetime import datetime, timedelta
 
-    def get_current_month_start_end(self):
+    @staticmethod
+    def get_current_month_start_end():
         # 今日の日付を取得
         today = datetime.today()
 
