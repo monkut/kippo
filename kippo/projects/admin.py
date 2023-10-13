@@ -630,7 +630,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
             key = "tmp/download/{}".format(filename)
             selected_query_id = list(queryset.values_list("id", flat=True))
-            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, effort_id=selected_query_id)
+            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
             download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"

@@ -201,15 +201,14 @@ class GenerateProjectMonthlyEffortCsvTestCase(TestCase):
 
     def test_generate_projectmonthlyeffort_csv(self):
         key = "tmp/test/test.csv"
-        queryset_count = ProjectWeeklyEffort.objects.all().count()
-        test_queryset = list(range(int(queryset_count) + 1))
-        generate_projectmonthlyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=test_queryset)
+        ids = list(ProjectWeeklyEffort.objects.all().values_list("id", flat=True))
+        generate_projectmonthlyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids)
 
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
         expected = 3
-        self.assertEqual(len(rows), expected, rows)
+        self.assertEqual(len(rows), expected)
 
         hours_value_1 = float(rows[0]["totalhours"])
         expected_hours_1 = 75  # 7/3の週のeffort:70h + 7/30の週のeffort1日分: 35/7 = 5h で75h

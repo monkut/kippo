@@ -57,21 +57,18 @@ class GenerateProjectWeeklyEffortCsvTestCase(TestCase):
 
     def test_generate_projectweeklyeffort_csv(self):
         key = "tmp/test/test.csv"
-        queryset_count = ProjectWeeklyEffort.objects.all().count()
-        test_queryset = list(range(int(queryset_count) + 1))
-        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=test_queryset)
+        ids = list(ProjectWeeklyEffort.objects.all().values_list("id", flat=True))
+        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids)
 
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
         expected = 2
-        self.assertEqual(len(rows), expected, rows)
+        self.assertEqual(len(rows), expected)
 
         key = "tmp/test/other.csv"
         from_datetime = self.previous_week_date
-        generate_projectweeklyeffort_csv(
-            user_id=str(self.user.id), key=key, effort_ids=test_queryset, from_datetime_isoformat=from_datetime.isoformat()
-        )
+        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids, from_datetime_isoformat=from_datetime.isoformat())
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)

@@ -6,7 +6,7 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import Client, TestCase
-from projects.functions import generate_projectstatuscomments_csv, previous_week_startdate
+from projects.functions import generate_projectstatuscomments_csv, generate_projectweeklyeffort_csv, previous_week_startdate
 from projects.models import KippoProjectStatus, ProjectWeeklyEffort
 
 from kippo.aws import s3_key_exists
@@ -60,7 +60,8 @@ class DownloadViewTestCase(TestCase):
 
     def test_data_download_waiter__generate_projectweeklyeffort_csv(self):
         key = "tmp/download/{}.csv".format(str(uuid4()))
-        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key)
+        ids = list(ProjectWeeklyEffort.objects.all().values_list("id", flat=True))
+        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids)
         assert s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, key=key)
 
         urlencoded_key = urllib.parse.quote_plus(key)
