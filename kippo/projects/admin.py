@@ -1,5 +1,4 @@
 import csv
-import datetime
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
@@ -15,7 +14,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
@@ -579,7 +578,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
     from datetime import datetime, timedelta
 
-    def get_current_month_start_end():
+    def get_current_month_start_end(self):
         # 今日の日付を取得
         today = datetime.today()
 
