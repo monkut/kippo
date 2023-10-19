@@ -2,7 +2,7 @@ import csv
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from string import ascii_lowercase
 from typing import Optional, Tuple
 

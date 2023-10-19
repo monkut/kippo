@@ -4,7 +4,6 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 from django.conf import settings
-from django.contrib.staticfiles import finders
 from django.core.management import BaseCommand
 from django.utils.translation import ugettext_lazy as _
 
