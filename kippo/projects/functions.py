@@ -197,7 +197,7 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[i
     for effort in effort_entries:
         last_day_of_month = calendar.monthrange(effort.week_start.year, effort.week_start.month)[1]  # 各エントリの月の最後の日を取得
         current_month_remaining_days = last_day_of_month - effort.week_start.day + 1  # week_startからその月の最後まで何日か取得
-        days_in_next_month = 7 - current_month_remaining_days  # 週が月をまたぐ時、次の月に週の何日あるか（正ならまたぐ）↓で場合分けに使う
+        days_in_next_month = 7 - current_month_remaining_days  # 週が月をまたぐ時、次の月に週の何日あるか
 
         if days_in_next_month > 0:
             month_key_current = f"{effort.week_start.year}/{effort.week_start.month:02}"

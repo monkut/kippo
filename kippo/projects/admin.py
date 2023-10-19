@@ -2,7 +2,7 @@ import csv
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from string import ascii_lowercase
 from typing import Optional, Tuple
 
@@ -579,18 +579,12 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
     @staticmethod
     def get_current_month_start_end():
-        # 今日の日付を取得
-        today = datetime.today()
-
-        # 今月の最初の日
-        month_start = datetime(today.year, today.month, 1)
-
-        # 次の月の最初の日を計算し、1日減らして今月の最後の日を得る
-        if today.month == 12:  # 12月の場合、次の月は1月
+        today = timezone.localdate()  # 今日の日付を取得
+        month_start = datetime(today.year, today.month, 1)  # 今月の最初の日
+        if today.month == 12:  # 次の月の最初の日を計算し、1日減らして今月の最後の日を得る
             month_end = datetime(today.year + 1, 1, 1) - timedelta(days=1)
         else:
             month_end = datetime(today.year, today.month + 1, 1) - timedelta(days=1)
-
         return month_start, month_end
 
     def __init__(self, model, admin_site):
@@ -629,7 +623,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
         else:
             # initiate creation
-            now = timezone.now()
+            now = timezone.localtime()
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
             key = "tmp/download/{}".format(filename)
             selected_query_id = list(queryset.values_list("id", flat=True))
@@ -646,7 +640,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
         else:
             # initiate creation
-            now = timezone.now()
+            now = timezone.localtime()
             filename = now.strftime("project-monthly-effort-%Y%m%d%H%M%S.csv")
             key = "tmp/download/{}".format(filename)
             selected_query_id = list(queryset.values_list("id", flat=True))
