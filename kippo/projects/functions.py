@@ -1,5 +1,7 @@
+import calendar
 import datetime
 import logging
+from collections import Counter
 from itertools import chain
 from operator import attrgetter
 from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
@@ -11,8 +13,9 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
-from kippo.aws import upload_s3_csv
 from zappa.asynchronous import task
+
+from kippo.aws import upload_s3_csv
 
 if TYPE_CHECKING:
     from .models import KippoProject
@@ -138,7 +141,7 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
 
 
 @task
-def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isoformat: Optional[str] = None) -> None:
+def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids, from_datetime_isoformat: Optional[str] = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -146,7 +149,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
         logger.error(f"KippoUser not found for given user_id({user_id}), projectweeklyeffort csv not generated!")
     else:
         projects = KippoProject.objects.filter(organization__in=user.organizations)
-        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects).order_by("project", "week_start", "user")
+        effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_ids).order_by("project", "week_start", "user")
         from_datetime = None
         if from_datetime_isoformat:
             from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
@@ -170,6 +173,60 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, from_datetime_isofo
             g = weeklyeffort_generator
 
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
+
+
+def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[int], from_datetime_isoformat: Optional[str] = None) -> None:
+    from projects.models import KippoProject, ProjectWeeklyEffort
+
+    user = KippoUser.objects.filter(pk=user_id).first()
+    if not user:
+        logger.error(f"KippoUser not found for given user_id({user_id}), projectmonthlyeffort csv not generated!")
+        return
+
+    projects = KippoProject.objects.filter(organization__in=user.organizations)
+    effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_ids).order_by("project", "week_start", "user")
+
+    from_datetime = None
+    if from_datetime_isoformat:
+        from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
+        logger.info(f"applying datetime filter: from_datetime={from_datetime}")
+        effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
+
+    monthly_effort = Counter()
+
+    for effort in effort_entries:
+        last_day_of_month = calendar.monthrange(effort.week_start.year, effort.week_start.month)[1]  # 各エントリの月の最後の日を取得
+        current_month_remaining_days = last_day_of_month - effort.week_start.day + 1  # week_startからその月の最後まで何日か取得
+        days_in_next_month = 7 - current_month_remaining_days  # 週が月をまたぐ時、次の月に週の何日あるか
+
+        if days_in_next_month > 0:
+            month_key_current = f"{effort.week_start.year}/{effort.week_start.month:02}"
+            monthly_effort_key_current = (effort.project.name, effort.user.display_name, month_key_current)
+            monthly_effort[monthly_effort_key_current] += (effort.hours * current_month_remaining_days) / 7
+
+            if effort.week_start.month == 12:
+                next_month_year = effort.week_start.year + 1
+                next_month_month = 1
+            else:
+                next_month_year = effort.week_start.year
+                next_month_month = effort.week_start.month + 1
+
+            month_key_next = f"{next_month_year}/{next_month_month:02}"
+            monthly_effort_key_next = (effort.project.name, effort.user.display_name, month_key_next)
+            monthly_effort[monthly_effort_key_next] += (effort.hours * days_in_next_month) / 7
+
+        else:
+            month_key = f"{effort.week_start.year}/{effort.week_start.month:02}"
+            monthly_effort_key = (effort.project.name, effort.user.display_name, month_key)
+            monthly_effort[monthly_effort_key] += effort.hours
+
+    headers = {"project": "project", "user": "user", "month": "month", "totalhours": "totalhours"}
+    monthlyeffort_generator = (
+        {"project": project_name, "user": user_name, "month": month_key, "totalhours": hours}
+        for (project_name, user_name, month_key), hours in monthly_effort.items()
+    )
+
+    upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=monthlyeffort_generator)
 
 
 @task

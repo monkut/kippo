@@ -1,0 +1,176 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'NAT Gateway Replacement instances - RIVATE subnet 0.0.0.0/0 routes need to point to the FCK-NAT instances'
+
+
+Parameters:
+
+  VPCStackName:
+    Type: String
+    Default: "kippo-prod-stack"
+
+  CIDR:
+    Type: String
+    Default: "10.0.0.0/16"
+
+Resources:
+  FckNatInterfaceA:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub '${VPCStackName}-SubnetAPublic'
+      GroupSet:
+        - Fn::GetAtt:
+            - NatSecurityGroup
+            - GroupId
+      SourceDestCheck: false
+
+  FckNatInterfaceB:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId:
+        Fn::ImportValue: !Sub '${VPCStackName}-SubnetBPublic'
+      GroupSet:
+        - Fn::GetAtt:
+            - NatSecurityGroup
+            - GroupId
+      SourceDestCheck: false
+
+  FckNatAsgInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: NatRole
+
+  FckNatAsgLaunchConfigA:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-02b8e2c2067fd714e
+      InstanceType: t4g.nano
+      IamInstanceProfile:
+        Ref: FckNatAsgInstanceProfile
+      SecurityGroups:
+        - Fn::GetAtt:
+            - NatSecurityGroup
+            - GroupId
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+            - ""
+            - - |-
+                #!/bin/bash
+                echo "eni_id=
+              - Ref: FckNatInterfaceA
+              - |-
+                " >> /etc/fck-nat.conf
+                service fck-nat restart
+    DependsOn:
+      - NatRole
+
+
+  FckNatAsgLaunchConfigB:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-02b8e2c2067fd714e
+      InstanceType: t4g.nano
+      IamInstanceProfile:
+        Ref: FckNatAsgInstanceProfile
+      SecurityGroups:
+        - Fn::GetAtt:
+            - NatSecurityGroup
+            - GroupId
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+            - ""
+            - - |-
+                #!/bin/bash
+                echo "eni_id=
+              - Ref: FckNatInterfaceB
+              - |-
+                " >> /etc/fck-nat.conf
+                service fck-nat restart
+    DependsOn:
+      - NatRole
+
+  FckNatAsgA:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MaxSize: "1"
+      MinSize: "1"
+      DesiredCapacity: "1"
+      LaunchConfigurationName:
+        Ref: FckNatAsgLaunchConfigA
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub '${VPCStackName}-SubnetAPublic'
+    UpdatePolicy:
+      AutoScalingScheduledAction:
+        IgnoreUnmodifiedGroupSizeProperties: true
+
+  FckNatAsgB:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MaxSize: "1"
+      MinSize: "1"
+      DesiredCapacity: "1"
+      LaunchConfigurationName:
+        Ref: FckNatAsgLaunchConfigB
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub '${VPCStackName}-SubnetBPublic'
+    UpdatePolicy:
+      AutoScalingScheduledAction:
+        IgnoreUnmodifiedGroupSizeProperties: true
+
+
+  NatSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for NAT
+      SecurityGroupIngress:
+        - CidrIp: !Sub "${CIDR}"
+          IpProtocol: "-1"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      VpcId:
+        Fn::ImportValue: !Sub '${VPCStackName}-VPC'
+
+  NatRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - ec2:AttachNetworkInterface
+                  - ec2:ModifyNetworkInterfaceAttribute
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: attachNatEniPolicy
+
+
+  #todo -- review
+#  RouteTablePublicAInternetRoute: # should be RouteTablePublicAInternetRoute, but logical id was not changed for backward compatibility
+#    Type: 'AWS::EC2::Route'
+#    DependsOn: VPCGatewayAttachment
+#    Properties:
+#      RouteTableId: !Ref RouteTableAPublic
+#      DestinationCidrBlock: '0.0.0.0/0'
+#      GatewayId: !Ref InternetGateway
+#
+#  RouteTablePublicBInternetRoute:
+#    Type: 'AWS::EC2::Route'
+#    DependsOn: VPCGatewayAttachment
+#    Properties:
+#      RouteTableId: !Ref RouteTableBPublic
+#      DestinationCidrBlock: '0.0.0.0/0'
+#      GatewayId: !Ref InternetGateway

@@ -102,7 +102,10 @@ Prerequisites:
     
     # load countries to database
     # - loads countries from accounts/fixtures/countries.csv
-    python manage.py loadcountires
+    python manage.py loadcountries
+   
+    # create bucket
+    python manage.py create_required_buckets
     ```
    
 ### Test Fixtures

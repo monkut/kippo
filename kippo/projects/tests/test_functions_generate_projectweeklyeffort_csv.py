@@ -3,9 +3,10 @@ from common.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import Client, TestCase
 from django.utils import timezone
-from kippo.aws import download_s3_csv, s3_key_exists
 from projects.functions import generate_projectweeklyeffort_csv, previous_week_startdate
 from projects.models import ProjectWeeklyEffort
+
+from kippo.aws import download_s3_csv, s3_key_exists
 
 from .utils import reset_buckets
 
@@ -56,17 +57,18 @@ class GenerateProjectWeeklyEffortCsvTestCase(TestCase):
 
     def test_generate_projectweeklyeffort_csv(self):
         key = "tmp/test/test.csv"
-        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key)
+        ids = list(ProjectWeeklyEffort.objects.all().values_list("id", flat=True))
+        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids)
 
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
         expected = 2
-        self.assertEqual(len(rows), expected, rows)
+        self.assertEqual(len(rows), expected)
 
         key = "tmp/test/other.csv"
         from_datetime = self.previous_week_date
-        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, from_datetime_isoformat=from_datetime.isoformat())
+        generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key, effort_ids=ids, from_datetime_isoformat=from_datetime.isoformat())
         self.assertTrue(s3_key_exists(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key))
 
         rows = download_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key)
