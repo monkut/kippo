@@ -1,7 +1,7 @@
 {
     "CORSRules": [
         {
-            "AllowedOrigins": ["http://127.0.0.1:8080", "http://localhost:8080", "http://127.0.0.1:8000", "http://localhost:8000"],
+            "AllowedOrigins": ["http://127.0.0.1:8080", "http://localhost:8080", "http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:8001", "http://localhost:8001"],
             "AllowedMethods": ["GET", "HEAD", "PUT", "POST", "DELETE"],
             "MaxAgeSeconds": 3000,
             "ExposeHeaders": ["ETag"],

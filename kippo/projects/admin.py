@@ -2,6 +2,7 @@ import csv
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from string import ascii_lowercase
 from typing import Optional, Tuple
 
@@ -19,12 +20,14 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import ugettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
+from rangefilter.filters import DateTimeRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
+    generate_projectmonthlyeffort_csv,
     generate_projectstatuscomments_csv,
     generate_projectweeklyeffort_csv,
     get_kippoproject_taskstatus_csv_rows,
@@ -573,12 +576,31 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
+
+    @staticmethod
+    def get_current_month_start_end():
+        today = timezone.localdate()  # 今日の日付を取得
+        month_start = datetime(today.year, today.month, 1)  # 今月の最初の日
+        if today.month == 12:  # 次の月の最初の日を計算し、1日減らして今月の最後の日を得る
+            month_end = datetime(today.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            month_end = datetime(today.year, today.month + 1, 1) - timedelta(days=1)
+        return month_start, month_end
+
+    def __init__(self, model, admin_site):
+        super().__init__(model, admin_site)
+
+        current_month_start, current_month_end = self.get_current_month_start_end()
+        self.list_filter = (
+            ("week_start", DateTimeRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),
+        )
+
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",
         "user__last_name",
     )
-    actions = ("download_csv",)
+    actions = ("download_csv", "download_monthly_csv")
 
     def get_project_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
         result = "-"
@@ -601,16 +623,34 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
         else:
             # initiate creation
-            now = timezone.now()
+            now = timezone.localtime()
             filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
             key = "tmp/download/{}".format(filename)
-            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key)
+            selected_query_id = list(queryset.values_list("id", flat=True))
+            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
             download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
             return HttpResponseRedirect(redirect_to=download_waiter_url)
 
     download_csv.description = _("Download ProjectWeeklyEffort CSV")
+
+    def download_monthly_csv(self, request, queryset):
+        if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
+            self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
+        else:
+            # initiate creation
+            now = timezone.localtime()
+            filename = now.strftime("project-monthly-effort-%Y%m%d%H%M%S.csv")
+            key = "tmp/download/{}".format(filename)
+            selected_query_id = list(queryset.values_list("id", flat=True))
+            generate_projectmonthlyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
+            # redirect to waiter
+            urlencoded_key = urllib.parse.quote_plus(key)
+            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+            return HttpResponseRedirect(redirect_to=download_waiter_url)
+
+    download_monthly_csv.description = _("Download ProjectMonthlyEffort CSV")
 
     def get_form(self, request, obj=None, **kwargs):
         """Set defaults based on request user"""

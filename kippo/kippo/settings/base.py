@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = PurePath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
@@ -57,6 +59,7 @@ INSTALLED_APPS = [
     "projects",
     "tasks",
     "octocat",
+    "rangefilter",
 ]
 
 MIDDLEWARE = [

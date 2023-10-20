@@ -4,7 +4,6 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 from django.conf import settings
-from django.contrib.staticfiles import finders
 from django.core.management import BaseCommand
 from django.utils.translation import ugettext_lazy as _
 
@@ -37,7 +36,7 @@ class Command(BaseCommand):
                 else:
                     # not sure, re-raise
                     raise
-            cors_config_filepath = Path(finders.find("s3-direct-bucket-cors.json"))
+            cors_config_filepath = COMMANDS_DIR / "s3-direct-bucket-cors.json"
             assert cors_config_filepath.exists(), f"{cors_config_filepath} not found!"
             cors_config_raw = cors_config_filepath.read_text(encoding="utf8")
             cors_config_json = json.loads(cors_config_raw)
