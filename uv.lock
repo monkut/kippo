@@ -347,7 +347,7 @@ requires-dist = [
     { name = "django-storages" },
     { name = "ghorgs", git = "https://github.com/monkut/github-org-manager.git" },
     { name = "psycopg", extras = ["binary"] },
-    { name = "qlu", git = "https://github.com/monkut/qlu-scheduler.git?rev=0.2.9" },
+    { name = "qlu", git = "https://github.com/monkut/qlu-scheduler.git?rev=0.2.12" },
     { name = "requests" },
     { name = "social-auth-app-django" },
     { name = "zappa", git = "https://github.com/zappa/Zappa.git" },
@@ -595,8 +595,8 @@ wheels = [
 
 [[package]]
 name = "qlu"
-version = "0.2.9"
-source = { git = "https://github.com/monkut/qlu-scheduler.git?rev=0.2.9#5948754479d39cb19195b1fd25a1bbedbae0b680" }
+version = "0.2.12"
+source = { git = "https://github.com/monkut/qlu-scheduler.git?rev=0.2.12#12e843c85adbce764045479818177997ca455f4b" }
 dependencies = [
     { name = "arrow" },
     { name = "numpy" },

@@ -329,7 +329,7 @@ class GetKippoProjectLoadTestCase(TestCase):
 
     def test_get_projects_load(self):
         project_developer_load, _, latest_taskstatus_effort_date = get_projects_load(
-            organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
+            organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date(), ttl_hash=hash(timezone.now().isoformat())
         )
         self.assertTrue(project_developer_load)
         self.assertTrue(latest_taskstatus_effort_date)
@@ -393,13 +393,3 @@ class GetKippoProjectLoadTestCase(TestCase):
             expected_last_effort_date,
             f"actual({latest_taskstatus_effort_date}) != expected({expected_last_effort_date})",
         )
-
-    # def test_prepare_project_engineering_load_plot_data(self):
-    #     (script, div), lastest_effort_date = prepare_project_engineering_load_plot_data(
-    #         organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
-    #     )
-    #     self.assertTrue(script)
-    #     self.assertTrue(div)
-    #
-    #     expected_last_effort_date = timezone.datetime(2019, 6, 5).date()
-    #     self.assertEqual(lastest_effort_date, expected_last_effort_date)

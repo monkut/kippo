@@ -1,12 +1,15 @@
 import json
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.apps import AdminConfig
-from django.contrib.auth.models import AbstractUser
 from django.db.models import Model, QuerySet
 from django.forms import BaseFormSet, Form, widgets
 from django.http import request as DjangoRequest  # noqa: N812
+
+if TYPE_CHECKING:
+    from accounts.models import KippoUser
 
 
 class KippoAdminConfig(AdminConfig):
@@ -38,7 +41,7 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
 class AllowIsStaffAdminMixin:
     """NOTE: Must be placed BEFORE admin.ModelAdmin"""
 
-    def check_perm(self, user_obj: AbstractUser):
+    def check_perm(self, user_obj: "KippoUser"):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
         return user_obj.is_superuser or user_obj.is_staff
@@ -60,7 +63,7 @@ class AllowIsStaffAdminMixin:
 
 
 class AllowIsStaffReadonlyMixin:
-    def check_perm(self, user_obj: AbstractUser):
+    def check_perm(self, user_obj: "KippoUser"):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
         return user_obj.is_superuser or user_obj.is_staff
@@ -85,7 +88,7 @@ class AllowIsStaffReadonlyMixin:
 
 
 class AllowIsSuperuserAdminMixin:
-    def check_perm(self, user_obj: AbstractUser):
+    def check_perm(self, user_obj: "KippoUser"):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
         return user_obj.is_superuser

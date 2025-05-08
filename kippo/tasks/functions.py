@@ -276,7 +276,8 @@ def get_projects_load(  # noqa: C901,PLR0912,PLR0915 -- too complex, Too many br
     """
     logger.debug(f"ttl_hash={ttl_hash}")
     if not schedule_start_date:
-        schedule_start_date = timezone.now().date()
+        schedule_start_date = timezone.localdate()
+        logger.warning(f"schedule_start_date not given, using current date: {schedule_start_date}")
     elif isinstance(schedule_start_date, datetime.datetime):
         schedule_start_date = schedule_start_date.date()
 
@@ -397,7 +398,7 @@ def get_projects_load(  # noqa: C901,PLR0912,PLR0915 -- too complex, Too many br
 
     scheduler = QluTaskScheduler(
         milestones=qlu_milestones,
-        holiday_calendar=None,  # Currently Holidays are included in the 'holidays' variable this is not needed
+        holiday_dates=None,  # Currently Holidays are included in the 'holidays' variable this is not needed
         assignee_workdays=workdays,
         assignee_personal_holidays=holidays,
         start_date=schedule_start_date,

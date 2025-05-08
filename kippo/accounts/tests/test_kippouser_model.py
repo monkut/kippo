@@ -198,14 +198,14 @@ class KippoUserCreationTestCase(TestCase):
         membership.save()
 
         users = self.org.get_github_developer_kippousers()
-        expected_user_count = 3
-        self.assertTrue(
-            len(users) == expected_user_count, f"len(users)[{len(users)}] != expected(3)"
+        expected_user_count = 4
+        expected_usernames = ("otheruser", "anotheruser", f"unassigned-{self.org.slug}", fourth_user.username)
+        actual_usernames = [u.username for u in users]
+        self.assertEqual(
+            len(users), expected_user_count, f"len(users)[{len(users)}] != expected(3): {actual_usernames} != {expected_usernames}"
         )  # users created in setUp + auto-created 'unassigned' user
 
-        expected_usernames = ("otheruser", "anotheruser", f"unassigned-{self.org.slug}")
-        actual_usernames = [u.username for u in users]
-        self.assertTrue(set(expected_usernames) == set(actual_usernames), f"expected({set(expected_usernames)}) != actual({set(actual_usernames)})")
+        self.assertEqual(set(expected_usernames), set(actual_usernames), f"expected({set(expected_usernames)}) != actual({set(actual_usernames)})")
 
     def test_organizationmembership_get_workday_identifers(self):
         user = KippoUser(username="otheruser", github_login="otheruser-gh", is_staff=False, is_active=False, email="otheruser@otherorgdomain.com")
