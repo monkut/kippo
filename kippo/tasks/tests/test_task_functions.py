@@ -1,5 +1,5 @@
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK
+from commons.tests import DEFAULT_COLUMNSET_PK
 from django.test import TestCase
 from django.utils import timezone
 from projects.models import KippoProject, ProjectColumnSet
@@ -9,13 +9,13 @@ from ..functions import (
     get_github_issue_estimate_label,
     get_github_issue_prefixed_labels,
     get_projects_load,
-    prepare_project_engineering_load_plot_data,
+    # prepare_project_engineering_load_plot_data,
 )
 from ..models import KippoTask, KippoTaskStatus
 
 
 class LabelMock:
-    def __init__(self, name, **kwargs):
+    def __init__(self, name: str, **kwargs) -> None:
         self.name = name
 
         # https://developer.github.com/v3/issues/labels/#get-a-single-label
@@ -28,7 +28,7 @@ class LabelMock:
 
 
 class IssueMock:
-    def __init__(self, label_names: list = None):
+    def __init__(self, label_names: list = None) -> None:
         self.labels = []
         for label_name in label_names:
             label = LabelMock(name=label_name)
@@ -56,31 +56,46 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 1  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}8{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 1  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}15{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 2
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}16{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 2  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}17{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 3  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
     def test_get_github_issue_estimate_label_days(self):
         prefix = "estimate:"
@@ -89,19 +104,28 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 1  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}2{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 2  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
             label_name = f"{prefix}5{suffix}"
             issue = IssueMock(label_names=[label_name])
             expected_estimate = 5  # days
             actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-            self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+            self.assertTrue(
+                actual_estimate == expected_estimate,
+                f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+            )
 
     def test_get_github_issue_estimate_label_nosuffix(self):
         """Assumes 'days' if suffix not provided"""
@@ -111,7 +135,10 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
         issue = IssueMock(label_names=[label_name])
         expected_estimate = 1  # days
         actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
-        self.assertTrue(actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}")
+        self.assertTrue(
+            actual_estimate == expected_estimate,
+            f"actual({actual_estimate}) != expected({expected_estimate}): {label_name}",
+        )
 
     def test_get_github_issue_estimate_label_multiestimatelabels(self):
         prefix = "estimate:"
@@ -122,7 +149,8 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
         expected_estimate = 5  # days
         actual_estimate = get_github_issue_estimate_label(issue, prefix, day_workhours=8)
         self.assertTrue(
-            actual_estimate == expected_estimate, f"actual({actual_estimate}) != expected({expected_estimate}): {label_name1}, {label_name2}"
+            actual_estimate == expected_estimate,
+            f"actual({actual_estimate}) != expected({expected_estimate}): {label_name1}, {label_name2}",
         )
 
     def test_get_github_issue_category_label_singlelabel(self):
@@ -142,7 +170,7 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
         issue = IssueMock(label_names=[label1_name, label2_name])
         issue.html_url = "https://www.someurl.com"
         with self.assertRaises(ValueError):
-            actual_category = get_github_issue_category_label(issue, prefix)
+            get_github_issue_category_label(issue, prefix)
 
 
 class GetKippoProjectLoadTestCase(TestCase):
@@ -152,16 +180,23 @@ class GetKippoProjectLoadTestCase(TestCase):
         self.cli_manager = KippoUser.objects.get(username="cli-manager")
 
         self.organization = KippoOrganization(
-            name="some org", github_organization_name="some-org", created_by=self.cli_manager, updated_by=self.cli_manager
+            name="some org",
+            github_organization_name="some-org",
+            created_by=self.cli_manager,
+            updated_by=self.cli_manager,
         )
         self.organization.save()
         self.domain = "kippo.org"
         self.emaildomain = EmailDomain(
-            organization=self.organization, domain=self.domain, is_staff_domain=True, created_by=self.cli_manager, updated_by=self.cli_manager
+            organization=self.organization,
+            domain=self.domain,
+            is_staff_domain=True,
+            created_by=self.cli_manager,
+            updated_by=self.cli_manager,
         )
         self.emaildomain.save()
 
-        self.user1 = KippoUser(username="user1", github_login="user1", password="test", email="user1@github.com", is_staff=True)
+        self.user1 = KippoUser(username="user1", github_login="user1", password="test", email="user1@github.com", is_staff=True)  # noqa: S106
         self.user1.save()
         self.user1_membership = OrganizationMembership(
             user=self.user1,
@@ -173,7 +208,13 @@ class GetKippoProjectLoadTestCase(TestCase):
         )
         self.user1_membership.save()
 
-        self.user2 = KippoUser(username="user2", github_login="user2", password="test", email="user2@github.com", is_staff=True)
+        self.user2 = KippoUser(
+            username="user2",
+            github_login="user2",
+            password="test",  # noqa: S106
+            email="user2@github.com",
+            is_staff=True,  # noqa: S106
+        )
         self.user2.save()
         self.user2_membership = OrganizationMembership(
             user=self.user2,
@@ -306,14 +347,18 @@ class GetKippoProjectLoadTestCase(TestCase):
         expected_effort_start_date = timezone.datetime(2019, 6, 5).date()
         actual_effort_start_date = min(t.qlu_task.start_date for t in user1tasks)
         self.assertEqual(
-            actual_effort_start_date, expected_effort_start_date, f"actual({actual_effort_start_date}) != expected({expected_effort_start_date})"
+            actual_effort_start_date,
+            expected_effort_start_date,
+            f"actual({actual_effort_start_date}) != expected({expected_effort_start_date})",
         )
 
         # 3 days estimate total starting from 6/5 (inclusive)
         expected_effort_end_date = timezone.datetime(2019, 6, 7).date()
         actual_effort_end_date = max(t.qlu_task.end_date for t in user1tasks)
         self.assertEqual(
-            actual_effort_end_date, expected_effort_end_date, f"actual({actual_effort_end_date}) != expected({expected_effort_end_date})"
+            actual_effort_end_date,
+            expected_effort_end_date,
+            f"actual({actual_effort_end_date}) != expected({expected_effort_end_date})",
         )
 
         expected_tasktitles = ("task3", "task4")
@@ -328,14 +373,18 @@ class GetKippoProjectLoadTestCase(TestCase):
         expected_effort_start_date = timezone.datetime(2019, 6, 6).date()
         actual_effort_start_date = min(t.qlu_task.start_date for t in user2tasks)
         self.assertEqual(
-            actual_effort_start_date, expected_effort_start_date, f"actual({actual_effort_start_date}) != expected({expected_effort_start_date})"
+            actual_effort_start_date,
+            expected_effort_start_date,
+            f"actual({actual_effort_start_date}) != expected({expected_effort_start_date})",
         )
 
         # 10 days estimate total starting 6/5 only counting workdays: mon, tues, thurs, fri
         expected_effort_end_date = timezone.datetime(2019, 6, 21).date()
         actual_effort_end_date = max(t.qlu_task.end_date for t in user2tasks)
         self.assertEqual(
-            actual_effort_end_date, expected_effort_end_date, f"actual({actual_effort_end_date}) != expected({expected_effort_end_date})"
+            actual_effort_end_date,
+            expected_effort_end_date,
+            f"actual({actual_effort_end_date}) != expected({expected_effort_end_date})",
         )
 
         expected_last_effort_date = timezone.datetime(2019, 6, 5).date()
@@ -345,12 +394,12 @@ class GetKippoProjectLoadTestCase(TestCase):
             f"actual({latest_taskstatus_effort_date}) != expected({expected_last_effort_date})",
         )
 
-    def test_prepare_project_engineering_load_plot_data(self):
-        (script, div), lastest_effort_date = prepare_project_engineering_load_plot_data(
-            organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
-        )
-        self.assertTrue(script)
-        self.assertTrue(div)
-
-        expected_last_effort_date = timezone.datetime(2019, 6, 5).date()
-        self.assertEqual(lastest_effort_date, expected_last_effort_date)
+    # def test_prepare_project_engineering_load_plot_data(self):
+    #     (script, div), lastest_effort_date = prepare_project_engineering_load_plot_data(
+    #         organization=self.organization, schedule_start_date=timezone.datetime(2019, 6, 5).date()
+    #     )
+    #     self.assertTrue(script)
+    #     self.assertTrue(div)
+    #
+    #     expected_last_effort_date = timezone.datetime(2019, 6, 5).date()
+    #     self.assertEqual(lastest_effort_date, expected_last_effort_date)

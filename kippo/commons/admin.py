@@ -2,11 +2,19 @@ import json
 
 from django.conf import settings
 from django.contrib import admin
-from django.forms import widgets
+from django.contrib.admin.apps import AdminConfig
+from django.contrib.auth.models import AbstractUser
+from django.db.models import Model, QuerySet
+from django.forms import BaseFormSet, Form, widgets
+from django.http import request as DjangoRequest  # noqa: N812
+
+
+class KippoAdminConfig(AdminConfig):
+    default_site = "commons.admin.KippoAdminSite"
 
 
 class UserCreatedBaseModelAdmin(admin.ModelAdmin):
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: DjangoRequest, obj: Model, form: Form, change: bool):
         if getattr(obj, "pk", None) is None:
             obj.created_by = request.user
             obj.updated_by = request.user
@@ -14,7 +22,7 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
             obj.updated_by = request.user
         obj.save()
 
-    def save_formset(self, request, form, formset, change):
+    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
         instances = formset.save(commit=False)
         for obj in formset.deleted_objects:
             obj.delete()
@@ -30,88 +38,73 @@ class UserCreatedBaseModelAdmin(admin.ModelAdmin):
 class AllowIsStaffAdminMixin:
     """NOTE: Must be placed BEFORE admin.ModelAdmin"""
 
-    def check_perm(self, user_obj):
+    def check_perm(self, user_obj: AbstractUser):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
-        if user_obj.is_superuser or user_obj.is_staff:
-            return True
-        return False
+        return user_obj.is_superuser or user_obj.is_staff
 
-    def has_view_permission(self, request, obj=None):
+    def has_view_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: DjangoRequest, obj: Model | None = None):  # inline has_add_permission passes object
         return self.check_perm(request.user)
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
-    def has_module_permission(self, request, obj=None):
+    def has_module_permission(self, request: DjangoRequest):
         return self.check_perm(request.user)
 
 
 class AllowIsStaffReadonlyMixin:
-    def check_perm(self, user_obj):
+    def check_perm(self, user_obj: AbstractUser):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
-        if user_obj.is_superuser or user_obj.is_staff:
-            return True
-        return False
+        return user_obj.is_superuser or user_obj.is_staff
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: DjangoRequest, obj: Model | None = None):  # inline has_add_permission passes object
         if not request.user.is_active or request.user.is_anonymous:
             return False
-        if request.user.is_superuser:
-            return True
-        else:
-            return False
+        return request.user.is_superuser
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None):
         if not request.user.is_active or request.user.is_anonymous:
             return False
-        if request.user.is_superuser:
-            return True
-        else:
-            return False
+        return request.user.is_superuser
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
         if not request.user.is_active or request.user.is_anonymous:
             return False
-        if request.user.is_superuser:
-            return True
-        else:
-            return False
+        return request.user.is_superuser
 
-    def has_module_permission(self, request, obj=None):
+    def has_module_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
 
 class AllowIsSuperuserAdminMixin:
-    def check_perm(self, user_obj):
+    def check_perm(self, user_obj: AbstractUser):
         if not user_obj.is_active or user_obj.is_anonymous:
             return False
-        if user_obj.is_superuser:
-            return True
-        return False
+        return user_obj.is_superuser
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: DjangoRequest, obj: Model | None = None):  # inline has_add_permission passes object
         return self.check_perm(request.user)
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
         return self.check_perm(request.user)
 
-    def has_module_permission(self, request, obj=None):
+    def has_module_permission(self, request: DjangoRequest):
         return self.check_perm(request.user)
 
 
 class OrganizationTaskQuerysetModelAdminMixin:
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest) -> QuerySet:
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -119,7 +112,7 @@ class OrganizationTaskQuerysetModelAdminMixin:
 
 
 class OrganizationQuerysetModelAdminMixin:
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest) -> QuerySet:
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -140,7 +133,7 @@ admin_site = KippoAdminSite(name="kippoadmin")
 
 
 class PrettyJSONWidget(widgets.Textarea):
-    def format_value(self, value):
+    def format_value(self, value: str) -> str:
         try:
             value = json.dumps(json.loads(value), indent=4, ensure_ascii=False, sort_keys=True)
         except json.JSONDecodeError:

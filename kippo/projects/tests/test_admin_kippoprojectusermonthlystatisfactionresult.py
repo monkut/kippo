@@ -1,10 +1,11 @@
 from unittest.mock import MagicMock
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
 from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
+
 from projects.models import ProjectColumnSet
 
 from ..admin import KippoProjectUserMonthlyStatisfactionResultAdmin
@@ -17,7 +18,7 @@ class MockRequest:
     path = ""
     _messages = MagicMock()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         self.GET = {}
         self.POST = {}
         self._messages = MagicMock()
@@ -109,10 +110,13 @@ class KippoProjectUserMonthlyStatisfactionResultAdminTestCase(IsStaffModelAdminT
         url = reverse("admin:projects_kippoprojectusermonthlystatisfactionresult_add")
         request = self.factory.get(url)
         request.user = self.organization_usera
-        ModelForm = modeladmin.get_form(request)
+        ModelForm = modeladmin.get_form(request)  # noqa: N806 - function should be lowercase
         form = ModelForm(data=data)
         self.assertTrue(form.is_valid(), f"new_survey_date={new_survey_date}, form.errors={form.errors}")
         obj = form.save(commit=False)
         modeladmin.save_model(request, obj, form, change=False)
         expected = 2
-        self.assertEqual(KippoProjectUserMonthlyStatisfactionResult.objects.filter(created_by=self.organization_usera).count(), expected)
+        self.assertEqual(
+            KippoProjectUserMonthlyStatisfactionResult.objects.filter(created_by=self.organization_usera).count(),
+            expected,
+        )

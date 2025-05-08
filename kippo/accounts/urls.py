@@ -1,5 +1,5 @@
-from django.conf.urls import url
+from django.urls import path
 
 from . import views
 
-urlpatterns = [url("members/$", views.view_organization_members, name="view_organization_members")]
+urlpatterns = [path("members/", views.view_organization_members, name="view_organization_members")]

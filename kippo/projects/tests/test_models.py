@@ -1,11 +1,13 @@
 import datetime
 
 from accounts.models import Country, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
-from django.test import Client, TestCase
+from commons.definitions import SATURDAY, SUNDAY
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from django.test import TestCase
 from django.utils import timezone
-from projects.models import KippoMilestone, KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
+
+from projects.models import KippoMilestone, KippoProject
 
 
 class KippoProjectMethodsTestCase(TestCase):
@@ -134,7 +136,9 @@ class KippoProjectMethodsTestCase(TestCase):
     def test__get_active_taskstatus_from_projects__with_max_effort_date(self):
         max_effort_date = timezone.datetime(2019, 8, 15).date()
         results, has_estimates = self.project.get_active_taskstatus(max_effort_date=max_effort_date)
-        self.assertTrue(len(results) == 2)
+
+        expected_activetask_count = 2
+        self.assertEqual(len(results), expected_activetask_count)
         actual_tasks = [s.task for s in results]
         self.assertTrue(self.task3 not in actual_tasks, f"done task({self.task3}) should not be returned but is: {results}")
 
@@ -155,7 +159,7 @@ class KippoProjectMethodsTestCase(TestCase):
 
     def test__get_active_taskstatus__done__latest_taskstatus(self):
         new_date = timezone.datetime(2019, 12, 19)
-        for i in range(10):
+        for _ in range(10):
             task2_status = KippoTaskStatus(
                 task=self.task2,
                 state=self.done_column_name,
@@ -194,11 +198,15 @@ class KippoMilestoneMethodsTestCase(TestCase):
         self.task1 = created["KippoTask"]
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
-        self.user2 = KippoUser(username="user2", github_login="user2", password="test", email="a@github.com", is_staff=True)
+        self.user2 = KippoUser(username="user2", github_login="user2", password="test", email="a@github.com", is_staff=True)  # noqa: S106
         self.user2.save()
 
         orgmembership = OrganizationMembership(
-            user=self.user2, organization=self.organization, is_developer=True, created_by=self.github_manager, updated_by=self.github_manager
+            user=self.user2,
+            organization=self.organization,
+            is_developer=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
         )
         orgmembership.save()
 
@@ -322,7 +330,8 @@ class KippoMilestoneMethodsTestCase(TestCase):
         # - organization unassigned user
         # - created user
         # - created user2
-        assert OrganizationMembership.objects.count() == 3
+        expected_mempership_count = 3
+        assert OrganizationMembership.objects.count() == expected_mempership_count
         # remove user2 OrganizationMembership -- affects the available days calculation
         OrganizationMembership.objects.filter(user=self.user2).delete()
 
@@ -345,8 +354,6 @@ class KippoMilestoneMethodsTestCase(TestCase):
         self.assertTrue(actual)
 
         # all days mon-fri between 9/1 to 9/20
-        SATURDAY = 5
-        SUNDAY = 6
         expected = sum(1 for day in range(1, 21, 1) if timezone.datetime(2020, 9, day).weekday() not in (SATURDAY, SUNDAY))
         self.assertEqual(actual, expected)
 
@@ -375,8 +382,11 @@ class KippoMilestoneMethodsTestCase(TestCase):
         self.assertEqual(actual, expected)
 
     def test_estimated_work_days(self):
-        assert KippoProject.objects.count() > 0
-        assert KippoTaskStatus.objects.count() == 5, KippoTaskStatus.objects.count()
+        expected_project_count = 0
+        assert KippoProject.objects.count() > expected_project_count
+
+        expected_taskstatus_count = 5
+        assert KippoTaskStatus.objects.count() == expected_taskstatus_count, KippoTaskStatus.objects.count()
         # set start_date, target_date for project
         self.project.start_date = timezone.datetime(2020, 9, 1).date()
         self.project.target_date = timezone.datetime(2020, 11, 1).date()

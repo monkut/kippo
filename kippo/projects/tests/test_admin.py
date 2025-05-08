@@ -2,13 +2,12 @@ from http import HTTPStatus
 from unittest.mock import MagicMock
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
 from django.urls import reverse
 from django.utils import timezone
-from projects.models import KippoProject, ProjectColumnSet
 
-from ..admin import KippoMilestoneAdmin, KippoProjectAdmin, ProjectWeeklyEffortAdminInline
-from ..models import KippoMilestone, KippoProject
+from projects.admin import KippoMilestoneAdmin, KippoProjectAdmin, ProjectWeeklyEffortAdminInline
+from projects.models import KippoMilestone, KippoProject, ProjectColumnSet
 
 
 class MockRequest:
@@ -17,7 +16,7 @@ class MockRequest:
     path = ""
     _messages = MagicMock()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         self.GET = {}
         self.POST = {}
         self._messages = MagicMock()
@@ -67,11 +66,11 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
             updated_by=self.github_manager,
         )
         self.organization_usera = KippoUser.objects.create(username="organization_usera")
-        organization_usera_membership = OrganizationMembership.objects.create(organization=self.organization, user=self.organization_usera)
+        OrganizationMembership.objects.create(organization=self.organization, user=self.organization_usera)
         self.organization_users = OrganizationMembership.objects.filter(organization=self.organization).values_list("user", flat=True)
 
         other_organization_usera = KippoUser.objects.create(username="other_organization_usera")
-        other_organization_usera_membership = OrganizationMembership.objects.create(organization=self.organization, user=other_organization_usera)
+        OrganizationMembership.objects.create(organization=self.organization, user=other_organization_usera)
 
     def test_list_objects(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
@@ -204,7 +203,6 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         )
 
     def test_kippomilestone_view(self):
-
         url = reverse("admin:projects_kippomilestone_changelist")
         self.client.force_login(self.superuser_no_org)
         response = self.client.get(url)

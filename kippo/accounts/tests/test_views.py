@@ -1,8 +1,7 @@
-import calendar
 import datetime
 from http import HTTPStatus
 
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from dateutil.relativedelta import relativedelta
 from django.test import Client, TestCase
 from django.utils import timezone
@@ -33,7 +32,11 @@ class AccountsViewsTestCase(TestCase):
         )
         # add membership
         membership = OrganizationMembership(
-            user=self.user, organization=self.other_organization, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+            user=self.user,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+            is_developer=True,
         )
         membership.save()
         self.nonmember_organization = KippoOrganization.objects.create(
@@ -43,7 +46,7 @@ class AccountsViewsTestCase(TestCase):
             updated_by=self.github_manager,
         )
 
-        self.no_org_user = KippoUser(username="noorguser", github_login="noorguser", password="test", email="noorguser@github.com", is_staff=True)
+        self.no_org_user = KippoUser(username="noorguser", github_login="noorguser", password="test", email="noorguser@github.com", is_staff=True)  # noqa: S106
         self.no_org_user.save()
 
         self.client = Client()
@@ -56,7 +59,7 @@ class AccountsViewsTestCase(TestCase):
 
     def test___get_organization_monthly_available_workdays__publicholidays(self):
         current_datetime = timezone.now()
-        start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
+        start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.UTC)
 
         two_years_from_now = start_datetime + relativedelta(months=1, years=2)
         end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
@@ -79,7 +82,7 @@ class AccountsViewsTestCase(TestCase):
 
     def test___get_organization_monthly_available_workdays__persionalholidays(self):
         current_datetime = timezone.now()
-        start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
+        start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.UTC)
         two_years_from_now = start_datetime + relativedelta(months=1, years=2)
         end_datetime = two_years_from_now.replace(day=1) - datetime.timedelta(days=1)
 

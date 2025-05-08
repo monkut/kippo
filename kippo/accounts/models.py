@@ -1,12 +1,13 @@
 import datetime
 import logging
-import random
+import secrets
 import string
 import uuid
 from collections import Counter
-from typing import Generator, List, Optional, Tuple
+from collections.abc import Generator
 
-from common.models import UserCreatedBaseModel
+from commons.definitions import SATURDAY, SUNDAY
+from commons.models import UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -17,7 +18,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ JAPAN_FISCALYEAR_START_MONTH = 4
 
 def generate_random_secret(n: int = 20) -> str:
     """Generate a random string of n length"""
-    return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(n))
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
 
 
 class KippoOrganization(UserCreatedBaseModel):
@@ -38,7 +39,6 @@ class KippoOrganization(UserCreatedBaseModel):
     default_task_category = models.CharField(
         max_length=256,
         default=settings.DEFAULT_KIPPOTASK_CATEGORY,
-        null=True,
         blank=True,
         help_text=_("Default category to apply to KippoTask objects"),
     )
@@ -61,20 +61,27 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_("If defined newly identified GithubRepository will AUTOMATICALLY have this LabelSet assigned"),
     )
-    google_forms_project_survey_url = models.URLField(
-        null=True, default=None, blank=True, help_text=_('If a "Project Survey" is defined, include here')
-    )
+    google_forms_project_survey_url = models.URLField(default="", blank=True, help_text=_('If a "Project Survey" is defined, include here'))
     google_forms_project_survey_projectid_entryid = models.CharField(
-        max_length=255, null=True, default=None, blank=True, help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")')
+        max_length=255,
+        default="",
+        blank=True,
+        help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")'),
     )
     webhook_secret = models.CharField(max_length=20, default=generate_random_secret, editable=False, help_text=_("Github Webhook Secret"))
     slack_api_token = models.CharField(
-        max_length=60, null=True, blank=True, default=None, help_text=_("REQUIRED if slack channel reporting is desired")
+        max_length=60,
+        blank=True,
+        default="",
+        help_text=_("REQUIRED if slack channel reporting is desired"),
     )
     slack_bot_name = models.CharField(
-        max_length=60, null=True, blank=True, default="kippo", help_text=_("REQUIRED if slack channel reporting is desired")
+        max_length=60,
+        blank=True,
+        default="kippo",
+        help_text=_("REQUIRED if slack channel reporting is desired"),
     )
-    slack_bot_iconurl = models.URLField(null=True, blank=True, default=None, help_text=_("URL link to slack bot display image"))
+    slack_bot_iconurl = models.URLField(blank=True, default="", help_text=_("URL link to slack bot display image"))
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
     )
@@ -88,14 +95,13 @@ class KippoOrganization(UserCreatedBaseModel):
     def slug(self):
         return slugify(self.name, allow_unicode=True)
 
-    def get_membership_kippousers(self) -> List["KippoUser"]:
+    def get_membership_kippousers(self) -> list["KippoUser"]:
         memberships = OrganizationMembership.objects.filter(organization=self).order_by("user__username").select_related("user")
         users = [m.user for m in memberships]
         return users
 
-    def get_github_developer_kippousers(self) -> List["KippoUser"]:
+    def get_github_developer_kippousers(self) -> list["KippoUser"]:
         """Get KippoUser objects for users with a github login, membership to this organization, and is_developer=True status"""
-
         developer_memberships = OrganizationMembership.objects.filter(
             user__github_login__isnull=False, organization=self, is_developer=True
         ).select_related("user")
@@ -123,9 +129,8 @@ class KippoOrganization(UserCreatedBaseModel):
         return membership.user
 
     def clean(self):
-        if self.google_forms_project_survey_url:
-            if not self.google_forms_project_survey_url.endswith("viewform"):
-                raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
+        if self.google_forms_project_survey_url and not self.google_forms_project_survey_url.endswith("viewform"):
+            raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
 
     def save(self, *args, **kwargs):
         if self._state.adding:  # created (for when using UUIDField as id)
@@ -141,14 +146,15 @@ class KippoOrganization(UserCreatedBaseModel):
         next_fiscal_year = current.replace(day=1)
         return next_fiscal_year
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name}-{self.github_organization_name})"
 
 
 class EmailDomain(UserCreatedBaseModel):
     organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE)
     domain = models.CharField(
-        max_length=255, help_text=_("Organization email domains allowed to access organization information [USERNAME@{DOMAIN}]")
+        max_length=255,
+        help_text=_("Organization email domains allowed to access organization information [USERNAME@{DOMAIN}]"),
     )
     is_staff_domain = models.BooleanField(default=True, help_text=_("Domain has access to admin"))
 
@@ -157,13 +163,13 @@ class EmailDomain(UserCreatedBaseModel):
         try:
             validate_email(email_address_with_domain)  # will raise ValidationError on failure
         except ValidationError:
-            raise ValidationError(f'"{self.domain}" is not a valid EMAIL DOMAIN!')
+            raise ValidationError(f'"{self.domain}" is not a valid EMAIL DOMAIN!') from None
 
 
 class OrganizationMembership(UserCreatedBaseModel):
     user = models.ForeignKey("KippoUser", on_delete=models.DO_NOTHING)
     organization = models.ForeignKey("KippoOrganization", on_delete=models.DO_NOTHING)
-    email = models.EmailField(null=True, blank=True, help_text=_("Email address with Organization"))
+    email = models.EmailField(blank=True, default="", help_text=_("Email address with Organization"))
     # TODO: add OPTIONAL -- contract_start, contract_end
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
@@ -184,7 +190,7 @@ class OrganizationMembership(UserCreatedBaseModel):
         return result
 
     @property
-    def committed_weekdays(self) -> List[int]:
+    def committed_weekdays(self) -> list[int]:
         """Return the integer weekday values for committed days"""
         workday_attrs = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
         weekdays = []
@@ -194,7 +200,7 @@ class OrganizationMembership(UserCreatedBaseModel):
                 weekdays.append(weekday)
         return weekdays
 
-    def get_workday_identifers(self) -> Tuple[str]:
+    def get_workday_identifers(self) -> tuple[str]:
         """Convert membership workdays to string list used by qlu scheduler"""
         workday_attrs = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
         identifiers = []
@@ -235,19 +241,27 @@ class OrganizationMembership(UserCreatedBaseModel):
             self.user.is_active = True
             self.user.save()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"OrganizationMembership({self.organization}:{self.user.username})"
 
 
 class KippoUser(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     memberships = models.ManyToManyField(
-        KippoOrganization, through="OrganizationMembership", through_fields=("user", "organization"), blank=True, default=None
+        KippoOrganization,
+        through="OrganizationMembership",
+        through_fields=("user", "organization"),
+        blank=True,
+        default=None,
     )
-    github_login = models.CharField(max_length=100, null=True, blank=True, default=None, help_text="Github Login username")
+    github_login = models.CharField(max_length=100, blank=True, default="", help_text="Github Login username")
     is_github_outside_collaborator = models.BooleanField(default=False, help_text=_("Set to True if User is an outside collaborator"))
     holiday_country = models.ForeignKey(
-        "accounts.Country", on_delete=models.DO_NOTHING, null=True, blank=True, help_text=_("Country that user participates in holidays")
+        "accounts.Country",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        help_text=_("Country that user participates in holidays"),
     )
 
     @property
@@ -260,7 +274,7 @@ class KippoUser(AbstractUser):
 
         return f" {self.first_name} {self.last_name}{github_login_display}"
 
-    def personal_holiday_dates(self) -> Generator[datetime.date, None, None]:
+    def personal_holiday_dates(self) -> Generator[datetime.date]:
         for holiday in PersonalHoliday.objects.filter(user=self):
             holiday_start_date = holiday.day
             for days in range(holiday.duration):
@@ -307,7 +321,13 @@ class PersonalHoliday(models.Model):
     day = models.DateField()
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
 
-    def get_weeklyeffort_hours(self, today: Optional[datetime.date] = None) -> Generator:
+    class Meta:
+        ordering = ["-day"]
+
+    def __str__(self) -> str:
+        return f"PersonalHoliday({self.user.username} [{self.day} ({self.duration})])"
+
+    def get_weeklyeffort_hours(self, today: datetime.date | None = None) -> Generator:
         # "project": effort.project.name,
         # "week_start": effort.week_start.strftime("%Y%m%d"),
         # "user": effort.user.display_name,
@@ -315,8 +335,6 @@ class PersonalHoliday(models.Model):
         if not today:
             today = timezone.now().date()
         public_holidays = PublicHoliday.objects.filter(day__gte=today, country=self.user.holiday_country).values_list("day", flat=True)
-        SATURDAY = 5
-        SUNDAY = 6
         c = Counter()
         for day_count in range(self.duration):
             target_day = self.day + timezone.timedelta(days=day_count)
@@ -327,13 +345,15 @@ class PersonalHoliday(models.Model):
                 else:
                     hours = 8
                 c[week_start.strftime("%Y%m%d")] += hours
-        return ({"project": "PersonalHoliday", "week_start": week_start, "user": self.user.display_name, "hours": c[week_start]} for week_start in c)
-
-    def __str__(self):
-        return f"PersonalHoliday({self.user.username} [{self.day} ({self.duration})])"
-
-    class Meta:
-        ordering = ["-day"]
+        return (
+            {
+                "project": "PersonalHoliday",
+                "week_start": week_start,
+                "user": self.user.display_name,
+                "hours": c[week_start],
+            }
+            for week_start in c
+        )
 
 
 class Country(models.Model):
@@ -343,7 +363,7 @@ class Country(models.Model):
     country_code = models.CharField(max_length=3, help_text=_("ISO-3166 3 digit country-code"))
     region = models.CharField(max_length=50, help_text=_("Global Region"))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"({self.alpha_3}) {self.name} "
 
 
@@ -352,20 +372,20 @@ class PublicHoliday(models.Model):
     name = models.CharField(max_length=150, help_text=_("Holiday Name"))
     day = models.DateField()
 
-    def __str__(self):
-        return f"{self.name} {self.day} ({self.country.alpha_3})"
-
     class Meta:
         ordering = ["-day"]
 
+    def __str__(self) -> str:
+        return f"{self.name} {self.day} ({self.country.alpha_3})"
 
-def get_climanager_user():
+
+def get_climanager_user() -> KippoUser:
     user = KippoUser.objects.get(username="cli-manager")
     return user
 
 
 @receiver(pre_delete, sender=KippoUser)
-def delete_kippouser_organizationmemberships(sender, instance, **kwargs):
+def delete_kippouser_organizationmemberships(sender: type[KippoUser], instance: KippoUser, **_) -> None:  # noqa: ARG001
     membership_count = OrganizationMembership.objects.filter(user=instance).count()
     logger.info(f"Deleting ({membership_count}) OrganizationMembership(s) for User: {instance.username}")
     OrganizationMembership.objects.filter(user=instance).delete()

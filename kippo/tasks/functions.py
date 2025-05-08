@@ -2,19 +2,20 @@ import datetime
 import logging
 import time
 from collections import defaultdict
+from collections.abc import Generator, Iterable
 from functools import lru_cache
 from itertools import islice
 from math import ceil
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any
 
 from accounts.models import Country, KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from django.conf import settings
 from django.utils import timezone
 from ghorgs.wrappers import GithubIssue
-from projects.models import KippoMilestone, KippoProject
+from projects.models import KippoProject
 from qlu.core import QluMilestone, QluTask, QluTaskEstimates, QluTaskScheduler
 
-from .charts.functions import prepare_project_schedule_chart_components
+# from .charts.functions import prepare_project_schedule_chart_components
 from .exceptions import OrganizationKippoTaskStatusError, ProjectConfigurationError
 from .models import KippoTask, KippoTaskStatus
 
@@ -26,7 +27,7 @@ DATE_DISPLAY_FORMAT = "%Y-%m-%d (%a)"
 
 
 class GithubIssuePrefixedLabel:
-    def __init__(self, label: object, prefix_delim: str = ":"):
+    def __init__(self, label: object, prefix_delim: str = ":") -> None:
         self.label = label
         self.prefix_delim = prefix_delim
 
@@ -45,7 +46,7 @@ class GithubIssuePrefixedLabel:
         return self.name.split(self.prefix_delim)[-1]
 
 
-def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":") -> List[GithubIssuePrefixedLabel]:
+def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":") -> list[GithubIssuePrefixedLabel]:
     """Process a label in the format of a prefix/value"""
     prefixed_labels = []
     for label in issue.labels:
@@ -57,20 +58,19 @@ def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":"
 def build_latest_comment(issue: GithubIssue) -> str:
     latest_comment = ""
     if issue.latest_comment_body:
-        latest_comment = f"{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] " f"{issue.latest_comment_body}"
+        latest_comment = f"{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] {issue.latest_comment_body}"
     return latest_comment
 
 
-def get_tags_from_prefixedlabels(prefixed_labels: List[GithubIssuePrefixedLabel]) -> List[Dict[str, str]]:
-    tags = []
-    for prefixed_label in prefixed_labels:
-        # more than 1 label with the same prefix may exist
-        tags.append({"name": prefixed_label.prefix, "value": prefixed_label.value})
+def get_tags_from_prefixedlabels(prefixed_labels: list[GithubIssuePrefixedLabel]) -> list[dict[str, str]]:
+    tags = [{"name": label.prefix, "value": label.value} for label in prefixed_labels]
     return tags
 
 
 def get_github_issue_estimate_label(
-    issue: GithubIssue, prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX, day_workhours: int = settings.DAY_WORKHOURS
+    issue: GithubIssue,
+    prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_ESTIMATE_PREFIX,
+    day_workhours: int = settings.DAY_WORKHOURS,
 ) -> int:
     """
     Parse the estimate label into an estimate value
@@ -94,6 +94,7 @@ def get_github_issue_estimate_label(
     :return: parsed estimate result in days
     """
     estimate = None
+    candidate_estimate = None
     valid_label_suffixes = ("d", "day", "days", "h", "hour", "hours")
     for label in issue.labels:
         if label.name.startswith(prefix):
@@ -105,7 +106,7 @@ def get_github_issue_estimate_label(
             try:
                 candidate_estimate = int(estimate_str_value)
             except ValueError:
-                logger.error(f"Invalid estimate value cannot convert to int() estimate_str_value={estimate_str_value}, label.name={label.name}")
+                logger.exception(f"Invalid estimate value cannot convert to int() estimate_str_value={estimate_str_value}, label.name={label.name}")
 
             if candidate_estimate:
                 if label.name.endswith(("h", "hour", "hours")):
@@ -125,7 +126,7 @@ def get_github_issue_estimate_label(
     return estimate
 
 
-def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX) -> str:
+def get_github_issue_category_label(issue: GithubIssue, prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX) -> str:
     """
     Parse the category label into the category value
     Category Labels follow the scheme:
@@ -153,7 +154,7 @@ class TaskStatusError(Exception):
     pass
 
 
-def window(seq, n=2) -> Generator:
+def window(seq: Iterable, n: int = 2) -> Generator:
     """
     Returns a sliding window (of width n) over data from the iterable
     s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...
@@ -168,8 +169,10 @@ def window(seq, n=2) -> Generator:
 
 
 def update_kippotaskstatus_hours_worked(
-    projects: KippoProject, start_date: datetime.date = None, date_delta: timezone.timedelta = DEFAULT_HOURSWORKED_DATERANGE
-) -> List[KippoTaskStatus]:
+    projects: KippoProject,
+    start_date: datetime.date = None,
+    date_delta: timezone.timedelta = DEFAULT_HOURSWORKED_DATERANGE,
+) -> list[KippoTaskStatus]:
     """
     Obtain the calculated hours_worked between KippoTaskStatus objects for the same task from different effort_date(s)
     return all calculations for
@@ -189,54 +192,51 @@ def update_kippotaskstatus_hours_worked(
         task_taskstatuses[status.task.id].append(status)  # expect to be in order
 
     updated_statuses = []
-    for task_id, task_statuses in task_taskstatuses.items():
+    for task_statuses in task_taskstatuses.values():
         for earlier_status, later_status in window(task_statuses, n=2):
-            if earlier_status.estimate_days and later_status.estimate_days:
-                if later_status.hours_spent is None:
-                    # update
-                    change_in_days = earlier_status.estimate_days - later_status.estimate_days
-                    logger.debug(f"change_in_days: {change_in_days}")
-                    if change_in_days >= 0:  # ignore increases in estimates
-                        # calculate based on project work days
-                        project = projects_map[later_status.task.project.id]
-                        day_workhours = project.organization.day_workhours
-                        calculated_work_hours = change_in_days * day_workhours
-                        later_status.hours_spent = calculated_work_hours
-                        later_status.save()
-                        updated_statuses.append(later_status)
-                        logger.info(
-                            f"({later_status.task.title} [{later_status.effort_date}]) "
-                            f"Updated KippoTaskStatus.hours_spent={calculated_work_hours}"
-                        )
-                    else:
-                        logger.warning(
-                            f"Estimate increased, KippoTaskStatus NOT updated: "
-                            f"{earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}"
-                        )
+            if earlier_status.estimate_days and later_status.estimate_days and later_status.hours_spent is None:
+                # update
+                change_in_days = earlier_status.estimate_days - later_status.estimate_days
+                logger.debug(f"change_in_days: {change_in_days}")
+                if change_in_days >= 0:  # ignore increases in estimates
+                    # calculate based on project work days
+                    project = projects_map[later_status.task.project.id]
+                    day_workhours = project.organization.day_workhours
+                    calculated_work_hours = change_in_days * day_workhours
+                    later_status.hours_spent = calculated_work_hours
+                    later_status.save()
+                    updated_statuses.append(later_status)
+                    logger.info(
+                        f"({later_status.task.title} [{later_status.effort_date}]) Updated KippoTaskStatus.hours_spent={calculated_work_hours}"
+                    )
+                else:
+                    logger.warning(
+                        f"Estimate increased, KippoTaskStatus NOT updated: "
+                        f"{earlier_status.estimate_days} - {later_status.estimate_days} = {change_in_days}"
+                    )
     return updated_statuses
 
 
 def _get_latest_kippotaskstatus_effortdate(organization: KippoOrganization) -> timezone.datetime.date:
-    """get the latest available date for KippoTaskStatus effort_date records for the specific organization"""
+    """Get the latest available date for KippoTaskStatus effort_date records for the specific organization"""
     logger.debug(f"Collecting KippoTaskStatus for organization: {organization}")
     try:
         latest_taskstatus_effort_date = KippoTaskStatus.objects.filter(task__project__organization=organization).latest("effort_date").effort_date
     except KippoTaskStatus.DoesNotExist as e:
-        logger.exception(e)
         msg = f"No KippoTaskStatus entries for Organization: {organization}"
-        logger.error(msg)
-        raise OrganizationKippoTaskStatusError(msg)
+        logger.exception(msg)
+        raise OrganizationKippoTaskStatusError(msg) from e
     return latest_taskstatus_effort_date
 
 
-def get_ttlhash(seconds=60) -> int:
+def get_ttlhash(seconds: int = 60) -> int:
     return round(time.time() / seconds)
 
 
-@lru_cache()
-def get_projects_load(
-    organization: KippoOrganization, schedule_start_date: datetime.date = None, ttl_hash: Optional[int] = None
-) -> Tuple[Dict[Any, Dict[str, List[KippoTask]]], Dict[str, Dict[datetime.date, str]], datetime.date]:
+@lru_cache
+def get_projects_load(  # noqa: C901,PLR0912,PLR0915 -- too complex, Too many branches (18 > 12), Too many statements (198 > 50)
+    organization: KippoOrganization, schedule_start_date: datetime.date = None, ttl_hash: int | None = None
+) -> tuple[dict[Any, dict[str, list[KippoTask]]], dict[str, dict[datetime.date, str]], datetime.date]:
     """
     Schedule tasks to determine developer work load for projects with is_closed=False belonging to the given organization.
     Returned KippoTasks are augmented with the scheduled resulting QluTask object as the 'qlu_task' attribute.
@@ -274,6 +274,7 @@ def get_projects_load(
             )
 
     """
+    logger.debug(f"ttl_hash={ttl_hash}")
     if not schedule_start_date:
         schedule_start_date = timezone.now().date()
     elif isinstance(schedule_start_date, datetime.datetime):
@@ -344,8 +345,7 @@ def get_projects_load(
                 # treat the parent project as a milestone to get the task start/end
                 if not all((project.start_date, project.target_date)):
                     raise ValueError(
-                        f'"start_date" and "target_date" Project({project.name}): '
-                        f"start_date={project.start_date}, target_date={project.target_date}"
+                        f'"start_date" and "target_date" Project({project.name}): start_date={project.start_date}, target_date={project.target_date}'
                     )
                 milestone_id = f"p-{status.task.project.id}"  # matches below in milestone creation
                 logger.debug(
@@ -378,7 +378,7 @@ def get_projects_load(
 
     project_developer_load = {}
 
-    def nesteddictlist():
+    def nesteddictlist() -> dict[str, list]:
         return defaultdict(list)
 
     milestone_developer_load = defaultdict(nesteddictlist)  # TODO: finish --- is this needed?
@@ -428,15 +428,15 @@ def get_projects_load(
     return project_developer_load, assignee_date_keyed_scheduled_projects_ids, latest_taskstatus_effort_date
 
 
-def _add_assignee_project_data(
+def _add_assignee_project_data(  # noqa: C901,PLR0912,PLR0915 -- too complex, Too many branches (18 > 12), Too many statements (198 > 50)
     organization: KippoOrganization,
     schedule_start_date: datetime.date,
     assignee_github_login: str,
     assignee_tasks: list,
-    country_holidays: Dict[Country, List[PublicHoliday]],
-    assignee_date_keyed_scheduled_projects_ids: Dict[str, Dict[datetime.date, str]],
+    country_holidays: dict[Country, list[PublicHoliday]],
+    assignee_date_keyed_scheduled_projects_ids: dict[str, dict[datetime.date, str]],
     max_days: int = 65,
-) -> Tuple[Dict[str, list], datetime.date, datetime.date, int, datetime.date, bool]:
+) -> tuple[dict[str, list], datetime.date, datetime.date, int, datetime.date, bool]:
     assignee_data = {
         # length of columns expected to be the same
         "project_ids": [],
@@ -488,9 +488,7 @@ def _add_assignee_project_data(
             assignee_total_scheduled_days += latest_kippotaskstatus.estimate_days
 
         for task_date in task.qlu_task.scheduled_dates:
-            if not assignee_max_task_date:
-                assignee_max_task_date = task_date
-            elif assignee_max_task_date and assignee_max_task_date < task_date:
+            if not assignee_max_task_date or assignee_max_task_date and assignee_max_task_date < task_date:
                 assignee_max_task_date = task_date
             logger.debug(
                 f"assignee_github_login={assignee_github_login}, assignee_max_task_date={assignee_max_task_date}, project_name={project_name}, "
@@ -516,7 +514,7 @@ def _add_assignee_project_data(
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
-            elif task_date in date_keyed_holidays.keys():
+            elif task_date in date_keyed_holidays:
                 holiday_name = date_keyed_holidays[task_date].name
                 assignee_data["task_ids"].append(None)
                 assignee_data["task_urls"].append(None)
@@ -574,7 +572,7 @@ def _add_assignee_project_data(
 
     # fill additional dates for assignee
     current_date = schedule_start_date
-    for days in range(max_days):
+    for _ in range(max_days):
         current_date += datetime.timedelta(days=1)
         if current_date not in assignee_scheduled_dates:
             assignee_data["project_ids"].append(project_id)
@@ -598,7 +596,7 @@ def _add_assignee_project_data(
                 assignee_data["unscheduled_dates"].append(None)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
-            elif current_date in date_keyed_holidays.keys():
+            elif current_date in date_keyed_holidays:
                 # add holidays
                 holiday_name = date_keyed_holidays[current_date].name
                 assignee_data["task_ids"].append(None)
@@ -674,108 +672,115 @@ def _add_assignee_project_data(
                 assignee_data["unscheduled_dates"].append(current_date)
                 assignee_data["uncommitted_dates"].append(None)
                 assignee_data["personal_holiday_dates"].append(None)
-    return assignee_data, project_start_date, project_target_date, assignee_total_scheduled_days, assignee_max_task_date, project_populated
-
-
-def prepare_project_engineering_load_plot_data(
-    organization: KippoOrganization, assignee_filter: str = None, schedule_start_date: Optional[datetime.date] = None
-):
-    logger.debug(f"organization: {organization}")
-    if not schedule_start_date:
-        schedule_start_date = timezone.now().date()
-    logger.info(f"schedule_start_date={schedule_start_date}")
-    max_days = 70
-    projects_results, assignee_date_keyed_scheduled_projects_ids, latest_effort_date = get_projects_load(
-        organization, schedule_start_date, ttl_hash=get_ttlhash(seconds=60)
+    return (
+        assignee_data,
+        project_start_date,
+        project_target_date,
+        assignee_total_scheduled_days,
+        assignee_max_task_date,
+        project_populated,
     )
-    if not projects_results:
-        raise ValueError("(get_projects_load) project_results is empty!")
 
-    country_holidays = defaultdict(list)
-    for public_holiday in PublicHoliday.objects.filter(day__gte=schedule_start_date):
-        country_holidays[public_holiday.country].append(public_holiday)
 
-    project_data = []
-    # prepare data for plotting
-    for project_id in projects_results:
-        data = {
-            # length of columns expected to be the same
-            "project_ids": [],
-            "project_names": [],
-            "current_dates": [],
-            "assignee_calendar_days": [],
-            "assignees": [],
-            "project_assignee_grouped": [],
-            "task_ids": [],
-            "task_urls": [],
-            "task_titles": [],
-            "task_estimate_days": [],
-            "task_dates": [],
-            "descriptions": [],
-            "holiday_dates": [],
-            "weekend_dates": [],
-            "scheduled_dates": [],
-            "unscheduled_dates": [],
-            "uncommitted_dates": [],
-            "personal_holiday_dates": [],
-        }
-        project_assignee_data = defaultdict(dict)
-        project_populated = False
-        project_start_date = None
-        project_target_date = None
-        project_estimate_date = None
-        for assignee, assignee_tasks in projects_results[project_id].items():
-            if assignee_filter and assignee not in assignee_filter:
-                logger.debug(f"assignee_filter({assignee_filter}) applied, skipping: {assignee}")
-                continue
-            (
-                assignee_data,
-                project_start_date,
-                project_target_date,
-                assignee_total_days,
-                assignee_max_task_date,
-                populated,
-            ) = _add_assignee_project_data(
-                organization,
-                schedule_start_date,
-                assignee,
-                assignee_tasks,
-                country_holidays,
-                assignee_date_keyed_scheduled_projects_ids,
-                max_days=max_days,
-            )
-            if populated:
-                project_populated = True
-            if not project_estimate_date:
-                project_estimate_date = assignee_max_task_date
-            elif project_estimate_date and project_estimate_date < assignee_max_task_date:
-                project_estimate_date = assignee_max_task_date
-
-            for category, values in assignee_data.items():
-                data[category].extend(values)
-            project_assignee_data[assignee]["total_scheduled_days"] = assignee_total_days
-            project_assignee_data[assignee]["estimated_complete_date"] = assignee_max_task_date
-
-        if project_populated:  # may not be filled if using assignee filter
-            project_data.append((project_id, project_start_date, project_target_date, project_estimate_date, data, project_assignee_data))
-        else:
-            logger.warning(f"No data for Project-id({project_id}): {assignee_filter}")
-
-    # prepare project milestone info
-    project_milestones = defaultdict(list)
-    project_ids = projects_results.keys()
-    for milestone in KippoMilestone.objects.filter(project__id__in=project_ids).order_by("target_date"):
-        milestone_info = {
-            "project_id": str(milestone.project.id),
-            "start_date": milestone.start_date,
-            "target_date": milestone.target_date,
-            "title": milestone.title,
-            "description": milestone.description,
-        }
-        project_milestones[milestone.project.id].append(milestone_info)
-
-    logger.debug(f"len(project_data)={len(project_data)}")
-    logger.debug(f"project_milestones={project_milestones}")
-
-    script, div = prepare_project_schedule_chart_components(project_data, schedule_start_date, project_milestones, display_days=max_days)
-    return (script, div), latest_effort_date
+# def prepare_project_engineering_load_plot_data(
+#     organization: KippoOrganization, assignee_filter: str = None, schedule_start_date: Optional[datetime.date] = None
+# ):
+#     logger.debug(f"organization: {organization}")
+#     if not schedule_start_date:
+#         schedule_start_date = timezone.now().date()
+#     logger.info(f"schedule_start_date={schedule_start_date}")
+#     max_days = 70
+#     projects_results, assignee_date_keyed_scheduled_projects_ids, latest_effort_date = get_projects_load(
+#         organization, schedule_start_date, ttl_hash=get_ttlhash(seconds=60)
+#     )
+#     if not projects_results:
+#         raise ValueError("(get_projects_load) project_results is empty!")
+#
+#     country_holidays = defaultdict(list)
+#     for public_holiday in PublicHoliday.objects.filter(day__gte=schedule_start_date):
+#         country_holidays[public_holiday.country].append(public_holiday)
+#
+#     project_data = []
+#     # prepare data for plotting
+#     for project_id in projects_results:
+#         data = {
+#             # length of columns expected to be the same
+#             "project_ids": [],
+#             "project_names": [],
+#             "current_dates": [],
+#             "assignee_calendar_days": [],
+#             "assignees": [],
+#             "project_assignee_grouped": [],
+#             "task_ids": [],
+#             "task_urls": [],
+#             "task_titles": [],
+#             "task_estimate_days": [],
+#             "task_dates": [],
+#             "descriptions": [],
+#             "holiday_dates": [],
+#             "weekend_dates": [],
+#             "scheduled_dates": [],
+#             "unscheduled_dates": [],
+#             "uncommitted_dates": [],
+#             "personal_holiday_dates": [],
+#         }
+#         project_assignee_data = defaultdict(dict)
+#         project_populated = False
+#         project_start_date = None
+#         project_target_date = None
+#         project_estimate_date = None
+#         for assignee, assignee_tasks in projects_results[project_id].items():
+#             if assignee_filter and assignee not in assignee_filter:
+#                 logger.debug(f"assignee_filter({assignee_filter}) applied, skipping: {assignee}")
+#                 continue
+#             (
+#                 assignee_data,
+#                 project_start_date,
+#                 project_target_date,
+#                 assignee_total_days,
+#                 assignee_max_task_date,
+#                 populated,
+#             ) = _add_assignee_project_data(
+#                 organization,
+#                 schedule_start_date,
+#                 assignee,
+#                 assignee_tasks,
+#                 country_holidays,
+#                 assignee_date_keyed_scheduled_projects_ids,
+#                 max_days=max_days,
+#             )
+#             if populated:
+#                 project_populated = True
+#             if not project_estimate_date:
+#                 project_estimate_date = assignee_max_task_date
+#             elif project_estimate_date and project_estimate_date < assignee_max_task_date:
+#                 project_estimate_date = assignee_max_task_date
+#
+#             for category, values in assignee_data.items():
+#                 data[category].extend(values)
+#             project_assignee_data[assignee]["total_scheduled_days"] = assignee_total_days
+#             project_assignee_data[assignee]["estimated_complete_date"] = assignee_max_task_date
+#
+#         if project_populated:  # may not be filled if using assignee filter
+#             project_data.append((project_id, project_start_date, project_target_date, project_estimate_date, data, project_assignee_data))
+#         else:
+#             logger.warning(f"No data for Project-id({project_id}): {assignee_filter}")
+#
+#     # prepare project milestone info
+#     project_milestones = defaultdict(list)
+#     project_ids = projects_results.keys()
+#     for milestone in KippoMilestone.objects.filter(project__id__in=project_ids).order_by("target_date"):
+#         milestone_info = {
+#             "project_id": str(milestone.project.id),
+#             "start_date": milestone.start_date,
+#             "target_date": milestone.target_date,
+#             "title": milestone.title,
+#             "description": milestone.description,
+#         }
+#         project_milestones[milestone.project.id].append(milestone_info)
+#
+#     logger.debug(f"len(project_data)={len(project_data)}")
+#     logger.debug(f"project_milestones={project_milestones}")
+#
+#     script, div = prepare_project_schedule_chart_components(project_data, schedule_start_date, project_milestones, display_days=max_days)
+#     return (script, div), latest_effort_date

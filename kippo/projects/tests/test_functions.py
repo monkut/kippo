@@ -1,7 +1,7 @@
 import datetime
 
-from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from accounts.models import KippoUser, OrganizationMembership
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
@@ -28,7 +28,7 @@ class ProjectsFunctionsTestCase(TestCase):
         self.user2 = KippoUser(
             username="user2",
             github_login="user2",
-            password="user2",
+            password="user2",  # noqa: S106
             email="user2@github.com",
             is_staff=True,
         )

@@ -2,14 +2,14 @@ import datetime
 import logging
 import uuid
 from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlencode
 
 import reversion
 from accounts.models import KippoUser, OrganizationMembership
-from common.models import UserCreatedBaseModel
+from commons.models import UserCreatedBaseModel
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField, JSONField
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -18,7 +18,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
@@ -57,7 +57,9 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
     )
     name = models.CharField(max_length=256, verbose_name=_("Project Column Set Name"))
     default_column_name = models.CharField(
-        max_length=256, default="planning", verbose_name=_("Task default column name (Used when project column position is not known)")
+        max_length=256,
+        default="planning",
+        verbose_name=_("Task default column name (Used when project column position is not known)"),
     )
     created_datetime = models.DateTimeField(auto_now_add=True, editable=False)
     updated_datetime = models.DateTimeField(auto_now=True, editable=False)
@@ -76,13 +78,16 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
         help_text=_("Github Issue Labels Estimate Prefixes"),
     )
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+
     def get_column_names(self):
         column_names = [c.name for c in ProjectColumn.objects.filter(columnset=self).order_by("index")]
         if self.default_column_name not in column_names:
             raise ValueError(f"default_column_name({self.default_column_name}) not defined as column: {column_names}")
         return column_names
 
-    def get_active_column_names(self, with_priority=False):
+    def get_active_column_names(self, with_priority: bool = False) -> list[str]:
         if with_priority:
             names = [(priority, c.name) for priority, c in enumerate(ProjectColumn.objects.filter(columnset=self, is_active=True).order_by("-index"))]
         else:
@@ -97,23 +102,26 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
             raise ProjectColumnSetError(f"{self} does not have any DONE columns assigned!")
         return names
 
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.name})"
-
 
 class ProjectColumn(models.Model):
     columnset = models.ForeignKey(ProjectColumnSet, on_delete=models.CASCADE)
     index = models.PositiveSmallIntegerField(
-        _("Column Display Index"), default=None, blank=True, unique=True, help_text=_("Github Project Column Display Index (0 start)")
+        _("Column Display Index"),
+        default=None,
+        blank=True,
+        unique=True,
+        help_text=_("Github Project Column Display Index (0 start)"),
     )
     name = models.CharField(max_length=256, verbose_name=_("Project Column Display Name"))
     github_id = models.PositiveIntegerField(null=True, blank=True, help_text=_("related github column id assigned on creation"))
     is_active = models.BooleanField(default=False, help_text=_("Set to True if tasks in column are considered ACTIVE"))
     is_done = models.BooleanField(default=False, help_text=_("Set to True if tasks in column are considered DONE"))
 
-    def clean(self):
-        if self.is_active and self.is_done:
-            raise ValidationError("(Invalid Configuration) Both is_active and is_done set to True!")
+    class Meta:
+        unique_together = (("columnset", "name"), ("columnset", "index"))
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.columnset.name}-{self.name})"
 
     def save(self, *args, **kwargs):
         # auto-increment if blank (Consider moving to admin)
@@ -124,11 +132,9 @@ class ProjectColumn(models.Model):
             logger.info(f"{str(self)} incrementing: {self.index}")
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.columnset.name}-{self.name})"
-
-    class Meta:
-        unique_together = (("columnset", "name"), ("columnset", "index"))
+    def clean(self):
+        if self.is_active and self.is_done:
+            raise ValidationError("(Invalid Configuration) Both is_active and is_done set to True!")
 
 
 DEFAULT_PROJECT_PHASE = "lead-evaluation"
@@ -147,7 +153,10 @@ class KippoProject(UserCreatedBaseModel):
     name = models.CharField(max_length=256, unique=True)
     slug = models.CharField(max_length=300, unique=True, editable=False)
     phase = models.CharField(
-        max_length=150, default=DEFAULT_PROJECT_PHASE, choices=VALID_PROJECT_PHASES, help_text=_("State or phase of the project")
+        max_length=150,
+        default=DEFAULT_PROJECT_PHASE,
+        choices=VALID_PROJECT_PHASES,
+        help_text=_("State or phase of the project"),
     )
     confidence = models.PositiveSmallIntegerField(
         default=80,
@@ -155,21 +164,27 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
     category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
-    slack_channel_name = models.CharField(max_length=80, null=True, blank=True, default=None, help_text=_("If given, updates are sent periodically"))
+    slack_channel_name = models.CharField(max_length=80, blank=True, default="", help_text=_("If given, updates are sent periodically"))
     columnset = models.ForeignKey(
         ProjectColumnSet,
         on_delete=models.DO_NOTHING,
         help_text=_("ProjectColumnSet to use if/when a related Github project is created through Kippo"),
     )
     project_manager = models.ForeignKey(
-        "accounts.KippoUser", on_delete=models.SET_NULL, null=True, blank=True, help_text=_("Project Manager assigned to the project")
+        "accounts.KippoUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text=_("Project Manager assigned to the project"),
     )
     is_closed = models.BooleanField(_("Project is Closed"), default=False, help_text=_("Manually set when project is complete"))
     display_as_active = models.BooleanField(
-        _("Display as Active"), default=True, help_text=_("If True, project will be included in the ActiveKippoProject List")
+        _("Display as Active"),
+        default=True,
+        help_text=_("If True, project will be included in the ActiveKippoProject List"),
     )
-    github_project_html_url = models.URLField(_("Github Project HTML URL"), null=True, blank=True)
-    github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), null=True, blank=True)
+    github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
+    github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), blank=True, default="")
     allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
     start_date = models.DateField(_("Start Date"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
     target_date = models.DateField(
@@ -180,17 +195,26 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("Date the Project is planned to be completed by."),
     )
     actual_date = models.DateField(
-        _("Actual Completed Date"), null=True, blank=True, help_text=_("The date the project was actually completed on (not the initial target)")
+        _("Actual Completed Date"),
+        null=True,
+        blank=True,
+        help_text=_("The date the project was actually completed on (not the initial target)"),
     )
     document_url = models.URLField(
-        _("Documentation Location URL"), null=True, blank=True, help_text=_("URL of where documents for the projects are maintained")
+        _("Documentation Location URL"),
+        blank=True,
+        default="",
+        help_text=_("URL of where documents for the projects are maintained"),
     )
     problem_definition = models.TextField(
-        _("Project Problem Definition"), null=True, blank=True, help_text=_("Define the problem that the project is set out to solve.")
+        _("Project Problem Definition"),
+        blank=True,
+        default="",
+        help_text=_("Define the problem that the project is set out to solve."),
     )
     survey_issued = models.BooleanField(default=False, help_text=_("Update when survey is issued!"))
     survey_issued_datetime = models.DateTimeField(null=True, editable=False, help_text=_('Updated when "survey_issued" flag is set'))
-    column_info = JSONField(
+    column_info = models.JSONField(
         null=True,
         blank=True,
         editable=False,
@@ -216,7 +240,7 @@ class KippoProject(UserCreatedBaseModel):
             mapping[int(column_id)] = name
         return mapping
 
-    def get_columnname_from_id(self, column_id: int) -> Optional[str]:
+    def get_columnname_from_id(self, column_id: int) -> str | None:
         mapping = self.get_columnset_id_to_name_mapping()
         return mapping.get(column_id, None)
 
@@ -244,18 +268,20 @@ class KippoProject(UserCreatedBaseModel):
     def get_absolute_url(self):
         return f"{settings.URL_PREFIX}/projects/?slug={self.slug}"
 
-    def get_column_names(self) -> List[str]:
+    def get_column_names(self) -> list[str]:
         """
         Get the column names for use in github project columns
         :return: Column names in expected order
         """
         if not self.columnset:
-            raise ValueError(_(f"{self}.columnset not defined!"))
+            translated_text = _("not defined!")
+            raise ValueError(f"{self}.columnset {translated_text}")
         return self.columnset.get_column_names()
 
-    def get_active_column_names(self):
+    def get_active_column_names(self) -> list[str]:
         if not self.columnset:
-            raise ValueError(_(f"{self}.columnset not defined!"))
+            translated_text = _("not defined!")
+            raise ValueError(f"{self}.columnset {translated_text}")
         return self.columnset.get_active_column_names()
 
     def get_latest_kippoprojectstatus(self):
@@ -266,8 +292,8 @@ class KippoProject(UserCreatedBaseModel):
         return latest_kippoprojectstatus
 
     def get_active_taskstatus(
-        self, max_effort_date: Optional[timezone.datetime.date] = None, additional_filters: Optional[Dict[str, Any]] = None
-    ) -> Tuple[List[KippoTaskStatus], bool]:
+        self, max_effort_date: timezone.datetime.date | None = None, additional_filters: dict[str, Any] | None = None
+    ) -> tuple[list[KippoTaskStatus], bool]:
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         has_estimates = False
         valid_column_states = self.get_active_column_names() + ["open"]
@@ -286,16 +312,16 @@ class KippoProject(UserCreatedBaseModel):
             has_estimates = True
         return taskstatus_results, has_estimates
 
-    def get_latest_taskstatuses(
-        self, current_date: Optional[timezone.datetime.date] = None, active_only: bool = False
-    ) -> QuerySet:  # KippoTaskStatus
+    def get_latest_taskstatuses(self, current_date: timezone.datetime.date | None = None, active_only: bool = False) -> QuerySet:  # KippoTaskStatus
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         if not current_date:
             current_date = timezone.now().date()
 
         target_kippotaskstatus_ids = (
             KippoTaskStatus.objects.filter(
-                task__github_issue_api_url__isnull=False, task__project=self, effort_date__lte=current_date  # filter out non-linked tasks
+                task__github_issue_api_url__isnull=False,
+                task__project=self,
+                effort_date__lte=current_date,  # filter out non-linked tasks
             )
             .order_by("task__github_issue_api_url", "-effort_date")
             .distinct("task__github_issue_api_url")
@@ -311,9 +337,7 @@ class KippoProject(UserCreatedBaseModel):
         return status_entries
 
     def get_projectsurvey_url(self):
-        """
-        Generate and return the project survey URL pre-populated with project-id
-        """
+        """Generate and return the project survey URL pre-populated with project-id"""
         url = ""
         if self.organization.google_forms_project_survey_url and self.organization.google_forms_project_survey_projectid_entryid:
             params = {
@@ -387,7 +411,7 @@ class KippoProject(UserCreatedBaseModel):
 
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
 
@@ -411,17 +435,8 @@ class KippoProjectStatus(UserCreatedBaseModel):
     project = models.ForeignKey(KippoProject, on_delete=models.CASCADE)
     comment = models.TextField(help_text=_("Current Status"))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"ProjectStatus({self.project.name} {self.created_datetime})"
-
-
-class GithubMilestoneAlreadyExists(Exception):
-    pass
-
-
-# class GroupedKippoMilestone(UserCreatedBaseModel):
-#     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-#     title = models.CharField(max_length=256, verbose_name=_("Title"))
 
 
 @reversion.register()
@@ -437,7 +452,10 @@ class KippoMilestone(UserCreatedBaseModel):
     start_date = models.DateField(_("Start Date"), null=True, blank=True, default=None, help_text=_("Milestone Start Date"))
     target_date = models.DateField(_("Target Date"), null=True, blank=True, default=None, help_text=_("Milestone Target Completion Date"))
     actual_date = models.DateField(_("Actual Date"), null=True, blank=True, default=None, help_text=_("Milestone Actual Completion Date"))
-    description = models.TextField(_("Description"), blank=True, null=True, help_text=_("Describe the purpose of the milestone"))
+    description = models.TextField(_("Description"), blank=True, default="", help_text=_("Describe the purpose of the milestone"))
+
+    class Meta:
+        unique_together = ("project", "start_date", "target_date")
 
     @property
     def github_state(self) -> str:
@@ -467,12 +485,10 @@ class KippoMilestone(UserCreatedBaseModel):
 
     @property
     def is_delayed(self):
-        if not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date():
-            return True
-        return False
+        return not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date()
 
     @property
-    def estimated_completion_date(self) -> Optional[datetime.datetime.date]:
+    def estimated_completion_date(self) -> datetime.datetime.date | None:
         from tasks.functions import get_projects_load, get_ttlhash
 
         # project_developer_load
@@ -505,15 +521,13 @@ class KippoMilestone(UserCreatedBaseModel):
             max_effort_date = max(milestone_scheduled_effort_dates)
         return max_effort_date
 
-    def get_assignee_workdays(self, start_date: Optional[datetime.date] = None) -> Counter:
+    def get_assignee_workdays(self, start_date: datetime.date | None = None) -> Counter:
         if not start_date:
             current_datetime = timezone.now()
             # TODO: review -- this was set to day = 1... not sure if there was a specific reason for that
-            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, current_datetime.day, tzinfo=datetime.timezone.utc)
+            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, current_datetime.day, tzinfo=datetime.UTC)
             start_date = start_datetime.date()
-            if start_date < self.start_date:
-                # update so counting starts from start of milestone
-                start_date = self.start_date
+            start_date = max(start_date, self.start_date)
 
         # get organization memberships
         organization_memberships = list(
@@ -527,14 +541,14 @@ class KippoMilestone(UserCreatedBaseModel):
         # initialize counter for organization_memberships to zero (0)
         assignee_available_workdays = Counter({m.user: 0 for m in organization_memberships})
         current_date = start_date
-        while current_date <= self.target_date:  # noqa
+        while current_date <= self.target_date:
             for membership in organization_memberships:
                 if (
                     current_date not in member_personal_holiday_dates[membership.user.github_login]
                     and current_date not in member_public_holiday_dates[membership.user.github_login]
+                    and current_date.weekday() in membership.committed_weekdays
                 ):
-                    if current_date.weekday() in membership.committed_weekdays:
-                        assignee_available_workdays[membership.user] += 1
+                    assignee_available_workdays[membership.user] += 1
             current_date += datetime.timedelta(days=1)
         return assignee_available_workdays
 
@@ -543,7 +557,7 @@ class KippoMilestone(UserCreatedBaseModel):
         assignee_available_workdays = self.get_assignee_workdays()
         return ", ".join(f"{assignee}={workdays}" for assignee, workdays in assignee_available_workdays.items())
 
-    def available_work_days(self, start_date: Optional[datetime.date] = None) -> int:
+    def available_work_days(self, start_date: datetime.date | None = None) -> int:
         """Calculated the work days available considering the FULL OrganizationMembership available assignments"""
         assignee_available_workdays = self.get_assignee_workdays(start_date)
         total_available_workdays = sum(assignee_available_workdays.values())
@@ -597,7 +611,7 @@ class KippoMilestone(UserCreatedBaseModel):
         results = self.kippotask_milestone.filter(pk__in=active_task_ids).order_by("assignee")
         return results
 
-    def update_github_milestones(self, user: Optional[KippoUser] = None, close: bool = False) -> List[Tuple[bool, object]]:
+    def update_github_milestones(self, user: KippoUser | None = None, close: bool = False) -> list[tuple[bool, object]]:
         """
         Create or Update related github milestones belonging to github repositories attached to the related project.
         :return:
@@ -618,9 +632,7 @@ class KippoMilestone(UserCreatedBaseModel):
         existing_github_repositories_by_html_url = {}
         for github_repository in self.project.related_github_repositories():
             url = github_repository.html_url
-            if url.endswith("/"):
-                # remove to match returned result from github
-                url = url[:-1]
+            url = url.removesuffix("/")
             existing_github_repositories_by_html_url[url] = github_repository
             for github_milestone in GithubMilestone.objects.filter(repository=github_repository, milestone=self):
                 existing_github_milestones_by_repo_html_url[url] = github_milestone
@@ -716,15 +728,12 @@ class KippoMilestone(UserCreatedBaseModel):
 
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.title})"
-
-    class Meta:
-        unique_together = ("project", "start_date", "target_date")
 
 
 @receiver(pre_delete, sender=KippoMilestone)
-def cleanup_github_milestones(sender, instance, **kwargs):
+def cleanup_github_milestones(sender: type[KippoMilestone], instance: KippoMilestone, **kwargs):  # noqa: ARG001
     """Close related Github milestones when  KippoMilestone is deleted."""
     from octocat.models import GithubMilestone
 
@@ -813,7 +822,7 @@ class CollectIssuesProjectResult(models.Model):
     new_task_count = models.PositiveSmallIntegerField(default=0)
     new_taskstatus_count = models.PositiveSmallIntegerField(default=0)
     updated_taskstatus_count = models.PositiveSmallIntegerField(default=0)
-    unhandled_issues = JSONField()
+    unhandled_issues = models.JSONField()
 
 
 class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
@@ -822,13 +831,13 @@ class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
     fullfillment_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("充実した時間"))
     growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))
 
-    def __str__(self, *args, **kwargs) -> str:
-        return f"{self._meta.verbose_name} {self.project.name} {self.created_by.display_name}"
-
     class Meta:
         verbose_name = _("振り返り従業員アンケート")
         verbose_name_plural = verbose_name
         unique_together = ("project", "created_by")
+
+    def __str__(self, *args, **kwargs) -> str:
+        return f"{self._meta.verbose_name} {self.project.name} {self.created_by.display_name}"
 
 
 def get_current_month() -> datetime.date:
@@ -842,10 +851,10 @@ class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
     fullfillment_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("充実した時間"))
     growth_score = models.PositiveSmallIntegerField(choices=SCORE_CHOICES, verbose_name=_("成長"))
 
-    def __str__(self, *args, **kwargs) -> str:
-        return f"{self._meta.verbose_name} {self.project.name} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"
-
     class Meta:
         verbose_name = _("（月）従業員アンケート")
         verbose_name_plural = verbose_name
         unique_together = ("created_by", "project", "date")
+
+    def __str__(self, *args, **kwargs) -> str:
+        return f"{self._meta.verbose_name} {self.project.name} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"

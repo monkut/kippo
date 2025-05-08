@@ -1,8 +1,3 @@
-from django.conf.urls import url
-
-from . import views
-
-
 urlpatterns = [
-    url('$', views.view_inprogress_task_status, name='view_task_status')
+    # path("", views.view_inprogress_task_status, name='view_task_status')
 ]

@@ -3,14 +3,18 @@ from http import HTTPStatus
 from uuid import uuid4
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests.utils import reset_buckets
 from django.conf import settings
 from django.test import Client, TestCase
-from kippo.aws import s3_key_exists
-from projects.functions import generate_projectstatuscomments_csv, generate_projectweeklyeffort_csv, previous_week_startdate
-from projects.models import KippoProjectStatus, ProjectWeeklyEffort
 
-from .utils import reset_buckets
+from kippo.awsclients import s3_key_exists
+from projects.functions import (
+    generate_projectstatuscomments_csv,
+    generate_projectweeklyeffort_csv,
+    previous_week_startdate,
+)
+from projects.models import KippoProjectStatus, ProjectWeeklyEffort
 
 
 class DownloadViewTestCase(TestCase):
@@ -31,7 +35,11 @@ class DownloadViewTestCase(TestCase):
         )
         # add membership
         membership = OrganizationMembership(
-            user=self.user, organization=self.other_organization, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+            user=self.user,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+            is_developer=True,
         )
         membership.save()
         self.nonmember_organization = KippoOrganization.objects.create(
@@ -44,7 +52,7 @@ class DownloadViewTestCase(TestCase):
         self.no_org_user = KippoUser(
             username="noorguser",
             github_login="noorguser",
-            password="test",
+            password="test",  # noqa: S106
             email="noorguser@github.com",
             is_staff=True,
         )
@@ -58,7 +66,7 @@ class DownloadViewTestCase(TestCase):
         KippoProjectStatus.objects.create(project=self.project, created_by=self.user, updated_by=self.user, comment="this is a comment")
 
     def test_data_download_waiter__generate_projectweeklyeffort_csv(self):
-        key = "tmp/download/{}.csv".format(str(uuid4()))
+        key = f"tmp/download/{str(uuid4())}.csv"
         generate_projectweeklyeffort_csv(user_id=str(self.user.id), key=key)
         assert s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, key=key)
 
@@ -90,7 +98,7 @@ class DownloadViewTestCase(TestCase):
         # self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_data_download_waiter__generate_projectstatuscomments_csv(self):
-        key = "tmp/download/{}.csv".format(str(uuid4()))
+        key = f"tmp/download/{str(uuid4())}.csv"
 
         generate_projectstatuscomments_csv(project_ids=[str(self.project.id)], key=key)
         assert s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, key=key)

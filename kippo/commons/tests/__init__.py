@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
 from django.test import TestCase
 from django.utils import timezone
@@ -7,26 +5,40 @@ from octocat.models import GithubAccessToken, GithubRepository
 from projects.models import KippoProject, ProjectColumnSet
 from tasks.models import KippoTask
 
-from .admin import KippoAdminSite
+from ..admin import KippoAdminSite
+
 
 DEFAULT_FIXTURES = ["required_bot_users", "default_columnset", "default_labelset"]
 
 DEFAULT_COLUMNSET_PK = "414e69c8-8ea3-4c9c-8129-6f5aac108fa2"
 
 
-def setup_basic_project(organization=None, repository_name="Hello-World", github_project_api_id="2640902", column_info: Optional[List[dict]] = None):
+def setup_basic_project(
+    organization: KippoOrganization | None = None,
+    repository_name: str = "Hello-World",
+    github_project_api_id: str = "2640902",
+    column_info: list[dict] | None = None,
+):
     if not column_info:
         # example content:
         # [
         # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
         # ]
         column_info = [
-            {"id": "MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1", "name": "in-progress", "resourcePath": "/orgs/myorg/projects/21/columns/6119645"},
-            {"id": "MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1", "name": "in-review", "resourcePath": "/orgs/myorg/projects/21/columns/2803722"},
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1",
+                "name": "in-progress",
+                "resourcePath": "/orgs/myorg/projects/21/columns/6119645",
+            },
+            {
+                "id": "MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1",
+                "name": "in-review",
+                "resourcePath": "/orgs/myorg/projects/21/columns/2803722",
+            },
         ]
 
     created_objects = {}
-    user = KippoUser(username="octocat", github_login="octocat", password="test", email="a@github.com", is_staff=True)
+    user = KippoUser(username="octocat", github_login="octocat", password="test", email="a@github.com", is_staff=True)  # noqa: S106
     user.save()
     created_objects["KippoUser"] = user
     if not organization:
@@ -42,7 +54,7 @@ def setup_basic_project(organization=None, repository_name="Hello-World", github
     orgmembership.save()
     created_objects["OrganizationMembership"] = orgmembership
 
-    access_token = GithubAccessToken(organization=organization, token="kdakkfj", created_by=user, updated_by=user)
+    access_token = GithubAccessToken(organization=organization, token="kdakkfj", created_by=user, updated_by=user)  # noqa: S106
     access_token.save()
     created_objects["GithubAccessToken"] = access_token
 
@@ -153,7 +165,10 @@ class IsStaffModelAdminTestCaseBase(TestCase):
         PersonalHoliday.objects.create(user=self.otherstaffuser_with_org, day=(timezone.now() + timezone.timedelta(days=5)).date())
         # add membership
         membership = OrganizationMembership(
-            user=self.otherstaffuser_with_org, organization=self.other_organization, created_by=self.github_manager, updated_by=self.github_manager
+            user=self.otherstaffuser_with_org,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
         )
         membership.save()
 

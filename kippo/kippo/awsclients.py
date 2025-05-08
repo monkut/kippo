@@ -1,7 +1,7 @@
 import csv
-from collections import OrderedDict
+from collections.abc import Generator
+from http import HTTPStatus
 from io import BytesIO, StringIO
-from typing import Dict, Generator, List, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -17,10 +17,8 @@ S3_CLIENT = boto3.client("s3", config=BOTO3_CONFIG, endpoint_url=settings.AWS_SE
 S3_RESOURCE = boto3.resource("s3", config=BOTO3_CONFIG, endpoint_url=settings.AWS_SERVICE_ENDPOINTS["s3"])
 
 
-def parse_s3_uri(uri: str) -> Tuple[str, str]:
-    """
-    Parse s3 uri (s3://bucket/key) to (bucket, key)
-    """
+def parse_s3_uri(uri: str) -> tuple[str, str]:
+    """Parse s3 uri (s3://bucket/key) to (bucket, key)"""
     result = urlparse(uri)
     bucket = result.netloc
     key = result.path[1:]  # removes leading slash
@@ -34,14 +32,14 @@ def s3_key_exists(bucket: str, key: str) -> bool:
         S3_CLIENT.head_object(Bucket=bucket, Key=key)
         exists = True
     except ClientError as e:
-        if e.response["ResponseMetadata"]["HTTPStatusCode"] == 404:
+        if e.response["ResponseMetadata"]["HTTPStatusCode"] == HTTPStatus.NOT_FOUND:
             exists = False
         else:
             raise
     return exists
 
 
-def upload_s3_csv(bucket: str, key: str, headers: Dict[str, str], row_generator: Generator) -> Tuple[str, str]:
+def upload_s3_csv(bucket: str, key: str, headers: dict[str, str], row_generator: Generator) -> tuple[str, str]:
     fieldnames = headers.values()
     with StringIO() as csvout:
         writer = csv.DictWriter(csvout, fieldnames=list(fieldnames))
@@ -55,11 +53,11 @@ def upload_s3_csv(bucket: str, key: str, headers: Dict[str, str], row_generator:
     return bucket, key
 
 
-def download_s3_csv(bucket: str, key: str) -> List[OrderedDict]:
+def download_s3_csv(bucket: str, key: str) -> list[dict]:
     with BytesIO() as bytesin:
         S3_CLIENT.download_fileobj(bucket, key, bytesin)
         bytesin.seek(0)
         stringin = StringIO(bytesin.read().decode("utf8"))
         reader = csv.DictReader(stringin)
-        rows = [row for row in reader]
+        rows = list(reader)
     return rows
