@@ -1,18 +1,14 @@
-import hashlib
-import hmac
 import os
 from http import HTTPStatus
 from pathlib import Path
-from typing import Tuple
 
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
-from django.conf import settings
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import Client, TestCase
 
 from ..models import GithubWebhookEvent
 from .utils import load_webhookevent
 
-assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
+assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 
 
@@ -33,7 +29,12 @@ class OctocatViewsTestCase(TestCase):
         headers = {"X-Github-Event": "issues", "X-Hub-Signature": signature}
 
         response = self.client.generic(
-            "POST", self.organization.webhook_url, content, content_type="application/x-www-form-urlencoded", follow=True, **headers
+            "POST",
+            self.organization.webhook_url,
+            content,
+            content_type="application/x-www-form-urlencoded",
+            follow=True,
+            **headers,
         )
         expected = HTTPStatus.NO_CONTENT
         actual = response.status_code
