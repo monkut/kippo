@@ -292,7 +292,7 @@ class KippoProject(UserCreatedBaseModel):
         return latest_kippoprojectstatus
 
     def get_active_taskstatus(
-        self, max_effort_date: timezone.datetime.date | None = None, additional_filters: dict[str, Any] | None = None
+        self, max_effort_date: datetime.date | None = None, additional_filters: dict[str, Any] | None = None
     ) -> tuple[list[KippoTaskStatus], bool]:
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         has_estimates = False
@@ -312,7 +312,7 @@ class KippoProject(UserCreatedBaseModel):
             has_estimates = True
         return taskstatus_results, has_estimates
 
-    def get_latest_taskstatuses(self, current_date: timezone.datetime.date | None = None, active_only: bool = False) -> QuerySet:  # KippoTaskStatus
+    def get_latest_taskstatuses(self, current_date: datetime.date | None = None, active_only: bool = False) -> QuerySet:  # KippoTaskStatus
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         if not current_date:
             current_date = timezone.now().date()
@@ -488,7 +488,7 @@ class KippoMilestone(UserCreatedBaseModel):
         return not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date()
 
     @property
-    def estimated_completion_date(self) -> datetime.datetime.date | None:
+    def estimated_completion_date(self) -> datetime.date | None:
         from tasks.functions import get_projects_load, get_ttlhash
 
         # project_developer_load
