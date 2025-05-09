@@ -1,22 +1,23 @@
 import json
 import os
+from argparse import ArgumentParser
 from pathlib import Path
 
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.core.management import BaseCommand
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
-from kippo.aws import S3_CLIENT
+from kippo.awsclients import S3_CLIENT
 
-COMMANDS_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+COMMANDS_DIR = Path(__file__).parent.resolve()
 REQUIRED_BUCKET_NAMES = (settings.DUMPDATA_S3_BUCKETNAME,)
 
 
 class Command(BaseCommand):
     help = __doc__
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: ArgumentParser):
         parser.add_argument("--dry-run", action="store_true", default=False, help=_("If given buckets will NOT be created!"))
 
     def handle(self, *args, **options):
