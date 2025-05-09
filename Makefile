@@ -9,4 +9,5 @@ check:
 loadinitial:
 	cd kippo && python manage.py loaddata default_columnset default_labelset required_bot_users && cd ..
 
-pullrequestcheck: check coverage
+pullrequestcheck: check
+

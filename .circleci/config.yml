@@ -7,45 +7,43 @@ jobs:
   build:
     docker:
       # specify the version you desire here
-      - image: circleci/python:3.8
+      - image: cimg/python:3.13
         environment:
           PIPENV_VENV_IN_PROJECT: true
           AWS_ACCESS_KEY_ID: dummyaccesskey
           AWS_SECRET_ACCESS_KEY: dummysecretkey
-      - image: mdillon/postgis:9.6
+      - image: postgres:17
         environment:
           POSTGRES_USER: circleci
           POSTGRES_DB: circle_test
-      - image: localstack/localstack:0.11.4
+      - image: localstack/localstack:4.3.0
 
     working_directory: ~/repo
 
     steps:
       - checkout
       - run: sudo chown -R circleci:circleci /usr/local/bin
-      - run: sudo chown -R circleci:circleci /usr/local/lib/python3.8/site-packages
 
       # Download and cache dependencies
       - restore_cache:
           keys:
-          - v3-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          - v3-dependencies-{{ .Branch }}-{{ checksum "uv.lock" }}
           # fallback to using the latest cache if no exact match is found
           - v3-dependencies-{{ .Branch }}-
       - run:
-          name: Upgrade pipenv
+          name: Upgrade uv
           command: |
-            python3.8 -m pip install pipenv -U
+            python -m pip install uv
       - run:
           name: install dependencies
           command: |
-            python3.8 -m pipenv sync --dev
+            uv sync
 
       - save_cache:
-          key: v3-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          key: v3-dependencies-{{ .Branch }}-{{ checksum "uv.lock" }}
           paths:
             - ./venv
             - /usr/local/bin
-            - /usr/local/bin/lib/python3.8/site-packages
 
       - run:
           name: prepare boto3 credentials and awscli (Set via ENVARS[AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY])

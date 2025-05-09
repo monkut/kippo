@@ -1,12 +1,15 @@
-from typing import Dict
+from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import QuerySet, Sum
 from django.http.request import HttpRequest
 from django.utils import timezone
 
+if TYPE_CHECKING:
+    from accounts.models import PersonalHoliday
 
-def get_personal_holiday_hours(personal_holidays, day_workhours, end_date: timezone.datetime.date) -> float:
+
+def get_personal_holiday_hours(personal_holidays: QuerySet["PersonalHoliday"], day_workhours: float, end_date: timezone.datetime.date) -> float:
     total_days = 0
     for holiday in personal_holidays:
         if holiday.is_half:
@@ -23,9 +26,9 @@ def get_personal_holiday_hours(personal_holidays, day_workhours, end_date: timez
     return personal_holiday_hours
 
 
-def global_view_additional_context(request: HttpRequest) -> Dict:
+def global_view_additional_context(request: HttpRequest) -> dict:
     """
-    context defined here is provided additionally to the template rendering contexxt
+    Context defined here is provided additionally to the template rendering contexxt
 
     :param request:
     :return:
@@ -34,9 +37,9 @@ def global_view_additional_context(request: HttpRequest) -> Dict:
     user_weeklyeffort_expected_total = None
     user_weeklyeffort_percentage = None
     if request.user and request.user.is_authenticated:
-        from accounts.models import PublicHoliday, PersonalHoliday
-        from projects.models import ProjectWeeklyEffort
+        from accounts.models import PersonalHoliday, PublicHoliday
         from projects.functions import previous_week_startdate
+        from projects.models import ProjectWeeklyEffort
 
         # NOTE: uses first org (may not be expected result
         user_first_org = request.user.organizations.first()

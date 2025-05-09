@@ -1,11 +1,13 @@
 import datetime
 from collections import Counter, defaultdict
-from typing import Dict, List, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib import messages
-from django.http import HttpResponseBadRequest
+from django.http import (
+    HttpResponseBadRequest,
+    request as DjangoRequest,  # noqa: N812
+)
 from django.shortcuts import render
 from django.utils import timezone
 from projects.functions import get_user_session_organization
@@ -13,7 +15,7 @@ from projects.functions import get_user_session_organization
 from .models import KippoOrganization, OrganizationMembership
 
 
-def _get_organization_monthly_available_workdays(organization: KippoOrganization) -> Tuple[List[OrganizationMembership], Dict[str, Counter]]:
+def _get_organization_monthly_available_workdays(organization: KippoOrganization) -> tuple[list[OrganizationMembership], dict[str, Counter]]:
     # get organization memberships
     organization_memberships = list(
         OrganizationMembership.objects.filter(organization=organization, user__github_login__isnull=False, is_developer=True)
@@ -24,7 +26,7 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     member_public_holiday_dates = {m.user.github_login: tuple(m.user.public_holiday_dates()) for m in organization_memberships}
 
     current_datetime = timezone.now()
-    start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.timezone.utc)
+    start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.UTC)
 
     # get the last full month 2 years from now
     end_datetime = start_datetime + relativedelta(months=1, years=2)
@@ -40,14 +42,13 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
             if (
                 current_date not in member_personal_holiday_dates[membership.user.github_login]
                 and current_date not in member_public_holiday_dates[membership.user.github_login]
-            ):
-                if current_date.weekday() in membership.committed_weekdays:
-                    monthly_available_workdays[month_key][membership.user] += 1
+            ) and current_date.weekday() in membership.committed_weekdays:
+                monthly_available_workdays[month_key][membership.user] += 1
         current_date += datetime.timedelta(days=1)
     return organization_memberships, monthly_available_workdays
 
 
-def view_organization_members(request):
+def view_organization_members(request: DjangoRequest):
     try:
         selected_organization, user_organizations = get_user_session_organization(request)
     except ValueError as e:
