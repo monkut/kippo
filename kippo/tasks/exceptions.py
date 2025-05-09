@@ -2,7 +2,7 @@ class GithubRepositoryUrlError(ValueError):
     pass
 
 
-class GithubPullRequestUrl(ValueError):
+class GithubPullRequestUrlError(ValueError):
     pass
 
 

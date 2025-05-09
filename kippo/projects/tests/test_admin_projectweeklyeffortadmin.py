@@ -1,15 +1,14 @@
 from http import HTTPStatus
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from commons.definitions import MONDAY
+from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from commons.tests.utils import MockRequest, reset_buckets
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.urls import reverse
 from django.utils import timezone
-from projects.admin import ProjectWeeklyEffortAdmin
-from projects.functions import previous_week_startdate
-from projects.models import KippoProject, ProjectWeeklyEffort
 
-from .utils import MockRequest, reset_buckets
+from projects.models import ProjectWeeklyEffort
 
 
 class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
@@ -40,7 +39,6 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
         today = timezone.now()
         three_months_ago = timezone.now() - timezone.timedelta(days=3 * 30)
         current = three_months_ago
-        MONDAY = 0
         while current <= today:
             if current.weekday() == MONDAY:
                 for project in (self.project1, self.project2):

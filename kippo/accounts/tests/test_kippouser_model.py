@@ -9,7 +9,7 @@ class KippoUserCreationTestCase(TestCase):
     fixtures = ["required_bot_users", "default_columnset", "default_labelset"]
 
     def setUp(self):
-        self.user = KippoUser(username="accounts-octocat", password="test", email="accounts@github.com", is_staff=True)
+        self.user = KippoUser(username="accounts-octocat", password="test", email="accounts@github.com", is_staff=True)  # noqa: S106
         self.user.save()
 
         self.org = KippoOrganization(name="some org", github_organization_name="some-org", created_by=self.user, updated_by=self.user)
@@ -55,22 +55,22 @@ class KippoUserCreationTestCase(TestCase):
         self.assertTrue(domain)
 
     def test_valid_login_org_user(self):
-        user = KippoUser(username="otheruser", is_active=False, email=f"otheruser@otherorgdomain.com")
-        password = "testpassword"
+        user = KippoUser(username="otheruser", is_active=False, email="otheruser@otherorgdomain.com")
+        password = "testpassword"  # noqa: S105
         user.set_password(password)
         user.save()
 
         # add org membership
         membership = OrganizationMembership(
-            user=user, organization=self.org, is_developer=True, email=f"otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
+            user=user, organization=self.org, is_developer=True, email="otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
         )
         membership.save()
         authenticated_user = authenticate(username=user.username, password=password)
         self.assertTrue(authenticated_user)
 
     def test_valid_login_multi_org_user(self):
-        user = KippoUser(username="otheruser", is_staff=False, is_active=False, email=f"otheruser@otherorgdomain.com")
-        password = "testpassword"
+        user = KippoUser(username="otheruser", is_staff=False, is_active=False, email="otheruser@otherorgdomain.com")
+        password = "testpassword"  # noqa: S105
         user.set_password(password)
         user.save()
         # add org membership
@@ -92,7 +92,7 @@ class KippoUserCreationTestCase(TestCase):
 
         # add org membership with is_staff_domain
         membership = OrganizationMembership(
-            user=user, organization=self.org, is_developer=True, email=f"otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
+            user=user, organization=self.org, is_developer=True, email="otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
         )
         membership.save()
         user.refresh_from_db()
@@ -101,7 +101,8 @@ class KippoUserCreationTestCase(TestCase):
         authenticated_user = authenticate(username=user.username, password=password)
         self.assertTrue(authenticated_user)
 
-        self.assertTrue(user.memberships.count() == 2)
+        expected_membership_count = 2
+        self.assertEqual(user.memberships.count(), expected_membership_count)
 
         membership = user.get_membership(self.org)
         workdays = membership.committed_weekdays
@@ -110,11 +111,11 @@ class KippoUserCreationTestCase(TestCase):
         self.assertEqual(set(workdays), default_membership_workdays)
 
     def test_invalid_email_for_org_membership(self):
-        user = KippoUser(username="otheruser", email=f"otheruser@invaliddomain.com")
+        user = KippoUser(username="otheruser", email="otheruser@invaliddomain.com")
         user.save()
         # add membership
         membership = OrganizationMembership(
-            user=user, organization=self.org, is_developer=True, email=f"otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
+            user=user, organization=self.org, is_developer=True, email="otheruser@invaliddomain.com", created_by=self.user, updated_by=self.user
         )
         membership.save()
         self.assertTrue(user.is_staff)
@@ -123,8 +124,8 @@ class KippoUserCreationTestCase(TestCase):
             membership.clean()
 
     def test_noemail_for_org_membership(self):
-        """confirm that a user may belong to an org, but not have an email with that org"""
-        user = KippoUser(username="otheruser", email=f"otheruser@otherorgdomain.com")
+        """Confirm that a user may belong to an org, but not have an email with that org"""
+        user = KippoUser(username="otheruser", email="otheruser@otherorgdomain.com")
         user.save()
 
         # add membership
@@ -136,22 +137,22 @@ class KippoUserCreationTestCase(TestCase):
         self.assertTrue(user.memberships.exists())
 
     def test_organization_get_github_developer_kippousers(self):
-        user = KippoUser(username="otheruser", github_login="otheruser-gh", is_staff=False, is_active=False, email=f"otheruser@otherorgdomain.com")
-        password = "testpassword"
+        user = KippoUser(username="otheruser", github_login="otheruser-gh", is_staff=False, is_active=False, email="otheruser@otherorgdomain.com")
+        password = "testpassword"  # noqa: S105
         user.set_password(password)
         user.save()
 
         another_user = KippoUser(
-            username="anotheruser", github_login="anotheruser-gh", is_staff=False, is_active=False, email=f"anotheruser@otherorgdomain.com"
+            username="anotheruser", github_login="anotheruser-gh", is_staff=False, is_active=False, email="anotheruser@otherorgdomain.com"
         )
         another_user.save()
 
         third_user = KippoUser(
-            username="thirduser", github_login="thirduser-gh", is_staff=False, is_active=False, email=f"thirduser@otherorgdomain.com"
+            username="thirduser", github_login="thirduser-gh", is_staff=False, is_active=False, email="thirduser@otherorgdomain.com"
         )
         third_user.save()
 
-        fourth_user = KippoUser(username="fourth_user", is_staff=False, is_active=False, email=f"fourth_user@otherorgdomain.com")
+        fourth_user = KippoUser(username="fourth_user", is_staff=False, is_active=False, email="fourth_user@otherorgdomain.com")
         fourth_user.save()
 
         # add org membership
@@ -197,31 +198,32 @@ class KippoUserCreationTestCase(TestCase):
         membership.save()
 
         users = self.org.get_github_developer_kippousers()
-        self.assertTrue(len(users) == 3, f"len(users)[{len(users)}] != expected(3)")  # users created in setUp + auto-created 'unassigned' user
+        expected_user_count = 4
+        expected_usernames = ("otheruser", "anotheruser", f"unassigned-{self.org.slug}", fourth_user.username)
+        actual_usernames = [u.username for u in users]
+        self.assertEqual(
+            len(users), expected_user_count, f"len(users)[{len(users)}] != expected(3): {actual_usernames} != {expected_usernames}"
+        )  # users created in setUp + auto-created 'unassigned' user
 
-        expected_usernames = ("otheruser", "anotheruser", f"unassigned-{self.org.slug}")
-        actual_usernames = []
-        for u in users:
-            actual_usernames.append(u.username)
-        self.assertTrue(set(expected_usernames) == set(actual_usernames), f"expected({set(expected_usernames)}) != actual({set(actual_usernames)})")
+        self.assertEqual(set(expected_usernames), set(actual_usernames), f"expected({set(expected_usernames)}) != actual({set(actual_usernames)})")
 
     def test_organizationmembership_get_workday_identifers(self):
-        user = KippoUser(username="otheruser", github_login="otheruser-gh", is_staff=False, is_active=False, email=f"otheruser@otherorgdomain.com")
-        password = "testpassword"
+        user = KippoUser(username="otheruser", github_login="otheruser-gh", is_staff=False, is_active=False, email="otheruser@otherorgdomain.com")
+        password = "testpassword"  # noqa: S105
         user.set_password(password)
         user.save()
 
         another_user = KippoUser(
-            username="anotheruser", github_login="anotheruser-gh", is_staff=False, is_active=False, email=f"anotheruser@otherorgdomain.com"
+            username="anotheruser", github_login="anotheruser-gh", is_staff=False, is_active=False, email="anotheruser@otherorgdomain.com"
         )
         another_user.save()
 
         third_user = KippoUser(
-            username="thirduser", github_login="thirduser-gh", is_staff=False, is_active=False, email=f"thirduser@otherorgdomain.com"
+            username="thirduser", github_login="thirduser-gh", is_staff=False, is_active=False, email="thirduser@otherorgdomain.com"
         )
         third_user.save()
 
-        fourth_user = KippoUser(username="fourth_user", is_staff=False, is_active=False, email=f"fourth_user@otherorgdomain.com")
+        fourth_user = KippoUser(username="fourth_user", is_staff=False, is_active=False, email="fourth_user@otherorgdomain.com")
         fourth_user.save()
 
         # add org membership

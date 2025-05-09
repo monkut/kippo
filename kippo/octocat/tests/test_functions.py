@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
 from projects.models import KippoMilestone
@@ -12,7 +12,7 @@ from tasks.models import KippoTask, KippoTaskStatus
 from ..functions import GithubWebhookProcessor, get_kippomilestone_from_github_issue
 from ..models import GithubMilestone, GithubRepository
 
-assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
+assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
 
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 GITHUBAPI_ISSUE_JSON = {"issue": json.loads((TESTDATA_DIRECTORY / "github_api_issue.json").read_text(encoding="utf8"))}
@@ -36,11 +36,15 @@ class OctocatFunctionsTestCase(TestCase):
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
         # create user2 for task assignement check
-        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)
+        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)  # noqa: S106
         self.user2.save()
 
         orgmembership = OrganizationMembership(
-            user=self.user2, organization=self.organization, is_developer=True, created_by=self.user2, updated_by=self.user2
+            user=self.user2,
+            organization=self.organization,
+            is_developer=True,
+            created_by=self.user2,
+            updated_by=self.user2,
         )
         orgmembership.save()
         self.current_date = timezone.now().date()
@@ -67,7 +71,11 @@ class OctocatFunctionsTestCase(TestCase):
         repo_api_url = "https://api.github.com/repos/octocat/Hello-World"
         name = "Hello-World"
         repo = GithubRepository(
-            organization=self.organization, name=name, label_set=self.organization.default_labelset, api_url=repo_api_url, html_url=repo_html_url
+            organization=self.organization,
+            name=name,
+            label_set=self.organization.default_labelset,
+            api_url=repo_api_url,
+            html_url=repo_html_url,
         )
         repo.save()
 

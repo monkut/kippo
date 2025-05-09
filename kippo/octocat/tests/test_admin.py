@@ -1,10 +1,11 @@
 import json
+from http import HTTPStatus
 from pathlib import Path
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.admin import KippoAdminSite
-from common.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
-from django.contrib.admin import ACTION_CHECKBOX_NAME
+from commons.admin import KippoAdminSite
+from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.db.models import Q
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -94,10 +95,14 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
 
         # add GithubLabelsets
         self.githublabelset = GithubRepositoryLabelSet.objects.create(
-            organization=self.organization, name="mytestlabelset", labels=[{"name": "category:X", "description": "", "color": "AED6F1"}]
+            organization=self.organization,
+            name="mytestlabelset",
+            labels=[{"name": "category:X", "description": "", "color": "AED6F1"}],
         )
         self.other_githublabelset = GithubRepositoryLabelSet.objects.create(
-            organization=self.other_organization, name="othertestlabelset", labels=[{"name": "category:X", "description": "", "color": "AED6F1"}]
+            organization=self.other_organization,
+            name="othertestlabelset",
+            labels=[{"name": "category:X", "description": "", "color": "AED6F1"}],
         )
 
     def test_githubrepositoryadmin_list_objects(self):
@@ -113,7 +118,8 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
         queryset = list(qs)
         expected_count = GithubRepository.objects.filter(organization__in=self.staff_user_request.user.organizations).count()
         self.assertTrue(
-            len(queryset) == expected_count, f'actual({len(queryset)}) != expected({expected_count}): {", ".join(r.name for r in queryset)}'
+            len(queryset) == expected_count,
+            f"actual({len(queryset)}) != expected({expected_count}): {', '.join(r.name for r in queryset)}",
         )
 
     def test_githubmilestoneadmin_list_objects(self):
@@ -129,7 +135,8 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
         queryset = list(qs)
         expected_count = GithubMilestone.objects.filter(repository__organization__in=self.staff_user_request.user.organizations).count()
         self.assertTrue(
-            len(queryset) == expected_count, f'actual({len(queryset)}) != expected({expected_count}): {", ".join(str(   m.number) for m in queryset)}'
+            len(queryset) == expected_count,
+            f"actual({len(queryset)}) != expected({expected_count}): {', '.join(str(m.number) for m in queryset)}",
         )
 
     def test_githublabelsetadmin_list_objects(self):
@@ -147,7 +154,8 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
             Q(organization__in=self.staff_user_request.user.organizations) | Q(organization__isnull=True)
         ).count()
         self.assertTrue(
-            len(queryset) == expected_count, f'actual({len(queryset)}) != expected({expected_count}): {", ".join(r.name for r in queryset)}'
+            len(queryset) == expected_count,
+            f"actual({len(queryset)}) != expected({expected_count}): {', '.join(r.name for r in queryset)}",
         )
 
 
@@ -176,11 +184,15 @@ class GithubWebhookEventAdminActionsTestCase(TestCase):
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
         # create user2 for task assignement check
-        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)
+        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)  # noqa: S106
         self.user2.save()
 
         orgmembership = OrganizationMembership(
-            user=self.user2, organization=self.organization, is_developer=True, created_by=self.user2, updated_by=self.user2
+            user=self.user2,
+            organization=self.organization,
+            is_developer=True,
+            created_by=self.user2,
+            updated_by=self.user2,
         )
         orgmembership.save()
         self.current_date = timezone.now().date()
@@ -232,7 +244,7 @@ class GithubWebhookEventAdminActionsTestCase(TestCase):
         model_name = "githubwebhookevent"
         change_url = reverse(f"admin:{app_name}_{model_name}_changelist")
         response = self.client.post(change_url, data, follow=True)
-        assert response.status_code == 200, response.status_code
+        assert response.status_code == HTTPStatus.OK, response.status_code
 
         actual = GithubWebhookEvent.objects.filter(state="processed").count()
         expected = GithubWebhookEvent.objects.all().count()
@@ -251,7 +263,7 @@ class GithubWebhookEventAdminActionsTestCase(TestCase):
         model_name = "githubwebhookevent"
         change_url = reverse(f"admin:{app_name}_{model_name}_changelist")
         response = self.client.post(change_url, data, follow=True)
-        assert response.status_code == 200, response.status_code
+        assert response.status_code == HTTPStatus.OK, response.status_code
 
         actual = GithubWebhookEvent.objects.filter(state="unprocessed").count()
         expected = GithubWebhookEvent.objects.all().count()

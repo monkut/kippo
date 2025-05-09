@@ -8,7 +8,7 @@ from ..models import KippoTaskStatus
 logger = logging.getLogger(__name__)
 
 
-def delete(event, context):
+def delete(event: dict, context: dict) -> None:  # noqa: ARG001
     now = timezone.now()
     older_than_date = now - timezone.timedelta(days=settings.DELETE_DAYS)
     logger.debug(f"DELETE_DAYS={settings.DELETE_DAYS}")
