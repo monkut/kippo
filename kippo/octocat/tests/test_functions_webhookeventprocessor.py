@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import mock
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
@@ -13,7 +13,7 @@ from ..functions import GithubWebhookProcessor
 from ..models import GithubWebhookEvent
 from .utils import load_webhookevent
 
-assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
+assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
 
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 GITHUBAPI_ISSUE_JSON = {"issue": json.loads((TESTDATA_DIRECTORY / "github_api_issue.json").read_text(encoding="utf8"))}
@@ -34,11 +34,15 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         self.github_manager = KippoUser.objects.get(username="github-manager")
 
         # create user2 for task assignement check
-        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)
+        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)  # noqa: S106
         self.user2.save()
 
         orgmembership = OrganizationMembership(
-            user=self.user2, organization=self.organization, is_developer=True, created_by=self.user2, updated_by=self.user2
+            user=self.user2,
+            organization=self.organization,
+            is_developer=True,
+            created_by=self.user2,
+            updated_by=self.user2,
         )
         orgmembership.save()
         self.current_date = timezone.now().date()
@@ -138,9 +142,13 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         # check task updated
         existing_task.refresh_from_db()
         self.assertTrue(
-            existing_task.title == event["issue"]["title"], f'actual(title="{existing_task.title}") != expected(title="{event["issue"]["title"]}")'
+            existing_task.title == event["issue"]["title"],
+            f'actual(title="{existing_task.title}") != expected(title="{event["issue"]["title"]}")',
         )
-        self.assertTrue(existing_task.assignee == self.user2, f"actual({existing_task.assignee.username}) != expected({self.user2.username})")
+        self.assertTrue(
+            existing_task.assignee == self.user2,
+            f"actual({existing_task.assignee.username}) != expected({self.user2.username})",
+        )
 
         # check taskstatus updated
         existing_taskstatus.refresh_from_db()
@@ -196,7 +204,11 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         self.assertTrue(tasks)
         task = tasks[0]
 
-        self.assertEqual(task.title, event["issue"]["title"], f'actual(title="{task.title}") != expected(title="{event["issue"]["title"]}")')
+        self.assertEqual(
+            task.title,
+            event["issue"]["title"],
+            f'actual(title="{task.title}") != expected(title="{event["issue"]["title"]}")',
+        )
         self.assertEqual(task.assignee, self.user2, f"actual({task.assignee.username}) != expected({self.user2.username})")
 
         # check taskstatus updated
@@ -269,7 +281,6 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_type = "issue_comment"
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type=event_type, event=event)
         webhookevent.save()
-        event_issue_api_url = event["issue"]["url"]
 
         unprocessed_events = 1
         assert unprocessed_events == GithubWebhookEvent.objects.count()
@@ -306,7 +317,6 @@ class OctocatFunctionsGithubWebhookProcessorTestCase(TestCase):
         event_type = "issue_comment"
         webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type=event_type, event=event)
         webhookevent.save()
-        event_issue_api_url = event["issue"]["url"]
 
         unprocessed_events = 1
         assert unprocessed_events == GithubWebhookEvent.objects.count()

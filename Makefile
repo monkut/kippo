@@ -1,19 +1,13 @@
-check:
-	flake8 --max-line-length 165 --max-complexity 25 --ignore F403,F405,E252,W503,W606 --exclude */migrations/*,*/tests.py,*/tests/* kippo/
-
-pylint:
-	pylint --rcfile .pylintrc kippo/
-
-typecheck:
-	mypy  kippo/ --disallow-untyped-defs --silent-imports
-
+## Run tests (without coverage)
 test:
-	cd kippo && pipenv run python manage.py test && cd ..
+	cd kippo && uv run python manage.py test --debug-mode
 
-coverage:
-	cd kippo && pipenv run coverage run --source='.' manage.py test && cd ..
+## Define checks to run on PR
+check:
+	uv run ruff check
 
 loadinitial:
 	cd kippo && python manage.py loaddata default_columnset default_labelset required_bot_users && cd ..
 
-pullrequestcheck: check coverage
+pullrequestcheck: check
+

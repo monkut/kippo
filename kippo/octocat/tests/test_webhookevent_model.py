@@ -4,7 +4,7 @@ import urllib.parse
 from http import HTTPStatus
 from pathlib import Path
 
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import Client, TestCase
 
@@ -12,7 +12,7 @@ from ..functions import queue_incoming_project_card_event
 from ..models import GithubWebhookEvent
 from .utils import load_webhookevent
 
-assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
+assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 
 
@@ -22,7 +22,7 @@ class WebhookTestCase(TestCase):
     def setUp(self):
         created_objects = setup_basic_project()
         self.organization = created_objects["KippoOrganization"]
-        self.secret = "DOB6tzKvmBIX69Jd1NPc"
+        self.secret = "DOB6tzKvmBIX69Jd1NPc"  # noqa: S105
         self.secret_encoded = self.secret.encode("utf8")
         self.organization.webhook_secret = self.secret
         self.organization.save()
@@ -35,7 +35,12 @@ class WebhookTestCase(TestCase):
         headers = {"X-Github-Event": "ping", "X-Hub-Signature": signature}
 
         response = c.generic(
-            "POST", f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/", content, content_type="application/json", follow=True, **headers
+            "POST",
+            f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/",
+            content,
+            content_type="application/json",
+            follow=True,
+            **headers,
         )
         self.assertTrue(response.status_code == HTTPStatus.OK, f"actual({response.status_code}) != expected({HTTPStatus.OK})")
 
@@ -46,12 +51,21 @@ class WebhookTestCase(TestCase):
 
         headers = {"HTTP_X_GITHUB_EVENT": "project_card", "X-Hub-Signature": signature}
         response = c.generic(
-            "POST", f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/", content, content_type="application/json", follow=True, **headers
+            "POST",
+            f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/",
+            content,
+            content_type="application/json",
+            follow=True,
+            **headers,
         )
-        self.assertTrue(response.status_code == HTTPStatus.CREATED, f"actual({response.status_code}) != expected({HTTPStatus.CREATED})")
+        self.assertTrue(
+            response.status_code == HTTPStatus.CREATED,
+            f"actual({response.status_code}) != expected({HTTPStatus.CREATED})",
+        )
 
         # confirm webhookevent is created
-        self.assertTrue(GithubWebhookEvent.objects.count() == 1)
+        expected_event_count = 1
+        self.assertEqual(GithubWebhookEvent.objects.count(), expected_event_count)
         webhook_events = GithubWebhookEvent.objects.all()
         for event in webhook_events:
             self.assertTrue(event.state == "unprocessed", f"actual({event.state}) != expected(unprocessed)")
@@ -64,9 +78,17 @@ class WebhookTestCase(TestCase):
 
         headers = {"HTTP_X_GITHUB_EVENT": "project_card", "X-Hub-Signature": invalid_signature}
         response = c.generic(
-            "POST", f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/", content, content_type="application/json", follow=True, **headers
+            "POST",
+            f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/",
+            content,
+            content_type="application/json",
+            follow=True,
+            **headers,
         )
-        self.assertTrue(response.status_code == HTTPStatus.FORBIDDEN, f"actual({response.status_code}) != expected({HTTPStatus.FORBIDDEN})")
+        self.assertTrue(
+            response.status_code == HTTPStatus.FORBIDDEN,
+            f"actual({response.status_code}) != expected({HTTPStatus.FORBIDDEN})",
+        )
 
     def test_project_card_webhook_no_signature(self):
         c = Client()
@@ -74,7 +96,12 @@ class WebhookTestCase(TestCase):
         content, _ = load_webhookevent(project_card_asissue_webhook_event_filepath, secret_encoded=self.secret_encoded)
         headers = {"HTTP_X_GITHUB_EVENT": "project_card"}
         response = c.generic(
-            "POST", f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/", content, content_type="application/json", follow=True, **headers
+            "POST",
+            f"{settings.URL_PREFIX}/octocat/webhook/{self.organization.pk}/",
+            content,
+            content_type="application/json",
+            follow=True,
+            **headers,
         )
         self.assertTrue(response.status_code == HTTPStatus.BAD_REQUEST)
 
@@ -87,7 +114,8 @@ class WebhookTestCase(TestCase):
             event = json.loads(payload)
 
         queue_incoming_project_card_event(self.organization, event_type="project_card", event=event)
-        self.assertTrue(GithubWebhookEvent.objects.all().count() == 1)
+        expected_event_count = 1
+        self.assertEqual(GithubWebhookEvent.objects.all().count(), expected_event_count)
 
     def test_queue_incoming_project_card_event__edited(self):
         event_filepath = TESTDATA_DIRECTORY / "project_card_asissue_webhookevent_edited.json"

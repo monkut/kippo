@@ -1,6 +1,5 @@
-"""
-Dump 'projects' content to s3
-"""
+"""Dump 'projects' content to s3"""
+
 from gzip import compress
 from io import BytesIO, StringIO
 

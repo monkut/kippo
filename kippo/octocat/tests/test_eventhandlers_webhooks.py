@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from accounts.models import KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
 from django.utils import timezone
@@ -14,7 +14,7 @@ from ..event_handlers.webhooks import process_webhooks
 from ..models import GithubWebhookEvent
 from .utils import load_webhookevent
 
-assert os.getenv("KIPPO_TESTING", False)  # The KIPPO_TESTING environment variable must be set to True
+assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
 
 TESTDATA_DIRECTORY = Path(__file__).parent / "testdata"
 
@@ -31,15 +31,19 @@ class ProcessWebhooksTestCase(TestCase):
         self.project = results["KippoProject"]
         self.user1 = results["KippoUser"]
         self.github_manager = KippoUser.objects.get(username="github-manager")
-        self.secret = "DOB6tzKvmBIX69Jd1NPc"
+        self.secret = "DOB6tzKvmBIX69Jd1NPc"  # noqa: S105
         self.secret_encoded = self.secret.encode("utf8")
 
         # create user2 for task assignement check
-        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)
+        self.user2 = KippoUser(username="octocat2", github_login="octocat2", password="test", email="octocat2@github.com", is_staff=True)  # noqa: S106
         self.user2.save()
 
         orgmembership = OrganizationMembership(
-            user=self.user2, organization=self.organization, is_developer=True, created_by=self.user2, updated_by=self.user2
+            user=self.user2,
+            organization=self.organization,
+            is_developer=True,
+            created_by=self.user2,
+            updated_by=self.user2,
         )
         orgmembership.save()
         self.current_date = timezone.now().date()
@@ -97,6 +101,8 @@ class ProcessWebhooksTestCase(TestCase):
         assert webhookevent.created_datetime == delete_datetime, webhookevent.created_datetime
 
     def test_process_webhooks(self):
-        assert GithubWebhookEvent.objects.all().count() == 3
+        initial_event_count = 3
+        assert GithubWebhookEvent.objects.all().count() == initial_event_count
         process_webhooks(event={}, context={})
-        self.assertEqual(GithubWebhookEvent.objects.all().count(), 1)
+        expected_event_count = 1
+        self.assertEqual(GithubWebhookEvent.objects.all().count(), expected_event_count)

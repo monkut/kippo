@@ -1,6 +1,7 @@
-from accounts.models import Country, EmailDomain, KippoOrganization, KippoUser, PersonalHoliday, PublicHoliday
 from django.test import TestCase
 from django.utils import timezone
+
+from accounts.models import Country, EmailDomain, KippoOrganization, KippoUser, PersonalHoliday, PublicHoliday
 
 
 class PersonalHolidayTestCase(TestCase):
@@ -12,7 +13,7 @@ class PersonalHolidayTestCase(TestCase):
         self.holiday_country = Country(name="japan", alpha_2="jp", alpha_3="jpn", country_code="JPN", region="asia")
         self.holiday_country.save()
 
-        self.user = KippoUser(username="accounts-octocat", password="test", email="accounts@github.com", is_staff=True)
+        self.user = KippoUser(username="accounts-octocat", password="test", email="accounts@github.com", is_staff=True)  # noqa: S106
         self.user.holiday_country = self.holiday_country
         self.user.save()
 

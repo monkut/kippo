@@ -5,7 +5,8 @@ from io import BytesIO
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.utils import timezone
-from kippo.aws import S3_CLIENT, parse_s3_uri
+
+from kippo.awsclients import S3_CLIENT, parse_s3_uri
 
 from ..models import KippoProject
 
@@ -39,13 +40,12 @@ def write_projectid_json(projectid_mapping_json_s3uri: str) -> bool:
         S3_CLIENT.upload_fileobj(encoded_json_mapping_bytesio, bucket, key)
         logger.info(f"uploading mapping file ({projectid_mapping_json_s3uri}) ... DONE!")
         updated = True
-    except ClientError as e:
-        logger.exception(e)
-        logger.error(f"uploading mapping file ({projectid_mapping_json_s3uri}) ... ERROR!")
+    except ClientError:
+        logger.exception(f"uploading mapping file ({projectid_mapping_json_s3uri}) ... ERROR!")
     return updated
 
 
-def handle_projectid_mapping(event=None, context=None):
+def handle_projectid_mapping(event: dict | None = None, context: dict | None = None):  # noqa: ARG001
     if settings.PROJECTID_MAPPING_JSON_S3URI:
         logger.info(f"PROJECTID_MAPPING_JSON_S3URI={settings.PROJECTID_MAPPING_JSON_S3URI}")
         write_projectid_json(projectid_mapping_json_s3uri=settings.PROJECTID_MAPPING_JSON_S3URI)

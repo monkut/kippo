@@ -2,28 +2,34 @@ import csv
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from collections.abc import Iterable
 from string import ascii_lowercase
-from typing import Optional, Tuple
 
-from accounts.models import KippoUser, OrganizationMembership
-from common.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
-from common.widgets import MonthYearWidget
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
+from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from commons.definitions import SATURDAY
+from commons.widgets import MonthYearWidget
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.http import HttpResponse, HttpResponseRedirect
+from django.forms import BaseFormSet, Form
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseRedirect,
+    request as DjangoRequest,  # noqa: N812
+)
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
-from rangefilter.filters import DateTimeRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
+from .exceptions import GithubMilestoneAlreadyExistsError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
@@ -36,7 +42,6 @@ from .functions import (
 from .models import (
     ActiveKippoProject,
     CollectIssuesAction,
-    GithubMilestoneAlreadyExists,
     KippoMilestone,
     KippoProject,
     KippoProjectStatus,
@@ -57,10 +62,10 @@ class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
     readonly_fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
 
-    def has_add_permission(self, request, obj):  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None):  # No Add button
         return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # order milestones as expected
         qs = super().get_queryset(request).order_by("target_date")
         return qs
@@ -71,7 +76,7 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
     extra = 0
     fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
@@ -83,10 +88,10 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
     fields = ("week_start", "user", "hours")
     readonly_fields = ("week_start", "user", "hours")
 
-    def has_add_permission(self, request, obj) -> bool:  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No Add button
         return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # order milestones as expected
         three_weeks_ago = (timezone.now() - timezone.timedelta(days=21)).date()
         # filter output
@@ -99,12 +104,12 @@ class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline
     extra = 1
     fields = ("week_start", "user", "hours")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
 
-    def get_formset(self, request, obj=None, **kwargs):
+    def get_formset(self, request: HttpRequest, obj: ProjectWeeklyEffort | None = None, **kwargs):
         """Added to filter the user selection list so that only user's belonging to the project's organization will be listed"""
         formset = super().get_formset(request, obj, **kwargs)
         if obj:  # parent model
@@ -124,10 +129,10 @@ class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInlin
     fields = ("created_datetime", "created_by", "comment")
     readonly_fields = ("created_datetime", "created_by", "comment")
 
-    def has_add_permission(self, request, obj):  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None):  # No Add button
         return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # order milestones as expected
         five_weeks_ago_days = 7 * 5
         five_weeks_ago = timezone.now() - timezone.timedelta(days=five_weeks_ago_days)
@@ -140,13 +145,13 @@ class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline)
     extra = 1
     fields = ("comment",)
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
 
 
-def create_github_organizational_project_action(modeladmin, request, queryset) -> None:
+def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:  # noqa: PLR0912
     """
     Admin Action command to create a github organizational project from the selected KippoProject(s)
 
@@ -162,7 +167,9 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
         else:
             if not kippo_project.columnset:
                 modeladmin.message_user(
-                    request, message=f"ProjectColumnSet not defined for {kippo_project}, cannot create Github Project!", level=messages.ERROR
+                    request,
+                    message=f"ProjectColumnSet not defined for {kippo_project}, cannot create Github Project!",
+                    level=messages.ERROR,
                 )
                 return
 
@@ -173,7 +180,9 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             # create the organizational project in github
             # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
             url, responses = github_manager.create_organizational_project(
-                name=kippo_project.github_project_name, description=kippo_project.github_project_description, columns=columns
+                name=kippo_project.github_project_name,
+                description=kippo_project.github_project_description,
+                columns=columns,
             )
             kippo_project.github_project_html_url = url
             logger.debug(f"kippo_project.github_project_html_url={url}")
@@ -201,14 +210,16 @@ def create_github_organizational_project_action(modeladmin, request, queryset) -
             modeladmin.message_user(request, message=m, level=messages.WARNING)
     if successful_creation_projects:
         modeladmin.message_user(
-            request, message=f"({len(successful_creation_projects)}) GitHub Projects Created: {successful_creation_projects}", level=messages.INFO
+            request,
+            message=f"({len(successful_creation_projects)}) GitHub Projects Created: {successful_creation_projects}",
+            level=messages.INFO,
         )
 
 
 create_github_organizational_project_action.short_description = _("Create Github Organizational Project(s) for selected")  # noqa: E305
 
 
-def create_github_repository_milestones_action(modeladmin, request, queryset) -> None:
+def create_github_repository_milestones_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:
     """
     Admin Action command to create a github repository milestones for ALL
     repositories linked to the selected KippoProject(s).
@@ -218,23 +229,25 @@ def create_github_repository_milestones_action(modeladmin, request, queryset) ->
         for milestone in milestones:
             try:
                 created_octocat_milestones = milestone.update_github_milestones(request.user)
-                for created, created_octocat_milestone in created_octocat_milestones:
+                for _, created_octocat_milestone in created_octocat_milestones:
                     modeladmin.message_user(
                         request,
                         message=f"({kippo_project.name}) {created_octocat_milestone.repository.name} created milestone: "
                         f"{milestone.title} ({milestone.start_date} - {milestone.target_date})",
                         level=messages.INFO,
                     )
-            except GithubMilestoneAlreadyExists as e:
+            except GithubMilestoneAlreadyExistsError as e:
                 modeladmin.message_user(
-                    request, message=f"({kippo_project.name}) Failed to create milestone for related repository(ies): {e.args}", level=messages.ERROR
+                    request,
+                    message=f"({kippo_project.name}) Failed to create milestone for related repository(ies): {e.args}",
+                    level=messages.ERROR,
                 )
 
 
 create_github_repository_milestones_action.short_description = _("Create related Github Repository Milestone(s) for selected")  # noqa: E305
 
 
-def collect_project_github_repositories_action(modeladmin, request, queryset) -> None:
+def collect_project_github_repositories_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:
     """
     Admin action to collect the github repositories for selected KippoProjects
     Calls `()` which also updates issues on collection
@@ -250,11 +263,13 @@ def collect_project_github_repositories_action(modeladmin, request, queryset) ->
 
     collect_github_project_issues(1, kippo_organization_id=str(organization.id), github_project_html_urls=github_project_html_urls_to_update)
     modeladmin.message_user(
-        request, message=f"({len(github_project_html_urls_to_update)}) KippoProjects updated from GitHub Organizational Projects", level=messages.INFO
+        request,
+        message=f"({len(github_project_html_urls_to_update)}) KippoProjects updated from GitHub Organizational Projects",
+        level=messages.INFO,
     )
 
 
-collect_project_github_repositories_action.short_description = _("Collect Project Repositories")  # noqa
+collect_project_github_repositories_action.short_description = _("Collect Project Repositories")  # noqa: E305
 
 
 @admin.register(KippoProject)
@@ -295,12 +310,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectStatusAdminInline,
     ]
 
-    def has_add_permission(self, request, obj: Optional[KippoProject] = None):  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: KippoProject | None = None):  # No Add button
         # check if user has organization memberships
         # - if not can't add new projects
         return request.user.memberships.exists()
 
-    def get_updated_by_display(self, obj) -> str:
+    def get_updated_by_display(self, obj: KippoProject) -> str:
         result = ""
         if obj:
             result = obj.updated_by.username
@@ -308,7 +323,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_updated_by_display.short_description = "updated by"
 
-    def get_confidence_display(self, obj):
+    def get_confidence_display(self, obj: KippoProject):
         result = ""
         if obj.confidence:
             result = f"{obj.confidence} %"
@@ -317,7 +332,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     get_confidence_display.admin_order_field = "confidence"
     get_confidence_display.short_description = "confidence"
 
-    def get_kippoprojectuserstatisfactionresult_usernames(self, obj: Optional[KippoProject] = None) -> str:
+    def get_kippoprojectuserstatisfactionresult_usernames(self, obj: KippoProject | None = None) -> str:
         result = ""
         if obj:
             result = format_html(
@@ -331,7 +346,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_kippoprojectuserstatisfactionresult_usernames.short_description = f"{KippoProjectUserStatisfactionResult._meta.verbose_name} Submitted Users"
 
-    def get_projectsurvey_display_url(self, obj):
+    def get_projectsurvey_display_url(self, obj: KippoProject) -> str:
         url = obj.get_projectsurvey_url()
         html_encoded_url = ""
         if url:
@@ -340,49 +355,51 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_projectsurvey_display_url.short_description = _("Project Survey URL")
 
-    def export_project_kippotaskstatus_csv(self, request, queryset):
+    def export_project_kippotaskstatus_csv(self, request: DjangoRequest, queryset: models.QuerySet):
         """Allow export to csv from admin"""
         if queryset.count() != 1:
             self.message_user(request, _("CSV Export action only supports single Project selection"), level=messages.ERROR)
-        else:
-            project = queryset[0]
-            logger.debug(f"Generating KippoTaskStatus CSV for: {project.name}")
-            project_slug = "".join(c for c in project.name.replace(" ", "").lower() if c in ascii_lowercase)
-            if not project_slug:
-                project_slug = project.id
-            filename = f'{project_slug}_{timezone.now().strftime("%Y%m%d_%H%M%Z")}.csv'
-            logger.debug(f"filename: {filename}")
-            response = HttpResponse(content_type="text/csv")
-            response["Content-Disposition"] = f"attachment; filename={filename}"
-            writer = csv.writer(response)
-            try:
-                csv_row_generator = get_kippoproject_taskstatus_csv_rows(project, with_headers=True)
-                writer.writerows(csv_row_generator)
-                return response
-            except KippoTaskStatus.DoesNotExist:
-                self.message_user(request, _(f"No status entries exist for project: {project.name}"), level=messages.WARNING)
+            return None
+        project = queryset[0]
+        logger.debug(f"Generating KippoTaskStatus CSV for: {project.name}")
+        project_slug = "".join(c for c in project.name.replace(" ", "").lower() if c in ascii_lowercase)
+        if not project_slug:
+            project_slug = project.id
+        filename = f"{project_slug}_{timezone.now().strftime('%Y%m%d_%H%M%Z')}.csv"
+        logger.debug(f"filename: {filename}")
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = f"attachment; filename={filename}"
+        writer = csv.writer(response)
+        try:
+            csv_row_generator = get_kippoproject_taskstatus_csv_rows(project, with_headers=True)
+            writer.writerows(csv_row_generator)
+        except KippoTaskStatus.DoesNotExist:
+            display_message = _("No status entries exist for project: %s") % project.name
+            self.message_user(request, display_message, level=messages.WARNING)
+            return None
+        return response
 
     export_project_kippotaskstatus_csv.short_description = _("Export KippoTaskStatus CSV")
 
-    def export_kippoprojectstatus_comments_csv(self, request, queryset):
+    def export_kippoprojectstatus_comments_csv(self, request: DjangoRequest, queryset: models.QuerySet):
         project_ids = [str(i) for i in queryset.values_list("id", flat=True)]
         if project_ids:
             # initiate creation
             now = timezone.now()
             filename = now.strftime("project-statuscomments-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}".format(filename)
+            key = f"tmp/download/{filename}"
             generate_projectstatuscomments_csv(project_ids=project_ids, key=key)
             # redirect to waiter
             urlencoded_key = urllib.parse.quote_plus(key)
             backpath_urlencoded_key = urllib.parse.quote_plus(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
             download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}&back_path={backpath_urlencoded_key}"
             return HttpResponseRedirect(redirect_to=download_waiter_url)
-        else:
-            self.message_user(request, _("No Projects selected!"), level=messages.ERROR)
+        self.message_user(request, _("No Projects selected!"), level=messages.ERROR)
+        return None
 
     export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
 
-    def get_latest_kippoprojectstatus_comment(self, obj):
+    def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
         result = ""
         latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
@@ -394,7 +411,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
 
-    def get_projecteffort_display(self, obj: Optional[KippoProject] = None) -> str:
+    def get_projecteffort_display(self, obj: KippoProject | None = None) -> str:
         result = "-"
         if obj:
             # get project total effort
@@ -416,7 +433,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_projecteffort_display.short_description = _("Effort Hours")
 
-    def show_github_project_html_url(self, obj):
+    def show_github_project_html_url(self, obj: KippoProject) -> str:
         url = ""
         if obj.github_project_html_url:
             url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
@@ -424,7 +441,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     show_github_project_html_url.short_description = _("GitHub Project URL")
 
-    def save_formset(self, request, form, formset, change):
+    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool) -> None:
         instances = formset.save(commit=False)
         for obj in formset.deleted_objects:
             obj.delete()
@@ -435,7 +452,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             instance.save()
         formset.save_m2m()
 
-    def get_form(self, request, obj=None, **kwargs):
+    def get_form(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs) -> Form:
         """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -448,13 +465,15 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             user_memberships = request.user.memberships.none()
         if not user_initial_organization:
             self.message_user(
-                request, "OrganizationMembership not defined for user! Must belong to an Organization to create a project", level=messages.ERROR
+                request,
+                "OrganizationMembership not defined for user! Must belong to an Organization to create a project",
+                level=messages.ERROR,
             )
         form.base_fields["organization"].initial = user_initial_organization
         form.base_fields["organization"].queryset = user_memberships
         return form
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
         if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
             obj.created_by = request.user
@@ -464,7 +483,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
         super().save_model(request, obj, form, change)
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -507,12 +526,12 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     search_fields = ("title", "description")
     ordering = ("project", "target_date")
 
-    def get_project_name(self, obj):
+    def get_project_name(self, obj: KippoMilestone):
         return obj.project.name
 
     get_project_name.short_description = _("Project")
 
-    def get_task_count(self, obj) -> int:
+    def get_task_count(self, obj: KippoMilestone) -> int:
         result = 0
         if obj:
             result = obj.kippotask_milestone.count()
@@ -520,17 +539,17 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_task_count.short_description = _("Task Count")
 
-    def response_add(self, request, obj, post_url_continue=None):
+    def response_add(self, request: DjangoRequest, obj: KippoMilestone, post_url_continue: bool | None = None):
         """Overridding Redirect to the KippoProject page after edit."""
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
 
-    def response_change(self, request, obj):
+    def response_change(self, request: DjangoRequest, obj: KippoMilestone):
         """Overriding Redirect to the KippoProject page after edit."""
         project_url = obj.project.get_admin_url()
         return HttpResponseRedirect(project_url)
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -552,7 +571,7 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
 class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user")
 
-    def get_project_organization(self, obj):
+    def get_project_organization(self, obj: ProjectAssignment):
         organization_name = obj.project.organization.name
         return organization_name
 
@@ -576,25 +595,7 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
-
-    @staticmethod
-    def get_current_month_start_end():
-        today = timezone.localdate()  # 今日の日付を取得
-        month_start = datetime(today.year, today.month, 1)  # 今月の最初の日
-        if today.month == 12:  # 次の月の最初の日を計算し、1日減らして今月の最後の日を得る
-            month_end = datetime(today.year + 1, 1, 1) - timedelta(days=1)
-        else:
-            month_end = datetime(today.year, today.month + 1, 1) - timedelta(days=1)
-        return month_start, month_end
-
-    def __init__(self, model, admin_site):
-        super().__init__(model, admin_site)
-
-        current_month_start, current_month_end = self.get_current_month_start_end()
-        self.list_filter = (
-            ("week_start", DateTimeRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),
-        )
-
+    date_hierarchy = "week_start"
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",
@@ -602,7 +603,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
     )
     actions = ("download_csv", "download_monthly_csv")
 
-    def get_project_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
+    def get_project_name(self, obj: ProjectWeeklyEffort | None = None) -> str:
         result = "-"
         if obj and obj.project and obj.project.name:
             result = obj.project.name
@@ -610,7 +611,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
     get_project_name.short_description = _("Project")
 
-    def get_user_display_name(self, obj: Optional[ProjectWeeklyEffort] = None) -> str:
+    def get_user_display_name(self, obj: ProjectWeeklyEffort | None = None) -> str:
         result = "-"
         if obj:
             result = obj.user.display_name
@@ -618,41 +619,41 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
     get_user_display_name.short_description = _("user")
 
-    def download_csv(self, request, queryset):
+    def download_csv(self, request: DjangoRequest, queryset: models.QuerySet) -> HttpResponseRedirect | None:
         if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
-        else:
-            # initiate creation
-            now = timezone.localtime()
-            filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}".format(filename)
-            selected_query_id = list(queryset.values_list("id", flat=True))
-            generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
-            # redirect to waiter
-            urlencoded_key = urllib.parse.quote_plus(key)
-            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
-            return HttpResponseRedirect(redirect_to=download_waiter_url)
+            return None
+        # initiate creation
+        now = timezone.now()
+        filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
+        key = f"tmp/download/{filename}"
+        selected_query_id = list(queryset.values_list("id", flat=True))
+        generate_projectweeklyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
+        # redirect to waiter
+        urlencoded_key = urllib.parse.quote_plus(key)
+        download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+        return HttpResponseRedirect(redirect_to=download_waiter_url)
 
     download_csv.description = _("Download ProjectWeeklyEffort CSV")
 
-    def download_monthly_csv(self, request, queryset):
+    def download_monthly_csv(self, request: DjangoRequest, queryset: models.QuerySet):
         if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
-        else:
-            # initiate creation
-            now = timezone.localtime()
-            filename = now.strftime("project-monthly-effort-%Y%m%d%H%M%S.csv")
-            key = "tmp/download/{}".format(filename)
-            selected_query_id = list(queryset.values_list("id", flat=True))
-            generate_projectmonthlyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
-            # redirect to waiter
-            urlencoded_key = urllib.parse.quote_plus(key)
-            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
-            return HttpResponseRedirect(redirect_to=download_waiter_url)
+            return None
+        # initiate creation
+        now = timezone.localtime()
+        filename = now.strftime("project-monthly-effort-%Y%m%d%H%M%S.csv")
+        key = f"tmp/download/{filename}"
+        selected_query_id = list(queryset.values_list("id", flat=True))
+        generate_projectmonthlyeffort_csv(user_id=str(request.user.pk), key=key, effort_ids=selected_query_id)
+        # redirect to waiter
+        urlencoded_key = urllib.parse.quote_plus(key)
+        download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+        return HttpResponseRedirect(redirect_to=download_waiter_url)
 
     download_monthly_csv.description = _("Download ProjectMonthlyEffort CSV")
 
-    def get_form(self, request, obj=None, **kwargs):
+    def get_form(self, request: DjangoRequest, obj: ProjectWeeklyEffort | None = None, **kwargs):
         """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -666,20 +667,22 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             user_memberships = request.user.memberships.none()
         if not user_initial_organization:
             self.message_user(
-                request, "OrganizationMembership not defined for user! Must belong to an Organization to create a project", level=messages.ERROR
+                request,
+                "OrganizationMembership not defined for user! Must belong to an Organization to create a project",
+                level=messages.ERROR,
             )
         user_projects = KippoProject.objects.filter(organization__in=user_memberships)
         form.base_fields["project"].initial = user_projects.first()
         form.base_fields["project"].queryset = user_projects
         return form
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: DjangoRequest) -> models.QuerySet:
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
         return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
 
-    def get_fiscal_year_org_per_user_weeklyeffort(self, organizations) -> Tuple:
+    def get_fiscal_year_org_per_user_weeklyeffort(self, organizations: Iterable[KippoOrganization]) -> tuple:  # noqa: C901, PLR0912
         from accounts.models import PublicHoliday
 
         all_months = set()
@@ -718,18 +721,18 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                 current = current_fiscal_year
                 while current <= now:
                     all_months.add(current.month)
-                    if current.weekday() < 5:  # SAT=5, SUN=6
+                    if current.weekday() < SATURDAY:  # SAT=5, SUN=6
                         monthly_expected_hours[current.month] += 1
                     if current.weekday() == 0:
                         monthly_week_starts.append(current.date())
                     current += timezone.timedelta(days=1)
             # apply hours
-            for month in monthly_expected_hours.keys():
+            for month in monthly_expected_hours:
                 if not monthly_expected_hours_processed:
                     monthly_expected_hours[month] *= org.day_workhours
                 # -- update user dictionaries with 0s
-                for org_key, user_info in results.items():
-                    for user, user_month_data in user_info.items():
+                for org_user_info in results.values():
+                    for user_month_data in org_user_info.values():
                         if month and month not in user_month_data:
                             user_month_data[month] = [0, False]
                         elif (
@@ -739,8 +742,8 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                             user_month_data[month][flag_index] = True
             monthly_expected_hours_processed = True
             # re-sort user_data
-            for org_key in results.keys():
-                for user_key in results[org_key].keys():
+            for org_key in results:  # noqa: PLC0206
+                for user_key in results[org_key].keys():  # noqa: PLC0206
                     if "missing" not in results[org_key][user_key]:
                         this_week_start = now
                         while this_week_start.weekday() != 0:
@@ -752,7 +755,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                         results[org_key][user_key]["missing"] = [
                             ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts) if d != this_week_start.date()),
                             False,
-                        ]
+                        ]  # noqa: PLC0206
 
         # -- calculate public holidays
         for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date(), day__lte=now):
@@ -761,7 +764,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
         return dict(results), dict(monthly_expected_hours), tuple(all_months)
 
-    def changelist_view(self, request, extra_context=None):
+    def changelist_view(self, request: DjangoRequest, extra_context: dict | None = None):
         original_response = super().changelist_view(request, extra_context)
         organizations = request.user.organizations
         summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
@@ -794,7 +797,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
     )
     actions = ("download_csv",)
 
-    def get_project_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+    def get_project_name(self, obj: KippoProjectUserStatisfactionResult | None = None) -> str:
         result = "-"
         if obj and obj.project and obj.project.name:
             result = obj.project.name
@@ -802,7 +805,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
 
     get_project_name.short_description = _("Project")
 
-    def get_user_display_name(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+    def get_user_display_name(self, obj: KippoProjectUserStatisfactionResult | None = None) -> str:
         result = "-"
         if obj:
             result = obj.created_by.display_name
@@ -810,7 +813,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
 
     get_user_display_name.short_description = _("User")
 
-    def get_project_targetdate(self, obj: Optional[KippoProjectUserStatisfactionResult] = None) -> str:
+    def get_project_targetdate(self, obj: KippoProjectUserStatisfactionResult | None = None) -> str:
         result = "-"
         if obj:
             result = str(obj.project.target_date)
@@ -818,7 +821,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
 
     get_project_targetdate.short_description = _("プロジェクト目標完了日")
 
-    def get_form(self, request, obj=None, **kwargs):
+    def get_form(self, request: DjangoRequest, obj: KippoProjectUserStatisfactionResult | None = None, **kwargs):
         """Filter to use only opened projects"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -836,34 +839,36 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
             form.base_fields["project"].label_from_instance = get_project_display_name
         return form
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request: DjangoRequest, obj: KippoProjectUserStatisfactionResult | None = None) -> bool:
         has_permission = False
-        if request.user.is_superuser:
-            has_permission = True
-        elif obj and request.user == obj.created_by:
+        if request.user.is_superuser or obj and request.user == obj.created_by:
             has_permission = True
         return has_permission
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request: DjangoRequest, obj: KippoProjectUserStatisfactionResult | None = None) -> bool:
         return self.has_change_permission(request, obj)
 
-    def download_csv(self, request, queryset):
+    def download_csv(self, request: DjangoRequest, queryset: models.QuerySet) -> HttpResponseRedirect | None:
         if not KippoProjectUserStatisfactionResult.objects.filter(project__organization__in=request.user.organizations).exists():
-            self.message_user(request, _(f"No {KippoProjectUserStatisfactionResult._meta.verbose_name} exists!"), level=messages.WARNING)
-        else:
-            self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
-            # initiate creation
-            now = timezone.now()
-            filename = now.strftime("project-userstatisfactionresult-%Y%m%d%H%M%S.csv")
-            key = f"tmp/download/{filename}"
-            organization_pks = [str(org.pk) for org in request.user.organizations]
-            generate_kippoprojectuserstatisfactionresult_csv(organization_pks=organization_pks, key=key)
-            # redirect to waiter
-            urlencoded_key = urllib.parse.quote_plus(key)
-            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
-            return HttpResponseRedirect(redirect_to=download_waiter_url)
+            self.message_user(
+                request,
+                _("Does Not Exist: %s") % KippoProjectUserStatisfactionResult._meta.verbose_name,
+                level=messages.WARNING,
+            )
+            return None
+        self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
+        # initiate creation
+        now = timezone.now()
+        filename = now.strftime("project-userstatisfactionresult-%Y%m%d%H%M%S.csv")
+        key = f"tmp/download/{filename}"
+        organization_pks = [str(org.pk) for org in request.user.organizations]
+        generate_kippoprojectuserstatisfactionresult_csv(organization_pks=organization_pks, key=key)
+        # redirect to waiter
+        urlencoded_key = urllib.parse.quote_plus(key)
+        download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+        return HttpResponseRedirect(redirect_to=download_waiter_url)
 
-    download_csv.short_description = _(f"Download {KippoProjectUserStatisfactionResult._meta.verbose_name} CSV")
+    download_csv.short_description = _("Download %s CSV") % KippoProjectUserStatisfactionResult._meta.verbose_name
 
 
 class KippoProjectUserMonthlyStatisfactionResultAdminForm(forms.ModelForm):
@@ -871,7 +876,10 @@ class KippoProjectUserMonthlyStatisfactionResultAdminForm(forms.ModelForm):
         cleaned_data = super().clean()
         submitted_date = cleaned_data["date"]
         existing_obj = KippoProjectUserMonthlyStatisfactionResult.objects.filter(
-            project=cleaned_data["project"], created_by=self.request.user, date__year=submitted_date.year, date__month=submitted_date.month
+            project=cleaned_data["project"],
+            created_by=self.request.user,
+            date__year=submitted_date.year,
+            date__month=submitted_date.month,
         ).exists()
         if existing_obj:
             raise ValidationError(
@@ -895,7 +903,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
         models.DateField: {"widget": MonthYearWidget},
     }
 
-    def get_project_name(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+    def get_project_name(self, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> str:
         result = "-"
         if obj and obj.project and obj.project.name:
             result = obj.project.name
@@ -903,7 +911,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
     get_project_name.short_description = _("Project")
 
-    def get_user_display_name(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+    def get_user_display_name(self, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> str:
         result = "-"
         if obj:
             result = obj.created_by.display_name
@@ -911,7 +919,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
     get_user_display_name.short_description = _("User")
 
-    def get_project_targetdate(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+    def get_project_targetdate(self, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> str:
         result = "-"
         if obj:
             result = str(obj.project.target_date)
@@ -919,7 +927,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
     get_project_targetdate.short_description = _("プロジェクト目標完了日")
 
-    def get_entry_yearmonth(self, obj: Optional[KippoProjectUserMonthlyStatisfactionResult] = None) -> str:
+    def get_entry_yearmonth(self, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> str:
         result = "-"
         if obj:
             result = obj.date.strftime("%Y-%m")
@@ -927,7 +935,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
     get_entry_yearmonth.short_description = _("月")
 
-    def get_form(self, request, obj=None, **kwargs):
+    def get_form(self, request: DjangoRequest, obj: KippoProjectUserMonthlyStatisfactionResult | None = None, **kwargs):
         """Filter to use only opened projects"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -944,35 +952,37 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
             form.base_fields["project"].label_from_instance = get_project_display_name
         return form
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: DjangoRequest, obj: KippoProjectUserMonthlyStatisfactionResult, form: Form, change: bool):
         obj.date = form.cleaned_data["date"]
         super().save_model(request, obj, form, change)
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request: DjangoRequest, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> bool:
         has_permission = False
-        if request.user.is_superuser:
-            has_permission = True
-        elif obj and request.user == obj.created_by:
+        if request.user.is_superuser or obj and request.user == obj.created_by:
             has_permission = True
         return has_permission
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request: DjangoRequest, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> bool:
         return self.has_change_permission(request, obj)
 
-    def download_csv(self, request, queryset):
+    def download_csv(self, request: HttpRequest, queryset: models.QuerySet) -> HttpResponseRedirect | None:
         if not KippoProjectUserMonthlyStatisfactionResult.objects.filter(project__organization__in=request.user.organizations).exists():
-            self.message_user(request, _(f"No {KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name} exists!"), level=messages.WARNING)
-        else:
-            self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
-            # initiate creation
-            now = timezone.now()
-            filename = now.strftime("project-monthlystatisfaction-%Y%m%d%H%M%S.csv")
-            key = f"tmp/download/{filename}"
-            organization_pks = [str(org.pk) for org in request.user.organizations]
-            generate_kippoprojectusermonthlystatisfaction_csv(organization_pks=organization_pks, key=key)
-            # redirect to waiter
-            urlencoded_key = urllib.parse.quote_plus(key)
-            download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
-            return HttpResponseRedirect(redirect_to=download_waiter_url)
+            self.message_user(
+                request,
+                _("No %s exists!") % KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name,
+                level=messages.WARNING,
+            )
+            return None
+        self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
+        # initiate creation
+        now = timezone.now()
+        filename = now.strftime("project-monthlystatisfaction-%Y%m%d%H%M%S.csv")
+        key = f"tmp/download/{filename}"
+        organization_pks = [str(org.pk) for org in request.user.organizations]
+        generate_kippoprojectusermonthlystatisfaction_csv(organization_pks=organization_pks, key=key)
+        # redirect to waiter
+        urlencoded_key = urllib.parse.quote_plus(key)
+        download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
+        return HttpResponseRedirect(redirect_to=download_waiter_url)
 
-    download_csv.short_description = _(f"Download {KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name} CSV")
+    download_csv.short_description = _("Download %s CSV") % KippoProjectUserMonthlyStatisfactionResult._meta.verbose_name

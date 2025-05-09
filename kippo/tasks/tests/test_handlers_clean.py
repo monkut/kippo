@@ -1,11 +1,9 @@
-import json
 from pathlib import Path
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_COLUMNSET_PK
+from commons.tests import DEFAULT_COLUMNSET_PK
 from django.test import TestCase
 from django.utils import timezone
-from ghorgs.wrappers import GithubIssue
 from projects.models import KippoProject, ProjectColumnSet
 
 from ..handlers.clean import delete
@@ -86,7 +84,7 @@ class TasksHandlerCleanTestCase(TestCase):
         self.user1 = KippoUser(
             username="user1",
             github_login="user1",
-            password="test",
+            password="test",  # noqa: S106
             email="user1@github.com",
             is_staff=True,
         )

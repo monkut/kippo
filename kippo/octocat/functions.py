@@ -3,20 +3,24 @@ import json
 import logging
 import os
 from collections import Counter
-from distutils.util import strtobool
+from collections.abc import Generator
 from math import ceil
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import unquote_plus
 
 from accounts.models import KippoOrganization, KippoUser
+from distutils.util import strtobool
 from django.conf import settings
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
-from tasks.exceptions import GithubPullRequestUrl, GithubRepositoryUrlError, ProjectNotFoundError
+from tasks.exceptions import GithubPullRequestUrlError, GithubRepositoryUrlError, ProjectNotFoundError
 from tasks.models import KippoTask, KippoTaskStatus
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
+
+if TYPE_CHECKING:
+    from octocat.models import GithubWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ THREE_MINUTES = 3 * 60
 
 
 class GithubIssuePrefixedLabel:
-    def __init__(self, label: object, prefix_delim: str = ":"):
+    def __init__(self, label: object, prefix_delim: str = ":") -> None:
         self.label = label
         self.prefix_delim = prefix_delim
 
@@ -76,10 +80,12 @@ def get_github_issue_estimate_label(
             for suffix in valid_label_suffixes:
                 if estimate_str_value.endswith(suffix):  # d = days, h = hours
                     estimate_str_value = estimate_str_value.split(suffix)[0]
+
             try:
                 candidate_estimate = int(estimate_str_value)
             except ValueError:
-                logger.error(f"Invalid estimate value cannot convert to int() estimate_str_value={estimate_str_value}, label.name={label.name}")
+                logger.exception(f"Invalid estimate value cannot convert to int() estimate_str_value={estimate_str_value}, label.name={label.name}")
+                candidate_estimate = None
 
             if candidate_estimate:
                 if label.name.endswith(("h", "hour", "hours")):
@@ -102,11 +108,11 @@ def get_github_issue_estimate_label(
 def build_latest_comment(issue: GithubIssue) -> str:
     latest_comment = ""
     if issue.latest_comment_body:
-        latest_comment = f"{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] " f"{issue.latest_comment_body}"
+        latest_comment = f"{issue.latest_comment_created_by} [ {issue.latest_comment_created_at} ] {issue.latest_comment_body}"
     return latest_comment
 
 
-def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX) -> str:
+def get_github_issue_category_label(issue: GithubIssue, prefix: str = settings.DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX) -> str:
     """
     Parse the category label into the category value
     Category Labels follow the scheme:
@@ -134,7 +140,7 @@ def get_github_issue_category_label(issue: GithubIssue, prefix=settings.DEFAULT_
     return category
 
 
-def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":") -> List[GithubIssuePrefixedLabel]:
+def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":") -> list[GithubIssuePrefixedLabel]:
     """Process a label in the format of a prefix/value"""
     prefixed_labels = []
     for label in issue.labels:
@@ -143,7 +149,7 @@ def get_github_issue_prefixed_labels(issue: GithubIssue, prefix_delim: str = ":"
     return prefixed_labels
 
 
-def get_tags_from_prefixedlabels(prefixed_labels: List[GithubIssuePrefixedLabel]) -> List[Dict[str, str]]:
+def get_tags_from_prefixedlabels(prefixed_labels: list[GithubIssuePrefixedLabel]) -> list[dict[str, str]]:
     tags = []
     for prefixed_label in prefixed_labels:
         # more than 1 label with the same prefix may exist
@@ -173,7 +179,7 @@ def queue_incoming_project_card_event(organization: KippoOrganization, event_typ
     # Accept any event (ignoring action)
     webhook_event = GithubWebhookEvent(organization=organization, event_type=event_type, event=event)
     webhook_event.save()
-    logger.debug(f' -- webhookevent created: {event_type}:{event["action"]}')
+    logger.debug(f" -- webhookevent created: {event_type}:{event['action']}")
 
     return webhook_event
 
@@ -206,7 +212,7 @@ def get_kippomilestone_from_github_issue(issue: GithubIssue, organization: Kippo
 
 
 @zappa_task
-def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
+def process_webhookevent_ids(webhookevent_ids: list[str]) -> Counter:
     from .models import GithubWebhookEvent
 
     logger.info(f"Processing GithubWebhookEvent(s): {webhookevent_ids}")
@@ -220,7 +226,7 @@ def process_webhookevent_ids(webhookevent_ids: List[str]) -> Counter:
 
 
 class GithubWebhookProcessor:
-    def __init__(self):
+    def __init__(self) -> None:
         self.organization_issue_processors = {}
         self.github_manager_kippouser = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
 
@@ -233,7 +239,7 @@ class GithubWebhookProcessor:
         return processor
 
     @staticmethod
-    def _load_event_to_githubissue(event):
+    def _load_event_to_githubissue(event: dict) -> GithubIssue:
         """Convert a given Issue event to a ghorgs.wrappers.GithubIssue"""
         # clean quoted data
         unquote_keys = ("body", "title")
@@ -246,7 +252,7 @@ class GithubWebhookProcessor:
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
 
-    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
+    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str | None:  # noqa: PLR0912, PLR0915, C901, F821
         """
         Process the 'project_card' event and update the related KippoTaskStatus.state field
         > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
@@ -260,9 +266,8 @@ class GithubWebhookProcessor:
         logger.debug(f"github_project_api_url={github_project_api_url}")
         try:
             kippo_project = KippoProject.objects.get(github_project_api_url=github_project_api_url)
-        except KippoProject.DoesNotExist as e:
-            logger.exception(e)
-            logger.error(
+        except KippoProject.DoesNotExist:
+            logger.exception(
                 f"GithubWebhookEvent({webhookevent}) related KippoProject not found: event.project_card.project_url={github_project_api_url}"
             )
             state = "error"
@@ -380,7 +385,10 @@ class GithubWebhookProcessor:
                             # update task.project_card_id
                             if task.project_card_id != card_id:
                                 # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
-                                msg = f"Current_process_ KippoTask.project_card_id({task.project_card_id}) != card_id({card_id}), updating KippoTask: {task}"
+                                msg = (
+                                    f"Current_process_ KippoTask.project_card_id({task.project_card_id}) != "
+                                    f"card_id({card_id}), updating KippoTask: {task}"
+                                )
                                 logger.warning(msg)
                             task.project_card_id = card_id
 
@@ -429,6 +437,8 @@ class GithubWebhookProcessor:
                             status.save()
                             logger.info(f"KippoTaskStatus.state updated to: {column_name}")
             return state
+        logger.error("project not found!")
+        return None
 
     def _process_issues_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         from projects.models import KippoProject
@@ -449,11 +459,9 @@ class GithubWebhookProcessor:
 
         logger.debug(f"len(candidate_projects)={candidate_projects}")
         if len(candidate_projects) > 1:
-            logger.warning(f"More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}")
+            logger.warning(f"More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {list(candidate_projects)}")
         elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(
-                f"KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}"
-            )
+            raise ProjectNotFoundError(f"KippoProject NOT found for Issue.repository_url={repository_api_url}: {list(candidate_projects)}")
 
         # only process if KippoTask already exists for GithubIssue
         # --> Introduced to avoid issue where multiple tasks were created for all available projects
@@ -465,12 +473,12 @@ class GithubWebhookProcessor:
                     is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
                     result = "processed"
                     logger.info(f"project_name={project_name}, is_new_task={is_new_task}")
-                except GithubPullRequestUrl as e:
-                    logger.warning(e.args)
+                except GithubPullRequestUrlError as e:
+                    logger.exception(e.args)
                     result = "ignore"
                     break
-                except GithubRepositoryUrlError as e:
-                    logger.exception(e)
+                except GithubRepositoryUrlError:
+                    logger.exception("GithubRepositoryUrlError")
                     result = "error"
                     break
         else:
@@ -508,23 +516,21 @@ class GithubWebhookProcessor:
         candidate_projects = {p.name: p for p in KippoProject.objects.filter(kippotask_project__github_issue_api_url__startswith=repository_api_url)}
         if len(candidate_projects) > 1:
             logger.debug(f"len(candidate_projects)={candidate_projects}")
-            logger.warning(f"More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}")
+            logger.warning(f"More than 1 KippoProject found for Issue.repository_url={repository_api_url}: {list(candidate_projects.keys())}")
         elif len(candidate_projects) <= 0:
-            raise ProjectNotFoundError(
-                f"KippoProject NOT found for Issue.repository_url={repository_api_url}: {[p for p in candidate_projects.keys()]}"
-            )
+            raise ProjectNotFoundError(f"KippoProject NOT found for Issue.repository_url={repository_api_url}: {list(candidate_projects)}")
 
         result = "error"
-        for project_name, project in candidate_projects.items():
+        for project in candidate_projects.values():
             try:
-                is_new_task, new_taskstatus_entries, updated_taskstatus_entries = issue_processor.process(project, githubissue)
+                issue_processor.process(project, githubissue)
                 result = "processed"
-            except GithubPullRequestUrl as e:
+            except GithubPullRequestUrlError as e:
                 logger.warning(e.args)
                 result = "ignore"
                 break
-            except GithubRepositoryUrlError as e:
-                logger.exception(e)
+            except GithubRepositoryUrlError:
+                logger.exception("GithubRepositoryUrlError")
                 result = "error"
                 break
 
@@ -553,7 +559,7 @@ class GithubWebhookProcessor:
             else:
                 yield from unprocessed_events
 
-    def process_webhook_events(self, webhookevents: Optional[List["GithubWebhookEvent"]] = None) -> Counter:  # noqa: F821
+    def process_webhook_events(self, webhookevents: list["GithubWebhookEvent"] | None = None) -> Counter:  # noqa: F821
         processed_events = Counter()
 
         if not webhookevents:
@@ -572,7 +578,7 @@ class GithubWebhookProcessor:
             try:
                 result_state = eventtype_processing_method(webhookevent)
             except ProjectNotFoundError as e:
-                logger.error(f"ProjectNotFoundError: {e.args}")
+                logger.exception(f"ProjectNotFoundError: {e.args}")
                 result_state = "ignore"
                 webhookevent.event["kippoerror"] = "No related project found for task!"
             logger.debug(f"result_state={result_state}")
@@ -584,7 +590,7 @@ class GithubWebhookProcessor:
 
 @zappa_task
 def update_repository_labels(
-    github_orgainization_name: str, token: str, repository_name: str, label_definitions: Tuple[Dict[str, str]], delete: bool = False
+    github_orgainization_name: str, token: str, repository_name: str, label_definitions: tuple[dict[str, str]], delete: bool = False
 ):
     deleted_labels = []
     created_labels = []
