@@ -1,82 +1,242 @@
-# Python CircleCI 2.0 configuration file
-#
-# Check https://circleci.com/docs/2.0/language-python/ for more details
-#
-version: 2
+version: 2.1
+
 jobs:
-  build:
+  check:
+    working_directory: ~/app/
     docker:
-      # specify the version you desire here
       - image: cimg/python:3.13
         environment:
-          PIPENV_VENV_IN_PROJECT: true
-          AWS_ACCESS_KEY_ID: dummyaccesskey
-          AWS_SECRET_ACCESS_KEY: dummysecretkey
-      - image: postgres:17
-        environment:
-          POSTGRES_USER: circleci
-          POSTGRES_DB: circle_test
-      - image: localstack/localstack:4.3.0
-
-    working_directory: ~/repo
+          AWS_PROFILE: dummyprofile
 
     steps:
       - checkout
       - run: sudo chown -R circleci:circleci /usr/local/bin
-
-      # Download and cache dependencies
       - restore_cache:
-          keys:
-          - v3-dependencies-{{ .Branch }}-{{ checksum "uv.lock" }}
-          # fallback to using the latest cache if no exact match is found
-          - v3-dependencies-{{ .Branch }}-
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
       - run:
           name: Upgrade uv
           command: |
-            python -m pip install uv
+            pip install uv -U
       - run:
           name: install dependencies
           command: |
             uv sync
-
       - save_cache:
-          key: v3-dependencies-{{ .Branch }}-{{ checksum "uv.lock" }}
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
           paths:
-            - ./venv
-            - /usr/local/bin
+            - "/home/circleci/.aws"
+            - "/home/circlci/.local"
+            - "/usr/local/bin"
 
       - run:
-          name: prepare boto3 credentials and awscli (Set via ENVARS[AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY])
+          name: code checks (ruff)
+          command: |
+            make check
+
+  test:
+    working_directory: ~/app/
+    docker:
+      - image: cimg/python:3.13
+        environment:
+          AWS_PROFILE: dummyprofile
+          AWS_ACCESS_KEY_ID: dummyaccesskey
+          AWS_SECRET_ACCESS_KEY: dummysecretkey
+          AWS_DEFAULT_REGION: ap-northeast-1
+          BOTO3_S3_SERVICE_ENDPOINT: http://localhost.localstack.cloud:4566
+          BOTO3_SQS_SERVICE_ENDPOINT: http://localhost:4566
+          BOTO3_SNS_SERVICE_ENDPOINT: http://localhost:4566
+          BOTO3_LAMBDA_SERVICE_ENDPOINT: http://localhost:4566
+          USE_XML_TESTRUNNER: True
+      - image: postgres:17
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: kippo
+          POSTGRES_HOST_AUTH_METHOD: trust
+      - image: localstack/localstack:4.3.0
+    parallelism: 16
+
+    steps:
+      - checkout
+      - run: sudo chown -R circleci:circleci /usr/local/bin
+      - restore_cache:
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
+
+      - run:
+          name: prepare boto3 aws config/credentials
           command: |
             # create ~/.aws/config
             echo "Creating: ~/.aws/config"
             mkdir -p ~/.aws
-            cat <<EOT > ~/.aws/config
+            cat \<<EOT > ~/.aws/config
             [default]
             region = ${AWS_DEFAULT_REGION}
             output = json
+
             [profile ${AWS_PROFILE}]
+            role_arn = ${AWS_ROLE_ARN}
             region = ${AWS_DEFAULT_REGION}
             source_profile = default
             EOT
+
             # create .aws/credentials
             echo "Creating: ~/.aws/credentials"
-            cat <<EOT > ~/.aws/credentials
+            cat \<<EOT > ~/.aws/credentials
             [default]
-            aws_access_key_id = ${CIRCLECI_AWS_ACCESS_KEY_ID}
-            aws_secret_access_key = ${CIRCLECI_AWS_SECRET_ACCESS_KEY}
+            aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+            aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
             EOT
+
+      - run:
+          name: Upgrade uv
+          command: |
+            pip install uv -U
+      - run:
+          name: install dependencies
+          command: |
+            uv sync
+      - save_cache:
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
+          paths:
+            - "/home/circleci/.aws"
+            - "/home/circlci/.local"
+            - "/usr/local/bin"
 
       - run:
           name: run tests
           command: |
+
             make test
 
-      - run:
-          name: run code checks
-          command: |
-            python3.8 -m pipenv run make check
+      - store_test_results:
+          path: test-reports
 
       - store_artifacts:
           path: test-reports
-          destination: test-reports
+
+  build-package:
+    working_directory: ~/app/
+    docker:
+      - image: cimg/python:3.13
+        environment:
+          AWS_PROFILE: dummyprofile
+          AWS_ACCESS_KEY_ID: dummyaccesskey
+          AWS_SECRET_ACCESS_KEY: dummysecretkey
+          AWS_DEFAULT_REGION: ap-northeast-1
+
+    steps:
+      - checkout
+      - run: sudo chown -R circleci:circleci /usr/local/bin
+      - run:
+          name: prepare boto3 aws config/credentials
+          command: |
+            # create ~/.aws/config
+            echo "Creating: ~/.aws/config"
+            mkdir -p ~/.aws
+            cat \<<EOT > ~/.aws/config
+            [default]
+            region = ${AWS_DEFAULT_REGION}
+            output = json
+
+            [profile ${AWS_PROFILE}]
+            role_arn = ${AWS_ROLE_ARN}
+            region = ${AWS_DEFAULT_REGION}
+            source_profile = default
+            EOT
+
+            # create .aws/credentials
+            echo "Creating: ~/.aws/credentials"
+            cat \<<EOT > ~/.aws/credentials
+            [default]
+            aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+            aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+            EOT
+
+      - restore_cache:
+          key: deps-v1-{{ .Branch }}-deploy-{{ checksum "uv.lock" }}
+      - run:
+          name: Upgrade pip & uv & install boto3
+          command: |
+            pip install pip -U
+            pip install uv -U
+            pip install boto3
+      - run:
+          name: install locked dependencies
+          environment:
+            PIP_NO_BINARY: pydantic
+          command: |
+            uv sync --no-dev
+      - save_cache:
+          key: deps-v1-{{ .Branch }}-deploy-{{ checksum "uv.lock" }}
+          paths:
+            - "/home/circleci/.aws"
+            - "/home/circleci/.profile"
+            - "/home/circleci/.local"
+            - "/usr/local/bin"
+
+      - run:
+          name: build package
+          command: | 
+            cd ~/app
+            mkdir -p ~/artifacts
+            uv build
+            cp dist/* /home/circleci/artifacts/
+            
+
+      - persist_to_workspace:
+          name: persist to workspace
+          root: /home/circleci/artifacts
+          paths:
+            - ./
+
+  publish-github-release:
+    docker:
+      - image: cibuilds/github:0.13
+    steps:
+      - attach_workspace:
+          at: ~/artifacts
+      - run:
+          name: upgrade ghr to v0.15.0
+          environment:
+            GHR_VERSION: 0.15.0
+          command: |
+            GHR_URL=https://github.com/tcnksm/ghr/releases/download/v${GHR_VERSION}/ghr_v${GHR_VERSION}_linux_amd64.tar.gz
+            wget "$GHR_URL" && \
+              tar xzf ghr_v${GHR_VERSION}_linux_amd64.tar.gz && \
+              mv ghr_v${GHR_VERSION}_linux_amd64/ghr /usr/bin/ghr && \
+              rm -r ghr_v${GHR_VERSION}_linux_amd64.tar.gz ghr_v${GHR_VERSION}_linux_amd64/
+      - run:
+          name: "Publish Release on GitHub"
+          command: |
+            cd ~/project
+            export VERSION=v$(date "+%Y%m%d_%H00")
+            ghr \
+              -n "${VERSION} ($(echo $CIRCLE_SHA1 | cut -c -7))" \
+              -t ${GITHUB_TOKEN} \
+              -u ${CIRCLE_PROJECT_USERNAME} \
+              -r ${CIRCLE_PROJECT_REPONAME} \
+              -c ${CIRCLE_SHA1} \
+              -delete \
+              -generatenotes \
+              ${VERSION} ~/artifacts/
+
+workflows:
+  ProjectWorkflow:
+    jobs:
+      - check
+      - test
+      - build-package:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - main
+      - publish-github-release:
+          context: "github release context"
+          requires:
+            - check
+            - build-package
+          filters:
+            branches:
+              only:
+                - main
