@@ -9,10 +9,10 @@ https://docs.djangoproject.com/en/2.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.0/ref/settings/
 """
+
 import logging
 import os
-from distutils.util import strtobool
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 from django.conf.locale.en import formats as en_formats
 from django.conf.locale.ja import formats as ja_formats
@@ -24,17 +24,27 @@ logging.getLogger("boto3").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
-BASE_DIR = PurePath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
+def strtobool(val: str | int | bool) -> bool:
+    """Convert str/int value to bool"""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ["true", "1", "t", "y", "yes"]
+    if isinstance(val, int):
+        return val == 1
+    return bool(val)
+
+
+# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+BASE_DIR = PurePath(Path(__file__).resolve().parent.parent)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"
+SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"  # noqa: S105
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
@@ -48,8 +58,9 @@ INSTALLED_APPS = [
     "social_django",
     "reversion",
     "bootstrap4",
-    "common",  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
-    "common.apps.KippoAdminConfig",  # 'django.contrib.admin',
+    "commons",  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
+    "commons.admin.KippoAdminConfig",  # 'django.contrib.admin',
+    # "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -59,7 +70,7 @@ INSTALLED_APPS = [
     "projects",
     "tasks",
     "octocat",
-    "rangefilter",
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -96,11 +107,38 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "kippo.wsgi.application"
 
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# django-storages configuration
+# refer to:
+# https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+STATICFILES_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+STATICFILES_LOCATION = "static"
+STATIC_ROOT = "/static/"
+
+# S3 Bucket Config
+# -- for static files
+#    (For django-storages)
+AWS_STORAGE_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "kippo-staticfiles")
+AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{STATICFILES_LOCATION}/"
+MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
 
 # Database
 # https://docs.djangoproject.com/en/2.0/ref/settings/#databases
-
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.path.join(BASE_DIR, "db.sqlite3")}}
+# Database
+# https://docs.djangoproject.com/en/2.2/ref/settings/#databases
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "kippo"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASS", "mysecretpassword"),
+        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+        "PORT": os.getenv("DB_PORT", "5432"),
+    }
+}
 
 
 # Password validation
@@ -169,6 +207,7 @@ DEFAULT_URL_PREFIX = ""
 URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)  # needed to support a prefix on urls (for zappa deployment)
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
+SOCIAL_AUTH_URL_NAMESPACE = "social"
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_KEY", None)  # client ID
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET", None)
 
@@ -216,10 +255,10 @@ PROJECTID_MAPPING_JSON_S3URI = os.getenv("PROJECTID_MAPPING_JSON_S3URI", None)
 
 # AWS/BOTO3 Configuration
 BOTO3_CONNECT_TIMEOUT = 15
-AWS_DEFAULT_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1")
+TARGET_REGION = os.getenv("TARGET_REGION", "ap-northeast-1")  # AWS_DEFAULT_REGION/AWS_REGION is not editable, using TARGET_REGION
 
-DEFAULT_S3_SERVICE_ENDPOINT = f"https://s3.{AWS_DEFAULT_REGION}.amazonaws.com"
-DEFAULT_SQS_SERVICE_ENDPOINT = f"https://sqs.{AWS_DEFAULT_REGION}.amazonaws.com"
+DEFAULT_S3_SERVICE_ENDPOINT = f"https://s3.{TARGET_REGION}.amazonaws.com"
+DEFAULT_SQS_SERVICE_ENDPOINT = f"https://sqs.{TARGET_REGION}.amazonaws.com"
 
 AWS_SERVICE_ENDPOINTS = {
     "s3": os.getenv("S3_SERVICE_ENDPOINT", DEFAULT_S3_SERVICE_ENDPOINT),

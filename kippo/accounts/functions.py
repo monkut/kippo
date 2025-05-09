@@ -1,11 +1,11 @@
-from typing import Generator, Optional
+from collections.abc import Generator
 
 from django.utils import timezone
 
 from .models import PersonalHoliday
 
 
-def get_personal_holidays_generator(from_datetime: Optional[timezone.datetime]) -> Generator:
+def get_personal_holidays_generator(from_datetime: timezone.datetime | None) -> Generator:
     qs = PersonalHoliday.objects.all()
     if from_datetime:
         qs = qs.filter(day__gte=from_datetime.date())

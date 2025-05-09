@@ -1,7 +1,6 @@
 import datetime
 import logging
 from collections import Counter
-from typing import Tuple
 
 from django.conf import settings
 from django.utils import timezone
@@ -12,7 +11,7 @@ from ..models import GithubWebhookEvent
 logger = logging.getLogger(__name__)
 
 
-def process_webhooks(event, context) -> Tuple[Counter, int]:
+def process_webhooks(event: dict, context: dict) -> tuple[Counter, int]:  # noqa: ARG001
     processor = GithubWebhookProcessor()
 
     # process existing hooks

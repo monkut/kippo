@@ -1,7 +1,6 @@
 import datetime
 import logging
 from math import ceil
-from typing import List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 from accounts.exceptions import OrganizationConfigurationError
@@ -14,7 +13,7 @@ from ghorgs.wrappers import GithubIssue, GithubOrganizationProject
 from projects.models import ActiveKippoProject, CollectIssuesAction, CollectIssuesProjectResult, KippoMilestone, KippoProject
 from zappa.asynchronous import task
 
-from ..exceptions import GithubPullRequestUrl, GithubRepositoryUrlError
+from ..exceptions import GithubPullRequestUrlError, GithubRepositoryUrlError
 from ..functions import (
     build_latest_comment,
     get_github_issue_category_label,
@@ -32,7 +31,7 @@ class KippoConfigurationError(Exception):
 
 
 class OrganizationIssueProcessor:
-    def __init__(self, organization: KippoOrganization, status_effort_date: datetime.date = None, github_project_html_urls: List[str] = None):
+    def __init__(self, organization: KippoOrganization, status_effort_date: datetime.date = None, github_project_html_urls: list[str] = None) -> None:
         from octocat.models import GithubMilestone
 
         self.organization = organization
@@ -77,7 +76,7 @@ class OrganizationIssueProcessor:
     def github_projects(self):
         return self.manager.projects()
 
-    def get_existing_task_by_html_url(self, html_url) -> Union[KippoTask, None]:
+    def get_existing_task_by_html_url(self, html_url: str) -> KippoTask | None:
         task = self.existing_tasks_by_html_url.get(html_url, None)
         return task
 
@@ -92,7 +91,7 @@ class OrganizationIssueProcessor:
             try:
                 github_repository = GithubRepository.objects.get(api_url=issue.repository_url)
             except GithubRepository.DoesNotExist:
-                logger.error(f"GithubRepository.DoesNotExist: {issue.repository_url}")
+                logger.exception(f"GithubRepository.DoesNotExist: {issue.repository_url}")
                 raise
 
             # check for KippoMilestone
@@ -128,7 +127,8 @@ class OrganizationIssueProcessor:
 
             # add newly created milestone to self.existing_kippo_milestones_by_html_url
             logger.debug(
-                f"Adding milestone.html_url({github_milestone.html_url}) to self.existing_kippo_milestones_by_html: {self.existing_kippo_milestones_by_html_url}"
+                f"Adding milestone.html_url({github_milestone.html_url}) to self.existing_kippo_milestones_by_html: "
+                f"{self.existing_kippo_milestones_by_html_url}"
             )
             self.existing_kippo_milestones_by_html_url[github_milestone.html_url] = kippo_milestone
             milestone = kippo_milestone
@@ -139,15 +139,13 @@ class OrganizationIssueProcessor:
         from octocat.models import GithubRepository
 
         # normalize urls
-        if api_url.endswith("/"):
-            api_url = api_url[:-1]
-        if html_url.endswith("/"):
-            html_url = html_url[:-1]
+        api_url = api_url.removesuffix("/")
+        html_url = html_url.removesuffix("/")
         try:
             # using '__startswith' to assure match in cases where an *older* url as added with an ending '/'.
             logger.debug(f"retrieving repo_name={repo_name}, api_url={api_url}, html_url={html_url}")
             kippo_github_repository = GithubRepository.objects.get(name=repo_name, api_url__startswith=api_url, html_url__startswith=html_url)
-        except GithubRepository.DoesNotExist:
+        except GithubRepository.DoesNotExist as e:
             logger.warning(f"GithubRepository.DoesNotExist: name={repo_name}, api_url={api_url}, html_url={html_url}")
             html_path_expected_path_component_count = 2
             parsed_html_url = urlsplit(html_url)
@@ -167,14 +165,14 @@ class OrganizationIssueProcessor:
                 logger.info(f">>> Created GithubRepository: repo_name={repo_name}, api_url={api_url}, html_url={html_url}")
             elif url_type == "pull":
                 message = f"PullRequest detected, ignoring: {html_url}"
-                raise GithubPullRequestUrl(message)
+                raise GithubPullRequestUrlError(message) from e
             else:
                 message = f"XXX Invalid html_url for GithubRepository, SKIPPING: {html_url}"
-                logger.error(message)
-                raise GithubRepositoryUrlError(message)
+                logger.exception(message)
+                raise GithubRepositoryUrlError(message) from e
         return kippo_github_repository
 
-    def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> Tuple[bool, List[KippoTaskStatus], List[KippoTaskStatus]]:
+    def process(self, kippo_project: ActiveKippoProject, issue: GithubIssue) -> tuple[bool, list[KippoTaskStatus], list[KippoTaskStatus]]:  # noqa: C901,PLR0912,PLR0915
         kippo_milestone = None
         if issue.milestone:
             if isinstance(issue.milestone, dict):
@@ -234,7 +232,7 @@ class OrganizationIssueProcessor:
                     try:
                         existing_task.save()
                     except IntegrityError:
-                        logger.error(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
+                        logger.exception(f'Duplicate task: Project({kippo_project.id}) "{issue.title}" ({issue_assigned_user}), Skipping ....')
                         continue
                     is_new_task = True
                     logger.info(f"-> Created KippoTask: {issue.title} ({issue_assigned_user.username})")
@@ -325,11 +323,9 @@ class OrganizationIssueProcessor:
 
 
 def get_existing_kippo_project(
-    github_project: GithubOrganizationProject, existing_open_projects: List[ActiveKippoProject]
-) -> Union[ActiveKippoProject, None]:
-    """
-    Retrieve the KippoProject related to the given GithubOrganizationProject
-    """
+    github_project: GithubOrganizationProject, existing_open_projects: list[ActiveKippoProject]
+) -> ActiveKippoProject | None:
+    """Retrieve the KippoProject related to the given GithubOrganizationProject"""
     kippo_project = None
     for candidate_kippo_project in existing_open_projects:
         if candidate_kippo_project.github_project_html_url == github_project.html_url:
@@ -343,14 +339,14 @@ def get_existing_kippo_project(
 
 @task
 def collect_github_project_issues(
-    action_tracker_id: int, kippo_organization_id: str, status_effort_date_iso8601: Optional[str] = None, github_project_html_urls: List[str] = None
+    action_tracker_id: int, kippo_organization_id: str, status_effort_date_iso8601: str | None = None, github_project_html_urls: list[str] = None
 ) -> None:
     """
     1. Collect issues from attached github projects
     2. If related KippoTask does not exist, create one
     3. If KippoTask exists create KippoTaskStatus
 
-    :param action_tracker_id: specific caller defined id to clearly identify the action value stored in the relatedd CollectIssuesProjectResult.action_id
+    :param action_tracker_id: caller defined id to clearly identify the action value stored in the relatedd CollectIssuesProjectResult.action_id
     :param kippo_organization_id: KippoOrganization ID
     :param status_effort_date_iso8601: Date to get tasks from for testing, estimation purposes
     :param github_project_html_urls: If only specific projects are desired, the related github_project_html_urls may be provided
@@ -384,7 +380,7 @@ def collect_github_project_issues(
             result.save()
             logger.info(f"-- Processing {kippo_project.name} Related Github Issues...")
             count = 0
-            for count, issue in enumerate(github_project.issues(), 1):
+            for issue in enumerate(github_project.issues(), 1):
                 # only update status if active or done (want to pick up
                 # -- this condition is only met when the task is open, closed tasks will not be updated.
                 try:
@@ -410,7 +406,7 @@ def collect_github_project_issues(
             logger.warning(f"No KippoProject found for GithubProject: {github_project}")
 
 
-def run_collect_github_project_issues(event, context):
+def run_collect_github_project_issues(event: dict, context: dict) -> None:  # noqa: ARG001
     """
     A AWS Lambda handler function for running the collect_github_project_issues() function for each organization
 

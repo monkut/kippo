@@ -1,7 +1,8 @@
+from commons.tests import IsStaffModelAdminTestCaseBase
+from django import forms
+
 from accounts.admin import PersonalHolidayAdmin
 from accounts.models import PersonalHoliday
-from common.tests import IsStaffModelAdminTestCaseBase
-from django import forms
 
 
 class AdminPublicHolidayTestCase(IsStaffModelAdminTestCaseBase):

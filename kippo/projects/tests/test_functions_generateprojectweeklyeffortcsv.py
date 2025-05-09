@@ -1,14 +1,13 @@
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
-from common.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests.utils import reset_buckets
 from django.conf import settings
 from django.test import Client, TestCase
 from django.utils import timezone
+
+from kippo.awsclients import download_s3_csv, s3_key_exists
 from projects.functions import generate_projectweeklyeffort_csv, previous_week_startdate
 from projects.models import ProjectWeeklyEffort
-
-from kippo.aws import download_s3_csv, s3_key_exists
-
-from .utils import reset_buckets
 
 
 class GenerateProjectWeeklyEffortCsvTestCase(TestCase):
@@ -29,7 +28,11 @@ class GenerateProjectWeeklyEffortCsvTestCase(TestCase):
         )
         # add membership
         membership = OrganizationMembership(
-            user=self.user, organization=self.other_organization, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+            user=self.user,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+            is_developer=True,
         )
         membership.save()
         self.nonmember_organization = KippoOrganization.objects.create(
@@ -42,7 +45,7 @@ class GenerateProjectWeeklyEffortCsvTestCase(TestCase):
         self.no_org_user = KippoUser(
             username="noorguser",
             github_login="noorguser",
-            password="test",
+            password="test",  # noqa: S106
             email="noorguser@github.com",
             is_staff=True,
         )

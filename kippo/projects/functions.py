@@ -2,20 +2,22 @@ import calendar
 import datetime
 import logging
 from collections import Counter
+from collections.abc import Generator
 from itertools import chain
 from operator import attrgetter
-from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
+from commons.definitions import MONDAY
 from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 from ghorgs.managers import GithubOrganizationManager
 from zappa.asynchronous import task
 
-from kippo.aws import upload_s3_csv
+from kippo.awsclients import upload_s3_csv
 
 if TYPE_CHECKING:
     from .models import KippoProject
@@ -26,18 +28,18 @@ logger = logging.getLogger(__name__)
 TUESDAY_WEEKDAY = 2
 
 
-def get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganization, List[KippoOrganization]]:
+def get_user_session_organization(request: HttpRequest) -> tuple[KippoOrganization, list[KippoOrganization]]:
     """Retrieve the session defined user KippoOrganization"""
     # get organization defined in session
     organization_id = request.session.get("organization_id", None)
     logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
     # check that user belongs to organization
-    user_organizations = list(sorted(request.user.organizations, key=attrgetter("name")))
+    user_organizations = sorted(request.user.organizations, key=attrgetter("name"))
     user_organization_ids = {str(o.id): o for o in user_organizations}
     if not user_organization_ids:
         raise ValueError(f"No OrganizationMembership for user: {request.user.username}")
 
-    if organization_id not in user_organization_ids.keys():
+    if organization_id not in user_organization_ids:
         # set to user first org
         # logger.debug(f"organization_id={organization_id} not in user_organization_ids.keys({user_organization_ids.keys()})")
         logger.warning(f'User({request.user.username}) invalid "organization_id" given, setting to "first".')
@@ -48,7 +50,7 @@ def get_user_session_organization(request: HttpRequest) -> Tuple[KippoOrganizati
     return organization, user_organizations
 
 
-def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> List["KippoProject"]:
+def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> list["KippoProject"]:
     """Collect existing github organizational projects for a configured KippoOrganization"""
     from .models import KippoProject
 
@@ -85,12 +87,8 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
     return added_projects
 
 
-def get_kippoproject_taskstatus_csv_rows(
-    kippo_project: "KippoProject", with_headers: bool = True, status_effort_date: Optional[datetime.date] = None
-) -> Generator:
-    """
-    Generate the current 'active' taskstaus CSV lines for a given KippoProject
-    """
+def get_kippoproject_taskstatus_csv_rows(kippo_project: "KippoProject", with_headers: bool = True, _: datetime.date | None = None) -> Generator:
+    """Generate the current 'active' taskstaus CSV lines for a given KippoProject"""
     headers = (
         "kippo_task_id",
         "kippo_milestone",
@@ -127,9 +125,8 @@ def get_kippoproject_taskstatus_csv_rows(
         yield row
 
 
-def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.datetime:
+def previous_week_startdate(today: datetime.date | None = None) -> datetime.datetime:
     """Get the previous week's start date"""
-    MONDAY = 0
     week_start_day = MONDAY
     if not today:
         today = timezone.now().date()
@@ -141,7 +138,7 @@ def previous_week_startdate(today: Optional[datetime.date] = None) -> datetime.d
 
 
 @task
-def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids, from_datetime_isoformat: Optional[str] = None) -> None:
+def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids: list[int], from_datetime_isoformat: str | None = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -175,7 +172,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids, from_da
         upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers, row_generator=g)
 
 
-def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[int], from_datetime_isoformat: Optional[str] = None) -> None:
+def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: list[int], from_datetime_isoformat: str | None = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort
 
     user = KippoUser.objects.filter(pk=user_id).first()
@@ -194,6 +191,7 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[i
 
     monthly_effort = Counter()
 
+    last_month_of_year = 12
     for effort in effort_entries:
         last_day_of_month = calendar.monthrange(effort.week_start.year, effort.week_start.month)[1]  # 各エントリの月の最後の日を取得
         current_month_remaining_days = last_day_of_month - effort.week_start.day + 1  # week_startからその月の最後まで何日か取得
@@ -204,7 +202,7 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[i
             monthly_effort_key_current = (effort.project.name, effort.user.display_name, month_key_current)
             monthly_effort[monthly_effort_key_current] += (effort.hours * current_month_remaining_days) / 7
 
-            if effort.week_start.month == 12:
+            if effort.week_start.month == last_month_of_year:
                 next_month_year = effort.week_start.year + 1
                 next_month_month = 1
             else:
@@ -230,12 +228,17 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: List[i
 
 
 @task
-def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None:
+def generate_projectstatuscomments_csv(project_ids: list[str], key: str) -> None:
     from projects.models import KippoProjectStatus
 
     projectstatus = KippoProjectStatus.objects.filter(project__id__in=project_ids).order_by("project__name", "created_datetime")
 
-    headers = {"project": "project", "created_datetime": "created_datetime", "created_by": "created_by", "comment": "comment"}
+    headers = {
+        "project": "project",
+        "created_datetime": "created_datetime",
+        "created_by": "created_by",
+        "comment": "comment",
+    }
     g = (
         {
             "project": status.project.name,
@@ -249,7 +252,7 @@ def generate_projectstatuscomments_csv(project_ids: List[str], key: str) -> None
 
 
 @task
-def generate_kippoprojectuserstatisfactionresult_csv(organization_pks: List[str], key: str) -> None:
+def generate_kippoprojectuserstatisfactionresult_csv(organization_pks: list[str], key: str) -> None:
     from projects.models import KippoProjectUserStatisfactionResult
 
     # get results for projects ending in the current fiscal year
@@ -268,7 +271,7 @@ def generate_kippoprojectuserstatisfactionresult_csv(organization_pks: List[str]
         "fullfillment_score",
         "growth_score",
     )
-    headers_dict = dict(zip(headers, headers))
+    headers_dict = dict(zip(headers, headers, strict=False))
     g = (
         {
             "project_id": str(r.project.pk),
@@ -283,7 +286,7 @@ def generate_kippoprojectuserstatisfactionresult_csv(organization_pks: List[str]
 
 
 @task
-def generate_kippoprojectusermonthlystatisfaction_csv(organization_pks: List[str], key: str) -> None:
+def generate_kippoprojectusermonthlystatisfaction_csv(organization_pks: list[str], key: str) -> None:
     from projects.models import KippoProjectUserMonthlyStatisfactionResult
 
     first_organization = KippoOrganization.objects.filter(pk__in=organization_pks).first()
@@ -302,7 +305,7 @@ def generate_kippoprojectusermonthlystatisfaction_csv(organization_pks: List[str
         "fullfillment_score",
         "growth_score",
     )
-    headers_dict = dict(zip(headers, headers))
+    headers_dict = dict(zip(headers, headers, strict=False))
     g = (
         {
             "project_id": str(r.project.pk),

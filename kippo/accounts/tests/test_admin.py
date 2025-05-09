@@ -1,13 +1,10 @@
-from django.test import TestCase, Client
+from commons.tests import IsStaffModelAdminTestCaseBase
 
-from common.tests import IsStaffModelAdminTestCaseBase
-
-from ..models import KippoUser, KippoOrganization, OrganizationMembership, PersonalHoliday
-from ..admin import KippoUserAdmin, KippoOrganizationAdmin, OrganizationMembershipAdmin, PersonalHolidayAdmin
+from ..admin import KippoOrganizationAdmin, KippoUserAdmin, OrganizationMembershipAdmin, PersonalHolidayAdmin
+from ..models import KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
 
 
 class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBase):
-
     def test_users_list_objects(self):
         modeladmin = KippoUserAdmin(KippoUser, self.site)
         qs = modeladmin.get_queryset(self.super_user_request)
@@ -19,10 +16,12 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         # with staff user only single user with same org should be returned
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_users = list(qs)
-        expected_user_count = len({m.user.id for m in OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations)})
+        expected_user_count = len(
+            {m.user.id for m in OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations)}
+        )
         self.assertTrue(
             len(queryset_users) == expected_user_count,
-            f'actual({len(queryset_users)}) != expected({expected_user_count}): {", ".join(u.username for u in queryset_users)}'
+            f"actual({len(queryset_users)}) != expected({expected_user_count}): {', '.join(u.username for u in queryset_users)}",
         )
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
@@ -37,15 +36,21 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         expected = KippoOrganization.objects.count()
         assert expected > 1
         actual = len(qs)
-        self.assertTrue(actual == expected, f'actual({actual})[{", ".join(o.name for o in qs)}] != expected({expected})[{", ".join(o.name for o in  KippoOrganization.objects.all())}]')
+        self.assertTrue(
+            actual == expected,
+            f"actual({actual})[{', '.join(o.name for o in qs)}] != expected({expected})"
+            f"[{', '.join(o.name for o in KippoOrganization.objects.all())}]",
+        )
 
         # with staff user only single user with same org should be returned
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset_orgs = list(qs)
-        expected_org_count = len({m.organization.id for m in OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations)})
+        expected_org_count = len(
+            {m.organization.id for m in OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations)}
+        )
         self.assertTrue(
             len(queryset_orgs) == expected_org_count,
-            f'actual({len(queryset_orgs)}) != expected({expected_org_count}): {", ".join(o.name for o in queryset_orgs)}'
+            f"actual({len(queryset_orgs)}) != expected({expected_org_count}): {', '.join(o.name for o in queryset_orgs)}",
         )
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
@@ -59,17 +64,14 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         expected = OrganizationMembership.objects.count()
         assert expected > 1
         actual = len(qs)
-        msg = f'actual({actual}) != expected({expected})'
+        msg = f"actual({actual}) != expected({expected})"
         self.assertTrue(actual == expected, msg)
 
         # with staff user only single user with same org should be returned
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset = list(qs)
         expected_count = OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(
-            len(queryset) == expected_count,
-            f'actual({len(queryset)}) != expected({expected_count}): {queryset}'
-        )
+        self.assertTrue(len(queryset) == expected_count, f"actual({len(queryset)}) != expected({expected_count}): {queryset}")
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for membership in queryset:
@@ -82,17 +84,18 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         expected = PersonalHoliday.objects.count()
         assert expected > 1
         actual = len(qs)
-        msg = f'actual({actual}) != expected({expected})'
+        msg = f"actual({actual}) != expected({expected})"
         self.assertTrue(actual == expected, msg)
 
         # with staff user only single user with same org should be returned
         qs = modeladmin.get_queryset(self.staff_user_request)
         queryset = list(qs)
-        expected_count = PersonalHoliday.objects.filter(user__organizationmembership__organization__in=self.staff_user_request.user.organizations).distinct().count()
-        self.assertTrue(
-            len(queryset) == expected_count,
-            f'actual({len(queryset)}) != expected({expected_count}): {queryset}'
+        expected_count = (
+            PersonalHoliday.objects.filter(user__organizationmembership__organization__in=self.staff_user_request.user.organizations)
+            .distinct()
+            .count()
         )
+        self.assertTrue(len(queryset) == expected_count, f"actual({len(queryset)}) != expected({expected_count}): {queryset}")
 
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for personalholiday in queryset:
