@@ -49,7 +49,7 @@ SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"  # noqa: S105
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 
 # Application definition
@@ -134,7 +134,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.getenv("DB_NAME", "kippo"),
         "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASS", "mysecretpassword"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "mysecretpassword"),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }

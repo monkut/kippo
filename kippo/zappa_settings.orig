@@ -1,0 +1,47 @@
+ {
+    "prod": {
+        "aws_region": "ap-northeast-1",
+        "project_name": "kippo",
+        "profile_name": "internalservicesadministratoraccess",
+        "runtime": "python3.8",
+        "memory_size": 2048,
+        "timeout_seconds": 300,
+        "slim_handler": true,
+        "s3_bucket": "kippo-a4f54889-zappa",
+        "exclude": ["test_*.py", "__pycache__"],
+        "keep_warm": false,
+        "environment_variables": {
+            "DB_USER": "postgres",
+            "DB_PASSWORD": "lKPDxGLeMDgzztt7SVOk",
+            "DB_HOST": "kippo.cluster-cuiejnbuufrj.ap-northeast-1.rds.amazonaws.com",
+            "S3_BUCKET_NAME": "kippo-staticfiles-2018v2-prod",
+            "ALLOWED_HOST": "s0kft0ffgk.execute-api.ap-northeast-1.amazonaws.com",
+            "GOOGLE_OAUTH2_KEY": "693841296765-f4s0d4imt3gokk8df1tlcgoluoetl1vr.apps.googleusercontent.com",
+            "GOOGLE_OAUTH2_SECRET": "L34bju_eNjQIBMhjChsvGL7b"
+        },
+        "django_settings": "kippo.settings.production",
+        "events": [
+            {
+                "function": "octocat.event_handlers.webhooks.process_webhooks",
+                "expression": "cron(0/30 * ? * MON-FRI *)"
+            },
+            {
+                "function": "projects.handlers.functions.handle_projectid_mapping",
+                "expression": "cron(30 23 ? * MON-FRI *)"
+            },
+            {
+                "function": "tasks.event_handlers.clean.delete",
+                "expression": "cron(20 0 ? * SUN *)"
+            }
+        ],
+        "vpc_config": {
+            "SubnetIds": [
+                "subnet-052f1d5ac5080f9bd",
+                "subnet-0276cfe0c32607b2b"
+            ],
+            "SecurityGroupIds": [
+                "sg-0faf12d56b15a68a6"
+            ]
+        }
+    }
+}
