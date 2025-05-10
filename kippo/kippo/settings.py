@@ -39,7 +39,6 @@ def strtobool(val: str | int | bool) -> bool:
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = PurePath(Path(__file__).resolve().parent.parent)
 
-
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
@@ -70,11 +69,13 @@ INSTALLED_APPS = [
     "projects",
     "tasks",
     "octocat",
-    "storages",
+    "corsheaders",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -83,6 +84,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "social_django.middleware.SocialAuthExceptionMiddleware",
 ]
+
+# https://github.com/evansd/whitenoise/issues/164
+WHITENOISE_STATIC_PREFIX = "/static/"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 ROOT_URLCONF = "kippo.urls"
 
@@ -109,21 +114,26 @@ WSGI_APPLICATION = "kippo.wsgi.application"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# django-storages configuration
-# refer to:
-# https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
-DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-STATICFILES_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-STATICFILES_LOCATION = "static"
-STATIC_ROOT = "/static/"
+# TODO: for removal after whitenoise is configured
+# # django-storages configuration
+# # refer to:
+# # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
+# DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+# STATICFILES_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+# STATICFILES_LOCATION = "static"
+# STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # S3 Bucket Config
 # -- for static files
-#    (For django-storages)
-AWS_STORAGE_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "kippo-staticfiles")
-AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
-STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{STATICFILES_LOCATION}/"
-MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
+# #    (For django-storages)
+# AWS_STORAGE_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "kippo-staticfiles")
+# AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+# STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{STATICFILES_LOCATION}/"
+# MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
+
+STATIC_URL = os.getenv("STATIC_URL", "/static/")
+MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
+
 
 # Database
 # https://docs.djangoproject.com/en/2.0/ref/settings/#databases
@@ -186,10 +196,6 @@ LOGGING = {
     },
 }
 
-
-STATIC_URL = ""
-STATIC_ROOT = ""
-
 BOOTSTRAP4 = {
     "include_jquery": True,
     # The Bootstrap base URL
@@ -203,8 +209,14 @@ DUMPDATA_S3_BUCKETNAME = "kippo-dumpdata-bucket-123xyz"
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends
 AUTHENTICATION_BACKENDS = ("social_core.backends.google.GoogleOAuth2", "django.contrib.auth.backends.ModelBackend")
 
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/2.2/howto/static-files/
 DEFAULT_URL_PREFIX = ""
-URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)  # needed to support a prefix on urls (for zappa deployment)
+URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)
+if URL_PREFIX and not URL_PREFIX.startswith("/"):
+    URL_PREFIX = f"/{URL_PREFIX}"
+STATIC_URL = f"{URL_PREFIX}/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_URL_NAMESPACE = "social"

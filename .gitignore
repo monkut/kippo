@@ -1,3 +1,4 @@
+staticfiles/
 kippo/kippo/db.sqlite3
 kippo/zappa_settings.json
 kippo/zappa_settings.orig
