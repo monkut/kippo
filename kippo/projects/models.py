@@ -738,8 +738,8 @@ def cleanup_github_milestones(sender: type[KippoMilestone], instance: KippoMiles
     from octocat.models import GithubMilestone
 
     try:
-        related_github_milestone = GithubMilestone.objects.get(milestone=instance)
-        if related_github_milestone:
+        related_github_milestones = GithubMilestone.objects.filter(milestone=instance).exists()
+        if related_github_milestones:
             instance.update_github_milestones(close=True)
     except GithubMilestone.DoesNotExist:
         logger.info("no related GithubMilestone, will not attempt to close on github")

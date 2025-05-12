@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "django>=5.1,<5.2",
+    "django>=5.2,<5.3",
     "psycopg[binary]",
     "social-auth-app-django",
     "django-reversion",
@@ -27,7 +27,7 @@ dependencies = [
     "qlu@git+https://github.com/monkut/qlu-scheduler.git@0.2.12",
     "whitenoise",
     "django-cors-headers",
-    "zappa@git+https://github.com/zappa/Zappa.git",
+    "zappa>=0.60.0,<0.61.0",
 ]
 
 [project.urls]
