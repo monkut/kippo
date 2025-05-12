@@ -59,7 +59,6 @@ INSTALLED_APPS = [
     "bootstrap4",
     "commons",  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
     "commons.admin.KippoAdminConfig",  # 'django.contrib.admin',
-    # "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -204,6 +203,7 @@ BOOTSTRAP4 = {
 
 # -- for data backup/dump
 DUMPDATA_S3_BUCKETNAME = "kippo-dumpdata-bucket-123xyz"
+DUMPDATA_S3_KEY_PREFIX = "dumpdata/"
 
 # Authentication
 # http://docs.djangoproject.com/en/dev/ref/settings/?from=olddocs#authentication-backends

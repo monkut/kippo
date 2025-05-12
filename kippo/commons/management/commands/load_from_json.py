@@ -11,9 +11,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.translation import gettext as _
 from octocat.models import GithubRepository, GithubRepositoryLabelSet
-from tasks.models import KippoTask, KippoTaskStatus
-
 from projects.models import KippoProject, KippoProjectStatus, ProjectColumnSet
+from tasks.models import KippoTask, KippoTaskStatus
 
 try:
     CLI_USER = KippoUser.objects.get(username=settings.CLI_MANAGER_USERNAME)

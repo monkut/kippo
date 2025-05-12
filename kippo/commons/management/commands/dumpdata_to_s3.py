@@ -1,22 +1,27 @@
 """Dump 'projects' content to s3"""
 
+from argparse import ArgumentParser
 from gzip import compress
 from io import BytesIO, StringIO
 
-import boto3
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from kippo.awsclients import S3_RESOURCE
+
 
 class Command(BaseCommand):
     help = __doc__
 
+    def add_arguments(self, parser: ArgumentParser):
+        parser.add_argument("-b", "--bucket", type=str, default=settings.DUMPDATA_S3_BUCKETNAME, required=False, help="S3 Bucket Name")
+
     def handle(self, *args, **options):
-        s3_bucket_name = settings.DUMPDATA_S3_BUCKETNAME
+        s3_bucket_name = options["bucket"]
         if not s3_bucket_name:
-            raise CommandError("settings.DUMPDATA_S3_BUCKETNAME not configured!")
+            raise CommandError("`--bucket` not given or default not configured in settings.DUMPDATA_S3_BUCKETNAME!")
 
         self.stdout.write('Collecting "project" related data from Database...')
         string_buffer = StringIO()
@@ -25,6 +30,7 @@ class Command(BaseCommand):
             "octocat",
             "projects",
             "tasks",
+            "social_django",
         )
         start = timezone.now()
         call_command("dumpdata", *apps, indent=4, stdout=string_buffer, traceback=True)
@@ -40,15 +46,14 @@ class Command(BaseCommand):
         output_buffer = BytesIO(compressed_data)
         output_buffer.seek(0)
 
-        s3_key = f"dumpdata/{filename}"
+        s3_key = f"{settings.DUMPDATA_S3_KEY_PREFIX}{filename}"
         s3_uri = f"s3://{s3_bucket_name}/{s3_key}"
         checkpoint = timezone.now()
         checkpoint_elapsed = checkpoint - start
         self.stdout.write(f"> Checkpoint Elapsed: {checkpoint_elapsed}")
 
         self.stdout.write(f'Writing "project" db dump to: {s3_uri}')
-        s3 = boto3.resource("s3")
-        s3.Bucket(s3_bucket_name).put_object(Key=s3_key, Body=output_buffer)
+        S3_RESOURCE.Bucket(s3_bucket_name).put_object(Key=s3_key, Body=output_buffer)
         end = timezone.now()
         total_elapsed = end - start
         self.stdout.write(f"> Total Elapsed: {total_elapsed}\n")
