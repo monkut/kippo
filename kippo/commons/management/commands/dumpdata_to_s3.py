@@ -1,8 +1,9 @@
 """Dump 'projects' content to s3"""
 
+import gzip
 from argparse import ArgumentParser
-from gzip import compress
-from io import BytesIO, StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.conf import settings
 from django.core.management import call_command
@@ -24,7 +25,7 @@ class Command(BaseCommand):
             raise CommandError("`--bucket` not given or default not configured in settings.DUMPDATA_S3_BUCKETNAME!")
 
         self.stdout.write('Collecting "project" related data from Database...')
-        string_buffer = StringIO()
+
         apps = (
             "accounts",
             "octocat",
@@ -33,30 +34,26 @@ class Command(BaseCommand):
             "social_django",
         )
         start = timezone.now()
-        call_command("dumpdata", *apps, indent=4, stdout=string_buffer, traceback=True)
-        string_buffer.seek(0)
+        with TemporaryDirectory() as tmpdir:
+            datetime_str = timezone.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"all_{datetime_str}.json.gz"
+            output_filepath = Path(tmpdir).resolve() / filename
+            self.stdout.write(f"Dumping to: {output_filepath}")
+            with gzip.open(output_filepath, "wt", compresslevel=9) as output_file:
+                call_command("dumpdata", *apps, indent=4, stdout=output_file, traceback=True)
 
-        # encode unicode data to bytes (utf8)
-        encoded_data = string_buffer.read().encode("utf8")
-        compressed_data = compress(encoded_data)
+            with output_filepath.open("rb") as upload_f:
+                s3_key = f"{settings.DUMPDATA_S3_KEY_PREFIX}{filename}"
+                s3_uri = f"s3://{s3_bucket_name}/{s3_key}"
+                checkpoint = timezone.now()
+                checkpoint_elapsed = checkpoint - start
+                self.stdout.write(f"> Checkpoint Elapsed: {checkpoint_elapsed}")
 
-        datetime_str = timezone.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"all_{datetime_str}.json.gz"
-
-        output_buffer = BytesIO(compressed_data)
-        output_buffer.seek(0)
-
-        s3_key = f"{settings.DUMPDATA_S3_KEY_PREFIX}{filename}"
-        s3_uri = f"s3://{s3_bucket_name}/{s3_key}"
-        checkpoint = timezone.now()
-        checkpoint_elapsed = checkpoint - start
-        self.stdout.write(f"> Checkpoint Elapsed: {checkpoint_elapsed}")
-
-        self.stdout.write(f'Writing "project" db dump to: {s3_uri}')
-        S3_RESOURCE.Bucket(s3_bucket_name).put_object(Key=s3_key, Body=output_buffer)
-        end = timezone.now()
-        total_elapsed = end - start
-        self.stdout.write(f"> Total Elapsed: {total_elapsed}\n")
+                self.stdout.write(f'Writing "project" db dump to: {s3_uri}')
+                S3_RESOURCE.Bucket(s3_bucket_name).put_object(Key=s3_key, Body=upload_f)
+                end = timezone.now()
+                total_elapsed = end - start
+                self.stdout.write(f"> Total Elapsed: {total_elapsed}\n")
 
         self.stdout.write("Download with command: ")
         self.stdout.write(f"aws s3 cp s3://{s3_bucket_name}/{s3_key} .")
