@@ -25,8 +25,9 @@ dependencies = [
     "django-bootstrap4",
     "ghorgs@git+https://github.com/monkut/github-org-manager.git",
     "qlu@git+https://github.com/monkut/qlu-scheduler.git@0.2.12",
-    "django-storages",
-    "zappa@git+https://github.com/zappa/Zappa.git",
+    "whitenoise",
+    "django-cors-headers",
+    "zappa>=0.60.0,<0.61.0",
 ]
 
 [project.urls]

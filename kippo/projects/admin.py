@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Model
 from django.forms import BaseFormSet, Form
 from django.http import (
     HttpRequest,
@@ -61,6 +62,7 @@ class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     extra = 0
     fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
     readonly_fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
+    classes = ["collapse"]
 
     def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None):  # No Add button
         return False
@@ -75,6 +77,7 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoMilestone
     extra = 0
     fields = ("title", "start_date", "target_date", "actual_date", "allocated_staff_days", "description")
+    classes = ["collapse"]
 
     def get_queryset(self, request: DjangoRequest):
         # clear the queryset so that no EDITABLE entries are displayed
@@ -87,6 +90,7 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
     extra = 0
     fields = ("week_start", "user", "hours")
     readonly_fields = ("week_start", "user", "hours")
+    classes = ["collapse"]
 
     def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No Add button
         return False
@@ -128,6 +132,7 @@ class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInlin
     extra = 0
     fields = ("created_datetime", "created_by", "comment")
     readonly_fields = ("created_datetime", "created_by", "comment")
+    classes = ["collapse"]
 
     def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None):  # No Add button
         return False
@@ -302,8 +307,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "export_kippoprojectstatus_comments_csv",
     ]
     inlines = [
-        KippoMilestoneReadOnlyInline,
-        KippoMilestoneAdminInline,
+        # Milestones not used atm, commenting out.
+        # KippoMilestoneReadOnlyInline,
+        # KippoMilestoneAdminInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
@@ -471,6 +477,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
         form.base_fields["organization"].initial = user_initial_organization
         form.base_fields["organization"].queryset = user_memberships
+
+        # remove add/change/delete buttons from all ForeignKey fields
+        for fieldname in form.base_fields:
+            form.base_fields[fieldname].widget.can_add_related = False
+            form.base_fields[fieldname].widget.can_change_related = False
+            form.base_fields[fieldname].widget.can_delete_related = False
+
         return form
 
     def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
@@ -507,6 +520,56 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "get_updated_by_display",
         "updated_datetime",
     )
+
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "confidence",
+                    "project_manager",
+                )
+            },
+        ),
+        (
+            _("Dates & Estimates"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "start_date",
+                    "target_date",
+                    "actual_date",
+                    "allocated_staff_days",
+                ),
+            },
+        ),
+        (
+            _("Details"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "organization",
+                    "phase",
+                    "category",
+                    "slack_channel_name",
+                    "columnset",
+                    "is_closed",
+                    "display_as_active",
+                    "document_url",
+                    "github_project_html_url",
+                    "github_project_api_url",
+                    "problem_definition",
+                ),
+            },
+        ),
+    ]
+
+    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
+        """Remove delete button from details/change page"""
+        if "/change/" in request.path:
+            return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(KippoMilestone)
