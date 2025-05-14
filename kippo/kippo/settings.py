@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "tasks",
     "octocat",
     "corsheaders",
+    "rangefilter",
 ]
 
 MIDDLEWARE = [

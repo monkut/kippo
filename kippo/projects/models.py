@@ -760,7 +760,7 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
     hours = models.SmallIntegerField(help_text=_("Actual effort in hours performed on the project for the given 'week start'"))
 
     class Meta:
-        verbose_name_plural = _("ProjectWeeklyEffort")
+        verbose_name_plural = _("Project Weekly Effort")
         unique_together = ("week_start", "project", "user")
 
 

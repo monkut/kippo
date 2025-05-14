@@ -4,7 +4,7 @@
 
 ## Installation
 
-1. Install python 3.5.X
+1. Install python 3.13.X
 
 2. clone project from github
     https://github.com/monkut/kippo.git
@@ -24,7 +24,7 @@ Prerequisites:
 
 - [docker](https://store.docker.com/search?type=edition&offering=community)
 - [pgcli](https://www.pgcli.com/) (for local db creation)
-- [python 3.6](https://www.python.org/downloads/release/python-365/)
+- [python 3.13](https://www.python.org/downloads/release/python-3133/)
 - [pipenv](https://docs.pipenv.org/)
 
 1. Install development requirements:

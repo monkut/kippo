@@ -183,7 +183,6 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: list[i
     projects = KippoProject.objects.filter(organization__in=user.organizations)
     effort_entries = ProjectWeeklyEffort.objects.filter(project__in=projects, id__in=effort_ids).order_by("project", "week_start", "user")
 
-    from_datetime = None
     if from_datetime_isoformat:
         from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
         logger.info(f"applying datetime filter: from_datetime={from_datetime}")
