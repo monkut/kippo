@@ -328,7 +328,7 @@ class OrganizationInvite(UserCreatedBaseModel):
     organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE)
     email = models.EmailField(db_index=True, help_text=_("Email address to send invite to"))
     expiration_date = models.DateField(editable=False, help_text=_("Date the invite expires"))
-    is_complete = models.BooleanField(default=False, help_text=_("True if the invite has been accepted"))
+    is_complete = models.BooleanField(default=False, editable=False, help_text=_("True if the invite has been processed"))
     processed_datetime = models.DateTimeField(null=True, blank=True, editable=False, help_text=_("Date the invite was processed"))
 
     def create_organizationmembership(self, user: KippoUser):
