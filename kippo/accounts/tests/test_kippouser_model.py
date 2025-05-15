@@ -129,9 +129,7 @@ class KippoUserCreationTestCase(TestCase):
         user.save()
 
         # add membership
-        membership = OrganizationMembership(
-            user=user, organization=self.org, is_developer=True, email=None, created_by=self.user, updated_by=self.user
-        )
+        membership = OrganizationMembership(user=user, organization=self.org, is_developer=True, email="", created_by=self.user, updated_by=self.user)
         membership.clean()
         membership.save()
         self.assertTrue(user.memberships.exists())
