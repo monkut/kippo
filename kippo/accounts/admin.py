@@ -111,13 +111,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
 
 @admin.register(OrganizationInvite)
 class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
-    list_display = (
-        "organization",
-        "email",
-        "expiration_date",
-        "is_complete",
-        "created_datetime",
-    )
+    list_display = ("organization", "email", "expiration_date", "is_complete", "expiration_date", "processed_datetime")
     ordering = ("organization", "email")
     search_fields = ["email"]
 
