@@ -378,6 +378,8 @@ class PersonalHoliday(models.Model):
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
 
     class Meta:
+        verbose_name = _("個人休日")
+        verbose_name_plural = verbose_name
         ordering = ["-day"]
 
     def __str__(self) -> str:

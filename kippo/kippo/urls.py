@@ -10,6 +10,9 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
 
+# remove "Site Admministration" text from admin
+admin.site.index_title = ""
+
 urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("accounts/", include("accounts.urls")),
