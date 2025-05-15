@@ -2,9 +2,8 @@ import logging
 from collections.abc import Generator
 
 from django.utils import timezone
-from models import KippoUser
 
-from .models import PersonalHoliday
+from .models import KippoUser, PersonalHoliday
 
 logger = logging.getLogger(__name__)
 
