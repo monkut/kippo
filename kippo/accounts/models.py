@@ -331,6 +331,9 @@ class OrganizationInvite(UserCreatedBaseModel):
     is_complete = models.BooleanField(default=False, editable=False, help_text=_("True if the invite has been processed"))
     processed_datetime = models.DateTimeField(null=True, blank=True, editable=False, help_text=_("Date the invite was processed"))
 
+    def __str__(self) -> str:
+        return f"OrganizationInvite({self.organization.name} -> {self.email})"
+
     def create_organizationmembership(self, user: KippoUser):
         system_user = get_climanager_user()
 
