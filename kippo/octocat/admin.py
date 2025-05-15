@@ -2,6 +2,7 @@ import json
 import logging
 
 from accounts.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from accounts.models import OrganizationMembership
 from commons.admin import PrettyJSONWidget
 from django.contrib import admin, messages
 from django.db.models import JSONField, Q, QuerySet
@@ -20,6 +21,22 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_label_set_name", "get_html_url", "api_url")
     actions = ("update_labels",)
     ordering = ("organization", "name")
+
+    def has_module_permission(self, request: DjangoRequest):
+        has_permission = super().has_module_permission(request)
+        if request.user.is_superuser:
+            return True
+        if has_permission and request.user.is_authenticated:
+            # Check if the user is a project manager or developer in any of their organizations,
+            # if so allow viewing of octocat apps
+            is_participating_member = (
+                OrganizationMembership.objects.filter(user=request.user, organization__in=request.user.organizations)
+                .filter(Q(is_project_manager=True) | Q(is_developer=True))
+                .exists()
+            )
+            if is_participating_member:
+                return True
+        return False
 
     def get_queryset(self, request: DjangoRequest) -> QuerySet:
         """Limit results by user organizationmemberships"""
@@ -71,6 +88,22 @@ class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 class GithubMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("number", "get_kippomilestone_title", "get_githubrepository_name", "get_html_url", "api_url")
 
+    def has_module_permission(self, request: DjangoRequest):
+        has_permission = super().has_module_permission(request)
+        if request.user.is_superuser:
+            return True
+        if has_permission and request.user.is_authenticated:
+            # Check if the user is a project manager or developer in any of their organizations,
+            # if so allow viewing of octocat apps
+            is_participating_member = (
+                OrganizationMembership.objects.filter(user=request.user, organization__in=request.user.organizations)
+                .filter(Q(is_project_manager=True) | Q(is_developer=True))
+                .exists()
+            )
+            if is_participating_member:
+                return True
+        return False
+
     def get_queryset(self, request: DjangoRequest) -> QuerySet:
         """Limit results by user organizationmemberships"""
         qs = super().get_queryset(request)
@@ -104,6 +137,22 @@ class GithubRepositoryLabelSetAdmin(AllowIsStaffAdminMixin, admin.ModelAdmin):
     list_display = ("name", "get_label_count", "updated_datetime", "created_datetime")
 
     formfield_overrides = {JSONField: {"widget": PrettyJSONWidget}}
+
+    def has_module_permission(self, request: DjangoRequest):
+        has_permission = super().has_module_permission(request)
+        if request.user.is_superuser:
+            return True
+        if has_permission and request.user.is_authenticated:
+            # Check if the user is a project manager or developer in any of their organizations,
+            # if so allow viewing of octocat apps
+            is_participating_member = (
+                OrganizationMembership.objects.filter(user=request.user, organization__in=request.user.organizations)
+                .filter(Q(is_project_manager=True) | Q(is_developer=True))
+                .exists()
+            )
+            if is_participating_member:
+                return True
+        return False
 
     def get_queryset(self, request: DjangoRequest) -> QuerySet:
         """Limit results by user organizationmemberships"""
@@ -148,6 +197,22 @@ class GithubWebhookEventAdmin(admin.ModelAdmin):
     )
 
     actions = ["process_webhook_events", "reset_webhook_events"]
+
+    def has_module_permission(self, request: DjangoRequest):
+        has_permission = super().has_module_permission(request)
+        if request.user.is_superuser:
+            return True
+        if has_permission and request.user.is_authenticated:
+            # Check if the user is a project manager or developer in any of their organizations,
+            # if so allow viewing of octocat apps
+            is_participating_member = (
+                OrganizationMembership.objects.filter(user=request.user, organization__in=request.user.organizations)
+                .filter(Q(is_project_manager=True) | Q(is_developer=True))
+                .exists()
+            )
+            if is_participating_member:
+                return True
+        return False
 
     def get_pprint_event(self, obj: GithubWebhookEvent | None = None):
         result = ""

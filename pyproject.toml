@@ -27,6 +27,7 @@ dependencies = [
     "qlu@git+https://github.com/monkut/qlu-scheduler.git@0.2.12",
     "whitenoise",
     "django-cors-headers",
+    "django-admin-rangefilter",
     "zappa>=0.60.0,<0.61.0",
 ]
 

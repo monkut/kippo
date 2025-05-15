@@ -225,6 +225,10 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("If project created through Kippo, this field is populated with column info"),
     )
 
+    class Meta:
+        verbose_name = _("プロジェクト")
+        verbose_name_plural = verbose_name
+
     def get_columnset_id_to_name_mapping(self):
         if not self.column_info:
             raise ValueError("KippoProject.column_info not populated, unable to generate ID to Name Mapping!")
@@ -429,6 +433,8 @@ class ActiveKippoProject(KippoProject):
 
     class Meta:
         proxy = True
+        verbose_name = _("プロジェクト(実行中)")
+        verbose_name_plural = verbose_name
 
 
 class KippoProjectStatus(UserCreatedBaseModel):
@@ -455,6 +461,8 @@ class KippoMilestone(UserCreatedBaseModel):
     description = models.TextField(_("Description"), blank=True, default="", help_text=_("Describe the purpose of the milestone"))
 
     class Meta:
+        verbose_name = _("マイルストーン")
+        verbose_name_plural = verbose_name
         unique_together = ("project", "start_date", "target_date")
 
     @property
@@ -760,7 +768,8 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
     hours = models.SmallIntegerField(help_text=_("Actual effort in hours performed on the project for the given 'week start'"))
 
     class Meta:
-        verbose_name_plural = _("ProjectWeeklyEffort")
+        verbose_name = _("プロジェクト週間稼働量")
+        verbose_name_plural = verbose_name
         unique_together = ("week_start", "project", "user")
 
 

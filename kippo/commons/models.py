@@ -23,3 +23,11 @@ class UserCreatedBaseModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class TimestampedModel(models.Model):
+    created_datetime = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_datetime = models.DateTimeField(auto_now=True, editable=False)
+
+    class Meta:
+        abstract = True

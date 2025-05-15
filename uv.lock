@@ -221,6 +221,15 @@ wheels = [
 ]
 
 [[package]]
+name = "django-admin-rangefilter"
+version = "0.13.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/89/7d33a1c6c0d0770feea621439e010a2bb0f3023ec4c938ae582f3a93eb9f/django_admin_rangefilter-0.13.2.tar.gz", hash = "sha256:12750c32c01d6cc891ba7d05267ce9921527042084da0ac9548a3ae8109f90d3", size = 23136 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/49/9f2656dd47dc7d6e9fbfc967115b1880d49a52325e7390d4630301dff7ce/django_admin_rangefilter-0.13.2-py2.py3-none-any.whl", hash = "sha256:012e4bf28790344db5b63a57b814a3d4ae8f7cd8692854288bd3c396515aa761", size = 47955 },
+]
+
+[[package]]
 name = "django-bootstrap4"
 version = "25.1"
 source = { registry = "https://pypi.org/simple" }
@@ -322,6 +331,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
+    { name = "django-admin-rangefilter" },
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
     { name = "django-reversion" },
@@ -344,6 +354,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=5.2,<5.3" },
+    { name = "django-admin-rangefilter" },
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
     { name = "django-reversion" },

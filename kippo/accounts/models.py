@@ -97,7 +97,7 @@ class KippoOrganization(UserCreatedBaseModel):
     )
 
     @property
-    def email_domains(self):
+    def email_domains(self) -> QuerySet:
         domains = EmailDomain.objects.filter(organization=self)
         return domains
 
@@ -173,6 +173,9 @@ class EmailDomain(UserCreatedBaseModel):
     )
     is_staff_domain = models.BooleanField(default=True, help_text=_("Domain has access to admin"))
 
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.domain})"
+
     def clean(self):
         email_address_with_domain = f"test@{self.domain}"
         try:
@@ -197,6 +200,13 @@ class OrganizationMembership(UserCreatedBaseModel):
     thursday = models.BooleanField(default=True, help_text=_("Works Thursday"))
     friday = models.BooleanField(default=True, help_text=_("Works Friday"))
     saturday = models.BooleanField(default=False, help_text=_("Works Saturday"))
+
+    class Meta:
+        ordering = ["user__username"]
+        unique_together = (
+            "user",
+            "organization",
+        )
 
     @property
     def committed_days(self) -> int:
@@ -329,6 +339,52 @@ class KippoUser(AbstractUser):
         return display_name
 
 
+class OrganizationInvite(UserCreatedBaseModel):
+    organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE)
+    email = models.EmailField(db_index=True, help_text=_("Email address to send invite to"))
+    expiration_date = models.DateField(editable=False, help_text=_("Date the invite expires"))
+    is_complete = models.BooleanField(default=False, editable=False, help_text=_("True if the invite has been processed"))
+    processed_datetime = models.DateTimeField(null=True, blank=True, editable=False, help_text=_("Date the invite was processed"))
+
+    def __str__(self) -> str:
+        return f"OrganizationInvite({self.organization.name} -> {self.email})"
+
+    def create_organizationmembership(self, user: KippoUser):
+        system_user = get_climanager_user()
+
+        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ...")
+        membership = OrganizationMembership(
+            user=user,
+            organization=self.organization,
+            email=self.email,
+            is_project_manager=False,
+            is_developer=False,
+            created_by=system_user,
+            updated_by=system_user,
+        )
+        membership.save()
+        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ... DONE")
+        self.is_complete = True
+        self.processed_datetime = timezone.now()
+        self.save()
+
+        for domain in self.organization.email_domains:
+            if self.email.endswith(domain.domain) and domain.is_staff_domain:
+                logger.info(f"Updating User({user.username}) is_staff -> True ...")
+                user.is_staff = True
+                user.save()
+                logger.info(f"Updating User({user.username}) is_staff -> True ... DONE")
+                break
+
+        return membership
+
+    def save(self, *args, **kwargs):
+        if not self.expiration_date:
+            # set expiration date to 7 days from now
+            self.expiration_date = (timezone.now() + timezone.timedelta(days=settings.ORGANIZATIONINVITE_EXPIRATION_DAYS)).date()
+        super().save(*args, **kwargs)
+
+
 class PersonalHoliday(models.Model):
     user = models.ForeignKey(KippoUser, on_delete=models.CASCADE, editable=True)
     created_datetime = models.DateTimeField(editable=False, auto_now_add=True)
@@ -337,6 +393,8 @@ class PersonalHoliday(models.Model):
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
 
     class Meta:
+        verbose_name = _("個人休日")
+        verbose_name_plural = verbose_name
         ordering = ["-day"]
 
     def __str__(self) -> str:

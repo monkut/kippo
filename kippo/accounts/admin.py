@@ -28,6 +28,7 @@ from .models import (
     EmailDomain,
     KippoOrganization,
     KippoUser,
+    OrganizationInvite,
     OrganizationMembership,
     PersonalHoliday,
     PublicHoliday,
@@ -106,6 +107,19 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         return obj.user.github_login
 
     get_user_github_login.short_description = _("Github Login")
+
+
+@admin.register(OrganizationInvite)
+class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
+    list_display = ("organization", "email", "expiration_date", "is_complete", "expiration_date", "processed_datetime")
+    ordering = ("organization", "email")
+    search_fields = ["email"]
+
+    def get_queryset(self, request: DjangoRequest):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations)
 
 
 @admin.register(KippoOrganization)
