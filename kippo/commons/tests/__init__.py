@@ -129,9 +129,25 @@ class IsStaffModelAdminTestCaseBase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        self.organization_domain = "testorg.com"
+        self.email_domain = EmailDomain.objects.create(
+            organization=self.organization,
+            domain=self.organization_domain,
+            is_staff_domain=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
         self.other_organization = KippoOrganization.objects.create(
             name="other-test-organization",
             github_organization_name="isstaffmodeladmintestcasebase-other-testorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.other_organization_domain = "othertestorg.com"
+        self.email_domain = EmailDomain.objects.create(
+            organization=self.organization,
+            domain=self.other_organization_domain,
+            is_staff_domain=True,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
