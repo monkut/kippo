@@ -8,6 +8,7 @@ from string import ascii_lowercase
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
+from commons.functions import get_current_month_date_range
 from commons.widgets import MonthYearWidget
 from django import forms
 from django.conf import settings
@@ -27,6 +28,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
+from rangefilter.filters import DateRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -658,13 +660,18 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
-    date_hierarchy = "week_start"
     ordering = ("project", "-week_start", "user")
     search_fields = (
         "project__name",
         "user__last_name",
     )
     actions = ("download_csv", "download_monthly_csv")
+
+    def get_list_filter(self, request: DjangoRequest) -> list:
+        current_month_start, current_month_end = get_current_month_date_range()
+        return [
+            ("week_start", DateRangeFilterBuilder(title="date filter", default_start=current_month_start, default_end=current_month_end)),
+        ]
 
     def get_project_name(self, obj: ProjectWeeklyEffort | None = None) -> str:
         result = "-"
@@ -682,6 +689,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
     get_user_display_name.short_description = _("user")
 
+    @admin.action(description=_("Download ProjectWeeklyEffort CSV"))
     def download_csv(self, request: DjangoRequest, queryset: models.QuerySet) -> HttpResponseRedirect | None:
         if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
@@ -697,8 +705,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
         return HttpResponseRedirect(redirect_to=download_waiter_url)
 
-    download_csv.description = _("Download ProjectWeeklyEffort CSV")
-
+    @admin.action(description="Download ProjectMonthlyEffort CSV")
     def download_monthly_csv(self, request: DjangoRequest, queryset: models.QuerySet):
         if not ProjectWeeklyEffort.objects.filter(project__organization__in=request.user.organizations).exists():
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
@@ -713,8 +720,6 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         urlencoded_key = urllib.parse.quote_plus(key)
         download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
         return HttpResponseRedirect(redirect_to=download_waiter_url)
-
-    download_monthly_csv.description = _("Download ProjectMonthlyEffort CSV")
 
     def get_form(self, request: DjangoRequest, obj: ProjectWeeklyEffort | None = None, **kwargs):
         """Set defaults based on request user"""
@@ -832,7 +837,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         organizations = request.user.organizations
         summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
 
-        context = dict(
+        extra_context = dict(
             self.admin_site.each_context(request),
             summary=summary_results,
             expected=expected_hours,
@@ -840,10 +845,10 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             monthly_exceed_percentage=int(settings.PROJECT_EFFORT_EXCEED_PERCENTAGE * 100),
         )
         if hasattr(original_response, "context_data") and original_response.context_data:
-            context.update(original_response.context_data)
+            extra_context.update(original_response.context_data)
         elif isinstance(original_response, HttpResponseRedirect):
             return original_response
-        return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", context)
+        return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", extra_context)
 
 
 @admin.register(KippoProjectUserStatisfactionResult)
