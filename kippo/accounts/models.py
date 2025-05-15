@@ -75,6 +75,12 @@ class KippoOrganization(UserCreatedBaseModel):
         default="",
         help_text=_("REQUIRED if slack channel reporting is desired"),
     )
+    slack_channel_name = models.CharField(
+        max_length=60,
+        blank=True,
+        default="",
+        help_text=_("REQUIRED if slack channel reporting is desired"),
+    )
     slack_bot_name = models.CharField(
         max_length=60,
         blank=True,
@@ -82,6 +88,10 @@ class KippoOrganization(UserCreatedBaseModel):
         help_text=_("REQUIRED if slack channel reporting is desired"),
     )
     slack_bot_iconurl = models.URLField(blank=True, default="", help_text=_("URL link to slack bot display image"))
+    enable_slack_channel_reporting = models.BooleanField(
+        default=False,
+        help_text=_("Enable Slack channel reporting for this organization"),
+    )
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
     )
@@ -131,6 +141,11 @@ class KippoOrganization(UserCreatedBaseModel):
     def clean(self):
         if self.google_forms_project_survey_url and not self.google_forms_project_survey_url.endswith("viewform"):
             raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
+
+        if self.enable_slack_channel_reporting and not all((self.slack_api_token, self.slack_bot_name, self.slack_channel_name)):
+            raise ValidationError(
+                "'slack_api_token', 'slack_bot_name' and 'slack_channel_name' must be defined if 'enable_slack_channel_reporting' is True"
+            )
 
     def save(self, *args, **kwargs):
         if self._state.adding:  # created (for when using UUIDField as id)
