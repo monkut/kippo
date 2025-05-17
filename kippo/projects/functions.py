@@ -317,19 +317,3 @@ def generate_kippoprojectusermonthlystatisfaction_csv(organization_pks: list[str
         for r in results
     )
     upload_s3_csv(bucket=settings.DUMPDATA_S3_BUCKETNAME, key=key, headers=headers_dict, row_generator=g)
-
-
-def get_weekly_project_status_message(project: KippoProject, week_start: datetime.date | None = None) -> str:
-    """
-    Generate a weekly project status message for a given KippoProject and week_start date.
-    Where
-    """
-    from .models import KippoProjectStatus
-
-    if not week_start:
-        week_start = previous_week_startdate()
-    logger.debug(f"week_start={week_start}")
-    assert not project.is_closed, f"Project is closed, cannot generate status message: {project}"
-    KippoProjectStatus.objects.filter()
-
-    raise NotImplementedError

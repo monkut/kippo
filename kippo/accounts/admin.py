@@ -90,12 +90,13 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         "organization",
         "user",
         "get_user_github_login",
+        "slack_username",
         "committed_days",
         "is_project_manager",
         "is_developer",
     )
     ordering = ("organization", "user")
-    search_fields = ["user__username", "user__github_login"]
+    search_fields = ["user__username", "user__github_login", "slack_username"]
 
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
@@ -130,8 +131,9 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
         "github_organization_name",
         "default_task_category",
         "google_forms_project_survey_url",
-        "webhook_secret",
-        "webhook_url",
+        "github_webhook_secret",
+        "github_webhook_url",
+        "slack_webhook_url",
         "updated_by",
         "updated_datetime",
         "created_by",
@@ -145,6 +147,11 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
         EmailDomainAdminInline,
     )
     actions = ["collect_organization_projects_action", "collect_github_project_issues_action"]
+
+    def get_form(self, request: DjangoRequest, obj: KippoOrganization | None = None, change: bool = False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        form.base_fields["slack_signing_secret"].widget = forms.PasswordInput()  # hide slack_signing_secret
+        return form
 
     def collect_organization_projects_action(self, request: DjangoRequest, queryset: QuerySet) -> None:
         for organization in queryset:

@@ -295,6 +295,42 @@ class KippoProject(UserCreatedBaseModel):
             latest_kippoprojectstatus = None
         return latest_kippoprojectstatus
 
+    def get_projecteffort_display(self) -> str:
+        result = "-"
+        # get project total effort
+        actual_effort_hours = self.get_total_effort()
+        total_effort_percentage_str = ""
+        allocated_effort_hours = None
+        if self.allocated_staff_days and self.organization.day_workhours:
+            allocated_effort_hours = self.allocated_staff_days * self.organization.day_workhours
+        else:
+            logger.warning(
+                f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={self}, organization={self.organization}"
+            )
+        if actual_effort_hours and allocated_effort_hours:
+            total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
+            total_effort_percentage_str = f" ({total_effort_percentage:.2f}%)"
+        if actual_effort_hours:
+            result = f"{actual_effort_hours}h{total_effort_percentage_str}"
+        return result
+
+    def get_weekly_kippoprojectstatus_entries(self, week_start_date: datetime.date | None = None) -> QuerySet:
+        if not week_start_date:
+            week_start_date = previous_week_startdate()
+
+        time_deadline = self.organization.weekly_project_time_deadline
+        week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline)
+        week_end_datetime = week_start_datetime + datetime.timedelta(days=7)
+
+        # get the latest KippoProjectStatus for the given week
+        entries = KippoProjectStatus.objects.filter(created_datetime__gte=week_start_datetime, created_datetime__lt=week_end_datetime).order_by(
+            # uniquely identify the users with same name, username should be different (but want to orderby the last name)
+            "created_by__last_name",
+            "created_by__username",
+            "created_datetime",
+        )
+        return entries
+
     def get_active_taskstatus(
         self, max_effort_date: datetime.date | None = None, additional_filters: dict[str, Any] | None = None
     ) -> tuple[list[KippoTaskStatus], bool]:

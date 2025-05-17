@@ -22,7 +22,7 @@ def validate_webhook_request(request: HttpRequest, organization: KippoOrganizati
     Validate the contents with the registered secret
     https://developer.github.com/webhooks/securing/#validating-payloads-from-github
     """
-    secret = organization.webhook_secret.encode("utf8")
+    secret = organization.github_webhook_secret.encode("utf8")
     payload = request.body
     calculated_signature = hmac.new(key=secret, msg=payload, digestmod=hashlib.sha1).hexdigest()
     local_signature = f"sha1={calculated_signature}"
