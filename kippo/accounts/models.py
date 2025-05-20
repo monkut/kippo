@@ -63,6 +63,13 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_("If defined newly identified GithubRepository will AUTOMATICALLY have this LabelSet assigned"),
     )
+    default_holiday_country = models.ForeignKey(
+        "accounts.Country",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        help_text=_("Country that organization defaults to for holidays"),
+    )
     google_forms_project_survey_url = models.URLField(default="", blank=True, help_text=_('If a "Project Survey" is defined, include here'))
     google_forms_project_survey_projectid_entryid = models.CharField(
         max_length=255,
@@ -407,9 +414,8 @@ class OrganizationInvite(UserCreatedBaseModel):
         super().save(*args, **kwargs)
 
 
-class PersonalHoliday(models.Model):
+class PersonalHoliday(UserCreatedBaseModel):
     user = models.ForeignKey(KippoUser, on_delete=models.CASCADE, editable=True)
-    created_datetime = models.DateTimeField(editable=False, auto_now_add=True)
     is_half = models.BooleanField(default=False, help_text=_("Select if taking only a half day"))
     day = models.DateField()
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
@@ -497,8 +503,7 @@ class SlackCommand(TimestampedModel):
     processed_datetime = models.DateTimeField(null=True, blank=True, help_text=_("Date the command was processed"))
 
 
-class AttendanceRecord(TimestampedModel):
-    user = models.ForeignKey(KippoUser, on_delete=models.CASCADE, help_text=_("User that created the command"))
+class AttendanceRecord(UserCreatedBaseModel):
     organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE, help_text=_("Organization that created the command"))
     date = models.DateField(default=timezone.localdate, help_text=_("Date of the attendance record"))
     category = models.CharField(
@@ -508,7 +513,42 @@ class AttendanceRecord(TimestampedModel):
         choices=AttendanceRecordCategory.choices(),
         help_text=_("Category of the attendance record"),
     )
-    entry_datetime = models.DateTimeField(auto_now_add=True)
+    entry_datetime = models.DateTimeField(default=timezone.localtime)
     source_command = models.ForeignKey(
         SlackCommand, on_delete=models.CASCADE, null=True, blank=True, help_text=_("Slack command that created the attendance record")
     )
+
+
+class AttendanceRecordCategoryManager(models.Manager):
+    def __init__(self, *args, category: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.category = category
+
+    def get_queryset(self):
+        return super().get_queryset().filter(state=self.category)
+
+
+class StartAttendanceRecord(AttendanceRecord):
+    objects = AttendanceRecordCategoryManager(category=AttendanceRecordCategory.START)
+
+    class Meta:
+        verbose_name = _("出勤記録")
+        verbose_name_plural = verbose_name
+        ordering = ["-entry_datetime"]
+        proxy = True
+
+    def __str__(self) -> str:
+        return f"StartAttendanceRecord({self.user.username} [{self.entry_datetime}])"
+
+
+class EndAttendanceRecord(AttendanceRecord):
+    objects = AttendanceRecordCategoryManager(category=AttendanceRecordCategory.END)
+
+    class Meta:
+        verbose_name = _("退勤記録")
+        verbose_name_plural = verbose_name
+        ordering = ["-entry_datetime"]
+        proxy = True
+
+    def __str__(self) -> str:
+        return f"EndAttendanceRecord({self.user.username} [{self.entry_datetime}])"

@@ -13,6 +13,8 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
 
     def setUp(self):
         super().setUp()
+        self.organization.enable_slack_channel_reporting = True
+        self.organization.save()
         KippoProjectStatus.objects.all().delete()
 
     def _prepare(self, create_project_status: bool = False, status_datetime: timezone.datetime | None = None) -> list[KippoProjectStatus]:
@@ -42,14 +44,17 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
                 comment="test comment",
                 created_by=self.staffuser_with_org,
                 updated_by=self.staffuser_with_org,
-                created_datetime=status_datetime or timezone.now(),
-                updated_datetime=status_datetime or timezone.now(),
             )
+            if status_datetime:
+                assert status_datetime.tzinfo is not None, "status_datetime must be timezone-aware"
+                project_status.created_datetime = status_datetime
+                project_status.updated_datetime = status_datetime
+                project_status.save()
             created_status_entries.append(project_status)
         return created_status_entries
 
     @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
-    def test_2_projects__without_status_comments(self, *args):
+    def test_2_projects__without_status_comments(self, *_):
         entries = self._prepare()
         expected_entry_count = 0
         assert len(entries) == expected_entry_count, f"Expected no project status entries to be created, got: {len(entries)}"
@@ -64,18 +69,26 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         blocks, response = manager.post_weekly_project_status(week_start_date=week_start_date)
         self.assertTrue(blocks)
 
-    def test_2_projects__with_status_comments(self):
+    @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
+    def test_2_projects__with_status_comments(self, *_):
         week_start_date = previous_week_startdate()
-        comment_status_datetime = week_start_date + timezone.timedelta(days=1)
+        comment_status_datetime = timezone.datetime.combine(
+            week_start_date + timezone.timedelta(days=1), timezone.datetime.min.time(), tzinfo=timezone.get_default_timezone()
+        )
         entries = self._prepare(create_project_status=True, status_datetime=comment_status_datetime)
         expected_entry_count = 1
         assert len(entries) == expected_entry_count, f"Expected no project status entries to be created, got: {len(entries)}"
+        for entry in entries:
+            assert entry.created_datetime == comment_status_datetime, (
+                f"Expected created_datetime to be {comment_status_datetime}, got: {entry.created_datetime}"
+            )
+            assert entry.project.is_closed is False
+
         expected_project_count = 2
         active_project_count = ActiveKippoProject.objects.filter(organization=self.organization).count()
         assert ActiveKippoProject.objects.filter(organization=self.organization).count() == expected_project_count, (
             f"Expected {expected_project_count} active projects, got: {active_project_count}"
         )
-
         manager = ProjectSlackManager(self.organization)
         week_start_date = previous_week_startdate()
         blocks, response = manager.post_weekly_project_status(week_start_date=week_start_date)

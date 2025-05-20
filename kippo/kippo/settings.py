@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.0/ref/settings/
 """
 
+import datetime
 import logging
 import os
 from pathlib import Path, PurePath
@@ -114,23 +115,6 @@ WSGI_APPLICATION = "kippo.wsgi.application"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# TODO: for removal after whitenoise is configured
-# # django-storages configuration
-# # refer to:
-# # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html
-# DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-# STATICFILES_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-# STATICFILES_LOCATION = "static"
-# STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# S3 Bucket Config
-# -- for static files
-# #    (For django-storages)
-# AWS_STORAGE_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "kippo-staticfiles")
-# AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
-# STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{STATICFILES_LOCATION}/"
-# MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
-
 STATIC_URL = os.getenv("STATIC_URL", "/static/")
 MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
 
@@ -175,6 +159,7 @@ USE_L10N = True
 USE_TZ = True
 
 TIME_ZONE = "Asia/Tokyo"
+JST = datetime.timezone(datetime.timedelta(hours=+9), "JST")
 # ISO 8601, ex: 2008-01-02T10:30:00.000123+02:00 "c"
 # NOTE: Will not show timezone offset if datetime object is "naive"
 ja_formats.DATETIME_FORMAT = "Y-m-d H:i:s (T)"  # "c"

@@ -1,17 +1,19 @@
 import logging
 
-from commons.definitions import SlackResponseTypes
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, SlackCommand
+from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
-from ..models import KippoOrganization, KippoUser, OrganizationMembership, SlackCommand
-from .subcommands import ALL_COMMANDS
-from .subcommands.base import SubCommandBase
+from commons.definitions import SlackResponseTypes
+from commons.slackcommand.base import SubCommandBase
+
+from . import ALL_SUB_COMMANDS
 
 logger = logging.getLogger(__name__)
 
 
-class AttendanceSlackManager:
-    # SUPPORTED_COMMANDS = (
+class SlackCommandManager:
+    # SUPPORTED_SUB_COMMANDS = (
     #     "開始",
     #     "clockin",
     #     "clock-in",
@@ -34,7 +36,7 @@ class AttendanceSlackManager:
     #     "cancel-holiday",
     #     "attendance-status",
     # )
-    SUPPORTED_COMMANDS = ALL_COMMANDS
+    SUPPORTED_SUB_COMMANDS = ALL_SUB_COMMANDS
 
     REQUIRED_ORGANIZATION_FIELDS = (
         "slack_api_token",
@@ -54,7 +56,7 @@ class AttendanceSlackManager:
         self.organization_command_name = organization.slack_command_name
 
         self.valid_subcommands = {}  # key by alias
-        for command in self.SUPPORTED_COMMANDS:
+        for command in self.SUPPORTED_SUB_COMMANDS:
             if hasattr(command, "ALIASES"):
                 for alias in command.ALIASES:
                     self.valid_subcommands[alias] = command
@@ -68,10 +70,11 @@ class AttendanceSlackManager:
         logger.error(f"OrganizationMembership not found in {self.organization.name}({self.organization.pk}) for slack_user_name={slack_user_name}")
         return None
 
-    def process_command(self, request_payload: dict) -> tuple[list[dict], WebhookResponse | None, WebhookResponse | None]:
+    def process_command(self, request_payload: dict) -> tuple[list[dict], SlackResponse | None, WebhookResponse | None, WebhookResponse | None]:
         """Process the Slack command request."""
         command_blocks = []
-        send_response = None
+        web_send_response = None
+        webhook_send_response = None
         error_response = None
 
         # Extract the command and parameters from the request
@@ -103,7 +106,7 @@ class AttendanceSlackManager:
 
                 if sub_command:
                     # Call the handle method of the command class
-                    command_blocks, send_response = sub_command.handle(slack_command)
+                    command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
                 else:
                     logger.debug(f"valid_subcommands={self.valid_subcommands}")
                     logger.error(f"No sub-command recognized in the command text: {command_text}")
@@ -135,4 +138,4 @@ class AttendanceSlackManager:
                     response_type=SlackResponseTypes.EPHEMERAL,
                 )
 
-        return command_blocks, send_response, error_response
+        return command_blocks, web_send_response, webhook_send_response, error_response

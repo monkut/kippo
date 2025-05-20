@@ -1,6 +1,7 @@
 from commons.admin import (
     AllowIsStaffAdminMixin,
     AllowIsStaffReadonlyMixin,
+    AllowIsSuperuserAdminMixin,
     OrganizationQuerysetModelAdminMixin,
     UserCreatedBaseModelAdmin,
 )
@@ -9,7 +10,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import NoReverseMatch, reverse
@@ -24,6 +25,7 @@ from social_django.models import Association, Nonce, UserSocialAuth
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .models import (
+    AttendanceRecord,
     Country,
     EmailDomain,
     KippoOrganization,
@@ -32,6 +34,7 @@ from .models import (
     OrganizationMembership,
     PersonalHoliday,
     PublicHoliday,
+    SlackCommand,
 )
 
 
@@ -252,6 +255,28 @@ class PublicHolidayAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = ("name", "country", "day")
 
 
+@admin.register(AttendanceRecord)
+class AttendanceRecordAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
+    list_display = (
+        "get_created_by_display_name",
+        "entry_datetime",
+        "category",
+    )
+
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        # only allow superuser to change attendance records
+        return request.user.is_superuser
+
+    def get_created_by_display_name(self, obj: AttendanceRecord | None = None) -> str:
+        if obj and obj.created_by:
+            return obj.created_by.display_name
+        return "-"
+
+
+# @admin.register(StartAttendanceRecord)
+# class StartAttendanceRecordAdmin()
+
+
 @admin.register(LogEntry)
 class LogEntryAdmin(admin.ModelAdmin):
     date_hierarchy = "action_time"
@@ -294,6 +319,11 @@ class LogEntryAdmin(admin.ModelAdmin):
 
     def queryset(self, request: DjangoRequest) -> QuerySet:
         return super().queryset(request).prefetch_related("content_type")
+
+
+@admin.register(SlackCommand)
+class SlackCommandAdmin(AllowIsSuperuserAdminMixin, admin.ModelAdmin):
+    list_display = ("id", "organization", "user", "sub_command", "is_valid", "text", "created_datetime")
 
 
 admin.site.unregister(UserSocialAuth)

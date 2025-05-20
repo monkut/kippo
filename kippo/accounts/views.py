@@ -5,17 +5,17 @@ import time
 from collections import Counter, defaultdict
 from http import HTTPStatus
 
+from commons.slackcommand.managers import SlackCommandManager
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib import messages
 from django.http import (
     HttpResponse,
     HttpResponseBadRequest,
-    HttpResponseForbidden,
     HttpResponseNotAllowed,
     request as DjangoRequest,  # noqa: N812
 )
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from projects.functions import get_user_session_organization
@@ -23,7 +23,6 @@ from slack_sdk.signature import SignatureVerifier
 from zappa.asynchronous import task
 
 from .models import KippoOrganization, OrganizationMembership
-from .slackcommand.managers import AttendanceSlackManager
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +89,11 @@ def view_organization_members(request: DjangoRequest):
     return render(request, "accounts/view_organization_members.html", context)
 
 
-def _validate_slack_request(request: DjangoRequest, organization: KippoOrganization) -> bool:
+def _validate_slack_request(body: str, header_timestamp: int, header_signature: str, organization: KippoOrganization) -> bool:
     signature_verifier = SignatureVerifier(
         signing_secret=organization.slack_signing_secret,
     )
-    header_timestamp_str = request.META.get("HTTP_X_SLACK_REQUEST_TIMESTAMP", "")
-    header_timestamp = int(float(header_timestamp_str.strip()))
-    header_signature = request.META.get("HTTP_X_SLACK_SIGNATURE", "")
-    logger.debug(f"X_SLACK_REQUEST_TIMESTAMP={header_timestamp_str}, X_SLACK_SIGNATURE={header_signature}")
+
     is_valid = False
     if not all((header_timestamp, header_signature)):
         logger.error("Missing X-Slack-Request-Timestamp or X-Slack-Signature header")
@@ -109,7 +105,7 @@ def _validate_slack_request(request: DjangoRequest, organization: KippoOrganizat
             logger.error(f"Request received {five_minutes_in_seconds}s after X-Slack-Request-Timestamp")
         else:
             try:
-                calculated_signature = signature_verifier.generate_signature(timestamp=str(header_timestamp), body=request.body)
+                calculated_signature = signature_verifier.generate_signature(timestamp=str(header_timestamp), body=body)
                 logger.debug(f"calculated_signature={calculated_signature}, header_signature={header_signature}")
                 is_valid = hmac.compare_digest(calculated_signature, header_signature)
             except ValueError:
@@ -118,11 +114,32 @@ def _validate_slack_request(request: DjangoRequest, organization: KippoOrganizat
 
 
 @task
-def handle_slack_command(organization_id: str, request_payload: dict):
+def handle_slack_command(organization_id: str, request_body: str, header_timestamp: int, header_signature: str, request_payload: dict):
     """Handle command requests in separate process."""
     logger.debug(f"organization_id={organization_id}, request_payload={request_payload}")
-    organization = KippoOrganization.objects.get(id=organization_id)
-    manager = AttendanceSlackManager(organization=organization)
+    organization = KippoOrganization.objects.filter(id=organization_id).first()
+    if not organization:
+        logger.error(f"Organization {organization_id} not found")
+        return
+
+    # Check that KippoOrganization is properly configured to use the Slack Command
+    missing_fields = [f for f in SlackCommandManager.REQUIRED_ORGANIZATION_FIELDS if not getattr(organization, f)]
+    if missing_fields:
+        error_message = f"Organization {organization.name}({organization_id}) is missing required field(s): {missing_fields}"
+        logger.error(error_message)
+        return
+
+    is_valid = _validate_slack_request(
+        body=request_body,
+        header_timestamp=header_timestamp,
+        header_signature=header_signature,
+        organization=organization,
+    )
+    if not is_valid:
+        logger.error(f"Invalid Slack request for organization {organization_id}")
+        return
+
+    manager = SlackCommandManager(organization=organization)
     logger.debug("Processing Slack command ...")
     manager.process_command(request_payload)
     logger.debug("Processing Slack command ... DONE")
@@ -131,25 +148,19 @@ def handle_slack_command(organization_id: str, request_payload: dict):
 @csrf_exempt
 def organization_slack_webhook(request: DjangoRequest, organization_id: str):
     """Handle Slack command requests."""
-    organization = get_object_or_404(KippoOrganization, id=organization_id)
     logger.debug(f"organization_slack_webhook: organization_id={organization_id}, request.POST={request.POST}")
 
-    # Check that KippoOrganization is properly configured to use the Slack Command
-    missing_fields = [f for f in AttendanceSlackManager.REQUIRED_ORGANIZATION_FIELDS if not getattr(organization, f)]
-    if missing_fields:
-        error_message = f"Organization {organization.name}({organization_id}) is missing required field(s): {missing_fields}"
-        logger.error(error_message)
-        return HttpResponseForbidden(error_message)
-
     if request.method == "POST":
-        is_valid = _validate_slack_request(request, organization)
-        if not is_valid:
-            logger.error(f"Invalid Slack request for organization {organization_id}")
-            return HttpResponseForbidden("Invalid Slack request")
-        logger.debug(f"request.POST={request.POST}")
-        logger.debug(f"request.POST.dict()={request.POST.dict()}")
+        # performing validation and checking in separate process, handle_slack_command(),
+        # to avoid timeout response from Slack
+        header_timestamp_str = request.META.get("HTTP_X_SLACK_REQUEST_TIMESTAMP", "")
+        header_timestamp = int(float(header_timestamp_str.strip()))
+        header_signature = request.META.get("HTTP_X_SLACK_SIGNATURE", "")
         handle_slack_command(
-            organization_id=str(organization.id),
+            organization_id=str(organization_id),
+            request_body=request.body.decode("utf-8"),
+            header_timestamp=header_timestamp,
+            header_signature=header_signature,
             request_payload=request.POST.dict(),
         )
         return HttpResponse(status=HTTPStatus.OK)

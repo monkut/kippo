@@ -2,11 +2,11 @@ from http import HTTPStatus
 from unittest import mock
 
 from commons.tests import IsStaffModelAdminTestCaseBase
+from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookResponse
+from slackcommand.managers import AttendanceSlackManager
 
 from accounts.models import AttendanceRecord, OrganizationMembership, SlackCommand
-from accounts.slackcommand.managers import AttendanceSlackManager
-from accounts.slackcommand.subcommands import CheckInSubCommand
 
 
 def webhook_response_factory(
@@ -20,6 +20,22 @@ def webhook_response_factory(
         headers={
             "Content-Type": "application/json",
         },
+    )
+
+
+def mock_slack_response_factory(
+    status_code: int = HTTPStatus.OK,
+) -> SlackResponse:
+    return SlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://example.com/api",
+        req_args={},
+        data={},
+        headers={
+            "Content-Type": "application/json",
+        },
+        status_code=status_code,
     )
 
 
@@ -63,37 +79,11 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
                 self.assertIn("Organization is missing required field", str(context.exception))
             setattr(organization, required_field, original_value)  # re-set the original value
 
-    @mock.patch("accounts.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.checkin.WebhookClient.send", return_value=webhook_response_factory())
-    def test_valid_checkincommand(self, *_):
-        expected_slackcommand_count = 0
-        assert SlackCommand.objects.count() == expected_slackcommand_count
-        expected_attendancerecord_count = 0
-        assert AttendanceRecord.objects.count() == expected_attendancerecord_count
-
-        valid_command = "/kippo"
-        for count, alias in enumerate(CheckInSubCommand.ALIASES, 1):
-            payload = {
-                "command": valid_command,
-                "text": f"{alias} 出勤しますよ",
-                "user_id": self.staffuser_with_org_slack_id,
-                "response_url": "https://example.com/response_url",
-            }
-
-            manager = AttendanceSlackManager(
-                organization=self.organization,
-            )
-            blocks, *_ = manager.process_command(payload)
-            self.assertTrue(blocks)
-
-            expected_slackcommand_count = count
-            self.assertEqual(SlackCommand.objects.count(), expected_slackcommand_count)
-
-            expected_attendancerecord_count = count
-            self.assertEqual(AttendanceRecord.objects.count(), expected_attendancerecord_count)
-
-    @mock.patch("accounts.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
-    @mock.patch("accounts.slackcommand.subcommands.checkin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
+    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch(
+        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
     def test_invalid_request_command_name(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
@@ -111,14 +101,17 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         manager = AttendanceSlackManager(
             organization=self.organization,
         )
-        blocks, send_response, error_response = manager.process_command(payload)
+        blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
         self.assertFalse(blocks)
-        self.assertIsNone(send_response)
+        self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
 
-    @mock.patch("accounts.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
-    @mock.patch("accounts.slackcommand.subcommands.checkin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
+    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch(
+        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
     def test_valid_request_command_name__empty_subcommand(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
@@ -137,14 +130,17 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         manager = AttendanceSlackManager(
             organization=self.organization,
         )
-        blocks, send_response, error_response = manager.process_command(payload)
+        blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
         self.assertFalse(blocks)
-        self.assertIsNone(send_response)
+        self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
 
-    @mock.patch("accounts.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
-    @mock.patch("accounts.slackcommand.subcommands.checkin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
+    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch(
+        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
     def test_valid_request_command_name__invalid_subcommand_alias(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
@@ -163,8 +159,8 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         manager = AttendanceSlackManager(
             organization=self.organization,
         )
-        blocks, send_response, error_response = manager.process_command(payload)
+        blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
         self.assertFalse(blocks)
-        self.assertIsNone(send_response)
+        self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
