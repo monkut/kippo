@@ -79,9 +79,11 @@ class ProjectSlackManager:
 
         # Get the list of projects for the organization
         contract_complete_confidence = 100
-        projects = ActiveKippoProject.objects.filter(organization=self.organization, confidence=contract_complete_confidence).order_by(
-            "target_date", "name"
-        )
+        projects = ActiveKippoProject.objects.filter(
+            organization=self.organization,
+            confidence=contract_complete_confidence,
+            display_in_project_report=True,
+        ).order_by("target_date", "name")
         logger.debug(f"Found {self.organization.github_organization_name} projects: {len(projects)}")
 
         slack_max_blocks_per_message = 50
@@ -98,7 +100,8 @@ class ProjectSlackManager:
                 logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
                 # get latest comment for the project
                 latest_status_entry = project.get_latest_kippoprojectstatus()
-                user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
+                if latest_status_entry and latest_status_entry.created_by:
+                    user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
 
             logger.debug(f"project={project.name}, len(user_comments)={len(user_comments)}")
 

@@ -543,6 +543,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "columnset",
                     "is_closed",
                     "display_as_active",
+                    "display_in_project_report",
                     "document_url",
                     "github_project_html_url",
                     "github_project_api_url",
