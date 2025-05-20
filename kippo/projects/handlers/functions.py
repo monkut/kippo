@@ -51,3 +51,24 @@ def handle_projectid_mapping(event: dict | None = None, context: dict | None = N
         write_projectid_json(projectid_mapping_json_s3uri=settings.PROJECTID_MAPPING_JSON_S3URI)
     else:
         logger.warning("PROJECTID_MAPPING_JSON_S3URI envar not defined, projectid_mapping json file will not be written!")
+
+
+def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> tuple[list, list]:  # noqa: ARG001
+    """Run weekly project status."""
+    from accounts.models import KippoOrganization
+
+    from projects.managers import ProjectSlackManager
+
+    organizations_with_reporting_enabled = KippoOrganization.objects.filter(enable_slack_channel_reporting=True)
+
+    logger.info(f"len(organizations_with_reporting_enabled)={len(organizations_with_reporting_enabled)}")
+    responses = []
+    all_status_groups = []
+    for organization in organizations_with_reporting_enabled:
+        logger.info(f"Calling ProjectSlackManager.post_weekly_project_status() for ({organization.name}) ...")
+        mgr = ProjectSlackManager(organization=organization)
+        block_groups, web_client_response = mgr.post_weekly_project_status()
+        all_status_groups.extend(block_groups)
+        responses.append(web_client_response)
+        logger.info(f"Calling ProjectSlackManager.post_weekly_project_status() for ({organization.name}) ... DONE")
+    return all_status_groups, responses

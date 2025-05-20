@@ -3,6 +3,7 @@ import logging
 from collections import defaultdict
 
 from accounts.models import KippoOrganization
+from django.conf import settings
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -42,6 +43,9 @@ class ProjectSlackManager:
                 project_progress_emoji = ":large_green_circle:"
             else:
                 project_progress_emoji = ":large_yellow_circle:"
+                percentage_exceeding_expected = ((actual_effort_hours - expected_effort_hours) / expected_effort_hours) * 100
+                if percentage_exceeding_expected > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
+                    project_progress_emoji = ":red_circle:"
 
         project_header_block = {
             "type": "header",
