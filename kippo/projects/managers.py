@@ -93,6 +93,13 @@ class ProjectSlackManager:
             # collect user comments for the week
             for status_entry in project.get_weekly_kippoprojectstatus_entries(week_start_date=week_start_date):  # results ordered by user/username
                 user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
+
+            if not user_comments:
+                logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
+                # get latest comment for the project
+                latest_status_entry = project.get_latest_kippoprojectstatus()
+                user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
+
             logger.debug(f"project={project.name}, len(user_comments)={len(user_comments)}")
 
             # Check that Slack block limit (slack_max_blocks_per_message) is not exceeded

@@ -4,7 +4,7 @@ from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
 from django.utils import timezone
 
 from projects.functions import previous_week_startdate
-from projects.managers import ProjectSlackManager
+from projects.handlers.functions import run_weeklyprojectstatus
 from projects.models import ActiveKippoProject, KippoProjectStatus
 
 
@@ -54,7 +54,7 @@ class RunWeeklyProjectStatusTestCase(IsStaffModelAdminTestCaseBase):
         return created_status_entries
 
     @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
-    def test_2_projects__with_status_comments(self, *_):
+    def test_run_weeklyprojectstatus(self, *_):
         week_start_date = previous_week_startdate()
         comment_status_datetime = timezone.datetime.combine(
             week_start_date + timezone.timedelta(days=1), timezone.datetime.min.time(), tzinfo=timezone.get_default_timezone()
@@ -73,7 +73,5 @@ class RunWeeklyProjectStatusTestCase(IsStaffModelAdminTestCaseBase):
         assert ActiveKippoProject.objects.filter(organization=self.organization).count() == expected_project_count, (
             f"Expected {expected_project_count} active projects, got: {active_project_count}"
         )
-        manager = ProjectSlackManager(self.organization)
-        week_start_date = previous_week_startdate()
-        blocks, response = manager.post_weekly_project_status(week_start_date=week_start_date)
+        blocks, _ = run_weeklyprojectstatus(event={}, context={})
         self.assertTrue(blocks)

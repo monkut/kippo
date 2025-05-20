@@ -1,10 +1,10 @@
 from http import HTTPStatus
 from unittest import mock
 
+from commons.slackcommand.managers import SlackCommandManager
 from commons.tests import IsStaffModelAdminTestCaseBase
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookResponse
-from slackcommand.managers import AttendanceSlackManager
 
 from accounts.models import AttendanceRecord, OrganizationMembership, SlackCommand
 
@@ -71,11 +71,11 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         organization.slack_attendance_report_channel = ""
         organization.save()
 
-        for required_field in AttendanceSlackManager.REQUIRED_ORGANIZATION_FIELDS:
+        for required_field in SlackCommandManager.REQUIRED_ORGANIZATION_FIELDS:
             original_value = getattr(organization, required_field)
             setattr(organization, required_field, "")
             with self.assertRaises(ValueError) as context:
-                AttendanceSlackManager(organization=organization)
+                SlackCommandManager(organization=organization)
                 self.assertIn("Organization is missing required field", str(context.exception))
             setattr(organization, required_field, original_value)  # re-set the original value
 
@@ -98,7 +98,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "response_url": "https://example.com/response_url",
         }
 
-        manager = AttendanceSlackManager(
+        manager = SlackCommandManager(
             organization=self.organization,
         )
         blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
@@ -127,7 +127,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "response_url": "https://example.com/response_url",
         }
 
-        manager = AttendanceSlackManager(
+        manager = SlackCommandManager(
             organization=self.organization,
         )
         blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
@@ -156,7 +156,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "response_url": "https://example.com/response_url",
         }
 
-        manager = AttendanceSlackManager(
+        manager = SlackCommandManager(
             organization=self.organization,
         )
         blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
