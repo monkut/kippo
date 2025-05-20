@@ -517,7 +517,7 @@ class AttendanceRecord(UserCreatedBaseModel):
     )
     entry_datetime = models.DateTimeField(default=timezone.localtime)
     source_command = models.ForeignKey(
-        SlackCommand, on_delete=models.CASCADE, null=True, blank=True, help_text=_("Slack command that created the attendance record", editable=False)
+        SlackCommand, on_delete=models.CASCADE, null=True, blank=True, editable=False, help_text=_("Slack command that created the attendance record")
     )
 
     def clean(self):

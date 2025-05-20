@@ -183,6 +183,11 @@ class KippoProject(UserCreatedBaseModel):
         default=True,
         help_text=_("If True, project will be included in the ActiveKippoProject List"),
     )
+    display_in_project_report = models.BooleanField(
+        _("Display in Project Report Summary (slack)"),
+        default=True,
+        help_text=_("If True, project will be included in the Project Report Summary"),
+    )
     github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
     github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), blank=True, default="")
     allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
