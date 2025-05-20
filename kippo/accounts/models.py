@@ -504,8 +504,10 @@ class SlackCommand(TimestampedModel):
 
 
 class AttendanceRecord(UserCreatedBaseModel):
-    organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE, help_text=_("Organization that created the command"))
-    date = models.DateField(default=timezone.localdate, help_text=_("Date of the attendance record"))
+    organization = models.ForeignKey(
+        KippoOrganization, on_delete=models.CASCADE, help_text=_("Organization that created the command"), editable=False
+    )
+    date = models.DateField(default=timezone.localdate, help_text=_("Date of the attendance record"), editable=False)
     category = models.CharField(
         max_length=255,
         blank=True,
@@ -515,8 +517,13 @@ class AttendanceRecord(UserCreatedBaseModel):
     )
     entry_datetime = models.DateTimeField(default=timezone.localtime)
     source_command = models.ForeignKey(
-        SlackCommand, on_delete=models.CASCADE, null=True, blank=True, help_text=_("Slack command that created the attendance record")
+        SlackCommand, on_delete=models.CASCADE, null=True, blank=True, help_text=_("Slack command that created the attendance record", editable=False)
     )
+
+    def clean(self):
+        # set date to entry_datetime date
+        if self.entry_datetime:
+            self.date = self.entry_datetime.date()
 
 
 class AttendanceRecordCategoryManager(models.Manager):

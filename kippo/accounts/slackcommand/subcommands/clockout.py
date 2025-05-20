@@ -152,6 +152,8 @@ class ClockOutSubCommand(SubCommandBase):
                             },
                         }
                     ]
+                command.is_valid = True
+                command.save()
         else:
             logger.warning(
                 f"No existing attendance record found for user {command.user} in organization {command.organization}, expecting START record."

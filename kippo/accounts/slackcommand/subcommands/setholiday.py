@@ -122,6 +122,8 @@ class SetHolidaySubCommand(SubCommandBase):
                         },
                     }
                 ]
+                command.is_valid = True
+                command.save()
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)

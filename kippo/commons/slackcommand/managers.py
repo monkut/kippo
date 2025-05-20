@@ -7,7 +7,7 @@ from slack_sdk.webhook import WebhookClient, WebhookResponse
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
 
-from . import ALL_SUB_COMMANDS
+from . import get_all_subcommands
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,6 @@ class SlackCommandManager:
     #     "cancel-holiday",
     #     "attendance-status",
     # )
-    SUPPORTED_SUB_COMMANDS = ALL_SUB_COMMANDS
 
     REQUIRED_ORGANIZATION_FIELDS = (
         "slack_api_token",
@@ -56,7 +55,7 @@ class SlackCommandManager:
         self.organization_command_name = organization.slack_command_name
 
         self.valid_subcommands = {}  # key by alias
-        for command in self.SUPPORTED_SUB_COMMANDS:
+        for command in get_all_subcommands():
             if hasattr(command, "ALIASES"):
                 for alias in command.ALIASES:
                     self.valid_subcommands[alias] = command
@@ -87,6 +86,7 @@ class SlackCommandManager:
         if request_command_name == organization_command_name:
             command_text = request_payload.get("text", "")
             sub_command_id = command_text.split(" ")[0] if command_text else ""
+            logger.debug(f"command_text={command_text}, sub_command_id={sub_command_id}")
             if sub_command_id:
                 sub_command: SubCommandBase | None = self.valid_subcommands.get(sub_command_id, None)
                 # ex)
@@ -106,7 +106,9 @@ class SlackCommandManager:
 
                 if sub_command:
                     # Call the handle method of the command class
+                    logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ...")
                     command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
+                    logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ... DONE")
                 else:
                     logger.debug(f"valid_subcommands={self.valid_subcommands}")
                     logger.error(f"No sub-command recognized in the command text: {command_text}")

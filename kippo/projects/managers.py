@@ -32,6 +32,10 @@ class ProjectSlackManager:
         # ---
         actual_effort_hours, allocated_effort_hours, total_effort_percentage = project.get_projecteffort_values()
         expected_effort_hours = project.get_expected_effort_hours()
+        logger.debug(
+            f"project={project.name}, allocated_effort_hours={allocated_effort_hours}, "
+            f"actual_effort_hours={actual_effort_hours}, expected_effort_hours={expected_effort_hours}"
+        )
         project_progress_emoji = ":white_circle:"
         if actual_effort_hours and expected_effort_hours:
             if actual_effort_hours < expected_effort_hours:
@@ -43,7 +47,7 @@ class ProjectSlackManager:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": (f"{project.name} 完了予定日 ({project.target_date})\n{project_progress_emoji}{project.get_projecteffort_display()}"),
+                "text": f"\n\n{project.name}\n完了予定日: {project.target_date}\n{project_progress_emoji} {project.get_projecteffort_display()}",
             },
         }
         slack_status_message_blocks.append(project_header_block)

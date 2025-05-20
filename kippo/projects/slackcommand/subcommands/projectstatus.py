@@ -46,7 +46,7 @@ class ProjectStatusSubCommand(SubCommandBase):
                         "type": "mrkdwn",
                         "text": (
                             f"プロジェクトが見つかりませんでした。:warning: `{source_channel}`チャンネルは、プロジェクトに関連付けられていません。\n"
-                            f"プロジェクトの`slack_channel_name`設定を確認してください。",
+                            f"プロジェクトの`slack_channel_name`設定を確認してください。"
                         ),
                     },
                 }
@@ -85,13 +85,21 @@ class ProjectStatusSubCommand(SubCommandBase):
                         "type": "mrkdwn",
                         "text": (
                             f"> {text_without_subcommand}\n{related_project.name}にステータスを登録しました。\n"
-                            f"週開始時に、まとめて、`{project_report_channel}`チャンネルにサマリが送られます。",
+                            f"週開始時に、まとめて、`{project_report_channel}`チャンネルにサマリが送られます。"
                         ),
                     },
                 }
             ]
+            command.is_valid = True
+            command.save()
 
-        # Notify user that notification was sent to the registered channel
-        webhook_client = WebhookClient(command.response_url)
-        webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
+        webhook_send_response = None
+        if command_response_blocks:
+            # Notify user that notification was sent to the registered channel
+            logger.debug(f"command_response_blocks={command_response_blocks}")
+            webhook_client = WebhookClient(command.response_url)
+            webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
+            logger.debug(f"webhook_send_response={webhook_send_response.status_code}, {webhook_send_response.body}")
+        else:
+            logger.warning(f"command_response_blocks is empty, no response sent to {command.user.username}.")
         return command_response_blocks, web_send_response, webhook_send_response

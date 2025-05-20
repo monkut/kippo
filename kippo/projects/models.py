@@ -312,12 +312,11 @@ class KippoProject(UserCreatedBaseModel):
     def get_expected_effort_hours(self, at_date: datetime.date | None = None) -> int | None:
         """Calculate the expected effort hours for the project at a given date"""
         expected_completion_hours = None
-        total_available_workdays = None
         if self.start_date and self.target_date and self.allocated_staff_days:
             if not at_date:
                 at_date = timezone.localdate()
                 logger.info(f"at_date not given, setting to: {at_date}")
-            if self.start_date <= at_date <= self.target_date:
+            if self.start_date <= at_date <= self.target_date or at_date > self.target_date:
                 total_project_hours = self.allocated_staff_days * self.organization.day_workhours
                 # get weekdays - public holidays
                 holidays = []
@@ -331,18 +330,29 @@ class KippoProject(UserCreatedBaseModel):
                 total_available_workdays = 0
                 available_workdays_at_date = None
                 current_date = self.start_date
-                saturaday_weekday_number = 5
+                saturday_weekday_number = 5
                 while current_date <= self.target_date:
-                    if current_date.weekday() < saturaday_weekday_number and current_date not in holidays:
+                    if current_date.weekday() < saturday_weekday_number and current_date not in holidays:
                         total_available_workdays += 1
                     if current_date == at_date:
                         available_workdays_at_date = total_available_workdays
                     current_date = current_date + timezone.timedelta(days=1)
+                if available_workdays_at_date is None and at_date > self.target_date:
+                    logger.warning(f"at_date({at_date}) > target_date({self.target_date}), setting available_workdays_at_date")
+                    # set to total available workdays
+                    available_workdays_at_date = total_available_workdays
+
                 if total_available_workdays:
                     hours_per_day = total_project_hours / total_available_workdays
                     expected_completion_hours = hours_per_day * available_workdays_at_date
             else:
                 logger.warning(f"at_date({at_date}) is not between start_date({self.start_date}) and target_date({self.target_date})")
+        else:
+            logger.warning(
+                f"Project.start_date, Project.target_date and/or Project.allocated_staff_days not set: "
+                f"project={self}, organization={self.organization}"
+            )
+            logger.warning(f"start_date={self.start_date}, target_date={self.target_date}, allocated_staff_days={self.allocated_staff_days}")
         return expected_completion_hours
 
     def get_projecteffort_display(self) -> str:
