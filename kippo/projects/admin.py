@@ -419,27 +419,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
 
+    @admin.display(description=_("Effort Hours"))
     def get_projecteffort_display(self, obj: KippoProject | None = None) -> str:
         result = "-"
         if obj:
-            # get project total effort
-            actual_effort_hours = obj.get_total_effort()
-            total_effort_percentage_str = ""
-            allocated_effort_hours = None
-            if obj.allocated_staff_days and obj.organization.day_workhours:
-                allocated_effort_hours = obj.allocated_staff_days * obj.organization.day_workhours
-            else:
-                logger.warning(
-                    f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={obj}, organization={obj.organization}"
-                )
-            if actual_effort_hours and allocated_effort_hours:
-                total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
-                total_effort_percentage_str = f" ({total_effort_percentage:.2f}%)"
-            if actual_effort_hours:
-                result = f"{actual_effort_hours}h{total_effort_percentage_str}"
+            result = obj.get_projecteffort_display()
         return result
-
-    get_projecteffort_display.short_description = _("Effort Hours")
 
     def show_github_project_html_url(self, obj: KippoProject) -> str:
         url = ""
@@ -558,6 +543,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "columnset",
                     "is_closed",
                     "display_as_active",
+                    "display_in_project_report",
                     "document_url",
                     "github_project_html_url",
                     "github_project_api_url",

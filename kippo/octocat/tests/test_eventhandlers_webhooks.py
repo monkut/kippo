@@ -27,7 +27,7 @@ class ProcessWebhooksTestCase(TestCase):
         results = setup_basic_project(repository_name=self.repository_name)
 
         self.organization = results["KippoOrganization"]
-        self.secret_encoded = self.organization.webhook_secret.encode("utf8")
+        self.secret_encoded = self.organization.github_webhook_secret.encode("utf8")
         self.project = results["KippoProject"]
         self.user1 = results["KippoUser"]
         self.github_manager = KippoUser.objects.get(username="github-manager")

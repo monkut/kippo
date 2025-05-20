@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Generator
 
 from commons.definitions import SATURDAY, SUNDAY
-from commons.models import UserCreatedBaseModel
+from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -19,6 +19,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
+
+from accounts.definitions import AttendanceRecordCategory
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,13 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_("If defined newly identified GithubRepository will AUTOMATICALLY have this LabelSet assigned"),
     )
+    default_holiday_country = models.ForeignKey(
+        "accounts.Country",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        help_text=_("Country that organization defaults to for holidays"),
+    )
     google_forms_project_survey_url = models.URLField(default="", blank=True, help_text=_('If a "Project Survey" is defined, include here'))
     google_forms_project_survey_projectid_entryid = models.CharField(
         max_length=255,
@@ -68,11 +77,21 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_('"Project Identifier" field in survey (ex: "entry:123456789")'),
     )
-    webhook_secret = models.CharField(max_length=20, default=generate_random_secret, editable=False, help_text=_("Github Webhook Secret"))
+    github_webhook_secret = models.CharField(max_length=20, default=generate_random_secret, editable=False, help_text=_("Github Webhook Secret"))
+    weekly_project_time_deadline = models.TimeField(
+        default=datetime.time(12, 5), help_text=_("Cutoff deadline defining the latest time status will be included in the weekly report")
+    )
     slack_api_token = models.CharField(
         max_length=60,
         blank=True,
         default="",
+        help_text=_("REQUIRED if slack channel reporting is desired"),
+    )
+    slack_signing_secret = models.CharField(max_length=255, blank=True, default="", help_text=_("Slack signing secret for this organization"))
+    slack_channel_name = models.CharField(
+        max_length=60,
+        blank=True,
+        default="#kippo",
         help_text=_("REQUIRED if slack channel reporting is desired"),
     )
     slack_bot_name = models.CharField(
@@ -82,6 +101,18 @@ class KippoOrganization(UserCreatedBaseModel):
         help_text=_("REQUIRED if slack channel reporting is desired"),
     )
     slack_bot_iconurl = models.URLField(blank=True, default="", help_text=_("URL link to slack bot display image"))
+    slack_command_name = models.CharField(max_length=15, default="kippo", help_text=_("Slack command name to use"))
+    slack_weekly_project_report_channel = models.CharField(
+        max_length=50, blank=True, default="#kippo", help_text=_("Slack channel to post weekly project report")
+    )
+    slack_attendance_report_channel = models.CharField(
+        max_length=50, blank=True, default="#kippo", help_text=_("Slack channel to post attendance report")
+    )
+    enable_slack_channel_reporting = models.BooleanField(
+        default=False,
+        help_text=_("Enable Slack channel reporting for this organization"),
+    )
+
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
     )
@@ -109,8 +140,12 @@ class KippoOrganization(UserCreatedBaseModel):
         return developer_users
 
     @property
-    def webhook_url(self) -> str:
+    def github_webhook_url(self) -> str:
         return f"{settings.URL_PREFIX}/octocat/webhook/{self.pk}/"
+
+    @property
+    def slack_webhook_url(self) -> str:
+        return f"{settings.URL_PREFIX}/accounts/slack/webhook/{self.pk}/"
 
     def create_unassigned_kippouser(self):
         # AUTO-CREATE organization specific unassigned user
@@ -131,6 +166,13 @@ class KippoOrganization(UserCreatedBaseModel):
     def clean(self):
         if self.google_forms_project_survey_url and not self.google_forms_project_survey_url.endswith("viewform"):
             raise ValidationError(f'Google Forms URL does not to end with expected "viewform": {self.google_forms_project_survey_url}')
+
+        if self.enable_slack_channel_reporting and not all(
+            (self.slack_api_token, self.slack_bot_name, self.slack_channel_name, self.slack_signing_secret)
+        ):
+            raise ValidationError(
+                "'slack_api_token', 'slack_bot_name' and 'slack_channel_name' must be defined if 'enable_slack_channel_reporting' is True"
+            )
 
     def save(self, *args, **kwargs):
         if self._state.adding:  # created (for when using UUIDField as id)
@@ -173,6 +215,8 @@ class OrganizationMembership(UserCreatedBaseModel):
     user = models.ForeignKey("KippoUser", on_delete=models.DO_NOTHING)
     organization = models.ForeignKey("KippoOrganization", on_delete=models.DO_NOTHING)
     email = models.EmailField(blank=True, default="", help_text=_("Email address with Organization"))
+    slack_username = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack username"))
+    slack_user_id = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack user ID"))
     # TODO: add OPTIONAL -- contract_start, contract_end
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
@@ -370,9 +414,8 @@ class OrganizationInvite(UserCreatedBaseModel):
         super().save(*args, **kwargs)
 
 
-class PersonalHoliday(models.Model):
+class PersonalHoliday(UserCreatedBaseModel):
     user = models.ForeignKey(KippoUser, on_delete=models.CASCADE, editable=True)
-    created_datetime = models.DateTimeField(editable=False, auto_now_add=True)
     is_half = models.BooleanField(default=False, help_text=_("Select if taking only a half day"))
     day = models.DateField()
     duration = models.SmallIntegerField(default=1, help_text=_("How many days (including weekends/existing holidays)"))
@@ -447,3 +490,72 @@ def delete_kippouser_organizationmemberships(sender: type[KippoUser], instance: 
     membership_count = OrganizationMembership.objects.filter(user=instance).count()
     logger.info(f"Deleting ({membership_count}) OrganizationMembership(s) for User: {instance.username}")
     OrganizationMembership.objects.filter(user=instance).delete()
+
+
+class SlackCommand(TimestampedModel):
+    organization = models.ForeignKey(KippoOrganization, null=True, on_delete=models.CASCADE, help_text=_("Organization that created the command"))
+    user = models.ForeignKey(KippoUser, null=True, on_delete=models.CASCADE, help_text=_("User that created the command"))
+    is_valid = models.BooleanField(default=False, help_text=_("True if the command is valid"))
+    sub_command = models.CharField(max_length=255, blank=True, default="", help_text=_("Command that was sent"))
+    text = models.CharField(max_length=255, blank=True, default="", help_text=_("Text that was sent"))
+    response_url = models.URLField(max_length=255, blank=True, default="", help_text=_("Response URL that was sent"))
+    payload = models.JSONField(blank=True, default=dict, help_text=_("Payload that was sent"))
+    processed_datetime = models.DateTimeField(null=True, blank=True, help_text=_("Date the command was processed"))
+
+
+class AttendanceRecord(UserCreatedBaseModel):
+    organization = models.ForeignKey(
+        KippoOrganization, on_delete=models.CASCADE, help_text=_("Organization that created the command"), editable=False
+    )
+    date = models.DateField(default=timezone.localdate, help_text=_("Date of the attendance record"), editable=False)
+    category = models.CharField(
+        max_length=255,
+        blank=True,
+        default=AttendanceRecordCategory.START,
+        choices=AttendanceRecordCategory.choices(),
+        help_text=_("Category of the attendance record"),
+    )
+    entry_datetime = models.DateTimeField(default=timezone.localtime)
+    source_command = models.ForeignKey(
+        SlackCommand, on_delete=models.CASCADE, null=True, blank=True, editable=False, help_text=_("Slack command that created the attendance record")
+    )
+
+    def clean(self):
+        # set date to entry_datetime date
+        if self.entry_datetime:
+            self.date = self.entry_datetime.date()
+
+
+class AttendanceRecordCategoryManager(models.Manager):
+    def __init__(self, *args, category: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.category = category
+
+    def get_queryset(self):
+        return super().get_queryset().filter(state=self.category)
+
+
+class StartAttendanceRecord(AttendanceRecord):
+    objects = AttendanceRecordCategoryManager(category=AttendanceRecordCategory.START)
+
+    class Meta:
+        verbose_name = _("出勤記録")
+        verbose_name_plural = verbose_name
+        ordering = ["-entry_datetime"]
+        proxy = True
+
+    def __str__(self) -> str:
+        return f"StartAttendanceRecord({self.user.username} [{self.entry_datetime}])"
+
+
+class EndAttendanceRecord(AttendanceRecord):
+    objects = AttendanceRecordCategoryManager(category=AttendanceRecordCategory.END)
+
+    class Meta:
+        verbose_name = _("退勤記録")
+        verbose_name_plural = verbose_name
+        ordering = ["-entry_datetime"]
+        proxy = True
+
+    def __str__(self) -> str:
+        return f"EndAttendanceRecord({self.user.username} [{self.entry_datetime}])"

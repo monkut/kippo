@@ -24,7 +24,7 @@ class WebhookTestCase(TestCase):
         self.organization = created_objects["KippoOrganization"]
         self.secret = "DOB6tzKvmBIX69Jd1NPc"  # noqa: S105
         self.secret_encoded = self.secret.encode("utf8")
-        self.organization.webhook_secret = self.secret
+        self.organization.github_webhook_secret = self.secret
         self.organization.save()
         GithubWebhookEvent.objects.all().delete()
 

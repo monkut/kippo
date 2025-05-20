@@ -29,6 +29,7 @@ dependencies = [
     "django-cors-headers",
     "django-admin-rangefilter",
     "zappa>=0.60.0,<0.61.0",
+    "slack_sdk",
 ]
 
 [project.urls]
@@ -126,6 +127,7 @@ ignore = [
     "SLF001",
     "TC001",
     "TC002",
+    "TC004",
     "TD002",  # missing-todo-author
     "TD003",
     "TID252",

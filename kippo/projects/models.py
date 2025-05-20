@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import reversion
-from accounts.models import KippoUser, OrganizationMembership
+from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
 from commons.models import UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -183,6 +183,11 @@ class KippoProject(UserCreatedBaseModel):
         default=True,
         help_text=_("If True, project will be included in the ActiveKippoProject List"),
     )
+    display_in_project_report = models.BooleanField(
+        _("Display in Project Report Summary (slack)"),
+        default=True,
+        help_text=_("If True, project will be included in the Project Report Summary"),
+    )
     github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
     github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), blank=True, default="")
     allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
@@ -294,6 +299,99 @@ class KippoProject(UserCreatedBaseModel):
         except KippoProjectStatus.DoesNotExist:
             latest_kippoprojectstatus = None
         return latest_kippoprojectstatus
+
+    def get_projecteffort_values(self) -> tuple[int, int | None, float | None]:
+        actual_effort_hours = self.get_total_effort()
+        total_effort_percentage = None
+        allocated_effort_hours = None
+        if self.allocated_staff_days and self.organization.day_workhours:
+            allocated_effort_hours = self.allocated_staff_days * self.organization.day_workhours
+        else:
+            logger.warning(
+                f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={self}, organization={self.organization}"
+            )
+        if actual_effort_hours and allocated_effort_hours:
+            total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
+        return actual_effort_hours, allocated_effort_hours, total_effort_percentage
+
+    def get_expected_effort_hours(self, at_date: datetime.date | None = None) -> int | None:
+        """Calculate the expected effort hours for the project at a given date"""
+        expected_completion_hours = None
+        if self.start_date and self.target_date and self.allocated_staff_days:
+            if not at_date:
+                at_date = timezone.localdate()
+                logger.info(f"at_date not given, setting to: {at_date}")
+            if self.start_date <= at_date <= self.target_date or at_date > self.target_date:
+                total_project_hours = self.allocated_staff_days * self.organization.day_workhours
+                # get weekdays - public holidays
+                holidays = []
+                if self.organization.default_holiday_country:
+                    holidays = list(
+                        PublicHoliday.objects.filter(
+                            country=self.organization.default_holiday_country, date__gte=self.start_date, date__lte=self.target_date
+                        ).values_list("day", flat=True)
+                    )
+
+                total_available_workdays = 0
+                available_workdays_at_date = None
+                current_date = self.start_date
+                saturday_weekday_number = 5
+                while current_date <= self.target_date:
+                    if current_date.weekday() < saturday_weekday_number and current_date not in holidays:
+                        total_available_workdays += 1
+                    if current_date == at_date:
+                        available_workdays_at_date = total_available_workdays
+                    current_date = current_date + timezone.timedelta(days=1)
+                if available_workdays_at_date is None and at_date > self.target_date:
+                    logger.warning(f"at_date({at_date}) > target_date({self.target_date}), setting available_workdays_at_date")
+                    # set to total available workdays
+                    available_workdays_at_date = total_available_workdays
+
+                if total_available_workdays:
+                    hours_per_day = total_project_hours / total_available_workdays
+                    expected_completion_hours = hours_per_day * available_workdays_at_date
+            else:
+                logger.warning(f"at_date({at_date}) is not between start_date({self.start_date}) and target_date({self.target_date})")
+        else:
+            logger.warning(
+                f"Project.start_date, Project.target_date and/or Project.allocated_staff_days not set: "
+                f"project={self}, organization={self.organization}"
+            )
+            logger.warning(f"start_date={self.start_date}, target_date={self.target_date}, allocated_staff_days={self.allocated_staff_days}")
+        return expected_completion_hours
+
+    def get_projecteffort_display(self) -> str:
+        result = "-"
+        total_effort_percentage_str = ""
+        actual_effort_hours, allocated_effort_hours, total_effort_percentage = self.get_projecteffort_values()
+        if total_effort_percentage:
+            total_effort_percentage_str = f" ({total_effort_percentage:.2f}%)"
+        if actual_effort_hours:
+            result = f"{actual_effort_hours}h{total_effort_percentage_str}"
+        return result
+
+    def get_weekly_kippoprojectstatus_entries(self, week_start_date: datetime.date | None = None) -> QuerySet:
+        if not week_start_date:
+            week_start_date = previous_week_startdate()
+
+        time_deadline = self.organization.weekly_project_time_deadline
+        week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline).replace(tzinfo=settings.JST)
+        week_end_datetime = week_start_datetime + datetime.timedelta(days=7)
+        assert week_start_datetime.tzinfo is not None, "week_start_datetime must be timezone-aware"
+        assert week_end_datetime.tzinfo is not None, "week_end_datetime must be timezone-aware"
+
+        # get the latest KippoProjectStatus for the given week
+        logger.debug(f"Collecting KippoProjectStatus entries for week: {week_start_date} ({week_start_datetime} - {week_end_datetime})")
+        entries = KippoProjectStatus.objects.filter(
+            project=self, created_datetime__gte=week_start_datetime, created_datetime__lt=week_end_datetime
+        ).order_by(
+            # uniquely identify the users with same name, username should be different (but want to orderby the last name)
+            "created_by__last_name",
+            "created_by__username",
+            "created_datetime",
+        )
+        logger.debug(f"{self.name} len(weekly_kippoprojectstatus_entries)={len(entries)}")
+        return entries
 
     def get_active_taskstatus(
         self, max_effort_date: datetime.date | None = None, additional_filters: dict[str, Any] | None = None

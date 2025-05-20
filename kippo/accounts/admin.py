@@ -1,6 +1,7 @@
 from commons.admin import (
     AllowIsStaffAdminMixin,
     AllowIsStaffReadonlyMixin,
+    AllowIsSuperuserAdminMixin,
     OrganizationQuerysetModelAdminMixin,
     UserCreatedBaseModelAdmin,
 )
@@ -9,7 +10,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import NoReverseMatch, reverse
@@ -24,6 +25,7 @@ from social_django.models import Association, Nonce, UserSocialAuth
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .models import (
+    AttendanceRecord,
     Country,
     EmailDomain,
     KippoOrganization,
@@ -32,6 +34,7 @@ from .models import (
     OrganizationMembership,
     PersonalHoliday,
     PublicHoliday,
+    SlackCommand,
 )
 
 
@@ -90,12 +93,13 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         "organization",
         "user",
         "get_user_github_login",
+        "slack_username",
         "committed_days",
         "is_project_manager",
         "is_developer",
     )
     ordering = ("organization", "user")
-    search_fields = ["user__username", "user__github_login"]
+    search_fields = ["user__username", "user__github_login", "slack_username"]
 
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
@@ -130,8 +134,9 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
         "github_organization_name",
         "default_task_category",
         "google_forms_project_survey_url",
-        "webhook_secret",
-        "webhook_url",
+        "github_webhook_secret",
+        "github_webhook_url",
+        "slack_webhook_url",
         "updated_by",
         "updated_datetime",
         "created_by",
@@ -145,6 +150,11 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
         EmailDomainAdminInline,
     )
     actions = ["collect_organization_projects_action", "collect_github_project_issues_action"]
+
+    def get_form(self, request: DjangoRequest, obj: KippoOrganization | None = None, change: bool = False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        form.base_fields["slack_signing_secret"].widget = forms.PasswordInput()  # hide slack_signing_secret
+        return form
 
     def collect_organization_projects_action(self, request: DjangoRequest, queryset: QuerySet) -> None:
         for organization in queryset:
@@ -245,6 +255,28 @@ class PublicHolidayAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
     list_display = ("name", "country", "day")
 
 
+@admin.register(AttendanceRecord)
+class AttendanceRecordAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
+    list_display = (
+        "get_created_by_display_name",
+        "entry_datetime",
+        "category",
+    )
+
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        # only allow superuser to change attendance records
+        return request.user.is_superuser
+
+    def get_created_by_display_name(self, obj: AttendanceRecord | None = None) -> str:
+        if obj and obj.created_by:
+            return obj.created_by.display_name
+        return "-"
+
+
+# @admin.register(StartAttendanceRecord)
+# class StartAttendanceRecordAdmin()
+
+
 @admin.register(LogEntry)
 class LogEntryAdmin(admin.ModelAdmin):
     date_hierarchy = "action_time"
@@ -287,6 +319,11 @@ class LogEntryAdmin(admin.ModelAdmin):
 
     def queryset(self, request: DjangoRequest) -> QuerySet:
         return super().queryset(request).prefetch_related("content_type")
+
+
+@admin.register(SlackCommand)
+class SlackCommandAdmin(AllowIsSuperuserAdminMixin, admin.ModelAdmin):
+    list_display = ("id", "organization", "user", "sub_command", "is_valid", "text", "created_datetime")
 
 
 admin.site.unregister(UserSocialAuth)

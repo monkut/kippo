@@ -19,7 +19,7 @@ class OctocatViewsTestCase(TestCase):
         self.client = Client()
         created = setup_basic_project()
         self.organization = created["KippoOrganization"]
-        self.secret_encoded = self.organization.webhook_secret.encode("utf8")
+        self.secret_encoded = self.organization.github_webhook_secret.encode("utf8")
         GithubWebhookEvent.objects.all().delete()
 
     def test_application_xwwwformurlencoded(self):
@@ -30,7 +30,7 @@ class OctocatViewsTestCase(TestCase):
 
         response = self.client.generic(
             "POST",
-            self.organization.webhook_url,
+            self.organization.github_webhook_url,
             content,
             content_type="application/x-www-form-urlencoded",
             follow=True,
@@ -48,7 +48,7 @@ class OctocatViewsTestCase(TestCase):
         content, signature = load_webhookevent(event_filepath, secret_encoded=self.secret_encoded)
 
         headers = {"X-Github-Event": "issues", "X-Hub-Signature": signature}
-        response = self.client.generic("POST", self.organization.webhook_url, content, content_type="application/json", follow=True, **headers)
+        response = self.client.generic("POST", self.organization.github_webhook_url, content, content_type="application/json", follow=True, **headers)
         expected = HTTPStatus.NO_CONTENT
         actual = response.status_code
         self.assertTrue(actual == expected, f"actual({actual}) != expected({expected}): {response.content}")
@@ -61,7 +61,7 @@ class OctocatViewsTestCase(TestCase):
         content, signature = load_webhookevent(event_filepath, secret_encoded=self.secret_encoded)
 
         headers = {"X-Github-Event": "issues", "X-Hub-Signature": signature}
-        response = self.client.generic("POST", self.organization.webhook_url, content, content_type="text/html", follow=True, **headers)
+        response = self.client.generic("POST", self.organization.github_webhook_url, content, content_type="text/html", follow=True, **headers)
         expected = HTTPStatus.BAD_REQUEST
         actual = response.status_code
         self.assertTrue(actual == expected, f"actual({actual}) != expected({expected})")
