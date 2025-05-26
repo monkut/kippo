@@ -69,6 +69,62 @@ class SlackCommandManager:
         logger.error(f"OrganizationMembership not found in {self.organization.name}({self.organization.pk}) for slack_user_name={slack_user_name}")
         return None
 
+    def _process_subcommand(
+        self, sub_command_id: str, request_payload: dict
+    ) -> tuple[list[dict], SlackResponse | None, WebhookResponse | None, WebhookResponse | None]:
+        command_blocks = []
+        web_send_response = None
+        webhook_send_response = None
+        error_response = None
+
+        # ex)
+        # user_id = UCCNXXXX
+        # user_name = firstname.lastname
+        response_url = request_payload.get("response_url", "")
+        slack_user_name = request_payload.get("user_name", "")
+        kippouser = self._get_kippouser(slack_user_name)
+        if not kippouser:
+            logger.error(
+                f"kippouser not identified from slack_user_name={slack_user_name} in organization {self.organization.name}({self.organization.pk})"
+            )
+            if response_url:
+                # Send a message to the response URL
+                webhook = WebhookClient(response_url)
+                error_response = webhook.send(
+                    text=f"{self.organization.name} には、`{slack_user_name}`のユーザー設定がありません。",
+                    response_type=SlackResponseTypes.EPHEMERAL,
+                )
+        else:
+            logger.debug(f"Creating SlackCommand organization.name={self.organization.name}, username={kippouser.username} ...")
+            slack_command = SlackCommand(
+                organization=self.organization,
+                user=kippouser,
+                sub_command=sub_command_id,
+                text=request_payload.get("text", ""),
+                response_url=response_url,
+                payload=request_payload,
+            )
+            slack_command.save()
+            logger.debug(f"Creating SlackCommand organization.name={self.organization.name}, username={kippouser.username} ... DONE")
+            sub_command: SubCommandBase | None = self.valid_subcommands.get(sub_command_id, None)
+            if sub_command:
+                # Call the handle method of the command class
+                logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ...")
+                command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
+                logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ... DONE")
+            else:
+                logger.debug(f"valid_subcommands={self.valid_subcommands}")
+                command_text = request_payload.get("text", "")
+                logger.error(f"No sub-command recognized in the command text: {command_text}")
+                if response_url:
+                    # Send a message to the response URL
+                    webhook = WebhookClient(response_url)
+                    error_response = webhook.send(
+                        text=f"Invalid sub-command. Supported sub-commands are: {', '.join(self.valid_subcommands)}",
+                        response_type=SlackResponseTypes.EPHEMERAL,
+                    )
+        return command_blocks, web_send_response, webhook_send_response, error_response
+
     def process_command(self, request_payload: dict) -> tuple[list[dict], SlackResponse | None, WebhookResponse | None, WebhookResponse | None]:
         """Process the Slack command request."""
         command_blocks = []
@@ -86,42 +142,12 @@ class SlackCommandManager:
         if request_command_name == organization_command_name:
             command_text = request_payload.get("text", "")
             sub_command_id = command_text.split(" ")[0] if command_text else ""
-            logger.debug(f"command_text={command_text}, sub_command_id={sub_command_id}")
             if sub_command_id:
-                sub_command: SubCommandBase | None = self.valid_subcommands.get(sub_command_id, None)
-                # ex)
-                # user_id = UCCNXXXX
-                # user_name = firstname.lastname
-                slack_user_name = request_payload.get("user_name", "")
-                kippouser = self._get_kippouser(slack_user_name)
-                slack_command = SlackCommand(
-                    organization=self.organization,
-                    user=kippouser,
-                    sub_command=sub_command_id,
-                    text=request_payload.get("text", ""),
-                    response_url=response_url,
-                    payload=request_payload,
-                )
-                slack_command.save()
-
-                if sub_command:
-                    # Call the handle method of the command class
-                    logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ...")
-                    command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
-                    logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ... DONE")
-                else:
-                    logger.debug(f"valid_subcommands={self.valid_subcommands}")
-                    logger.error(f"No sub-command recognized in the command text: {command_text}")
-                    if response_url:
-                        # Send a message to the response URL
-                        webhook = WebhookClient(response_url)
-                        error_response = webhook.send(
-                            text=f"Invalid sub-command. Supported sub-commands are: {', '.join(self.valid_subcommands)}",
-                            response_type=SlackResponseTypes.EPHEMERAL,
-                        )
+                logger.debug(f"command_text={command_text}, sub_command_id={sub_command_id}")
+                command_blocks, web_send_response, webhook_send_response, error_response = self._process_subcommand(sub_command_id, request_payload)
             else:
                 logger.debug(f"valid_subcommands={self.valid_subcommands}")
-                logger.error(f"No sub-command recognized in the command text: {command_text}")
+                logger.error(f"Unable to parse sub_command_id from command_text: {command_text}")
                 if response_url:
                     # Send a message to the response URL
                     webhook = WebhookClient(response_url)

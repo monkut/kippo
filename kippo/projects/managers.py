@@ -94,7 +94,15 @@ class ProjectSlackManager:
 
             # collect user comments for the week
             for status_entry in project.get_weekly_kippoprojectstatus_entries(week_start_date=week_start_date):  # results ordered by user/username
-                user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
+                if status_entry and status_entry.created_by:
+                    user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
+                else:
+                    logger.warning(
+                        f"KippoProjectStatus without created_by foundL: "
+                        f"project={project.name}, "
+                        f"status_entry.pk={status_entry.pk}, "
+                        f"status_entry={status_entry}"
+                    )
 
             if not user_comments:
                 logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
