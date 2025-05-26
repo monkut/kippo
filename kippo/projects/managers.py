@@ -72,8 +72,7 @@ class ProjectSlackManager:
             logger.warning(f"No comments found for project {project.name} in week starting {week_start_date}")
         return slack_status_message_blocks
 
-    def post_weekly_project_status(self, week_start_date: datetime.date | None = None) -> tuple[list[list[dict]], list[dict]]:
-        """Post the weekly project status to the Slack channel."""
+    def _build_weekly_project_status_blocks(self, week_start_date: datetime.date | None = None) -> list[list[dict]]:
         if not week_start_date:
             week_start_date = previous_week_startdate()
 
@@ -97,11 +96,14 @@ class ProjectSlackManager:
                 user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
 
             if not user_comments:
-                logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
-                # get latest comment for the project
-                latest_status_entry = project.get_latest_kippoprojectstatus()
-                if latest_status_entry and latest_status_entry.created_by:
-                    user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
+                # logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
+                # # get latest comment for the project
+                # latest_status_entry = project.get_latest_kippoprojectstatus()
+                # if latest_status_entry and latest_status_entry.created_by:
+                #     user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
+
+                # 'なし' commentを追加
+                user_comments["-"].append("なし")
 
             logger.debug(f"project={project.name}, len(user_comments)={len(user_comments)}")
 
@@ -122,6 +124,11 @@ class ProjectSlackManager:
         if slack_status_message_blocks:
             # add the last message block group
             project_status_block_groups.append(slack_status_message_blocks)
+        return project_status_block_groups
+
+    def post_weekly_project_status(self, week_start_date: datetime.date | None = None) -> tuple[list[list[dict]], list[dict]]:
+        """Post the weekly project status to the Slack channel."""
+        project_status_block_groups = self._build_weekly_project_status_blocks(week_start_date=week_start_date)
 
         responses = []
         for group_message_blocks in project_status_block_groups:
@@ -130,6 +137,5 @@ class ProjectSlackManager:
                 responses.append(response)
             except SlackApiError as e:
                 logger.exception(f"{e.response.status_code} {e.response['error']}")
-                response = None
 
         return project_status_block_groups, responses

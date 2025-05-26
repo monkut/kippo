@@ -7,6 +7,7 @@ def get_all_subcommands() -> tuple:
     from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
     from accounts.slackcommand.subcommands.clockout import ClockOutSubCommand
     from accounts.slackcommand.subcommands.setholiday import SetHolidaySubCommand
+    from accounts.slackcommand.subcommands.listusers import ListUsersSubCommand
     from projects.slackcommand.subcommands.projectstatus import ProjectStatusSubCommand
 
     return (
@@ -14,5 +15,6 @@ def get_all_subcommands() -> tuple:
         ClockInSubCommand,
         ClockOutSubCommand,
         SetHolidaySubCommand,
+        ListUsersSubCommand,
         ProjectStatusSubCommand,
     )

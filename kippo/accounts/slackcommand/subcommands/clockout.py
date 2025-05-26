@@ -4,6 +4,7 @@ from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
 from django.conf import settings
 from django.utils import timezone
+from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 class ClockOutSubCommand(SubCommandBase):
     """Command to clock out a user."""
 
+    DISPLAY_COMMAND_NAME: str = "clock-out"
+    DESCRIPTION: str = _("退勤情報を登録。例) `COMMAND clock-out`")
     ALIASES: set = {
         "退勤",
         "終了",
@@ -122,8 +125,7 @@ class ClockOutSubCommand(SubCommandBase):
                             "text": {
                                 "type": "mrkdwn",
                                 "text": (
-                                    f"`{entry_datetime}`の退勤記録を登録しました。\n"
-                                    f"(時間指定の登録は、{attendance_report_channel}へ通知は行いません)",
+                                    f"`{entry_datetime}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
                                 ),
                             },
                         }

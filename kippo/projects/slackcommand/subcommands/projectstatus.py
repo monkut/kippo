@@ -35,7 +35,7 @@ class ProjectStatusSubCommand(SubCommandBase):
         logger.debug(f"text_without_subcommand={text_without_subcommand}")
 
         source_channel = command.payload.get("channel_name", None)
-        related_project = KippoProject.objects.filter(organization=command.organization, slack_channel_name=source_channel).first()
+        related_project = KippoProject.objects.filter(organization=command.organization, slack_channel_name=source_channel, is_closed=False).first()
 
         if not related_project:
             logger.error(f"{command.organization.name} Project not found for source_channel: {source_channel}")
@@ -46,21 +46,7 @@ class ProjectStatusSubCommand(SubCommandBase):
                         "type": "mrkdwn",
                         "text": (
                             f"プロジェクトが見つかりませんでした。:warning: `{source_channel}`チャンネルは、プロジェクトに関連付けられていません。\n"
-                            f"プロジェクトの`slack_channel_name`設定を確認してください。"
-                        ),
-                    },
-                }
-            ]
-
-        elif related_project and related_project.is_closed:
-            logger.error(f"{command.organization.name} Project found, but is_closed: {related_project.name}, is_closed={related_project.is_closed}")
-            command_response_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"プロジェクトが見つかりませんでした。:warning: `{source_channel}`チャンネルは、プロジェクトに関連付けられていません。\n"
+                            f"（閉じている可能性があります）\n"
                             f"プロジェクトの`slack_channel_name`設定を確認してください。"
                         ),
                     },

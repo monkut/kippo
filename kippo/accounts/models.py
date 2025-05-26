@@ -217,6 +217,7 @@ class OrganizationMembership(UserCreatedBaseModel):
     email = models.EmailField(blank=True, default="", help_text=_("Email address with Organization"))
     slack_username = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack username"))
     slack_user_id = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack user ID"))
+    slack_image_url = models.URLField(blank=True, default="", help_text=_("Slack user image URL"))
     # TODO: add OPTIONAL -- contract_start, contract_end
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)

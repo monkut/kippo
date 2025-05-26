@@ -4,6 +4,7 @@ from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
 from django.conf import settings
 from django.utils import timezone
+from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
@@ -16,7 +17,10 @@ logger = logging.getLogger(__name__)
 class ClockInSubCommand(SubCommandBase):
     """Command to check in a user."""
 
+    DISPLAY_COMMAND_NAME: str = "clock-in"
+    DESCRIPTION: str = _("出勤情報を登録。例）`COMMAND clock-in`")
     ALIASES: set = {
+        "出勤",
         "開始",
         "clockin",
         "clock-in",
@@ -92,9 +96,7 @@ class ClockInSubCommand(SubCommandBase):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": (
-                                f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知は行いません)",
-                            ),
+                            "text": (f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",),
                         },
                     }
                 ]

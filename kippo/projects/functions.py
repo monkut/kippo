@@ -32,7 +32,6 @@ def get_user_session_organization(request: HttpRequest) -> tuple[KippoOrganizati
     """Retrieve the session defined user KippoOrganization"""
     # get organization defined in session
     organization_id = request.session.get("organization_id", None)
-    logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
     # check that user belongs to organization
     user_organizations = sorted(request.user.organizations, key=attrgetter("name"))
     user_organization_ids = {str(o.id): o for o in user_organizations}

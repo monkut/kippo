@@ -4,44 +4,13 @@ from unittest import mock
 
 from commons.slackcommand.managers import SlackCommandManager
 from commons.tests import IsStaffModelAdminTestCaseBase
+from commons.tests.utils import mock_slack_response_factory, webhook_response_factory
 from django.conf import settings
 from django.utils import timezone
-from slack_sdk.web import SlackResponse
-from slack_sdk.webhook import WebhookResponse
 
 from accounts.definitions import AttendanceRecordCategory
 from accounts.models import AttendanceRecord, OrganizationMembership, SlackCommand
 from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
-
-
-def webhook_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> WebhookResponse:
-    """Create a webhook response."""
-    return WebhookResponse(
-        url="https://example.com/webhook",
-        status_code=status_code,
-        body="",
-        headers={
-            "Content-Type": "application/json",
-        },
-    )
-
-
-def mock_slack_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> SlackResponse:
-    return SlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://example.com/api",
-        req_args={},
-        data={},
-        headers={
-            "Content-Type": "application/json",
-        },
-        status_code=status_code,
-    )
 
 
 class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):

@@ -181,7 +181,6 @@ def set_user_session_organization(request: DjangoRequest, organization_id: str =
         organization_id = user_organizations[0].id
 
     request.session["organization_id"] = str(organization_id)
-    logger.debug(f'setting session["organization_id"] for user({request.user.username}): {organization_id}')
     return HttpResponseRedirect(f"{settings.URL_PREFIX}/projects/")  # go reload the page with the set org
 
 

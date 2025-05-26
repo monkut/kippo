@@ -3,42 +3,11 @@ from http import HTTPStatus
 from unittest import mock
 
 from commons.tests import IsStaffModelAdminTestCaseBase
+from commons.tests.utils import mock_slack_response_factory, webhook_response_factory
 from django.utils import timezone
-from slack_sdk.web import SlackResponse
-from slack_sdk.webhook import WebhookResponse
 
 from accounts.models import OrganizationMembership, PersonalHoliday, SlackCommand
 from accounts.slackcommand.subcommands.setholiday import SetHolidaySubCommand
-
-
-def webhook_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> WebhookResponse:
-    """Create a webhook response."""
-    return WebhookResponse(
-        url="https://example.com/webhook",
-        status_code=status_code,
-        body="",
-        headers={
-            "Content-Type": "application/json",
-        },
-    )
-
-
-def mock_slack_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> SlackResponse:
-    return SlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://example.com/api",
-        req_args={},
-        data={},
-        headers={
-            "Content-Type": "application/json",
-        },
-        status_code=status_code,
-    )
 
 
 class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):

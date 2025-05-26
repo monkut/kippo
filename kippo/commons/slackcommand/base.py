@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class SubCommandBase:
     """Base class for all command classes."""
 
+    DISPLAY_COMMAND_NAME: str = "未定義"
+    DESCRIPTION: str = "未定義"
     ALIASES: set = {}
 
     @classmethod

@@ -1,8 +1,11 @@
 from contextlib import suppress
+from http import HTTPStatus
 from unittest.mock import MagicMock
 
 from botocore.exceptions import ClientError
 from django.conf import settings
+from slack_sdk.web import SlackResponse
+from slack_sdk.webhook import WebhookResponse
 
 from kippo.awsclients import S3_RESOURCE
 
@@ -38,3 +41,33 @@ def reset_buckets(bucket_names: list | tuple | None = None) -> list[str]:
             created_buckets.append(bucket_name)
         S3_RESOURCE.Bucket(bucket_name).objects.all().delete()
     return created_buckets
+
+
+def webhook_response_factory(
+    status_code: int = HTTPStatus.OK,
+) -> WebhookResponse:
+    """Create a webhook response."""
+    return WebhookResponse(
+        url="https://example.com/webhook",
+        status_code=status_code,
+        body="",
+        headers={
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def mock_slack_response_factory(
+    status_code: int = HTTPStatus.OK,
+) -> SlackResponse:
+    return SlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://example.com/api",
+        req_args={},
+        data={},
+        headers={
+            "Content-Type": "application/json",
+        },
+        status_code=status_code,
+    )
