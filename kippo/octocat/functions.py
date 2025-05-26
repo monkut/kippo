@@ -578,7 +578,7 @@ class GithubWebhookProcessor:
             try:
                 result_state = eventtype_processing_method(webhookevent)
             except ProjectNotFoundError as e:
-                logger.exception(f"ProjectNotFoundError: {e.args}")
+                logger.exception(f"ProjectNotFoundError (ignoring): {e.args}")
                 result_state = "ignore"
                 webhookevent.event["kippoerror"] = "No related project found for task!"
             logger.debug(f"result_state={result_state}")
@@ -599,6 +599,11 @@ def update_repository_labels(
     logger.debug(f"repository_name_filter: {repository_name_filter}")
     for ghorgs_repository in github_manager.repositories(names=repository_name_filter):
         existing_label_names = [label["name"] for label in ghorgs_repository.labels]
+
+        # TODO: review returned label name values here, found:
+        # [ERROR] TypeError: unhashable type: 'dict'
+        # -- label["name"] is likely a dict, not a string
+        logger.debug(f"existing_label_names={existing_label_names}")
 
         # get label definitions
         for label_definition in label_definitions:
