@@ -4,13 +4,18 @@ from collections import defaultdict
 
 from accounts.models import KippoOrganization
 from django.conf import settings
+from django.db.models import QuerySet
+from django.utils.text import gettext_lazy as _
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from .functions import previous_week_startdate
-from .models import ActiveKippoProject
+from ..functions import current_week_startdate
+from ..models import ActiveKippoProject
 
 logger = logging.getLogger(__name__)
+
+
+NULL_COMMENT = _("なし")
 
 
 class ProjectSlackManager:
@@ -20,9 +25,7 @@ class ProjectSlackManager:
             raise ValueError("Slack channel reporting ('enable_slack_channel_reporting') is not enabled for this organization.")
         self.client = WebClient(token=organization.slack_api_token)
 
-    def _prepare_project_status_blocks(
-        self, week_start_date: datetime.date, project: ActiveKippoProject, user_comments: dict[str, list[str]]
-    ) -> list[dict]:
+    def _prepare_project_status_blocks(self, project: ActiveKippoProject, user_comments: dict[str, list[str]]) -> list[dict]:
         slack_status_message_blocks = []
         divider_block = {"type": "divider"}
         # PROJECT_NAME 完了予定 YYYY-MM-DD
@@ -59,23 +62,22 @@ class ProjectSlackManager:
         if user_comments:
             # prepare user comments block
             for user_display_name, comments in user_comments.items():
+                logger.debug(f"user_display_name={user_display_name}, comments={comments}")
                 user_comments_block = {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": (f"*{user_display_name}*\n:memo:{'\n'.join(comments)}\n"),
+                        "text": (f"*{user_display_name}*\n:memo:{'\n'.join(str(c) for c in comments)}\n"),
                     },
                 }
                 slack_status_message_blocks.append(user_comments_block)
             slack_status_message_blocks.append(divider_block)
         else:
-            logger.warning(f"No comments found for project {project.name} in week starting {week_start_date}")
+            logger.warning(f"No comments found for project {project.name}")
         return slack_status_message_blocks
 
-    def _build_weekly_project_status_blocks(self, week_start_date: datetime.date | None = None) -> list[list[dict]]:
-        if not week_start_date:
-            week_start_date = previous_week_startdate()
-
+    def get_active_kippoprojects(self) -> QuerySet[ActiveKippoProject]:
+        """Get active KippoProjects for the organization."""
         # Get the list of projects for the organization
         contract_complete_confidence = 100
         projects = ActiveKippoProject.objects.filter(
@@ -84,26 +86,38 @@ class ProjectSlackManager:
             display_in_project_report=True,
         ).order_by("target_date", "name")
         logger.debug(f"Found {self.organization.github_organization_name} projects: {len(projects)}")
+        return projects
+
+    @staticmethod
+    def _get_project_user_comments(week_start_datetime: datetime.datetime, project: ActiveKippoProject) -> dict[str, list[str]]:
+        user_comments = defaultdict(list)
+
+        # collect user comments for the week
+        # - results ordered by user/username
+        for status_entry in project.get_weekly_kippoprojectstatus_entries(week_start_datetime=week_start_datetime):
+            user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
+
+        if not user_comments:
+            logger.warning(
+                f"No comments found for project {project.name}, setting NULL_COMMENT({NULL_COMMENT}): week_start_datetime={week_start_datetime}"
+            )
+            # NULL_COMMENT commentを追加
+            user_comments["-"].append(NULL_COMMENT)
+        return user_comments
+
+    def _build_weekly_project_status_blocks(self, week_start_datetime: datetime.datetime | None = None) -> list[list[dict]]:
+        if not week_start_datetime:
+            week_start_date = current_week_startdate()
+            time_deadline = self.organization.weekly_project_time_deadline
+            week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline, tzinfo=settings.JST)
+
+        projects: QuerySet[ActiveKippoProject] = self.get_active_kippoprojects()
 
         slack_max_blocks_per_message = 50
         project_status_block_groups = []
         slack_status_message_blocks = []
         for project in projects:
-            user_comments = defaultdict(list)
-
-            # collect user comments for the week
-            for status_entry in project.get_weekly_kippoprojectstatus_entries(week_start_date=week_start_date):  # results ordered by user/username
-                user_comments[status_entry.created_by.display_name].append(status_entry.comment.strip())
-
-            if not user_comments:
-                # logger.warning(f"No *NEW* comments found for project {project.name} in week starting {week_start_date}, using latest comment")
-                # # get latest comment for the project
-                # latest_status_entry = project.get_latest_kippoprojectstatus()
-                # if latest_status_entry and latest_status_entry.created_by:
-                #     user_comments[latest_status_entry.created_by.display_name].append(latest_status_entry.comment.strip())
-
-                # 'なし' commentを追加
-                user_comments["-"].append("なし")
+            user_comments = self._get_project_user_comments(week_start_datetime=week_start_datetime, project=project)
 
             logger.debug(f"project={project.name}, len(user_comments)={len(user_comments)}")
 
@@ -118,7 +132,7 @@ class ProjectSlackManager:
 
                 # reset the blocks for the message
                 slack_status_message_blocks = []
-            blocks = self._prepare_project_status_blocks(week_start_date=week_start_date, project=project, user_comments=user_comments)
+            blocks = self._prepare_project_status_blocks(project=project, user_comments=user_comments)
             slack_status_message_blocks.extend(blocks)
 
         if slack_status_message_blocks:
@@ -126,9 +140,9 @@ class ProjectSlackManager:
             project_status_block_groups.append(slack_status_message_blocks)
         return project_status_block_groups
 
-    def post_weekly_project_status(self, week_start_date: datetime.date | None = None) -> tuple[list[list[dict]], list[dict]]:
+    def post_weekly_project_status(self, week_start_datetime: datetime.datetime | None = None) -> tuple[list[list[dict]], list[dict]]:
         """Post the weekly project status to the Slack channel."""
-        project_status_block_groups = self._build_weekly_project_status_blocks(week_start_date=week_start_date)
+        project_status_block_groups = self._build_weekly_project_status_blocks(week_start_datetime=week_start_datetime)
 
         responses = []
         for group_message_blocks in project_status_block_groups:

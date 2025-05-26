@@ -370,18 +370,18 @@ class KippoProject(UserCreatedBaseModel):
             result = f"{actual_effort_hours}h{total_effort_percentage_str}"
         return result
 
-    def get_weekly_kippoprojectstatus_entries(self, week_start_date: datetime.date | None = None) -> QuerySet:
-        if not week_start_date:
+    def get_weekly_kippoprojectstatus_entries(self, week_start_datetime: datetime.date | None = None) -> QuerySet:
+        if not week_start_datetime:
             week_start_date = previous_week_startdate()
+            time_deadline = self.organization.weekly_project_time_deadline
+            week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline, tzinfo=settings.JST)
 
-        time_deadline = self.organization.weekly_project_time_deadline
-        week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline).replace(tzinfo=settings.JST)
         week_end_datetime = week_start_datetime + datetime.timedelta(days=7)
         assert week_start_datetime.tzinfo is not None, "week_start_datetime must be timezone-aware"
         assert week_end_datetime.tzinfo is not None, "week_end_datetime must be timezone-aware"
 
         # get the latest KippoProjectStatus for the given week
-        logger.debug(f"Collecting KippoProjectStatus entries for week: {week_start_date} ({week_start_datetime} - {week_end_datetime})")
+        logger.debug(f"Collecting KippoProjectStatus entries for week: {week_start_datetime} ({week_start_datetime} - {week_end_datetime})")
         entries = KippoProjectStatus.objects.filter(
             project=self, created_datetime__gte=week_start_datetime, created_datetime__lt=week_end_datetime
         ).order_by(

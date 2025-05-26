@@ -1,11 +1,12 @@
 from unittest import mock
 
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
+from django.conf import settings
 from django.utils import timezone
 
 from projects.functions import previous_week_startdate
-from projects.managers import ProjectSlackManager
 from projects.models import ActiveKippoProject, KippoProjectStatus
+from projects.slackcommand.managers import ProjectSlackManager
 
 
 class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
@@ -66,7 +67,8 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
 
         manager = ProjectSlackManager(self.organization)
         week_start_date = previous_week_startdate()
-        blocks, response = manager.post_weekly_project_status(week_start_date=week_start_date)
+        week_start_datetime = timezone.datetime.combine(week_start_date, self.organization.weekly_project_time_deadline, tzinfo=settings.JST)
+        blocks, response = manager.post_weekly_project_status(week_start_datetime=week_start_datetime)
         self.assertTrue(blocks)
 
     @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
@@ -91,5 +93,6 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         )
         manager = ProjectSlackManager(self.organization)
         week_start_date = previous_week_startdate()
-        blocks, response = manager.post_weekly_project_status(week_start_date=week_start_date)
+        week_start_datetime = timezone.datetime.combine(week_start_date, self.organization.weekly_project_time_deadline, tzinfo=settings.JST)
+        blocks, response = manager.post_weekly_project_status(week_start_datetime=week_start_datetime)
         self.assertTrue(blocks)

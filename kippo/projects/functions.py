@@ -136,6 +136,16 @@ def previous_week_startdate(today: datetime.date | None = None) -> datetime.date
     return current_date
 
 
+def current_week_startdate() -> datetime.datetime:
+    """Get the current week's start date"""
+    week_start_day = MONDAY
+    today = timezone.now().date()
+    current_date = today
+    while current_date.weekday() != week_start_day:
+        current_date -= datetime.timedelta(days=1)
+    return current_date
+
+
 @task
 def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids: list[int], from_datetime_isoformat: str | None = None) -> None:
     from projects.models import KippoProject, ProjectWeeklyEffort

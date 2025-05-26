@@ -6,7 +6,7 @@ from commons.slackcommand.base import SubCommandBase
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
-from ...models import KippoProject, KippoProjectStatus
+from ...models import ActiveKippoProject, KippoProjectStatus
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,10 @@ class ProjectStatusSubCommand(SubCommandBase):
         logger.debug(f"text_without_subcommand={text_without_subcommand}")
 
         source_channel = command.payload.get("channel_name", None)
-        related_project = KippoProject.objects.filter(organization=command.organization, slack_channel_name=source_channel, is_closed=False).first()
+        # ActiveKippoProject includes filters:
+        # > is_closed=False
+        # > display_as_active=True
+        related_project = ActiveKippoProject.objects.filter(organization=command.organization, slack_channel_name=source_channel).first()
 
         if not related_project:
             logger.error(f"{command.organization.name} Project not found for source_channel: {source_channel}")
