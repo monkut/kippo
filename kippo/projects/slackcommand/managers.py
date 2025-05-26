@@ -54,7 +54,10 @@ class ProjectSlackManager:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"\n\n{project.name}\n完了予定日: {project.target_date}\n{project_progress_emoji} {project.get_projecteffort_display()}",
+                "text": (
+                    f"\n\n{project.name}\n{project.start_date} - {project.target_date}\n"
+                    f"{project_progress_emoji} {project.get_projecteffort_display()}"
+                ),
             },
         }
         slack_status_message_blocks.append(project_header_block)
