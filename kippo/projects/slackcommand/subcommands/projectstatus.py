@@ -3,6 +3,7 @@ import logging
 from accounts.models import SlackCommand
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
+from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 class ProjectStatusSubCommand(SubCommandBase):
     """Command to clock out a user."""
 
+    DISPLAY_COMMAND_NAME: str = "project-status"
+    DESCRIPTION: str = _("チャンネルのプロジェクトへステータスを当露光。例) `COMMAND project-status {STATUS COMMENT}`")
     ALIASES: set = {
         "project-status",
         "projectstatus",

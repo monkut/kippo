@@ -19,7 +19,7 @@ class ListProjectStatusSubCommand(SubCommandBase):
     """Command to clock out a user."""
 
     DISPLAY_COMMAND_NAME: str = "list-project-status"
-    DESCRIPTION: str = "実行中プロジェクトの週間ステータスを表示します。例）`COMMAND list-project-status`"
+    DESCRIPTION: str = "実行中プロジェクトの現状週間ステータスを表示します。例）`COMMAND list-project-status`"
     ALIASES: set = {
         "list-project-status",
         "listprojectstatus",

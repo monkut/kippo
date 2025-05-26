@@ -11,6 +11,8 @@ def get_all_subcommands() -> tuple:
     from projects.slackcommand.subcommands.projectstatus import ProjectStatusSubCommand
     from projects.slackcommand.subcommands.listprojectstatus import ListProjectStatusSubCommand
 
+    from .subcommands.listcommands import ListCommandsSubCommand
+
     return (
         # Add new commands here!
         ClockInSubCommand,
@@ -19,4 +21,5 @@ def get_all_subcommands() -> tuple:
         ListUsersSubCommand,
         ProjectStatusSubCommand,
         ListProjectStatusSubCommand,
+        ListCommandsSubCommand,
     )
