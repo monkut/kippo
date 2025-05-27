@@ -77,7 +77,7 @@ class ProjectStatusSubCommand(SubCommandBase):
                         "type": "mrkdwn",
                         "text": (
                             f"> {text_without_subcommand}\n{related_project.name}にステータスを登録しました。\n"
-                            f"週開始時に、まとめて、`{project_report_channel}`チャンネルにサマリが送られます。"
+                            f"週開始時に、まとめて、{project_report_channel}チャンネルにサマリが送られます。"
                         ),
                     },
                 }
