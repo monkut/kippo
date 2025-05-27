@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from accounts.definitions import AttendanceRecordCategory
 from accounts.models import AttendanceRecord, OrganizationMembership, SlackCommand
-from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
+from accounts.slackcommand.subcommands.breakend import BreakEndSubCommand
 
 
 class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
@@ -36,22 +36,31 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         membership.save()
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.breakend.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.breakend.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
-    def test_attendanceslackmanager_processcommand_clockincommand_aliases(self, *_):
+    def test_attendanceslackmanager_processcommand_breakendcommand_aliases(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
         expected_attendancerecord_count = 0
         assert AttendanceRecord.objects.count() == expected_attendancerecord_count
 
+        # create START AttendanceRecord to make break valid
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=self.staffuser_with_org,
+            updated_by=self.staffuser_with_org,
+            category=AttendanceRecordCategory.BREAK_START,
+            entry_datetime=timezone.now(),
+        )
+
         valid_command = "/kippo"
         slackcommand_expected_count = 1
-        for alias in ClockInSubCommand.ALIASES:
+        for alias in BreakEndSubCommand.ALIASES:
             payload = {
                 "command": valid_command,
-                "text": f"{alias} 出勤しますよ",
+                "text": f"{alias} 開始しますよ",
                 "user_id": self.staffuser_with_org_slack_id,
                 "user_name": self.staffuser_with_org_slack_username,
                 "response_url": "https://example.com/response_url",
@@ -66,15 +75,15 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
             self.assertEqual(SlackCommand.objects.count(), slackcommand_expected_count)
 
             expected_attendancerecord_count = 1
-            self.assertEqual(AttendanceRecord.objects.count(), expected_attendancerecord_count)
-            AttendanceRecord.objects.all().delete()
+            self.assertEqual(AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).count(), expected_attendancerecord_count)
+            AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).delete()
 
             slackcommand_expected_count += 1
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.breakend.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.breakend.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     def test_with_preexisting_attendancerecord(self, *_):
         expected_slackcommand_count = 0
@@ -82,31 +91,42 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         expected_attendancerecord_count = 0
         assert AttendanceRecord.objects.count() == expected_attendancerecord_count
 
+        # create START AttendanceRecord to make break valid
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=self.staffuser_with_org,
+            updated_by=self.staffuser_with_org,
+            category=AttendanceRecordCategory.BREAK_START,
+            entry_datetime=timezone.now(),
+        )
+
         command = SlackCommand(
             organization=self.organization,
             user=self.staffuser_with_org,
-            sub_command="clockin",
-            text="clockin 出勤しますよ",
+            sub_command="break-end",
+            text="break-end 休憩しますよ",
             response_url="https://example.com/response_url",
         )
         command.save()
 
-        blocks, web_response, webhook_response = ClockInSubCommand.handle(command)
+        blocks, web_response, webhook_response = BreakEndSubCommand.handle(command)
         self.assertTrue(blocks)
         self.assertTrue(web_response)
         self.assertTrue(webhook_response)
+        expected_attendancerecord_count = 1
+        self.assertEqual(AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).count(), expected_attendancerecord_count)
 
-        # Check that the attendance record was not created
-        blocks, web_response, webhook_response = ClockInSubCommand.handle(command)
+        # Check that the attendance record was NOT created
+        blocks, web_response, webhook_response = BreakEndSubCommand.handle(command)
         self.assertTrue(blocks)
         self.assertFalse(web_response)
         self.assertTrue(webhook_response)
-        self.assertEqual(AttendanceRecord.objects.count(), 1)
+        self.assertEqual(AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).count(), expected_attendancerecord_count)
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.breakend.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.breakend.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     def test_set_by_datetime(self, *_):
         expected_slackcommand_count = 0
@@ -114,34 +134,44 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         expected_attendancerecord_count = 0
         assert AttendanceRecord.objects.count() == expected_attendancerecord_count
 
+        # create START AttendanceRecord to make break valid
+        start_record_datetime = timezone.now() - timezone.timedelta(days=1)
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=self.staffuser_with_org,
+            updated_by=self.staffuser_with_org,
+            category=AttendanceRecordCategory.BREAK_START,
+            entry_datetime=start_record_datetime,
+        )
+
         expected_entry_datetime = (timezone.now() - timezone.timedelta(hours=4)).replace(minute=0, second=0, microsecond=0).astimezone(settings.JST)
-        subcommand_text = f"clockin {expected_entry_datetime.strftime('%Y-%m-%d %H:%M')}"
+        subcommand_text = f"break-end {expected_entry_datetime.strftime('%Y-%m-%d %H:%M')}"
         command = SlackCommand(
             organization=self.organization,
             user=self.staffuser_with_org,
-            sub_command="clockin",
+            sub_command="break-end",
             text=subcommand_text,
             response_url="https://example.com/response_url",
         )
         command.save()
 
-        blocks, web_response, webhook_response = ClockInSubCommand.handle(command)
+        blocks, web_response, webhook_response = BreakEndSubCommand.handle(command)
         self.assertTrue(blocks)
-        self.assertFalse(web_response)  # Not sent when date is manually set!
+        self.assertFalse(web_response)  # Not sent when date is manually set!j
         self.assertTrue(webhook_response)
 
         expected_end_attendancerecord_count = 1
-        actual_end_attendancerecord_count = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.START).count()
+        actual_end_attendancerecord_count = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).count()
         self.assertEqual(actual_end_attendancerecord_count, expected_end_attendancerecord_count)
 
         # check datetime is as expected
-        end_attendance_record = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.START).first()
+        end_attendance_record = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).first()
         self.assertEqual(end_attendance_record.entry_datetime, expected_entry_datetime.astimezone(datetime.UTC))
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.breakend.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.breakend.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     def test_set_by_datetime_without_year(self, *_):
         expected_slackcommand_count = 0
@@ -149,30 +179,39 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         expected_attendancerecord_count = 0
         assert AttendanceRecord.objects.count() == expected_attendancerecord_count
 
+        # create START AttendanceRecord to make break valid
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=self.staffuser_with_org,
+            updated_by=self.staffuser_with_org,
+            category=AttendanceRecordCategory.BREAK_START,
+            entry_datetime=timezone.now(),
+        )
+
         expected_entry_datetime = (timezone.now() - timezone.timedelta(hours=4)).replace(minute=0, second=0, microsecond=0).astimezone(settings.JST)
         for separator in ("/", "-"):
             date_format = f"%m{separator}%d %H:%M"
-            subcommand_text = f"clockin {expected_entry_datetime.strftime(date_format)}"
+            subcommand_text = f"break-end {expected_entry_datetime.strftime(date_format)}"
             command = SlackCommand(
                 organization=self.organization,
                 user=self.staffuser_with_org,
-                sub_command="clockin",
+                sub_command="break-end",
                 text=subcommand_text,
                 response_url="https://example.com/response_url",
             )
             command.save()
 
-            blocks, web_response, webhook_response = ClockInSubCommand.handle(command)
+            blocks, web_response, webhook_response = BreakEndSubCommand.handle(command)
             self.assertTrue(blocks)
             self.assertFalse(web_response)  # Not sent when date is manually set!
             self.assertTrue(webhook_response)
 
             expected_end_attendancerecord_count = 1
-            actual_end_attendancerecord_count = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.START).count()
+            actual_end_attendancerecord_count = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).count()
             self.assertEqual(actual_end_attendancerecord_count, expected_end_attendancerecord_count)
 
             # check datetime is as expected
-            end_attendance_record = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.START).first()
+            end_attendance_record = AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).first()
             self.assertEqual(end_attendance_record.entry_datetime, expected_entry_datetime.astimezone(datetime.UTC))
 
-            AttendanceRecord.objects.all().delete()
+            AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).delete()

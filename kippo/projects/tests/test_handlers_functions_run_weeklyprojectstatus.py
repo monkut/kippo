@@ -53,7 +53,7 @@ class RunWeeklyProjectStatusTestCase(IsStaffModelAdminTestCaseBase):
             created_status_entries.append(project_status)
         return created_status_entries
 
-    @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
+    @mock.patch("projects.slackcommand.managers.WebClient.chat_postMessage", return_value={"ok": True})
     def test_run_weeklyprojectstatus(self, *_):
         week_start_date = previous_week_startdate()
         comment_status_datetime = timezone.datetime.combine(

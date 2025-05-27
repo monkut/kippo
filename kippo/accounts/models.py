@@ -217,6 +217,7 @@ class OrganizationMembership(UserCreatedBaseModel):
     email = models.EmailField(blank=True, default="", help_text=_("Email address with Organization"))
     slack_username = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack username"))
     slack_user_id = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack user ID"))
+    slack_image_url = models.URLField(blank=True, default="", help_text=_("Slack user image URL"))
     # TODO: add OPTIONAL -- contract_start, contract_end
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
@@ -519,6 +520,9 @@ class AttendanceRecord(UserCreatedBaseModel):
     source_command = models.ForeignKey(
         SlackCommand, on_delete=models.CASCADE, null=True, blank=True, editable=False, help_text=_("Slack command that created the attendance record")
     )
+
+    def __str__(self) -> str:
+        return f"AttendanceRecord({self.organization.github_organization_name}-{self.created_by.username} [{self.entry_datetime}] {self.category})"
 
     def clean(self):
         # set date to entry_datetime date

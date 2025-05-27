@@ -3,6 +3,7 @@ import logging
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
 from django.utils import timezone
+from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
@@ -14,7 +15,9 @@ logger = logging.getLogger(__name__)
 class SetHolidaySubCommand(SubCommandBase):
     """Command to clock out a user."""
 
-    ALIASES: set = {"AM半休", "午前休", "PM半休", "午後休", "半休", "set-holiday", "setholiday"}
+    DISPLAY_COMMAND_NAME: str = "set-holiday"
+    DESCRIPTION: str = _("退勤情報を登録。例) `COMMAND set-holiday YY/MM/DD`")
+    ALIASES: set = {"AM半休", "午前休", "PM半休", "午後休", "半休", "休日", "set-holiday", "setholiday"}
     HALF_DAY_SUBCOMMANDS: set = {
         "AM半休",
         "午前休",
@@ -105,7 +108,7 @@ class SetHolidaySubCommand(SubCommandBase):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"*{command.user.display_name}* は、`{entry_datetime.date()}の{half_day_text}`に休みを登録しました！\n",
+                            "text": f"*{command.user.display_name}* は、`{entry_datetime.date()}の{half_day_text}`をとる予定\n",
                         },
                     }
                 ]
