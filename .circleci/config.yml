@@ -188,37 +188,6 @@ jobs:
           paths:
             - ./
 
-  publish-github-release:
-    docker:
-      - image: cibuilds/github:0.13
-    steps:
-      - attach_workspace:
-          at: ~/artifacts
-      - run:
-          name: upgrade ghr to v0.15.0
-          environment:
-            GHR_VERSION: 0.15.0
-          command: |
-            GHR_URL=https://github.com/tcnksm/ghr/releases/download/v${GHR_VERSION}/ghr_v${GHR_VERSION}_linux_amd64.tar.gz
-            wget "$GHR_URL" && \
-              tar xzf ghr_v${GHR_VERSION}_linux_amd64.tar.gz && \
-              mv ghr_v${GHR_VERSION}_linux_amd64/ghr /usr/bin/ghr && \
-              rm -r ghr_v${GHR_VERSION}_linux_amd64.tar.gz ghr_v${GHR_VERSION}_linux_amd64/
-      - run:
-          name: "Publish Release on GitHub"
-          command: |
-            cd ~/project
-            export VERSION=v$(date "+%Y%m%d_%H00")
-            ghr \
-              -n "${VERSION} ($(echo $CIRCLE_SHA1 | cut -c -7))" \
-              -t ${GITHUB_TOKEN} \
-              -u ${CIRCLE_PROJECT_USERNAME} \
-              -r ${CIRCLE_PROJECT_REPONAME} \
-              -c ${CIRCLE_SHA1} \
-              -delete \
-              -generatenotes \
-              ${VERSION} ~/artifacts/
-
 workflows:
   ProjectWorkflow:
     jobs:
@@ -227,15 +196,6 @@ workflows:
       - build-package:
           requires:
             - test
-          filters:
-            branches:
-              only:
-                - main
-      - publish-github-release:
-          context: "github release context"
-          requires:
-            - check
-            - build-package
           filters:
             branches:
               only:
