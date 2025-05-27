@@ -25,31 +25,6 @@ class ListUsersSubCommand(SubCommandBase):
     }
 
     @classmethod
-    def _get_user_image_url(
-        cls, web_client: WebClient, user_organization_membership: OrganizationMembership, refresh_days: int = settings.REFRESH_SLACK_IMAGE_URL_DAYS
-    ) -> str | None:
-        """Get the user image URL from the Slack API."""
-        min_update_datetime = timezone.now() - datetime.timedelta(days=refresh_days)  # period to update user image URL
-        user_image_url = user_organization_membership.slack_image_url
-        slack_user_id = user_organization_membership.slack_user_id
-        logger.debug(f"updated_datetime={user_organization_membership.updated_datetime}")
-        logger.debug(f"min_update_datetime={min_update_datetime}")
-
-        if slack_user_id and (not user_image_url or (user_image_url and user_organization_membership.updated_datetime < min_update_datetime)):
-            try:
-                # get user icon image url
-                result = web_client.users_info(user=slack_user_id)
-                user_image_url = result["user"]["profile"].get("image_192", None)
-                user_organization_membership.slack_image_url = user_image_url
-                user_organization_membership.save()
-                logger.info(
-                    f"Updated OrganizationMembership.user_image_url for user {user_organization_membership.user.username} to {user_image_url}"
-                )
-            except Exception as e:
-                logger.exception(f"Error processing attendance record for user {user_organization_membership.user}: {e.args}")
-        return user_image_url
-
-    @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
         web_send_response = None
@@ -60,7 +35,6 @@ class ListUsersSubCommand(SubCommandBase):
         today_start_datetime = datetime.datetime.combine(timezone.localdate(), datetime.time.min).replace(tzinfo=settings.JST)
         latest_user_attendance_records = list(
             AttendanceRecord.objects.filter(
-                created_by=command.user,
                 organization=command.organization,
                 entry_datetime__gte=today_start_datetime,
             )

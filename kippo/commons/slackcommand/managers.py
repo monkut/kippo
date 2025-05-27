@@ -110,7 +110,7 @@ class SlackCommandManager:
                     command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
                     logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ... DONE")
                 else:
-                    logger.debug(f"valid_subcommands={self.valid_subcommands}")
+                    logger.debug(f"valid_subcommands={list(self.valid_subcommands.keys())}")
                     logger.error(f"No sub-command recognized in the command text: {command_text}")
                     if response_url:
                         # Send a message to the response URL

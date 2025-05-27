@@ -521,6 +521,9 @@ class AttendanceRecord(UserCreatedBaseModel):
         SlackCommand, on_delete=models.CASCADE, null=True, blank=True, editable=False, help_text=_("Slack command that created the attendance record")
     )
 
+    def __str__(self) -> str:
+        return f"AttendanceRecord({self.organization.github_organization_name}-{self.created_by.username} [{self.entry_datetime}] {self.category})"
+
     def clean(self):
         # set date to entry_datetime date
         if self.entry_datetime:

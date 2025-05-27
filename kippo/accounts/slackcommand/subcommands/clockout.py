@@ -74,16 +74,6 @@ class ClockOutSubCommand(SubCommandBase):
                 assert latest_attendance_record.category == AttendanceRecordCategory.START
                 # check if datetime is given in 'text'
                 logger.debug(f"text_without_subcommand={text_without_subcommand}")
-
-                # check if full year is given in 'text'
-                # MM/DD HH:MM or MM-DD HH:MM
-                if text_without_subcommand.count(":"):
-                    if text_without_subcommand.count("/") == 1:
-                        # add year to text_without_subcommand
-                        text_without_subcommand = f"{timezone.localdate().year}/{text_without_subcommand}"
-                    elif text_without_subcommand.count("-") == 1:
-                        # add year to text_without_subcommand
-                        text_without_subcommand = f"{timezone.localdate().year}-{text_without_subcommand}"
                 entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
 
                 send_channel_notification = False
