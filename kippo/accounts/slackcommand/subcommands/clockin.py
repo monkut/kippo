@@ -31,6 +31,7 @@ class ClockInSubCommand(SubCommandBase):
         """Handle the clock-in command."""
         web_send_response = None
         assert cls._is_valid_subcommand_alias(command.sub_command)
+        assert command.user, f"user not defined for command: sub_command={command.sub_command}, text={command.text}"
 
         # this is extra text provided by the user
         text_without_subcommand = cls._get_text_without_subcommand(command)

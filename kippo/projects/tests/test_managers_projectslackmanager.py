@@ -54,7 +54,7 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             created_status_entries.append(project_status)
         return created_status_entries
 
-    @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
+    @mock.patch("projects.slackcommand.managers.WebClient.chat_postMessage", return_value={"ok": True})
     def test_2_projects__without_status_comments(self, *_):
         entries = self._prepare()
         expected_entry_count = 0
@@ -71,7 +71,7 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         blocks, response = manager.post_weekly_project_status(week_start_datetime=week_start_datetime)
         self.assertTrue(blocks)
 
-    @mock.patch("projects.managers.WebClient.chat_postMessage", return_value={"ok": True})
+    @mock.patch("projects.slackcommand.managers.WebClient.chat_postMessage", return_value={"ok": True})
     def test_2_projects__with_status_comments(self, *_):
         week_start_date = previous_week_startdate()
         comment_status_datetime = timezone.datetime.combine(
