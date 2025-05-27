@@ -111,6 +111,9 @@ class SlackCommandManager:
                 # Call the handle method of the command class
                 logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ...")
                 command_blocks, web_send_response, webhook_send_response = sub_command.handle(slack_command)
+                logger.debug(f"command_blocks={command_blocks}")
+                logger.debug(f"web_send_response={web_send_response}")
+                logger.debug(f"webhook_send_response={webhook_send_response}")
                 logger.info(f"Processing sub-command ({sub_command.__name__}) {sub_command_id} ... DONE")
             else:
                 logger.debug(f"valid_subcommands={self.valid_subcommands}")
