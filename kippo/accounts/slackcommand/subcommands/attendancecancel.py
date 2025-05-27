@@ -45,12 +45,14 @@ class AttendanceCancelSubCommand(SubCommandBase):
 
         if latest_user_attendance_record:
             # Delete the latest attendance record
+            local_created_datetime = latest_user_attendance_record.created_datetime.astimezone(settings.JST)
+            local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"({latest_user_attendance_record.entry_datetime}) {latest_user_attendance_record.category}の記録を削除しました。",
+                        "text": f"({local_created_datetime_display_str}) {latest_user_attendance_record.category}の記録を削除しました。",
                     },
                 }
             ]
@@ -65,12 +67,13 @@ class AttendanceCancelSubCommand(SubCommandBase):
 
         else:
             logger.warning(f"No AttendenceRecord(s) found for organization {command.organization} on {min_datetime}")
+            min_datetime_display_str = min_datetime.astimezone(settings.JST).strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f">={min_datetime}の記録がみつかりません。",
+                        "text": f">={min_datetime_display_str}の記録がみつかりません。",
                     },
                 }
             ]
