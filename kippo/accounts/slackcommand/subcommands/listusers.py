@@ -9,6 +9,7 @@ from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
+from ...definitions import AttendanceRecordCategory
 from ...models import AttendanceRecord, OrganizationMembership, SlackCommand
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,12 @@ class ListUsersSubCommand(SubCommandBase):
         )
 
         if latest_user_attendance_records:
+            category_display_mapping = {
+                AttendanceRecordCategory.START: "出勤中",
+                AttendanceRecordCategory.END: "退勤中",
+                AttendanceRecordCategory.BREAK_START: "出勤中 (休憩中)",
+                AttendanceRecordCategory.BREAK_END: "出勤中",
+            }
             users = [record.created_by for record in latest_user_attendance_records]
 
             organizationmembership_by_username = {
@@ -56,6 +63,8 @@ class ListUsersSubCommand(SubCommandBase):
                 user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
 
                 local_created_datetime = record.created_datetime.astimezone(settings.JST)
+                local_created_datetime_display = local_created_datetime.strftime("%-m/%-d %-H:%M")
+                category_display = category_display_mapping.get(record.category, record.category)
                 if user_image_url:
                     logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
                     # Output message with user SLACK image
@@ -70,7 +79,7 @@ class ListUsersSubCommand(SubCommandBase):
                                 },
                                 {
                                     "type": "mrkdwn",
-                                    "text": f"*{record.created_by.display_name}* {record.category} {local_created_datetime}",
+                                    "text": f"*{record.created_by.display_name}* {local_created_datetime_display}: {category_display} ",
                                 },
                             ],
                         }
@@ -83,7 +92,7 @@ class ListUsersSubCommand(SubCommandBase):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f":white_square: *{record.created_by.display_name}* {record.category} {local_created_datetime}",
+                                "text": f":white_square: *{record.created_by.display_name}* {local_created_datetime_display}: {category_display}",
                             },
                         }
                     )
@@ -93,7 +102,7 @@ class ListUsersSubCommand(SubCommandBase):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"今日（{today_start_datetime}）の出勤記録:\n",
+                        "text": f"今日（{today_start_datetime.date()}）の出勤記録:\n",
                     },
                 }
             ]
@@ -106,13 +115,13 @@ class ListUsersSubCommand(SubCommandBase):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"今日（{today_start_datetime}）出勤記録がみつかりません。",
+                        "text": f"今日（{today_start_datetime.date()}）出勤記録がみつかりません。",
                     },
                 }
             ]
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
+        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
-
         return command_response_blocks, web_send_response, webhook_send_response

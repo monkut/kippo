@@ -18,7 +18,7 @@ class BreakEndSubCommand(SubCommandBase):
     """Command to check in a user."""
 
     DISPLAY_COMMAND_NAME: str = "break-end"
-    DESCRIPTION: str = _("休憩完了を登録。例）`COMMAND break-end`")
+    DESCRIPTION: str = _("休憩完了を登録。例） `COMMAND break-end`")
     ALIASES: set = {
         "休憩終了",
         "再開",
@@ -120,6 +120,7 @@ class BreakEndSubCommand(SubCommandBase):
         logger.debug(f"latest_attendance_record={latest_attendance_record}, category={latest_attendance_record.category}")
 
         if latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_START:
+            logger.info(f"Valid latest_attendance_record.category='{latest_attendance_record.category}'")
             command_response_blocks, web_send_response = cls._handle_valid_case(command, text_without_subcommand)
         elif latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_END:
             # INVALID: User is already on a break, cannot take another break
@@ -135,7 +136,7 @@ class BreakEndSubCommand(SubCommandBase):
                 }
             ]
         else:
-            # INVALID: User has not started work, cannot take a break
+            logger.warning("INVALID: `break-start` record not found, cannot call `break-end` successfully.")
             if latest_attendance_record:
                 # User has a record, but it's not a START record
                 logger.warning(f"User {command.user.username} has latest attendance record: {latest_attendance_record.category}")
@@ -163,5 +164,6 @@ class BreakEndSubCommand(SubCommandBase):
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
+        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
         return command_response_blocks, web_send_response, webhook_send_response

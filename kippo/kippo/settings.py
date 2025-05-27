@@ -167,7 +167,8 @@ ja_formats.DATE_FORMAT = "Y-m-d"
 en_formats.DATETIME_FORMAT = "Y-m-d H:i:s (T)"  # "c"
 en_formats.DATE_FORMAT = "Y-m-d"
 
-DJANGO_LOG_LEVEL = "DEBUG"
+DEFAULT_DJANGO_LOG_LEVEL = "DEBUG"
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", DEFAULT_DJANGO_LOG_LEVEL).upper()
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": True,

@@ -71,7 +71,7 @@ class ClockOutSubCommand(SubCommandBase):
                 ]
 
             else:
-                assert latest_attendance_record.category == AttendanceRecordCategory.START
+                assert latest_attendance_record.category in (AttendanceRecordCategory.START, AttendanceRecordCategory.BREAK_END)
                 # check if datetime is given in 'text'
                 logger.debug(f"text_without_subcommand={text_without_subcommand}")
                 entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
@@ -163,6 +163,6 @@ class ClockOutSubCommand(SubCommandBase):
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
+        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
-
         return command_response_blocks, web_send_response, webhook_send_response

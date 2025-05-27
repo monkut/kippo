@@ -151,11 +151,6 @@ class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetMode
     )
     actions = ["collect_organization_projects_action", "collect_github_project_issues_action"]
 
-    def get_form(self, request: DjangoRequest, obj: KippoOrganization | None = None, change: bool = False, **kwargs):
-        form = super().get_form(request, obj, change, **kwargs)
-        form.base_fields["slack_signing_secret"].widget = forms.PasswordInput()  # hide slack_signing_secret
-        return form
-
     def collect_organization_projects_action(self, request: DjangoRequest, queryset: QuerySet) -> None:
         for organization in queryset:
             added_projects = collect_existing_github_projects(organization=organization, as_user=request.user)
@@ -267,6 +262,7 @@ class AttendanceRecordAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
         # only allow superuser to change attendance records
         return request.user.is_superuser
 
+    @admin.display(description=_("ユーザー表示名"))
     def get_created_by_display_name(self, obj: AttendanceRecord | None = None) -> str:
         if obj and obj.created_by:
             return obj.created_by.display_name

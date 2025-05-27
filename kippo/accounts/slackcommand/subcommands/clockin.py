@@ -18,7 +18,7 @@ class ClockInSubCommand(SubCommandBase):
     """Command to check in a user."""
 
     DISPLAY_COMMAND_NAME: str = "clock-in"
-    DESCRIPTION: str = _("出勤情報を登録。例）`COMMAND clock-in`")
+    DESCRIPTION: str = _("出勤情報を登録。例） `COMMAND clock-in`")
     ALIASES: set = {
         "出勤",
         "開始",
@@ -70,7 +70,10 @@ class ClockInSubCommand(SubCommandBase):
             if not entry_datetime:
                 send_channel_notification = True
                 entry_datetime = timezone.localtime()
-
+            logger.info(
+                f"Creating AttendanceRecord({AttendanceRecordCategory.START.value}) for user {command.user.username} "
+                f"in organization {command.organization.name} at {entry_datetime} ..."
+            )
             record = AttendanceRecord(
                 created_by=command.user,
                 updated_by=command.user,
@@ -79,6 +82,10 @@ class ClockInSubCommand(SubCommandBase):
                 entry_datetime=entry_datetime,
             )
             record.save()
+            logger.info(
+                f"Creating AttendanceRecord({AttendanceRecordCategory.START.value}) for user {command.user.username} "
+                f"in organization {command.organization.name} at {entry_datetime} ... DONE"
+            )
 
             attendance_report_channel = command.organization.slack_attendance_report_channel
             if not send_channel_notification:
@@ -118,6 +125,7 @@ class ClockInSubCommand(SubCommandBase):
             command.save()
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
+        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
 
         return command_response_blocks, web_send_response, webhook_send_response

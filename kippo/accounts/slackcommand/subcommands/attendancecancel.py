@@ -18,7 +18,7 @@ class AttendanceCancelSubCommand(SubCommandBase):
     """Command to list status of organization users."""
 
     DISPLAY_COMMAND_NAME: str = "attendance-cancel"
-    DESCRIPTION: str = _("直近の（５分）出勤や休憩の記録をキャンセル・削除 例）`COMMAND attendance-cancel`")
+    DESCRIPTION: str = _("直近の（５分）出勤や休憩の記録をキャンセル・削除 例） `COMMAND attendance-cancel`")
     ALIASES: set = {
         "attendancecancel",
         "attendance-cancel",

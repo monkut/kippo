@@ -18,7 +18,7 @@ class BreakStartSubCommand(SubCommandBase):
     """Command to check in a user."""
 
     DISPLAY_COMMAND_NAME: str = "break-start"
-    DESCRIPTION: str = _("休憩開始を登録。例）`COMMAND break-start`")
+    DESCRIPTION: str = _("休憩開始を登録。例） `COMMAND break-start`")
     ALIASES: set = {
         "休憩開始",
         "休憩",
@@ -135,10 +135,13 @@ class BreakStartSubCommand(SubCommandBase):
                 }
             ]
         else:
-            # INVALID: User has not started work, cannot take a break
+            logger.warning("INVALID: User has not started work, `break-start` command cannot be processed.")
             if latest_attendance_record:
                 # User has a record, but it's not a START record
-                logger.warning(f"User {command.user.username} has latest attendance record: {latest_attendance_record.category}")
+                logger.warning(
+                    f"User {command.user.username} latest AttendanceRecord is not {AttendanceRecordCategory.START}: "
+                    f"{latest_attendance_record.category}"
+                )
                 local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
                 message = (
                     f":warning: 出勤中になっていません！。\n"
@@ -163,5 +166,6 @@ class BreakStartSubCommand(SubCommandBase):
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
+        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
         return command_response_blocks, web_send_response, webhook_send_response

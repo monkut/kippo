@@ -14,7 +14,7 @@ class ListCommandsSubCommand(SubCommandBase):
     """Command to clock out a user."""
 
     DISPLAY_COMMAND_NAME: str = "list-commands"
-    DESCRIPTION: str = "コマンドの一覧を表示します。例）`COMMAND list-commands`"
+    DESCRIPTION: str = "コマンドの一覧を表示します。例） `COMMAND list-commands`"
     ALIASES: set = {
         "list-commands",
         "listcommands",
