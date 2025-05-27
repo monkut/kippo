@@ -95,6 +95,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "command": request_command_name,
             "text": "XXX 出勤しますよ",
             "user_id": self.staffuser_with_org_slack_id,
+            "user_name": self.staffuser_with_org_slack_username,
             "response_url": "https://example.com/response_url",
         }
 
@@ -106,6 +107,9 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
+        expected_slackcommand_count = 0
+        actual_slackcommand_count = SlackCommand.objects.count()
+        self.assertEqual(actual_slackcommand_count, expected_slackcommand_count)
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
     @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
@@ -124,6 +128,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "command": valid_command,
             "text": empty_subcommand,
             "user_id": self.staffuser_with_org_slack_id,
+            "user_name": self.staffuser_with_org_slack_username,
             "response_url": "https://example.com/response_url",
         }
 
@@ -135,6 +140,9 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
+        expected_slackcommand_count = 0
+        actual_slackcommand_count = SlackCommand.objects.count()
+        self.assertEqual(actual_slackcommand_count, expected_slackcommand_count)
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.BAD_REQUEST))
     @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
@@ -153,6 +161,7 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
             "command": valid_command,
             "text": invalid_subcommand_alias,
             "user_id": self.staffuser_with_org_slack_id,
+            "user_name": self.staffuser_with_org_slack_username,
             "response_url": "https://example.com/response_url",
         }
 
@@ -164,3 +173,37 @@ class AttendanceSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIsNone(webhook_send_response)
         self.assertTrue(error_response)
         self.assertEqual(error_response.status_code, HTTPStatus.BAD_REQUEST)
+
+        expected_slackcommand_count = 1
+        actual_slackcommand_count = SlackCommand.objects.count()
+        self.assertEqual(actual_slackcommand_count, expected_slackcommand_count)
+
+    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    def test_kippouser_not_found(self, *_):
+        """Test that the AttendanceSlackManager raises a ValueError if the user is not found."""
+        expected_slackcommand_count = 0
+        assert SlackCommand.objects.count() == expected_slackcommand_count
+        expected_attendancerecord_count = 0
+        assert AttendanceRecord.objects.count() == expected_attendancerecord_count
+
+        valid_command = "/kippo"
+        sub_command = "clockin"
+        payload = {
+            "command": valid_command,
+            "text": sub_command,
+            "user_id": "U00000000",  # Non-existing user ID
+            "user_name": "nonexistent.user",
+            "response_url": "https://example.com/response_url",
+        }
+
+        manager = SlackCommandManager(
+            organization=self.organization,
+        )
+        blocks, web_send_response, webhook_send_response, error_response = manager.process_command(payload)
+        self.assertFalse(blocks)
+        self.assertIsNone(web_send_response)
+        self.assertTrue(error_response)
+
+        expected_slackcommand_count = 0
+        actual_slackcommand_count = SlackCommand.objects.count()
+        self.assertEqual(actual_slackcommand_count, expected_slackcommand_count)

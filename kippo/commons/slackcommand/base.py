@@ -55,10 +55,9 @@ class SubCommandBase:
     @classmethod
     def _get_datetime_from_text(cls, text: str, tzinfo: datetime.timezone = settings.JST) -> datetime.datetime | None:
         """Extract the first datetime from text"""
+        text = cls.__add_year_to_text(text)
         match_str = r"^(\d{2,4}(\/|-)\d{1,2}(\/|-)\d{1,2}\s\d{1,2}:\d{2})"
         m = re.match(match_str, text)
-
-        text = cls.__add_year_to_text(text)
 
         parsed_result = None
         if m:
@@ -84,7 +83,7 @@ class SubCommandBase:
                 except ValueError:
                     logger.warning(f"unable to parse datetime: {first_datetime}")
         else:
-            logger.warning(f"unable to find datetime in text: {text}")
+            logger.warning(f"unable to find datetime in text: '{text}'")
 
         return parsed_result
 

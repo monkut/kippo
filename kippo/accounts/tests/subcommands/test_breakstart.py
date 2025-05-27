@@ -203,7 +203,7 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
 
             blocks, web_response, webhook_response = BreakStartSubCommand.handle(command)
             self.assertTrue(blocks)
-            self.assertFalse(web_response)  # Not sent when date is manually set!
+            self.assertFalse(web_response, blocks)  # Not sent when date is manually set!
             self.assertTrue(webhook_response)
 
             expected_end_attendancerecord_count = 1
