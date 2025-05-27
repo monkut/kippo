@@ -18,7 +18,7 @@ class BreakEndSubCommand(SubCommandBase):
     """Command to check in a user."""
 
     DISPLAY_COMMAND_NAME: str = "break-end"
-    DESCRIPTION: str = _("休憩完了を登録。例） `COMMAND break-end`")
+    DESCRIPTION: str = _("休憩終了を登録。例） `COMMAND break-end`")
     ALIASES: set = {
         "休憩終了",
         "再開",
@@ -68,7 +68,7 @@ class BreakEndSubCommand(SubCommandBase):
 
         # Prepare the response message
         command_response_message = (
-            f"休憩完了を登録しました\n日付（{entry_datetime}）が異なるため、`{attendance_report_channel}`チャンネルに通知されません。"
+            f"休憩終了を登録しました\n日付（{entry_datetime}）が異なるため、`{attendance_report_channel}`チャンネルに通知されません。"
         )
         if send_channel_notification:
             assert message, "Message must be set when sending channel notification."
@@ -84,7 +84,7 @@ class BreakEndSubCommand(SubCommandBase):
 
             web_client = WebClient(token=command.organization.slack_api_token)
             web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
-            command_response_message = f"休憩完了を登録しました\n`{attendance_report_channel}`チャンネルに通知をしました。"
+            command_response_message = f"休憩終了を登録しました\n`{attendance_report_channel}`チャンネルに通知をしました。"
         command_response_blocks = [
             {
                 "type": "section",
@@ -127,7 +127,7 @@ class BreakEndSubCommand(SubCommandBase):
             local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
             local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             message = (
-                f":warning: すでに休憩完了しています。\n最新休憩記録 > {latest_attendance_record.category} {local_created_datetime_display_str}\n"
+                f":warning: すでに休憩終了しています。\n最新休憩記録 > {latest_attendance_record.category} {local_created_datetime_display_str}\n"
             )
             command_response_blocks = [
                 {
