@@ -125,7 +125,10 @@ class BreakEndSubCommand(SubCommandBase):
         elif latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_END:
             # INVALID: User is already on a break, cannot take another break
             local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
-            message = f":warning: すでに休憩完了しています。\n最新休憩記録 > {latest_attendance_record.category} {local_created_datetime}\n"
+            local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
+            message = (
+                f":warning: すでに休憩完了しています。\n最新休憩記録 > {latest_attendance_record.category} {local_created_datetime_display_str}\n"
+            )
             command_response_blocks = [
                 {
                     "type": "section",
@@ -141,16 +144,17 @@ class BreakEndSubCommand(SubCommandBase):
                 # User has a record, but it's not a START record
                 logger.warning(f"User {command.user.username} has latest attendance record: {latest_attendance_record.category}")
                 local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+                local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
                 message = (
-                    f":warning: 休憩中になっていません！。\n"
-                    f"最新出勤記録 > {latest_attendance_record.category} {local_created_datetime}\n"
-                    f"`{organization_command_name} break-start MM/DD HH:MM`で休憩開始してから、完了してください。",
+                    f":warning: 休憩中になっていません！\n"
+                    f"最新出勤記録 > {latest_attendance_record.category} {local_created_datetime_display_str}\n"
+                    f"`/{organization_command_name} break-start MM/DD HH:MM`で休憩開始してから、完了してください。"
                 )
             else:
                 message = (
                     f":warning: 休憩中になっていません！。\n"
                     f"休憩開始記録がありません。\n"
-                    f"`{organization_command_name} break-start MM/DD HH:MM`で休憩開始してから、完了してください。",
+                    f"`/{organization_command_name} break-start MM/DD HH:MM`で休憩開始してから、完了してください。"
                 )
             command_response_blocks = [
                 {
@@ -164,6 +168,5 @@ class BreakEndSubCommand(SubCommandBase):
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
-        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
         return command_response_blocks, web_send_response, webhook_send_response

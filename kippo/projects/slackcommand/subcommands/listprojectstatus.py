@@ -82,10 +82,8 @@ class ListProjectStatusSubCommand(SubCommandBase):
         webhook_send_response = None
         if command_response_blocks:
             # Notify user that notification was sent to the registered channel
-            logger.debug(f"command_response_blocks={command_response_blocks}")
             webhook_client = WebhookClient(command.response_url)
             webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
-            logger.debug(f"webhook_send_response={webhook_send_response.status_code}, {webhook_send_response.body}")
         else:
             logger.warning(f"command_response_blocks is empty, no response sent to {command.user.username}.")
         return command_response_blocks, web_send_response, webhook_send_response

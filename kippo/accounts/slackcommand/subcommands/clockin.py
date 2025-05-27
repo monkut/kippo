@@ -46,18 +46,22 @@ class ClockInSubCommand(SubCommandBase):
             .order_by("-entry_datetime")
             .first()
         )
-
-        if latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.START:
+        invalid_categories = (AttendanceRecordCategory.START, AttendanceRecordCategory.BREAK_START, AttendanceRecordCategory.BREAK_END)
+        if latest_attendance_record and latest_attendance_record.category in invalid_categories:
             # Respond to user that they have already checked in today
+            logger.warning(
+                f"INVALID category {latest_attendance_record.category} for user {command.user} in organization {command.organization} to `clock-in`"
+            )
             local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+            local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
                         "text": (
-                            f"すでに出勤済みです。:warning: {local_created_datetime}に出勤済みです。\n"
-                            f"`{organization_command_name} clockout MM/DD HH:MM`で退勤してから、出勤してください。",
+                            f":warning: すでにに出勤中です。{local_created_datetime_display_str}\n"
+                            f"`/{organization_command_name} clockout MM/DD HH:MM`で退勤してから、出勤してください。"
                         ),
                     },
                 }
@@ -94,7 +98,7 @@ class ClockInSubCommand(SubCommandBase):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": (f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",),
+                            "text": f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
                         },
                     }
                 ]
@@ -125,7 +129,5 @@ class ClockInSubCommand(SubCommandBase):
             command.save()
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
-        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
-
         return command_response_blocks, web_send_response, webhook_send_response

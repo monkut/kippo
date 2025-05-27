@@ -54,7 +54,7 @@ class SetHolidaySubCommand(SubCommandBase):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": (f"休みの登録ができません。\n`{organization_command_name} setholiday YY/MM/DD`の形式で登録してください。\n"),
+                        "text": (f"休みの登録ができません。\n`/{organization_command_name} setholiday YY/MM/DD`の形式で登録してください。\n"),
                     },
                 }
             ]
@@ -130,6 +130,5 @@ class SetHolidaySubCommand(SubCommandBase):
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
-        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
         return command_response_blocks, web_send_response, webhook_send_response

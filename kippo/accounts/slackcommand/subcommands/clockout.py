@@ -28,6 +28,17 @@ class ClockOutSubCommand(SubCommandBase):
     }
 
     @classmethod
+    def _get_invalid_message(cls, category: AttendanceRecordCategory, organization_command_name: str) -> str:
+        """Return a message based on the invalid category."""
+        if category == AttendanceRecordCategory.BREAK_START:
+            message = f"`/{organization_command_name} break-end`で休暇終了してから、退勤してください。"
+        elif category == AttendanceRecordCategory.END:
+            message = f"`/{organization_command_name} clockin YY/MM/DD HH:MM`で出勤してから、退勤してください。"
+        else:
+            raise ValueError(f"Invalid category {category} for clock-out command.")
+        return message
+
+    @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
         web_send_response = None
@@ -43,29 +54,29 @@ class ClockOutSubCommand(SubCommandBase):
             AttendanceRecord.objects.filter(
                 created_by=command.user,
                 organization=command.organization,
-                category__in=(AttendanceRecordCategory.START, AttendanceRecordCategory.END),
             )
             .order_by("-entry_datetime")
             .first()
         )
 
         if latest_attendance_record:
-            if latest_attendance_record.category == AttendanceRecordCategory.END:
+            invalid_categories = (AttendanceRecordCategory.BREAK_START, AttendanceRecordCategory.END)
+            if latest_attendance_record.category in invalid_categories:
                 logger.warning(
                     f"Found existing END record for user {command.user} in organization {command.organization} at: "
                     f"{latest_attendance_record.entry_datetime}"
                 )
                 # Respond to user that they have already checked in today
+                message = cls._get_invalid_message(category=latest_attendance_record.category, organization_command_name=organization_command_name)
+
                 local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+                local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
                 command_response_blocks = [
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": (
-                                f":warning: {local_created_datetime}にすでに退勤済みです。\n"
-                                f"`{organization_command_name} clockin YY/MM/DD HH:MM`で出勤してから、退勤してください。",
-                            ),
+                            "text": (f":warning: {local_created_datetime_display_str}にすでに退勤中です。\n{message}"),
                         },
                     }
                 ]
@@ -109,13 +120,14 @@ class ClockOutSubCommand(SubCommandBase):
 
                 attendance_report_channel = command.organization.slack_attendance_report_channel
                 if not send_channel_notification:
+                    entry_datetime_display_str = entry_datetime.strftime("%Y/%-m/%-d %-H:%M")
                     command_response_blocks = [
                         {
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
                                 "text": (
-                                    f"`{entry_datetime}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
+                                    f"`{entry_datetime_display_str}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
                                 ),
                             },
                         }
@@ -136,13 +148,7 @@ class ClockOutSubCommand(SubCommandBase):
                     web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
 
                     command_response_blocks = [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"`{attendance_report_channel}`チャンネルに通知をしました。",
-                            },
-                        }
+                        {"type": "section", "text": {"type": "mrkdwn", "text": f"`{attendance_report_channel}`チャンネルに通知をしました。"}}
                     ]
                 command.is_valid = True
                 command.save()
@@ -156,13 +162,12 @@ class ClockOutSubCommand(SubCommandBase):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"出勤記録がみつかりません。`{organization_command_name} clockin YY/MM/DD HH:MM`で出勤してから、退勤してください。",
+                        "text": f"出勤記録がみつかりません。`/{organization_command_name} clockin YY/MM/DD HH:MM`で出勤してから、退勤してください。",
                     },
                 }
             ]
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)
-        logger.debug(f"Sending command_response_blocks={command_response_blocks} to response_url={command.response_url}")
         webhook_send_response = webhook_client.send(blocks=command_response_blocks, response_type=SlackResponseTypes.EPHEMERAL)
         return command_response_blocks, web_send_response, webhook_send_response
