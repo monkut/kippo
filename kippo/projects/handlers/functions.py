@@ -57,7 +57,7 @@ def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> tuple[l
     """Run weekly project status."""
     from accounts.models import KippoOrganization
 
-    from projects.managers import ProjectSlackManager
+    from projects.slackcommand.managers import ProjectSlackManager
 
     organizations_with_reporting_enabled = KippoOrganization.objects.filter(enable_slack_channel_reporting=True)
 

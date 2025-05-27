@@ -3,33 +3,35 @@ import logging
 from accounts.models import SlackCommand
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.utils.text import gettext_lazy as _
+from django.conf import settings
+from django.utils import timezone
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
-from ...models import ActiveKippoProject, KippoProjectStatus
+from ...functions import current_week_startdate
+from ...models import ActiveKippoProject
+from ..managers import ProjectSlackManager
 
 logger = logging.getLogger(__name__)
 
 
-class ProjectStatusSubCommand(SubCommandBase):
+class ListProjectStatusSubCommand(SubCommandBase):
     """Command to clock out a user."""
 
-    DISPLAY_COMMAND_NAME: str = "project-status"
-    DESCRIPTION: str = _("チャンネルのプロジェクトへステータスを当露光。例) `COMMAND project-status {STATUS COMMENT}`")
+    DISPLAY_COMMAND_NAME: str = "list-project-status"
+    DESCRIPTION: str = "実行中プロジェクトの現状週間ステータスを表示します。例）`COMMAND list-project-status`"
     ALIASES: set = {
-        "project-status",
-        "projectstatus",
-        "status",
+        "list-project-status",
+        "listprojectstatus",
+        "list-status",
+        "liststatus",
     }
 
     @classmethod
-    def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
-        """Handle the check-in command."""
-        web_send_response = None
-
+    def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse | None]:
+        """Report current project status for current project channel"""
         assert cls._is_valid_subcommand_alias(command.sub_command)
-        project_report_channel = command.organization.slack_weekly_project_report_channel
+        web_send_response = None
 
         # this is extra text provided by the user
         text_without_subcommand = cls._get_text_without_subcommand(command)
@@ -42,7 +44,6 @@ class ProjectStatusSubCommand(SubCommandBase):
         # > is_closed=False
         # > display_as_active=True
         related_project = ActiveKippoProject.objects.filter(organization=command.organization, slack_channel_name=source_channel).first()
-
         if not related_project:
             logger.error(f"{command.organization.name} Project not found for source_channel: {source_channel}")
             command_response_blocks = [
@@ -59,29 +60,22 @@ class ProjectStatusSubCommand(SubCommandBase):
                 }
             ]
         else:
-            logger.info(f"{command.organization.name} linked project found, '{related_project.name}', creating KippoProjectStatus ...")
-            # register new KippoProjectStatus
-            kippo_project_status = KippoProjectStatus(
-                project=related_project,
-                created_by=command.user,
-                updated_by=command.user,
-                comment=text_without_subcommand,
-            )
-            kippo_project_status.save()
-            logger.info(f"{command.organization.name} linked project found, '{related_project.name}', creating KippoProjectStatus ... DONE")
+            # get "current" KippoProjectStatus
+            # -- define "current" as the latest status for the project
+            week_start_date = current_week_startdate()
+            time_deadline = command.organization.weekly_project_time_deadline
+            week_start_datetime = timezone.datetime.combine(week_start_date, time_deadline, tzinfo=settings.JST)
 
-            command_response_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"> {text_without_subcommand}\n{related_project.name}にステータスを登録しました。\n"
-                            f"週開始時に、まとめて、`{project_report_channel}`チャンネルにサマリが送られます。"
-                        ),
-                    },
-                }
-            ]
+            manager = ProjectSlackManager(organization=command.organization)
+            user_comments = manager._get_project_user_comments(
+                week_start_datetime=week_start_datetime,
+                project=related_project,
+            )
+            project_status_blocks = manager._prepare_project_status_blocks(
+                project=related_project,
+                user_comments=user_comments,
+            )
+            command_response_blocks = project_status_blocks
             command.is_valid = True
             command.save()
 

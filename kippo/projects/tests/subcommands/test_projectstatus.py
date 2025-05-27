@@ -1,43 +1,11 @@
-from http import HTTPStatus
 from unittest import mock
 
 from accounts.models import OrganizationMembership, SlackCommand
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
-from slack_sdk.web import SlackResponse
-from slack_sdk.webhook import WebhookResponse
+from commons.tests.utils import webhook_response_factory
 
 from projects.models import KippoProjectStatus
 from projects.slackcommand.subcommands.projectstatus import ProjectStatusSubCommand
-
-
-def webhook_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> WebhookResponse:
-    """Create a webhook response."""
-    return WebhookResponse(
-        url="https://example.com/webhook",
-        status_code=status_code,
-        body="",
-        headers={
-            "Content-Type": "application/json",
-        },
-    )
-
-
-def mock_slack_response_factory(
-    status_code: int = HTTPStatus.OK,
-) -> SlackResponse:
-    return SlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://example.com/api",
-        req_args={},
-        data={},
-        headers={
-            "Content-Type": "application/json",
-        },
-        status_code=status_code,
-    )
 
 
 class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):

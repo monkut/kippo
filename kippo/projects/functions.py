@@ -32,7 +32,6 @@ def get_user_session_organization(request: HttpRequest) -> tuple[KippoOrganizati
     """Retrieve the session defined user KippoOrganization"""
     # get organization defined in session
     organization_id = request.session.get("organization_id", None)
-    logger.debug(f'session["organization_id"] for user({request.user.username}): {organization_id}')
     # check that user belongs to organization
     user_organizations = sorted(request.user.organizations, key=attrgetter("name"))
     user_organization_ids = {str(o.id): o for o in user_organizations}
@@ -132,6 +131,16 @@ def previous_week_startdate(today: datetime.date | None = None) -> datetime.date
         today = timezone.now().date()
     last_week = today - datetime.timedelta(days=5)
     current_date = last_week
+    while current_date.weekday() != week_start_day:
+        current_date -= datetime.timedelta(days=1)
+    return current_date
+
+
+def current_week_startdate() -> datetime.datetime:
+    """Get the current week's start date"""
+    week_start_day = MONDAY
+    today = timezone.now().date()
+    current_date = today
     while current_date.weekday() != week_start_day:
         current_date -= datetime.timedelta(days=1)
     return current_date

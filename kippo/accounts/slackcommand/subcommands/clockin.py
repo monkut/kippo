@@ -4,6 +4,7 @@ from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
 from django.conf import settings
 from django.utils import timezone
+from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
@@ -16,7 +17,10 @@ logger = logging.getLogger(__name__)
 class ClockInSubCommand(SubCommandBase):
     """Command to check in a user."""
 
+    DISPLAY_COMMAND_NAME: str = "clock-in"
+    DESCRIPTION: str = _("出勤情報を登録。例）`COMMAND clock-in`")
     ALIASES: set = {
+        "出勤",
         "開始",
         "clockin",
         "clock-in",
@@ -27,6 +31,7 @@ class ClockInSubCommand(SubCommandBase):
         """Handle the clock-in command."""
         web_send_response = None
         assert cls._is_valid_subcommand_alias(command.sub_command)
+        assert command.user, f"user not defined for command: sub_command={command.sub_command}, text={command.text}"
 
         # this is extra text provided by the user
         text_without_subcommand = cls._get_text_without_subcommand(command)
@@ -59,16 +64,6 @@ class ClockInSubCommand(SubCommandBase):
             ]
 
         else:
-            # check if datetime is given in 'text'
-            # check if full year is given in 'text'
-            # MM/DD HH:MM or MM-DD HH:MM
-            if text_without_subcommand.count(":"):
-                if text_without_subcommand.count("/") == 1:
-                    # add year to text_without_subcommand
-                    text_without_subcommand = f"{timezone.localdate().year}/{text_without_subcommand}"
-                elif text_without_subcommand.count("-") == 1:
-                    # add year to text_without_subcommand
-                    text_without_subcommand = f"{timezone.localdate().year}-{text_without_subcommand}"
             entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
 
             send_channel_notification = False
@@ -92,9 +87,7 @@ class ClockInSubCommand(SubCommandBase):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": (
-                                f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知は行いません)",
-                            ),
+                            "text": (f"`{entry_datetime}`の出勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",),
                         },
                     }
                 ]
