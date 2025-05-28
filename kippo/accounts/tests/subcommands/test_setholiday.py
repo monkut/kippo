@@ -35,9 +35,13 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         PersonalHoliday.objects.all().delete()
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.setholiday.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_personalholiday_not_created_on_missing_date(self, *_):
         """Confirm that a New PersonalHoliday is not created when the date is missing from the subcommand."""
@@ -143,9 +147,13 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(actual_personalholiday_count, expected_personalholiday_count)
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.setholiday.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_valid_fullday_date(self, *_):
         """Confirm that a *new* PersonalHoliday is *created* when a valid date is given."""
@@ -174,9 +182,13 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(actual_personalholiday_count, expected_personalholiday_count)
 
     @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
-    @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("accounts.slackcommand.subcommands.setholiday.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+        "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_valid_halfday_date(self, *_):
         """Confirm that a *new* PersonalHoliday (half-day) is *created* when a valid date is given."""
