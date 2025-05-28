@@ -1,5 +1,6 @@
 import datetime
 import logging
+from operator import attrgetter
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
@@ -58,7 +59,7 @@ class ListUsersSubCommand(SubCommandBase):
 
             user_status_blocks = []
             web_client = WebClient(token=command.organization.slack_api_token)
-            for record in latest_user_attendance_records:
+            for record in sorted(latest_user_attendance_records, key=attrgetter("entry_datetime")):
                 user_organization_membership = organizationmembership_by_username.get(record.created_by.username, None)
                 user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
 
