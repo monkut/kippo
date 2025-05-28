@@ -63,8 +63,8 @@ class ListUsersSubCommand(SubCommandBase):
                 user_organization_membership = organizationmembership_by_username.get(record.created_by.username, None)
                 user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
 
-                local_created_datetime = record.created_datetime.astimezone(settings.JST)
-                local_created_datetime_display = local_created_datetime.strftime("%-m/%-d %-H:%M")
+                local_entry_datetime = record.entry_datetime.astimezone(settings.JST)
+                local_entry_datetime_display = local_entry_datetime.strftime("%-m/%-d %-H:%M")
                 user_display_name = f"*{record.created_by.display_name}*"
                 category_display = category_display_mapping.get(record.category, record.category)
                 if user_image_url:
@@ -82,7 +82,7 @@ class ListUsersSubCommand(SubCommandBase):
                                 {
                                     "type": "mrkdwn",
                                     "text": (
-                                        f" {user_display_name:<{max_display_name_length}} {local_created_datetime_display:>25} {category_display}"
+                                        f" {user_display_name:<{max_display_name_length}} {local_entry_datetime_display:>25} {category_display}"
                                     ),
                                 },
                             ],
@@ -98,7 +98,7 @@ class ListUsersSubCommand(SubCommandBase):
                                 "type": "mrkdwn",
                                 "text": (
                                     f":white_square: {user_display_name:<{max_display_name_length}}"
-                                    f" {local_created_datetime_display:>25} {category_display}"
+                                    f" {local_entry_datetime_display:>25} {category_display}"
                                 ),
                             },
                         }

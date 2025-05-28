@@ -68,7 +68,7 @@ class SetHolidaySubCommand(SubCommandBase):
                             },
                             {
                                 "type": "mrkdwn",
-                                "text": f"*{command.user.display_name}* は、`{entry_datetime.date()}の{half_day_text}` をとる予定{comment_display}",
+                                "text": f"*{command.user.display_name}* は、 `{entry_datetime.date()}の{half_day_text}` をとる予定{comment_display}",
                             },
                         ],
                     }
