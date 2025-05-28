@@ -52,7 +52,7 @@ class ListUsersSubCommand(SubCommandBase):
                 AttendanceRecordCategory.BREAK_END: "出勤中",
             }
             users = [record.created_by for record in latest_user_attendance_records]
-
+            max_display_name_length = max(len(user.display_name) for user in users)  # for display padding
             organizationmembership_by_username = {
                 m.user.username: m for m in OrganizationMembership.objects.filter(organization=command.organization, user__in=users)
             }
@@ -65,6 +65,7 @@ class ListUsersSubCommand(SubCommandBase):
 
                 local_created_datetime = record.created_datetime.astimezone(settings.JST)
                 local_created_datetime_display = local_created_datetime.strftime("%-m/%-d %-H:%M")
+                user_display_name = f"*{record.created_by.display_name}*"
                 category_display = category_display_mapping.get(record.category, record.category)
                 if user_image_url:
                     logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
@@ -80,7 +81,9 @@ class ListUsersSubCommand(SubCommandBase):
                                 },
                                 {
                                     "type": "mrkdwn",
-                                    "text": f"*{record.created_by.display_name}* {local_created_datetime_display}: {category_display} ",
+                                    "text": (
+                                        f" {user_display_name:<{max_display_name_length}} {local_created_datetime_display:>25} {category_display}"
+                                    ),
                                 },
                             ],
                         }
@@ -93,7 +96,10 @@ class ListUsersSubCommand(SubCommandBase):
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": f":white_square: *{record.created_by.display_name}* {local_created_datetime_display}: {category_display}",
+                                "text": (
+                                    f":white_square: {user_display_name:<{max_display_name_length}}"
+                                    f" {local_created_datetime_display:>25} {category_display}"
+                                ),
                             },
                         }
                     )
