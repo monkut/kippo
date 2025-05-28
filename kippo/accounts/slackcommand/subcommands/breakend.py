@@ -27,7 +27,7 @@ class BreakEndSubCommand(SubCommandBase):
     }
 
     @classmethod
-    def _handle_valid_case(cls, command: SlackCommand, text_without_subcommand: str) -> tuple[list[dict], SlackResponse | None]:
+    def _prepare_valid_response_blocks(cls, command: SlackCommand, text_without_subcommand: str) -> tuple[list[dict], SlackResponse | None]:
         # VALID: User has started work, can take a break
         entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
         web_send_response = None
@@ -67,8 +67,12 @@ class BreakEndSubCommand(SubCommandBase):
         attendance_report_channel = command.organization.slack_attendance_report_channel
 
         # Prepare the response message
+        entry_datetime_display_str = entry_datetime.strftime("%-m/%-d %-H:%M")
+        elapsed_duration = record.get_duration_timedelta()
+        duration_display_str = f"\n> {elapsed_duration.total_seconds() / 60 / 60:.1f}h 経過"  # 10.383723 -> 10.4h
         command_response_message = (
-            f"休憩終了を登録しました\n日付（{entry_datetime}）が異なるため、`{attendance_report_channel}`チャンネルに通知されません。"
+            f"休憩終了を登録しました\n日付（{entry_datetime_display_str}）が異なるため、 "
+            f"`{attendance_report_channel}` チャンネルに通知されません。{duration_display_str}"
         )
         if send_channel_notification:
             assert message, "Message must be set when sending channel notification."
@@ -84,7 +88,7 @@ class BreakEndSubCommand(SubCommandBase):
 
             web_client = WebClient(token=command.organization.slack_api_token)
             web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
-            command_response_message = f"休憩終了を登録しました\n`{attendance_report_channel}`チャンネルに通知をしました。"
+            command_response_message = f"休憩終了を登録しました\n`{attendance_report_channel}` チャンネルに通知をしました。{duration_display_str}"
         command_response_blocks = [
             {
                 "type": "section",
@@ -121,7 +125,7 @@ class BreakEndSubCommand(SubCommandBase):
 
         if latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_START:
             logger.info(f"Valid latest_attendance_record.category='{latest_attendance_record.category}'")
-            command_response_blocks, web_send_response = cls._handle_valid_case(command, text_without_subcommand)
+            command_response_blocks, web_send_response = cls._prepare_valid_response_blocks(command, text_without_subcommand)
         elif latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_END:
             # INVALID: User is already on a break, cannot take another break
             local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)

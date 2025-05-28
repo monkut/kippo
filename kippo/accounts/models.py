@@ -554,7 +554,9 @@ class AttendanceRecord(UserCreatedBaseModel):
             .first()
         )
         if not start_record:
-            raise ValueError(f"No matching START/BREAK_START record found for user {self.user.username} in organization {self.organization.name}.")
+            raise ValueError(
+                f"No matching START/BREAK_START record found for user {self.created_by.username} in organization {self.organization.name}."
+            )
         elapsed = self.entry_datetime - start_record.entry_datetime
         return elapsed
 

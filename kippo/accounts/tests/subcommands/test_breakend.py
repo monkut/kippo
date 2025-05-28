@@ -179,16 +179,18 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         expected_attendancerecord_count = 0
         assert AttendanceRecord.objects.count() == expected_attendancerecord_count
 
-        # create START AttendanceRecord to make break valid
+        expected_entry_datetime = (timezone.now() - timezone.timedelta(hours=4)).replace(minute=0, second=0, microsecond=0).astimezone(settings.JST)
+
+        # create START AttendanceRecord to make break-end valid
+        breakstart_entry_datetime = expected_entry_datetime - timezone.timedelta(hours=1)
         AttendanceRecord.objects.create(
             organization=self.organization,
             created_by=self.staffuser_with_org,
             updated_by=self.staffuser_with_org,
             category=AttendanceRecordCategory.BREAK_START,
-            entry_datetime=timezone.now(),
+            entry_datetime=breakstart_entry_datetime,
         )
 
-        expected_entry_datetime = (timezone.now() - timezone.timedelta(hours=4)).replace(minute=0, second=0, microsecond=0).astimezone(settings.JST)
         for separator in ("/", "-"):
             date_format = f"%m{separator}%d %H:%M"
             subcommand_text = f"break-end {expected_entry_datetime.strftime(date_format)}"
