@@ -503,6 +503,21 @@ class SlackCommand(TimestampedModel):
     payload = models.JSONField(blank=True, default=dict, help_text=_("Payload that was sent"))
     processed_datetime = models.DateTimeField(null=True, blank=True, help_text=_("Date the command was processed"))
 
+    def get_user_organization_membership(self) -> OrganizationMembership | None:
+        """Get the OrganizationMembership for the user and organization."""
+        if self.user and self.organization:
+            try:
+                return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            except OrganizationMembership.DoesNotExist:
+                return None
+        return None
+
+    def get_text_without_subcommand(self) -> str | models.CharField:
+        """Get the text without the subcommand."""
+        if self.text and self.sub_command:
+            return self.text.split(self.sub_command, 1)[-1].strip()
+        return self.text
+
 
 class AttendanceRecord(UserCreatedBaseModel):
     organization = models.ForeignKey(

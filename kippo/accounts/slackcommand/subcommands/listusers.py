@@ -56,53 +56,19 @@ class ListUsersSubCommand(SubCommandBase):
             organizationmembership_by_username = {
                 m.user.username: m for m in OrganizationMembership.objects.filter(organization=command.organization, user__in=users)
             }
-
             user_status_blocks = []
             web_client = WebClient(token=command.organization.slack_api_token)
             for record in sorted(latest_user_attendance_records, key=attrgetter("entry_datetime")):
                 user_organization_membership = organizationmembership_by_username.get(record.created_by.username, None)
-                user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
-
+                user_display_name = f"*{record.created_by.display_name}*"
                 local_entry_datetime = record.entry_datetime.astimezone(settings.JST)
                 local_entry_datetime_display = local_entry_datetime.strftime("%-m/%-d %-H:%M")
-                user_display_name = f"*{record.created_by.display_name}*"
                 category_display = category_display_mapping.get(record.category, record.category)
-                if user_image_url:
-                    logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
-                    # Output message with user SLACK image
-                    user_status_blocks.append(
-                        {
-                            "type": "context",
-                            "elements": [
-                                {
-                                    "type": "image",
-                                    "image_url": user_image_url,
-                                    "alt_text": record.created_by.display_name,
-                                },
-                                {
-                                    "type": "mrkdwn",
-                                    "text": (
-                                        f" {user_display_name:<{max_display_name_length}} {local_entry_datetime_display:>25} {category_display}"
-                                    ),
-                                },
-                            ],
-                        }
-                    )
-                else:
-                    logger.warning(f"User {record.created_by.username} has no slack_image_url: {user_image_url}")
-                    # Output message WITHOUT user SLACK image, fallback to :white_square:
-                    user_status_blocks.append(
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": (
-                                    f":white_square: {user_display_name:<{max_display_name_length}}"
-                                    f" {local_entry_datetime_display:>25} {category_display}"
-                                ),
-                            },
-                        }
-                    )
+                message = f" {user_display_name:<{max_display_name_length}} {local_entry_datetime_display:>25} {category_display}"
+                user_status_block = cls._prepare_message_block_with_user_image(
+                    message=message, web_client=web_client, user_organization_membership=user_organization_membership
+                )
+                user_status_blocks.append(user_status_block)
 
             command_response_blocks = [
                 {

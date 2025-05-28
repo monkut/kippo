@@ -2,13 +2,12 @@ import logging
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.conf import settings
 from django.utils import timezone
 from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
-from ...models import OrganizationMembership, PersonalHoliday, SlackCommand
+from ...models import PersonalHoliday, SlackCommand
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ class SetHolidaySubCommand(SubCommandBase):
         cls, command: SlackCommand, entry_datetime: timezone.datetime, attendance_report_channel: str
     ) -> tuple[list[dict], SlackResponse | None]:
         """Prepare response blocks for a valid set-holiday."""
-        text_without_subcommand = cls._get_text_without_subcommand(command)
+        text_without_subcommand = command.get_text_without_subcommand()
         is_half_day = command.sub_command in cls.HALF_DAY_SUBCOMMANDS
         logger.debug(f"sub_command={command.sub_command}, is_half_day={is_half_day}")
         new_personalholiday = PersonalHoliday(
@@ -45,48 +44,15 @@ class SetHolidaySubCommand(SubCommandBase):
 
         # Prepare the response message
         half_day_text = "半休" if is_half_day else "全休"
-        web_client = WebClient(token=command.organization.slack_api_token)
-        user_image_url = None
         personalholiday_notification_blocks = []
-        user_organization_membership = OrganizationMembership.objects.filter(user=command.user, organization=command.organization).first()
-        # if user included a commend, include it in the message
-        comment_display = f"\n> {text_without_subcommand}" if text_without_subcommand else ""
-        if user_organization_membership:
-            user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
-            if user_image_url:
-                logger.debug(f"User {command.user.display_name} has slack_image_url: {user_image_url}")
-                # Output message with user SLACK image
-
-                personalholiday_notification_blocks.append(
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "image",
-                                "image_url": user_image_url,
-                                "alt_text": command.user.display_name,
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*{command.user.display_name}* は、 `{entry_datetime.date()}の{half_day_text}` をとる予定{comment_display}",
-                            },
-                        ],
-                    }
-                )
-
-        if not personalholiday_notification_blocks:
-            logger.warning(f"User {command.user.display_name} has no slack_image_url: {user_image_url}")
-            # Output message WITHOUT user SLACK image, fallback to :white_square:
-            personalholiday_notification_blocks.append(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{command.user.display_name}* は、`{entry_datetime.date()}の{half_day_text}` をとる予定{comment_display}",
-                    },
-                }
-            )
-
+        web_client = WebClient(token=command.organization.slack_api_token)
+        comment_display_text = f"\n> {text_without_subcommand}" if text_without_subcommand else ""
+        message = f"*{command.user.display_name}* は、 `{entry_datetime.date()}の{half_day_text}` をとる予定。{comment_display_text}"
+        user_organization_membership = command.get_user_organization_membership()
+        personalholiday_notification_block = cls._prepare_message_block_with_user_image(
+            message=message, web_client=web_client, user_organization_membership=user_organization_membership
+        )
+        personalholiday_notification_blocks.append(personalholiday_notification_block)
         web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=personalholiday_notification_blocks)
 
         command_response_blocks = [
@@ -111,7 +77,7 @@ class SetHolidaySubCommand(SubCommandBase):
         attendance_report_channel = command.organization.slack_attendance_report_channel
 
         # this is extra text provided by the user
-        text_without_subcommand = cls._get_text_without_subcommand(command)
+        text_without_subcommand = command.get_text_without_subcommand()
         organization_command_name = command.organization.slack_command_name
 
         # check if datetime is given in 'text'
@@ -167,44 +133,6 @@ class SetHolidaySubCommand(SubCommandBase):
             else:
                 logger.debug(f"No PersonalHoliday entries found for {command.user.username} at {entry_datetime.date()} adding new entry ...")
                 command_response_blocks, web_send_response = cls._prepare_valid_response_blocks(command, entry_datetime, attendance_report_channel)
-                # logger.debug(f"No PersonalHoliday entries found for {command.user.username} at {entry_datetime.date()} adding new entry ...")
-                #
-                # is_half_day = command.sub_command in cls.HALF_DAY_SUBCOMMANDS
-                # logger.debug(f"sub_command={command.sub_command}, is_half_day={is_half_day}")
-                # new_personalholiday = PersonalHoliday(
-                #     user=command.user,
-                #     is_half=is_half_day,
-                #     duration=1,
-                #     day=entry_datetime.date(),
-                # )
-                # new_personalholiday.save()
-                #
-                # # Prepare the response message
-                # half_day_text = "半休" if is_half_day else "全休"
-                # personalholiday_notification_blocks = [
-                #     {
-                #         "type": "section",
-                #         "text": {
-                #             "type": "mrkdwn",
-                #             "text": f"*{command.user.display_name}* は、`{entry_datetime.date()}の{half_day_text}`をとる予定\n",
-                #         },
-                #     }
-                # ]
-                #
-                # web_client = WebClient(token=command.organization.slack_api_token)
-                # web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=personalholiday_notification_blocks)
-                #
-                # command_response_blocks = [
-                #     {
-                #         "type": "section",
-                #         "text": {
-                #             "type": "mrkdwn",
-                #             "text": f"`{attendance_report_channel}`チャンネルに通知をしました。",
-                #         },
-                #     }
-                # ]
-                # command.is_valid = True
-                # command.save()
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)

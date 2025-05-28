@@ -40,6 +40,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
     @mock.patch(
         "accounts.slackcommand.subcommands.breakstart.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.breakstart.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
+    )
     def test_attendanceslackmanager_processcommand_breakstartcommand_aliases(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
@@ -85,6 +89,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
     @mock.patch(
         "accounts.slackcommand.subcommands.breakstart.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.breakstart.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
+    )
     def test_with_preexisting_attendancerecord(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
@@ -127,6 +135,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
     @mock.patch("accounts.slackcommand.subcommands.breakstart.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
         "accounts.slackcommand.subcommands.breakstart.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.breakstart.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_set_by_datetime(self, *_):
         expected_slackcommand_count = 0
@@ -172,6 +184,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
     @mock.patch("accounts.slackcommand.subcommands.breakstart.WebhookClient.send", return_value=webhook_response_factory())
     @mock.patch(
         "accounts.slackcommand.subcommands.breakstart.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.breakstart.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_set_by_datetime_without_year(self, *_):
         expected_slackcommand_count = 0

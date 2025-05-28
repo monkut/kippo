@@ -30,12 +30,6 @@ class SubCommandBase:
             raise ValueError(f"Invalid subcommand alias: {alias} not in {cls.ALIASES}")
         return True
 
-    @classmethod
-    def _get_text_without_subcommand(cls, command: "SlackCommand") -> str:
-        """Get the text without the subcommand."""
-        text_without_subcommand = command.text.split(command.sub_command, 1)[-1].strip()
-        return text_without_subcommand
-
     @staticmethod
     def __add_year_to_text(text: str) -> str:
         """
@@ -111,6 +105,44 @@ class SubCommandBase:
             except Exception as e:
                 logger.exception(f"Error processing attendance record for user {user_organization_membership.user}: {e.args}")
         return user_image_url
+
+    @classmethod
+    def _prepare_message_block_with_user_image(
+        cls,
+        message: str,
+        web_client: WebClient,
+        user_organization_membership: "OrganizationMembership",
+        refresh_days: int = settings.REFRESH_SLACK_IMAGE_URL_DAYS,
+    ) -> dict:
+        user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=refresh_days)
+        if user_image_url:
+            logger.debug(f"User {user_organization_membership.user.display_name} has slack_image_url: {user_image_url}")
+            # Output message with user SLACK image
+            message_block = {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": user_image_url,
+                        "alt_text": user_organization_membership.user.display_name,
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": message,
+                    },
+                ],
+            }
+        else:
+            logger.warning(f"User {user_organization_membership.user.display_name} has no slack_image_url: {user_image_url}")
+            # Output message WITHOUT user SLACK image, fallback to :white_square:
+            message_block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": message,
+                },
+            }
+        return message_block
 
     @classmethod
     @abstractmethod

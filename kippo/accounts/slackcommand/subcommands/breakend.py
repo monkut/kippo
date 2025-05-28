@@ -34,18 +34,19 @@ class BreakEndSubCommand(SubCommandBase):
         message = None
         send_channel_notification = False
         current_localtime = timezone.localtime()
+        comment_display_text = f"\n> {text_without_subcommand}" if text_without_subcommand else ""
         if not entry_datetime:
             logger.info(f"`entry_datetime` not parsed from text (expected YYYY/MM/DD): {text_without_subcommand}")
             send_channel_notification = True
             entry_datetime = current_localtime
-            message = f"*{command.user.display_name}* 休憩終了、再開します\n{text_without_subcommand}"
+            message = f"*{command.user.display_name}* 休憩終了、再開します。{comment_display_text}"
 
         is_future_datetime = entry_datetime and entry_datetime > current_localtime
         if is_future_datetime:
             if entry_datetime.date() == timezone.localdate():
                 send_channel_notification = True
                 display_time = entry_datetime.strftime("%H:%M")
-                message = f"*{command.user.display_name}* {display_time} に休憩終了、再開する予定です。\n{text_without_subcommand}"
+                message = f"*{command.user.display_name}* {display_time} に休憩終了、再開する予定です。{comment_display_text}"
             else:
                 logger.warning(f"entry_datetime({entry_datetime}) is not today({current_localtime}), message will not be sent.")
 
@@ -76,17 +77,14 @@ class BreakEndSubCommand(SubCommandBase):
         )
         if send_channel_notification:
             assert message, "Message must be set when sending channel notification."
-            attendance_notification_blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": message,
-                    },
-                }
-            ]
-
+            attendance_notification_blocks = []
             web_client = WebClient(token=command.organization.slack_api_token)
+            user_organization_membership = command.get_user_organization_membership()
+            attendance_notification_block = cls._prepare_message_block_with_user_image(
+                message=message, web_client=web_client, user_organization_membership=user_organization_membership
+            )
+            attendance_notification_blocks.append(attendance_notification_block)
+
             web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
             command_response_message = f"休憩終了を登録しました\n`{attendance_report_channel}` チャンネルに通知をしました。{duration_display_str}"
         command_response_blocks = [
@@ -109,7 +107,7 @@ class BreakEndSubCommand(SubCommandBase):
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
         # this is extra text provided by the user
-        text_without_subcommand = cls._get_text_without_subcommand(command)
+        text_without_subcommand = command.get_text_without_subcommand()
         organization_command_name = command.organization.slack_command_name
 
         # get latest attendance record for the user/organization

@@ -32,7 +32,7 @@ class ProjectStatusSubCommand(SubCommandBase):
         project_report_channel = command.organization.slack_weekly_project_report_channel
 
         # this is extra text provided by the user
-        text_without_subcommand = cls._get_text_without_subcommand(command)
+        text_without_subcommand = command.get_text_without_subcommand()
 
         # check if datetime is given in 'text'
         logger.debug(f"text_without_subcommand={text_without_subcommand}")

@@ -9,7 +9,7 @@ from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
 from ...definitions import AttendanceRecordCategory
-from ...models import AttendanceRecord, OrganizationMembership, SlackCommand
+from ...models import AttendanceRecord, SlackCommand
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ClockInSubCommand(SubCommandBase):
         assert command.user, f"user not defined for command: sub_command={command.sub_command}, text={command.text}"
 
         # this is extra text provided by the user
-        text_without_subcommand = cls._get_text_without_subcommand(command)
+        text_without_subcommand = command.get_text_without_subcommand()
         organization_command_name = command.organization.slack_command_name
 
         # get latest attendance record for the user/organization
@@ -105,45 +105,16 @@ class ClockInSubCommand(SubCommandBase):
             else:
                 # Prepare the response message
                 web_client = WebClient(token=command.organization.slack_api_token)
-                user_image_url = None
                 attendance_notification_blocks = []
-                user_organization_membership = OrganizationMembership.objects.filter(user=command.user, organization=command.organization).first()
-                if user_organization_membership:
-                    user_image_url = cls._get_user_image_url(
-                        web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS
-                    )
-                    if user_image_url:
-                        logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
-                        # Output message with user SLACK image
-                        attendance_notification_blocks.append(
-                            {
-                                "type": "context",
-                                "elements": [
-                                    {
-                                        "type": "image",
-                                        "image_url": user_image_url,
-                                        "alt_text": command.user.display_name,
-                                    },
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": f"*{command.user.display_name}* 出勤しました！ {text_without_subcommand} ",
-                                    },
-                                ],
-                            }
-                        )
-
-                if not attendance_notification_blocks:
-                    logger.warning(f"User {command.user.display_name} has no slack_image_url: {user_image_url}")
-                    # Output message WITHOUT user SLACK image, fallback to :white_square:
-                    attendance_notification_blocks.append(
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"*{command.user.display_name}* 出勤しました！\n{text_without_subcommand}",
-                            },
-                        }
-                    )
+                user_organization_membership = command.get_user_organization_membership()
+                comment_display_text = f"\n> {text_without_subcommand}" if text_without_subcommand else ""
+                message = f"*{command.user.display_name}* 出勤しました！{comment_display_text}"
+                attendance_notification_block = cls._prepare_message_block_with_user_image(
+                    message=message,
+                    web_client=web_client,
+                    user_organization_membership=user_organization_membership,
+                )
+                attendance_notification_blocks.append(attendance_notification_block)
 
                 web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
                 command_response_blocks = [
