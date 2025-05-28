@@ -176,11 +176,11 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "standard"}},
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO"},  # Change to DEBUG to see db queries
-        "commons": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
-        "projects": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
-        "tasks": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
-        "accounts": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
-        "octocat": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": True},
+        "commons": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        "projects": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        "tasks": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        "accounts": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        "octocat": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
     },
 }
 
