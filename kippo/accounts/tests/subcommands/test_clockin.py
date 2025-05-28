@@ -40,6 +40,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
     @mock.patch(
         "accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
+    @mock.patch(
+        "accounts.slackcommand.subcommands.clockin.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
+    )
     def test_attendanceslackmanager_processcommand_clockincommand_aliases(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count

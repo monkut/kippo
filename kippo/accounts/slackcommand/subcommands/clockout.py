@@ -79,6 +79,8 @@ class ClockOutSubCommand(SubCommandBase):
         )
 
         attendance_report_channel = command.organization.slack_attendance_report_channel
+        elapsed_duration = record.get_duration_timedelta()
+        duration_display_str = f"\n> {elapsed_duration.total_seconds() / 60 / 60:.1f}h 経過"  # 10.383723 -> 10.4h
         if not send_channel_notification:
             entry_datetime_display_str = entry_datetime.strftime("%Y/%-m/%-d %-H:%M")
             command_response_blocks = [
@@ -87,7 +89,8 @@ class ClockOutSubCommand(SubCommandBase):
                     "text": {
                         "type": "mrkdwn",
                         "text": (
-                            f"`{entry_datetime_display_str}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
+                            f"`{entry_datetime_display_str}` の退勤記録を登録しました。\n(時間指定の登録は、"
+                            f"{attendance_report_channel}へ通知しません){duration_display_str}"
                         ),
                     },
                 }
@@ -136,7 +139,10 @@ class ClockOutSubCommand(SubCommandBase):
             web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
 
             command_response_blocks = [
-                {"type": "section", "text": {"type": "mrkdwn", "text": f"`{attendance_report_channel}`チャンネルに通知をしました。"}}
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"`{attendance_report_channel}`チャンネルに通知をしました。{duration_display_str}"},
+                }
             ]
         command.is_valid = True
         command.save()

@@ -529,6 +529,35 @@ class AttendanceRecord(UserCreatedBaseModel):
         if self.entry_datetime:
             self.date = self.entry_datetime.date()
 
+    def get_duration_timedelta(self) -> timezone.timedelta:
+        """Get the timedelta for the duration the current AttendanceRecord to it's related START/BREAK_START record."""
+        valid_calculation_categories = (AttendanceRecordCategory.END, AttendanceRecordCategory.BREAK_END)
+        if self.category not in valid_calculation_categories:
+            raise ValueError(f"Cannot calculate duration for category {self.category}. Only END or BREAK_END categories are valid.")
+
+        if self.category == AttendanceRecordCategory.BREAK_END:
+            start_category = AttendanceRecordCategory.BREAK_START
+        elif self.category == AttendanceRecordCategory.END:
+            start_category = AttendanceRecordCategory.START
+        else:
+            raise ValueError(f"Invalid category {self.category}, must be: {valid_calculation_categories}")
+
+        # get START/BREAK_START record for the same user and organization
+        start_record = (
+            AttendanceRecord.objects.filter(
+                created_by=self.created_by,
+                organization=self.organization,
+                category=start_category,
+                entry_datetime__lt=self.entry_datetime,
+            )
+            .order_by("-entry_datetime")
+            .first()
+        )
+        if not start_record:
+            raise ValueError(f"No matching START/BREAK_START record found for user {self.user.username} in organization {self.organization.name}.")
+        elapsed = self.entry_datetime - start_record.entry_datetime
+        return elapsed
+
 
 class AttendanceRecordCategoryManager(models.Manager):
     def __init__(self, *args, category: str, **kwargs) -> None:
