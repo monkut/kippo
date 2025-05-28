@@ -9,7 +9,7 @@ from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
 from ...definitions import AttendanceRecordCategory
-from ...models import AttendanceRecord, SlackCommand
+from ...models import AttendanceRecord, OrganizationMembership, SlackCommand
 
 logger = logging.getLogger(__name__)
 
@@ -104,17 +104,47 @@ class ClockInSubCommand(SubCommandBase):
                 ]
             else:
                 # Prepare the response message
-                attendance_notification_blocks = []
-                attendance_notification_block = {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{command.user.display_name}* 出勤しました！\n{text_without_subcommand}",
-                    },
-                }
-                attendance_notification_blocks.append(attendance_notification_block)
-
                 web_client = WebClient(token=command.organization.slack_api_token)
+                user_image_url = None
+                attendance_notification_blocks = []
+                user_organization_membership = OrganizationMembership.objects.filter(user=command.user, organization=command.organization).first()
+                if user_organization_membership:
+                    user_image_url = cls._get_user_image_url(
+                        web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS
+                    )
+                    if user_image_url:
+                        logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
+                        # Output message with user SLACK image
+                        attendance_notification_blocks.append(
+                            {
+                                "type": "context",
+                                "elements": [
+                                    {
+                                        "type": "image",
+                                        "image_url": user_image_url,
+                                        "alt_text": command.user.display_name,
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": f"*{command.user.display_name}* 出勤しました！ {text_without_subcommand} ",
+                                    },
+                                ],
+                            }
+                        )
+
+                if not attendance_notification_blocks:
+                    logger.warning(f"User {command.user.display_name} has no slack_image_url: {user_image_url}")
+                    # Output message WITHOUT user SLACK image, fallback to :white_square:
+                    attendance_notification_blocks.append(
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*{command.user.display_name}* 出勤しました！\n{text_without_subcommand}",
+                            },
+                        }
+                    )
+
                 web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
                 command_response_blocks = [
                     {
