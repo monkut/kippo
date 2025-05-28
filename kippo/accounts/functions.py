@@ -18,7 +18,8 @@ def get_personal_holidays_generator(from_datetime: timezone.datetime | None) -> 
 
 def process_organizationinvites(backend: str, user: KippoUser, response: dict | object, *args, **kwargs):  # noqa: ARG001
     """Check if the user has any invites and send them to the user."""
-    if hasattr(user, "email") and user.email:
+    new_user_check_buffer = timezone.now() - timezone.timedelta(minutes=5)  # don't want to query DB if user is not new
+    if hasattr(user, "email") and user.email and hasattr(user, "date_joined") and user.date_joined >= new_user_check_buffer:
         from accounts.models import OrganizationInvite
 
         # get all organization memberships for the user
