@@ -9,7 +9,7 @@ from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
 from ...definitions import AttendanceRecordCategory
-from ...models import AttendanceRecord, SlackCommand
+from ...models import AttendanceRecord, OrganizationMembership, SlackCommand
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,110 @@ class ClockOutSubCommand(SubCommandBase):
         return message
 
     @classmethod
+    def _prepare_valid_response_blocks(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None]:
+        """Prepare response blocks for a valid clock-out."""
+        web_send_response = None
+        text_without_subcommand = cls._get_text_without_subcommand(command)
+        # check if datetime is given in 'text'
+        logger.debug(f"text_without_subcommand={text_without_subcommand}")
+        entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
+
+        send_channel_notification = False
+        if not entry_datetime:
+            send_channel_notification = True
+            entry_datetime = timezone.localtime()
+            logger.debug(f">>> `entry_datetime` not given, using localtime: {entry_datetime}")
+        else:
+            logger.warning(f">>> Using user defined `entry_datetime`: {entry_datetime}")
+
+        logger.debug(
+            f"Creating AttendanceRecord: "
+            f"entry_datetime={entry_datetime}, "
+            f"created_by={command.user}, "
+            f"organization={command.organization}, "
+            f"category={AttendanceRecordCategory.END.value} ..."
+        )
+        record = AttendanceRecord(
+            created_by=command.user,
+            updated_by=command.user,
+            organization=command.organization,
+            category=AttendanceRecordCategory.END,
+            entry_datetime=entry_datetime,
+        )
+        record.save()
+        logger.debug(
+            f"Creating AttendanceRecord: "
+            f"entry_datetime={entry_datetime}, "
+            f"created_by={command.user}, "
+            f"organization={command.organization}, "
+            f"category={AttendanceRecordCategory.END.value} ... DONE"
+        )
+
+        attendance_report_channel = command.organization.slack_attendance_report_channel
+        if not send_channel_notification:
+            entry_datetime_display_str = entry_datetime.strftime("%Y/%-m/%-d %-H:%M")
+            command_response_blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"`{entry_datetime_display_str}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
+                        ),
+                    },
+                }
+            ]
+        else:
+            # Prepare the response message
+            web_client = WebClient(token=command.organization.slack_api_token)
+            user_image_url = None
+            attendance_notification_blocks = []
+            user_organization_membership = OrganizationMembership.objects.filter(user=command.user, organization=command.organization).first()
+            if user_organization_membership:
+                user_image_url = cls._get_user_image_url(web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS)
+                if user_image_url:
+                    logger.debug(f"User {record.created_by.username} has slack_image_url: {user_image_url}")
+                    # Output message with user SLACK image
+                    attendance_notification_blocks.append(
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "image",
+                                    "image_url": user_image_url,
+                                    "alt_text": command.user.display_name,
+                                },
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"*{command.user.display_name}* 退勤しました！\n> {text_without_subcommand} ",
+                                },
+                            ],
+                        }
+                    )
+
+            if not attendance_notification_blocks:
+                logger.warning(f"User {command.user.display_name} has no slack_image_url: {user_image_url}")
+                # Output message WITHOUT user SLACK image, fallback to :white_square:
+                attendance_notification_blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{command.user.display_name}* 退勤しました！\n> {text_without_subcommand}",
+                        },
+                    }
+                )
+
+            web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
+
+            command_response_blocks = [
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"`{attendance_report_channel}`チャンネルに通知をしました。"}}
+            ]
+        command.is_valid = True
+        command.save()
+        return command_response_blocks, web_send_response
+
+    @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
         web_send_response = None
@@ -46,7 +150,6 @@ class ClockOutSubCommand(SubCommandBase):
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
         # this is extra text provided by the user
-        text_without_subcommand = cls._get_text_without_subcommand(command)
         organization_command_name = command.organization.slack_command_name
 
         # get latest attendance record for the user/organization
@@ -83,75 +186,7 @@ class ClockOutSubCommand(SubCommandBase):
 
             else:
                 assert latest_attendance_record.category in (AttendanceRecordCategory.START, AttendanceRecordCategory.BREAK_END)
-                # check if datetime is given in 'text'
-                logger.debug(f"text_without_subcommand={text_without_subcommand}")
-                entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
-
-                send_channel_notification = False
-                if not entry_datetime:
-                    send_channel_notification = True
-                    entry_datetime = timezone.localtime()
-                    logger.debug(f">>> `entry_datetime` not given, using localtime: {entry_datetime}")
-                else:
-                    logger.warning(f">>> Using user defined `entry_datetime`: {entry_datetime}")
-
-                logger.debug(
-                    f"Creating AttendanceRecord: "
-                    f"entry_datetime={entry_datetime}, "
-                    f"created_by={command.user}, "
-                    f"organization={command.organization}, "
-                    f"category={AttendanceRecordCategory.END.value} ..."
-                )
-                record = AttendanceRecord(
-                    created_by=command.user,
-                    updated_by=command.user,
-                    organization=command.organization,
-                    category=AttendanceRecordCategory.END,
-                    entry_datetime=entry_datetime,
-                )
-                record.save()
-                logger.debug(
-                    f"Creating AttendanceRecord: "
-                    f"entry_datetime={entry_datetime}, "
-                    f"created_by={command.user}, "
-                    f"organization={command.organization}, "
-                    f"category={AttendanceRecordCategory.END.value} ... DONE"
-                )
-
-                attendance_report_channel = command.organization.slack_attendance_report_channel
-                if not send_channel_notification:
-                    entry_datetime_display_str = entry_datetime.strftime("%Y/%-m/%-d %-H:%M")
-                    command_response_blocks = [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": (
-                                    f"`{entry_datetime_display_str}`の退勤記録を登録しました。\n(時間指定の登録は、{attendance_report_channel}へ通知しません)",
-                                ),
-                            },
-                        }
-                    ]
-                else:
-                    # Prepare the response message
-                    attendance_notification_blocks = []
-                    attendance_notification_block = {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*{command.user.display_name}* 退勤しました！\n{text_without_subcommand}",
-                        },
-                    }
-                    attendance_notification_blocks.append(attendance_notification_block)
-
-                    web_client = WebClient(token=command.organization.slack_api_token)
-                    web_send_response = web_client.chat_postMessage(channel=attendance_report_channel, blocks=attendance_notification_blocks)
-
-                    command_response_blocks = [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": f"`{attendance_report_channel}`チャンネルに通知をしました。"}}
-                    ]
-                command.is_valid = True
-                command.save()
+                command_response_blocks, web_send_response = cls._prepare_valid_response_blocks(command)
         else:
             logger.warning(
                 f"No existing attendance record found for user {command.user} in organization {command.organization}, expecting START record."
