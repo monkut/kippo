@@ -9,6 +9,7 @@ from django.utils.text import gettext_lazy as _
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from ..definitions import ProjectProgressStatus
 from ..functions import current_week_startdate
 from ..models import ActiveKippoProject
 
@@ -44,6 +45,32 @@ class ProjectSlackManager:
                     project_progress_emoji = ":red_circle:"
         return project_progress_emoji
 
+    def __get_project_progress_display(self, project: ActiveKippoProject) -> str:
+        """Prepare the project progress display string"""
+        progress_status_display = None
+        project_progress_emoji = ":white_circle:"
+        project_progress_status: ProjectProgressStatus = project.get_projectprogressstatus_values()
+        logger.debug(f"project_progress_status.allocated_effort_hours={project_progress_status.allocated_effort_hours}")
+        logger.debug(f"project_progress_status.expected_effort_hours={project_progress_status.expected_effort_hours}")
+        if project_progress_status.allocated_effort_hours and project_progress_status.expected_effort_hours:
+            difference_percentage = project_progress_status.get_difference_percentage()
+            if project_progress_status.current_effort_hours is not None and project_progress_status.expected_effort_hours:
+                if project_progress_status.current_effort_hours < project_progress_status.expected_effort_hours:
+                    project_progress_emoji = ":large_green_circle:"
+                else:
+                    project_progress_emoji = ":large_yellow_circle:"
+                    if difference_percentage > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
+                        project_progress_emoji = ":red_circle:"
+
+            if difference_percentage:
+                difference_percentage_display = f"+{int(difference_percentage)}" if difference_percentage > 0 else f"{int(difference_percentage)}"
+                progress_status_display = (
+                    f"{project_progress_emoji} {project_progress_status.current_effort_hours}h ( {difference_percentage_display}% )"
+                )
+        if not progress_status_display and project_progress_status.current_effort_hours:
+            progress_status_display = f"{project_progress_emoji} {project_progress_status.current_effort_hours}h"
+        return progress_status_display
+
     def _prepare_project_status_blocks(self, project: ActiveKippoProject, user_comments: dict[str, list[str]]) -> list[dict]:
         slack_status_message_blocks = []
         divider_block = {"type": "divider"}
@@ -53,16 +80,13 @@ class ProjectSlackManager:
         # USERNAME:
         # :memo: COMMENT
         # ---
-        project_progress_emoji = self.__get_project_progress_emoji(project=project)
+        project_progress_display = self.__get_project_progress_display(project=project)
 
         project_header_block = {
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": (
-                    f"\n\n{project.name}\n{project.start_date} - {project.target_date}\n"
-                    f"{project_progress_emoji} {project.get_projecteffort_display()}"
-                ),
+                "text": f"\n\n{project.name}\n{project.start_date} - {project.target_date}\n{project_progress_display}",
             },
         }
         slack_status_message_blocks.append(project_header_block)

@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -9,6 +10,10 @@ if TYPE_CHECKING:
     from accounts.models import PersonalHoliday
 
 
+logger = logging.getLogger(__name__)
+SATURDAY = 5
+
+
 def get_personal_holiday_hours(personal_holidays: QuerySet["PersonalHoliday"], day_workhours: float, end_date: timezone.datetime.date) -> float:
     total_days = 0
     for holiday in personal_holidays:
@@ -18,7 +23,8 @@ def get_personal_holiday_hours(personal_holidays: QuerySet["PersonalHoliday"], d
         elif holiday.duration > 1:
             current_date = holiday.day
             while current_date <= end_date:
-                total_days += 1
+                if current_date.weekday() < SATURDAY:  # Only increment for business days (Monday to Friday)
+                    total_days += 1
                 current_date += timezone.timedelta(days=1)
         else:
             total_days += 1
@@ -52,17 +58,27 @@ def global_view_additional_context(request: HttpRequest) -> dict:
             week_enddate = week_startdate + timezone.timedelta(days=4)
 
             # remove public holidays from total
-            public_holidays = PublicHoliday.objects.filter(day__gte=week_startdate, day__lte=week_enddate).count()
-            public_holiday_hours = public_holidays * user_first_org.day_workhours
+            public_holidays = PublicHoliday.objects.filter(
+                day__gte=week_startdate,
+                day__lte=week_enddate,
+            )
+            if request.user.holiday_country:
+                public_holidays = public_holidays.filter(country=request.user.holiday_country)
+            elif org_membership and org_membership.default_holiday_country:
+                public_holidays = public_holidays.filter(country=org_membership.default_holiday_country)
+
+            public_holiday_days = public_holidays.count()
+            public_holiday_hours = public_holiday_days * user_first_org.day_workhours
             user_weeklyeffort_expected_total -= public_holiday_hours
 
             # remove personal holidays from total
-            personal_holidays = PersonalHoliday.objects.filter(day__gte=week_startdate, day__lte=week_enddate)
+            personal_holidays = PersonalHoliday.objects.filter(user=request.user, day__gte=week_startdate, day__lte=week_enddate)
             personal_holiday_hours = get_personal_holiday_hours(
                 personal_holidays,
                 day_workhours=user_first_org.day_workhours,
                 end_date=week_enddate,
             )
+
             user_weeklyeffort_expected_total -= personal_holiday_hours
 
             user_weeklyeffort_hours_result = ProjectWeeklyEffort.objects.filter(user=request.user, week_start=week_startdate).aggregate(Sum("hours"))

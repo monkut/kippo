@@ -105,7 +105,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "social_django.context_processors.backends",
                 "social_django.context_processors.login_redirect",
-                "kippo.context_processors.global_view_additional_context",  # PROVIDES settings.URL_PREFIX to context
+                "commons.context_processors.global_view_additional_context",  # PROVIDES settings.URL_PREFIX to context
             ]
         },
     }

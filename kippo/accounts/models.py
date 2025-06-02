@@ -237,6 +237,7 @@ class OrganizationMembership(UserCreatedBaseModel):
             "user",
             "organization",
         )
+        indexes = (models.Index(fields=["user_id", "organization_id"]),)
 
     @property
     def committed_days(self) -> int:
@@ -425,6 +426,14 @@ class PersonalHoliday(UserCreatedBaseModel):
         verbose_name = _("個人休日")
         verbose_name_plural = verbose_name
         ordering = ["-day"]
+        indexes = (
+            models.Index(
+                fields=[
+                    "user_id",
+                    "day",
+                ]
+            ),
+        )
 
     def __str__(self) -> str:
         return f"PersonalHoliday({self.user.username} [{self.day} ({self.duration})])"
@@ -472,7 +481,7 @@ class Country(models.Model):
 class PublicHoliday(models.Model):
     country = models.ForeignKey(Country, on_delete=models.CASCADE)
     name = models.CharField(max_length=150, help_text=_("Holiday Name"))
-    day = models.DateField()
+    day = models.DateField(db_index=True)
 
     class Meta:
         ordering = ["-day"]
