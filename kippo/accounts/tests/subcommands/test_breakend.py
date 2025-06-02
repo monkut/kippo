@@ -233,3 +233,10 @@ class ClockInSubCommandTestCase(IsStaffModelAdminTestCaseBase):
             self.assertEqual(end_attendance_record.entry_datetime, expected_entry_datetime.astimezone(datetime.UTC))
 
             AttendanceRecord.objects.filter(category=AttendanceRecordCategory.BREAK_END).delete()
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        from commons.slackcommand import get_all_subcommands
+
+        available_subcommands = get_all_subcommands()
+        self.assertIn(BreakEndSubCommand, available_subcommands)

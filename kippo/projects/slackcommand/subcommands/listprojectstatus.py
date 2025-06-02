@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class ListProjectStatusSubCommand(SubCommandBase):
-    """Command to clock out a user."""
+    """Command to list all project status for the current week"""
 
     DISPLAY_COMMAND_NAME: str = "list-project-status"
     DESCRIPTION: str = "実行中プロジェクトの現状週間ステータスを表示します。例） `COMMAND list-project-status`"

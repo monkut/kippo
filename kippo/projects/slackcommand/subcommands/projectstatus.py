@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectStatusSubCommand(SubCommandBase):
-    """Command to clock out a user."""
+    """Command to add project status for a related slack channel for a a user."""
 
     DISPLAY_COMMAND_NAME: str = "project-status"
     DESCRIPTION: str = _("チャンネルのプロジェクトへステータスを当露光。例) `COMMAND project-status {STATUS COMMENT}`")
@@ -25,7 +25,7 @@ class ProjectStatusSubCommand(SubCommandBase):
 
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
-        """Handle the check-in command."""
+        """Handle the project-status command."""
         web_send_response = None
 
         assert cls._is_valid_subcommand_alias(command.sub_command)

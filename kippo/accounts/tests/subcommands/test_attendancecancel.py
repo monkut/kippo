@@ -150,3 +150,10 @@ class AttendanceCancelSubCommandTestCase(IsStaffModelAdminTestCaseBase):
 
             # delete for next category test
             AttendanceRecord.objects.all().delete()
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        from commons.slackcommand import get_all_subcommands
+
+        available_subcommands = get_all_subcommands()
+        self.assertIn(AttendanceCancelSubCommand, available_subcommands)

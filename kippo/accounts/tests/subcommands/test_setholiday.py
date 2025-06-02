@@ -222,3 +222,10 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
             self.assertTrue(personalholiday.is_half)
 
             personalholiday.delete()  # delete for next loop
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        from commons.slackcommand import get_all_subcommands
+
+        available_subcommands = get_all_subcommands()
+        self.assertIn(SetHolidaySubCommand, available_subcommands)
