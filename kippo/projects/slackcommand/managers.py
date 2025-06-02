@@ -25,17 +25,10 @@ class ProjectSlackManager:
             raise ValueError("Slack channel reporting ('enable_slack_channel_reporting') is not enabled for this organization.")
         self.client = WebClient(token=organization.slack_api_token)
 
-    def _prepare_project_status_blocks(self, project: ActiveKippoProject, user_comments: dict[str, list[str]]) -> list[dict]:
-        slack_status_message_blocks = []
-        divider_block = {"type": "divider"}
-        # PROJECT_NAME 完了予定 YYYY-MM-DD
-        # :large_green_circle: 0/10h (0%)
-        # ---
-        # USERNAME:
-        # :memo: COMMENT
-        # ---
+    def __get_project_progress_emoji(self, project: ActiveKippoProject) -> str:
+        """Calculate the project progress emoji based on actual and expected effort hours."""
         actual_effort_hours, allocated_effort_hours, total_effort_percentage = project.get_projecteffort_values()
-        expected_effort_hours = project.get_expected_effort_hours()
+        _, expected_effort_hours = project.get_expected_effort()
         logger.debug(
             f"project={project.name}, allocated_effort_hours={allocated_effort_hours}, "
             f"actual_effort_hours={actual_effort_hours}, expected_effort_hours={expected_effort_hours}"
@@ -49,6 +42,18 @@ class ProjectSlackManager:
                 percentage_exceeding_expected = ((actual_effort_hours - expected_effort_hours) / expected_effort_hours) * 100
                 if percentage_exceeding_expected > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
                     project_progress_emoji = ":red_circle:"
+        return project_progress_emoji
+
+    def _prepare_project_status_blocks(self, project: ActiveKippoProject, user_comments: dict[str, list[str]]) -> list[dict]:
+        slack_status_message_blocks = []
+        divider_block = {"type": "divider"}
+        # PROJECT_NAME 完了予定 YYYY-MM-DD
+        # :large_green_circle: 0/10h (0%)
+        # ---
+        # USERNAME:
+        # :memo: COMMENT
+        # ---
+        project_progress_emoji = self.__get_project_progress_emoji(project=project)
 
         project_header_block = {
             "type": "header",

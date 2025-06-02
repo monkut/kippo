@@ -22,6 +22,7 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
+from .definitions import ProjectProgressStatus
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
@@ -150,7 +151,7 @@ VALID_PROJECT_PHASES = (
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE)
-    name = models.CharField(max_length=256, unique=True)
+    name = models.CharField(max_length=256, unique=True, verbose_name=_("プロジェクト名"), help_text=_("Name of the project"))
     slug = models.CharField(max_length=300, unique=True, editable=False)
     phase = models.CharField(
         max_length=150,
@@ -191,16 +192,16 @@ class KippoProject(UserCreatedBaseModel):
     github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
     github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), blank=True, default="")
     allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
-    start_date = models.DateField(_("Start Date"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
+    start_date = models.DateField(_("開始日"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
     target_date = models.DateField(
-        _("Target Finish Date"),
+        _("完了予定日"),
         null=True,
         blank=True,
         default=get_target_date_default,
         help_text=_("Date the Project is planned to be completed by."),
     )
     actual_date = models.DateField(
-        _("Actual Completed Date"),
+        _("完了日"),
         null=True,
         blank=True,
         help_text=_("The date the project was actually completed on (not the initial target)"),
@@ -300,23 +301,26 @@ class KippoProject(UserCreatedBaseModel):
             latest_kippoprojectstatus = None
         return latest_kippoprojectstatus
 
+    @property
+    def allocated_effort_hours(self) -> int | None:
+        if self.allocated_staff_days and self.organization.day_workhours:
+            return self.allocated_staff_days * self.organization.day_workhours
+        logger.warning(
+            f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={self}, organization={self.organization}"
+        )
+        return None
+
     def get_projecteffort_values(self) -> tuple[int, int | None, float | None]:
         actual_effort_hours = self.get_total_effort()
         total_effort_percentage = None
-        allocated_effort_hours = None
-        if self.allocated_staff_days and self.organization.day_workhours:
-            allocated_effort_hours = self.allocated_staff_days * self.organization.day_workhours
-        else:
-            logger.warning(
-                f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={self}, organization={self.organization}"
-            )
-        if actual_effort_hours and allocated_effort_hours:
-            total_effort_percentage = (actual_effort_hours / allocated_effort_hours) * 100
-        return actual_effort_hours, allocated_effort_hours, total_effort_percentage
+        if actual_effort_hours and self.allocated_effort_hours:
+            total_effort_percentage = (actual_effort_hours / self.allocated_effort_hours) * 100
+        return actual_effort_hours, self.allocated_effort_hours, total_effort_percentage
 
-    def get_expected_effort_hours(self, at_date: datetime.date | None = None) -> int | None:
+    def get_expected_effort(self, at_date: datetime.date | None = None) -> tuple[int | None, int | None]:
         """Calculate the expected effort hours for the project at a given date"""
-        expected_completion_hours = None
+        expected_effort_days = None
+        expected_effort_hours = None
         if self.start_date and self.target_date and self.allocated_staff_days:
             if not at_date:
                 at_date = timezone.localdate()
@@ -328,7 +332,7 @@ class KippoProject(UserCreatedBaseModel):
                 if self.organization.default_holiday_country:
                     holidays = list(
                         PublicHoliday.objects.filter(
-                            country=self.organization.default_holiday_country, date__gte=self.start_date, date__lte=self.target_date
+                            country=self.organization.default_holiday_country, day__gte=self.start_date, day__lte=self.target_date
                         ).values_list("day", flat=True)
                     )
 
@@ -349,7 +353,7 @@ class KippoProject(UserCreatedBaseModel):
 
                 if total_available_workdays:
                     hours_per_day = total_project_hours / total_available_workdays
-                    expected_completion_hours = hours_per_day * available_workdays_at_date
+                    expected_effort_hours = hours_per_day * available_workdays_at_date
             else:
                 logger.warning(f"at_date({at_date}) is not between start_date({self.start_date}) and target_date({self.target_date})")
         else:
@@ -358,7 +362,25 @@ class KippoProject(UserCreatedBaseModel):
                 f"project={self}, organization={self.organization}"
             )
             logger.warning(f"start_date={self.start_date}, target_date={self.target_date}, allocated_staff_days={self.allocated_staff_days}")
-        return expected_completion_hours
+        return expected_effort_days, expected_effort_hours
+
+    def get_projectprogressstatus_values(self) -> ProjectProgressStatus:
+        actual_effort_hours, allocated_effort_hours, total_effort_percentage = self.get_projecteffort_values()
+        expected_effort_days, expected_effort_hours = self.get_expected_effort()
+        logger.debug(
+            f"project={self.name}, allocated_effort_hours={allocated_effort_hours}, "
+            f"actual_effort_hours={actual_effort_hours}, expected_effort_hours={expected_effort_hours}"
+        )
+        project_progress_status = ProjectProgressStatus(
+            project=self,
+            date=timezone.localdate(),
+            current_effort_hours=actual_effort_hours,
+            expected_effort_hours=expected_effort_hours,
+            expected_effort_days=expected_effort_days,
+            allocated_effort_hours=allocated_effort_hours,
+            allocated_effort_days=self.allocated_staff_days,
+        )
+        return project_progress_status
 
     def get_projecteffort_display(self) -> str:
         result = "-"

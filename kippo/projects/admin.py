@@ -26,12 +26,14 @@ from django.http import (
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from rangefilter.filters import DateRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
+from .definitions import ProjectProgressStatus
 from .exceptions import GithubMilestoneAlreadyExistsError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -287,7 +289,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "phase",
         "category",
         "get_confidence_display",
-        "get_projecteffort_display",
+        "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
@@ -331,15 +333,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     get_updated_by_display.short_description = "updated by"
 
+    @admin.display(description=_("confidence"), ordering="confidence")
     def get_confidence_display(self, obj: KippoProject):
         result = ""
         if obj.confidence:
             result = f"{obj.confidence} %"
         return result
 
-    get_confidence_display.admin_order_field = "confidence"
-    get_confidence_display.short_description = "confidence"
-
+    @admin.display(description=_("アンケート完了ユーザ"))
     def get_kippoprojectuserstatisfactionresult_usernames(self, obj: KippoProject | None = None) -> str:
         result = ""
         if obj:
@@ -352,16 +353,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
         return result
 
-    get_kippoprojectuserstatisfactionresult_usernames.short_description = f"{KippoProjectUserStatisfactionResult._meta.verbose_name} Submitted Users"
-
+    @admin.display(description=_("顧客アンケートURL"))
     def get_projectsurvey_display_url(self, obj: KippoProject) -> str:
         url = obj.get_projectsurvey_url()
         html_encoded_url = ""
         if url:
             html_encoded_url = format_html(f"<a href='{url}'>Survey URL</a>")
         return html_encoded_url
-
-    get_projectsurvey_display_url.short_description = _("Project Survey URL")
 
     def export_project_kippotaskstatus_csv(self, request: DjangoRequest, queryset: models.QuerySet):
         """Allow export to csv from admin"""
@@ -407,6 +405,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
 
+    @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
         result = ""
         latest_status = obj.get_latest_kippoprojectstatus()
@@ -417,22 +416,66 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=result)
         return result
 
-    get_latest_kippoprojectstatus_comment.short_description = _("Latest Comment")
+    @admin.display(description=_("稼働状況"))
+    def get_projectstatus_display(self, obj: KippoProject | None = None) -> str:
+        progress_status_display = "-"
+        if obj:
+            progress_status_display = None
+            project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values()
+            # low < high
+            # if x > high, then display as "red"
+            # if x > low, then display as "yellow"
+            # x <= low, then display as "green"
+            logger.debug(f"project_progress_status.allocated_effort_hours={project_progress_status.allocated_effort_hours}")
+            logger.debug(f"project_progress_status.expected_effort_hours={project_progress_status.expected_effort_hours}")
+            if project_progress_status.allocated_effort_hours and project_progress_status.expected_effort_hours:
+                low = int(project_progress_status.expected_effort_hours) + 1
+                # percent_value = project_progress_status.allocated_effort_hours * (settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD / 100)
+                high = (
+                    settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD / 100
+                ) * project_progress_status.expected_effort_hours + project_progress_status.expected_effort_hours
 
-    @admin.display(description=_("Effort Hours"))
+                max_value = project_progress_status.allocated_effort_hours
+                if (
+                    project_progress_status.allocated_effort_hours
+                    and project_progress_status.current_effort_hours
+                    and project_progress_status.allocated_effort_hours < project_progress_status.current_effort_hours
+                ):
+                    max_value = project_progress_status.current_effort_hours
+
+                difference_percentage = project_progress_status.get_difference_percentage()
+                if difference_percentage:
+                    difference_percentage_display = f"+{int(difference_percentage)}" if difference_percentage > 0 else f"{int(difference_percentage)}"
+                    low_display = f'low="{low}" ' if low < max_value else ""
+                    progress_status_display = (
+                        f"{project_progress_status.current_effort_hours}h<br/>"
+                        f"{difference_percentage_display}%<br/>"
+                        f'<meter min="0" '
+                        f"{low_display}"
+                        f'optimum="{int(project_progress_status.expected_effort_hours)}" '
+                        f'high="{high}" '
+                        f'max="{max_value}" '
+                        f'value="{project_progress_status.current_effort_hours}"></meter>'
+                    )
+            if not progress_status_display and project_progress_status.current_effort_hours:
+                progress_status_display = f"{project_progress_status.current_effort_hours}h"
+            elif not progress_status_display:
+                progress_status_display = "-"
+        return mark_safe(progress_status_display)  # noqa: S308
+
+    @admin.display(description=_("稼働時間"))
     def get_projecteffort_display(self, obj: KippoProject | None = None) -> str:
         result = "-"
         if obj:
             result = obj.get_projecteffort_display()
         return result
 
+    @admin.display(description=_("GITHUBプロジェクト"))
     def show_github_project_html_url(self, obj: KippoProject) -> str:
         url = ""
         if obj.github_project_html_url:
             url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
         return url
-
-    show_github_project_html_url.short_description = _("GitHub Project URL")
 
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool) -> None:
         instances = formset.save(commit=False)
@@ -495,17 +538,14 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
     list_display = (
         "id",
         "name",
-        "phase",
         "get_confidence_display",
-        "get_projecteffort_display",
+        "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
         "target_date",
         "get_kippoprojectuserstatisfactionresult_usernames",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
-        "get_updated_by_display",
-        "updated_datetime",
     )
 
     fieldsets = [
