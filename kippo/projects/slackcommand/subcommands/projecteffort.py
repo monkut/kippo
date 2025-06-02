@@ -102,6 +102,8 @@ class ProjectEffortSubCommand(SubCommandBase):
                             week_start=week_start_date,
                             user=command.user,
                             hours=hours,
+                            created_by=command.user,
+                            updated_by=command.user,
                         )
                         effort.save()
                         logger.info(
@@ -114,7 +116,7 @@ class ProjectEffortSubCommand(SubCommandBase):
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": (f"({display_week_start_date}週) {related_project.name}に '{hours}' 稼働時間を登録しました。\n"),
+                                    "text": (f"({display_week_start_date}週) *{related_project.name}* に `{hours}` の稼働時間を登録しました。"),
                                 },
                             }
                         ]
@@ -133,7 +135,7 @@ class ProjectEffortSubCommand(SubCommandBase):
                                     "type": "mrkdwn",
                                     "text": (
                                         f"> {text_without_subcommand}\n"
-                                        f"({display_week_start_date}週) {related_project.name} ({existing_effort.hours}) "
+                                        f"({display_week_start_date}週) *{related_project.name}* に `{existing_effort.hours}h` の"
                                         f"稼働時間はすでに登録されています。"
                                     ),
                                 },

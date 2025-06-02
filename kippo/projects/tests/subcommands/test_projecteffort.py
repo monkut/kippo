@@ -35,7 +35,7 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.project_slack_channel_name = "test_channel"
         KippoProjectStatus.objects.all().delete()
 
-    @mock.patch("projects.slackcommand.subcommands.projectstatus.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch("projects.slackcommand.subcommands.projecteffort.WebhookClient.send", return_value=webhook_response_factory())
     def test_no_linkied_project(self, *_):
         """Confirm that a *new* KippoProojectStatus is NOT created when a project with related slack channel is not found."""
         expected_slackcommand_count = 0
@@ -64,7 +64,8 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         project_weekly_effort_count = ProjectWeeklyEffort.objects.filter(project=self.project).count()
         self.assertEqual(project_weekly_effort_count, expected_weekly_effort_count)
 
-    def test_valid_with_subcommand_aliases(self):
+    @mock.patch("projects.slackcommand.subcommands.projecteffort.WebhookClient.send", return_value=webhook_response_factory())
+    def test_valid_with_subcommand_aliases(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
         expected_projectweeklyeffort_count = 0
@@ -106,7 +107,8 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
             # delete the created record for the next test iteration
             project_weekly_effort.delete()
 
-    def test_invalid_hours_input(self):
+    @mock.patch("projects.slackcommand.subcommands.projecteffort.WebhookClient.send", return_value=webhook_response_factory())
+    def test_invalid_hours_input(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
         expected_projectweeklyeffort_count = 0
@@ -140,7 +142,8 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
             project_weekly_effort_count = ProjectWeeklyEffort.objects.filter(project=self.project).count()
             self.assertEqual(project_weekly_effort_count, expected_weekly_effort_count)
 
-    def test_entry_already_exists(self):
+    @mock.patch("projects.slackcommand.subcommands.projecteffort.WebhookClient.send", return_value=webhook_response_factory())
+    def test_entry_already_exists(self, *_):
         expected_slackcommand_count = 0
         assert SlackCommand.objects.count() == expected_slackcommand_count
         expected_projectweeklyeffort_count = 0

@@ -1,6 +1,7 @@
 from unittest import mock
 
 from accounts.models import OrganizationMembership, SlackCommand
+from commons.slackcommand import get_all_subcommands
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
 from commons.tests.utils import webhook_response_factory
 
@@ -140,3 +141,8 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
 
             # delete the created record for the next test iteration
             kippoprojectstatus.delete()
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        available_subcommands = get_all_subcommands()
+        self.assertIn(ProjectStatusSubCommand, available_subcommands)

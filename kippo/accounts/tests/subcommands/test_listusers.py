@@ -244,3 +244,10 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(self.membership.slack_image_url, SLACK_RESPONSE_IMAGE_URL)
         today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         self.assertGreaterEqual(self.membership.updated_datetime, today)
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        from commons.slackcommand import get_all_subcommands
+
+        available_subcommands = get_all_subcommands()
+        self.assertIn(ListUsersSubCommand, available_subcommands)

@@ -1,6 +1,7 @@
 from unittest import mock
 
 from accounts.models import OrganizationMembership, SlackCommand
+from commons.slackcommand import get_all_subcommands
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
 from commons.tests.utils import webhook_response_factory
 from django.utils import timezone
@@ -194,3 +195,8 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
 
         expected_type = "divider"
         self.assertEqual(divider_block_2["type"], expected_type)
+
+    def test_subcommand_registered(self):
+        """Confirm that the subcommand is registered."""
+        available_subcommands = get_all_subcommands()
+        self.assertIn(ListProjectStatusSubCommand, available_subcommands)

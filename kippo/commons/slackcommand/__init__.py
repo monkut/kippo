@@ -1,9 +1,5 @@
 def get_all_subcommands() -> tuple:
-    """
-    Import and list all subcommands.
-
-    NOTE: using @lazy decorator to avoid circular import issues.
-    """
+    """Import and list all subcommands."""
     from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
     from accounts.slackcommand.subcommands.clockout import ClockOutSubCommand
     from accounts.slackcommand.subcommands.setholiday import SetHolidaySubCommand
@@ -13,6 +9,8 @@ def get_all_subcommands() -> tuple:
     from accounts.slackcommand.subcommands.attendancecancel import AttendanceCancelSubCommand
     from projects.slackcommand.subcommands.projectstatus import ProjectStatusSubCommand
     from projects.slackcommand.subcommands.listprojectstatus import ListProjectStatusSubCommand
+    from projects.slackcommand.subcommands.projecteffort import ProjectEffortSubCommand
+    from projects.slackcommand.subcommands.listprojecteffort import ListProjectEffortSubCommand
 
     from .subcommands.listcommands import ListCommandsSubCommand
 
@@ -28,4 +26,6 @@ def get_all_subcommands() -> tuple:
         ProjectStatusSubCommand,
         ListProjectStatusSubCommand,
         ListCommandsSubCommand,
+        ProjectEffortSubCommand,
+        ListProjectEffortSubCommand,
     )
