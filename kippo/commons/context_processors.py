@@ -65,7 +65,7 @@ def global_view_additional_context(request: HttpRequest) -> dict:
             if request.user.holiday_country:
                 public_holidays = public_holidays.filter(country=request.user.holiday_country)
             elif org_membership and org_membership.organization.default_holiday_country:
-                public_holidays = public_holidays.filter(country=org_membership.default_holiday_country)
+                public_holidays = public_holidays.filter(country=org_membership.organization.default_holiday_country)
 
             public_holiday_days = public_holidays.count()
             public_holiday_hours = public_holiday_days * user_first_org.day_workhours
