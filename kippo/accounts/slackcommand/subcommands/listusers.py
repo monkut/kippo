@@ -11,6 +11,7 @@ from slack_sdk.web import SlackResponse, WebClient
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
 from ...definitions import AttendanceRecordCategory
+from ...handlers.functions import _prepare_organization_user_status_blocks
 from ...models import AttendanceRecord, OrganizationMembership, SlackCommand
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,22 @@ class ListUsersSubCommand(SubCommandBase):
                     },
                 }
             ]
+
+        # get personal holidays for the organization
+        web_client = WebClient(token=command.organization.slack_api_token)  # needed to get user images
+        user_status_blocks, _ = _prepare_organization_user_status_blocks(
+            command.organization, web_client=web_client, include_no_personalholidays=True
+        )
+        command_response_blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"今日（{today_start_datetime.date()}）休予定のメンバー:\n",
+                },
+            }
+        )
+        command_response_blocks.extend(user_status_blocks)
 
         # Notify user that notification was sent to the registered channel
         webhook_client = WebhookClient(command.response_url)

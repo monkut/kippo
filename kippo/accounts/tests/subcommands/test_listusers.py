@@ -69,7 +69,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(web_response)
         self.assertTrue(webhook_response)
 
-        expected_block_count = 1
+        expected_block_count = 3  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block = blocks[0]
         self.assertIn("出勤記録がみつかりません", response_block["text"]["text"])
@@ -119,7 +119,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]
@@ -170,7 +170,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]
@@ -231,7 +231,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]
