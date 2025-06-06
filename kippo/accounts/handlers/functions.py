@@ -128,4 +128,15 @@ def post_personalholidays(event: dict | None = None, context: dict | None = None
             logger.debug(
                 f"Posted PersonalHoliday report to {attendance_report_channel} for organization {organization.name}, response: {web_send_response}"
             )
-    return user_persionalholidays, personalholidays_report_blocks
+    serializable_user_persionalholidays = [
+        {
+            "user": user.username,
+            "personal_holiday": {
+                "day": persionalholiday.day.isoformat(),
+                "duration": persionalholiday.duration,
+                "is_half": persionalholiday.is_half,
+            },
+        }
+        for user, persionalholiday in user_persionalholidays
+    ]
+    return serializable_user_persionalholidays, personalholidays_report_blocks

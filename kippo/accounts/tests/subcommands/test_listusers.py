@@ -45,7 +45,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_no_attendencerecords(self, *_):
@@ -79,7 +79,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_with_valid_image_url(self, *_):
@@ -132,7 +132,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_without_image_url(self, *_):
@@ -186,7 +186,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_with_invalid_image_url(self, *_):
