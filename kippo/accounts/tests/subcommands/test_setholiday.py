@@ -40,7 +40,7 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_personalholiday_not_created_on_missing_date(self, *_):
@@ -152,7 +152,7 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_valid_fullday_date(self, *_):
@@ -187,7 +187,7 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.setholiday.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_valid_halfday_date(self, *_):

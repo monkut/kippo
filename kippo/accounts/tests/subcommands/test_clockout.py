@@ -40,7 +40,7 @@ class ClockOutSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.clockout.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockout.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_attendancerecord_not_created_on_missing_start(self, *_):
@@ -73,7 +73,7 @@ class ClockOutSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.clockout.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockout.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_attendanceslackmanager_processcommand_clockoutcommand_aliases(self, *_):
@@ -122,7 +122,7 @@ class ClockOutSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.clockout.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockout.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_with_preexisting_attendancerecord(self, *_):
@@ -167,7 +167,7 @@ class ClockOutSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.clockout.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockout.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_set_by_datetime(self, *_):
@@ -216,7 +216,7 @@ class ClockOutSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.clockout.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.clockout.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
     )
     def test_set_by_datetime_without_year(self, *_):
