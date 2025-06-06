@@ -9,6 +9,8 @@ from django.utils import timezone
 from accounts.handlers.functions import post_personalholidays
 from accounts.models import OrganizationMembership, PersonalHoliday
 
+SLACK_RESPONSE_IMAGE_URL = "https://example.com/image.jpg"
+
 
 class PostPersonalHolidaysTestCase(IsStaffModelAdminTestCaseBase):
     def setUp(self):
@@ -33,7 +35,12 @@ class PostPersonalHolidaysTestCase(IsStaffModelAdminTestCaseBase):
 
         PersonalHoliday.objects.all().delete()
 
-    def test_postpersonalholidays__without_holidays(self):
+    @mock.patch("accounts.handlers.functions.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK))
+    @mock.patch(
+        "commons.slackcommand.base.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
+    )
+    def test_postpersonalholidays__without_holidays(self, *_):
         expected_personalholiday_count = 0
         assert PersonalHoliday.objects.count() == expected_personalholiday_count
 
@@ -42,6 +49,10 @@ class PostPersonalHolidaysTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(personalholidays_report_blocks)
 
     @mock.patch("accounts.handlers.functions.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK))
+    @mock.patch(
+        "commons.slackcommand.base.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
+    )
     def test_postpersonalholidays__with_holidays_on_date(self, *_):
         expected_personalholiday_count = 0
         assert PersonalHoliday.objects.count() == expected_personalholiday_count
@@ -58,6 +69,10 @@ class PostPersonalHolidaysTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(personalholidays_report_blocks)
 
     @mock.patch("accounts.handlers.functions.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK))
+    @mock.patch(
+        "commons.slackcommand.base.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
+    )
     def test_postpersonalholidays__with_holidays_duration(self, *_):
         expected_personalholiday_count = 0
         assert PersonalHoliday.objects.count() == expected_personalholiday_count

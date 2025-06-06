@@ -45,7 +45,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_no_attendencerecords(self, *_):
@@ -69,7 +69,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(web_response)
         self.assertTrue(webhook_response)
 
-        expected_block_count = 1
+        expected_block_count = 3  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block = blocks[0]
         self.assertIn("出勤記録がみつかりません", response_block["text"]["text"])
@@ -79,7 +79,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_with_valid_image_url(self, *_):
@@ -119,7 +119,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]
@@ -132,7 +132,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_without_image_url(self, *_):
@@ -170,7 +170,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]
@@ -186,7 +186,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         "accounts.slackcommand.subcommands.listusers.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
     )
     @mock.patch(
-        "accounts.slackcommand.subcommands.listusers.WebClient.users_info",
+        "commons.slackcommand.base.WebClient.users_info",
         return_value={"user": {"profile": {"image_192": SLACK_RESPONSE_IMAGE_URL}}},
     )
     def test_attendancerecord_user_with_invalid_image_url(self, *_):
@@ -231,7 +231,7 @@ class ListUsersSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(webhook_response)
 
         # 1 section header "section" block and 1 user "context" block
-        expected_block_count = 2
+        expected_block_count = 4  # attendance + personal holidays
         self.assertEqual(len(blocks), expected_block_count)
         response_block_header = blocks[0]
         response_block_user = blocks[1]

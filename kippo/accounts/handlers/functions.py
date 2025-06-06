@@ -39,10 +39,82 @@ def _get_persionalholidays_for_date(
     return users_on_personalholiday
 
 
-def post_personalholidays(event: dict | None = None, context: dict | None = None) -> tuple[list, list]:  # noqa: ARG001
-    """Post PersonalHoliday to Slack."""
+def _prepare_organization_user_status_blocks(
+    organization: KippoOrganization, web_client: WebClient, include_no_personalholidays: bool = False
+) -> tuple[list[dict], list[tuple[KippoUser, PersonalHoliday]]]:
     from commons.slackcommand.base import SubCommandBase
 
+    # get organization members
+    organization_memberships = list(OrganizationMembership.objects.filter(organization=organization).order_by("user__last_name", "user__first_name"))
+    organization_users = [membership.user for membership in organization_memberships]
+    organizationmembership_by_username = {membership.user.username: membership for membership in organization_memberships}
+
+    user_persionalholidays = _get_persionalholidays_for_date(
+        organization_users,
+        read_behind_buffer_days=settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
+    )
+    logger.info(f"Found {len(user_persionalholidays)} users with PersonalHoliday in organization {organization.name}")
+    if not user_persionalholidays:
+        logger.info(
+            f"-- if PersonalHoliday output is expected, check KippoOrganization {organization.name} settings: "
+            f"slack_attendance_report_channel, enable_slack_channel_reporting"
+        )
+    user_status_blocks = []
+    for user, persionalholiday in user_persionalholidays:
+        logger.info(f"User {user.username} has PersonalHoliday: {persionalholiday}")
+        user_organization_membership = organizationmembership_by_username.get(user.username, None)
+        user_image_url = SubCommandBase._get_user_image_url(
+            web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS
+        )
+
+        half_day_text = "半休" if persionalholiday.is_half else "全休"
+        if user_image_url:
+            logger.debug(f"User {user.username} has slack_image_url: {user_image_url}")
+            # Output message with user SLACK image
+            user_status_blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "image",
+                            "image_url": user_image_url,
+                            "alt_text": user.display_name,
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*{user.display_name}* 本日 {half_day_text}します。",
+                        },
+                    ],
+                }
+            )
+        else:
+            logger.warning(f"User {user.username} has no slack_image_url: {user_image_url}")
+            # Output message WITHOUT user SLACK image, fallback to :white_square:
+            user_status_blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":white_square: *{user.display_name}* 本日 {half_day_text}します。",
+                    },
+                }
+            )
+    if not user_status_blocks and include_no_personalholidays:
+        logger.info(f"No PersonalHoliday entries found for organization {organization.name} on {timezone.localdate()}")
+        user_status_blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"今日（{timezone.localdate()}）休む予定のメンバーはみつかりません。",
+                },
+            }
+        )
+    return user_status_blocks, user_persionalholidays
+
+
+def post_personalholidays(event: dict | None = None, context: dict | None = None) -> tuple[list, list]:  # noqa: ARG001
+    """Post PersonalHoliday to Slack."""
     # get latest attendance record for each user/organization for the today
     enabled_organizations = KippoOrganization.objects.filter(
         slack_attendance_report_channel__isnull=False,
@@ -52,64 +124,9 @@ def post_personalholidays(event: dict | None = None, context: dict | None = None
     user_persionalholidays = []
     personalholidays_report_blocks = []
     for organization in enabled_organizations:
-        # get organization members
-        organization_memberships = list(
-            OrganizationMembership.objects.filter(organization=organization).order_by("user__last_name", "user__first_name")
-        )
-        organization_users = [membership.user for membership in organization_memberships]
-        organizationmembership_by_username = {membership.user.username: membership for membership in organization_memberships}
-
-        user_persionalholidays = _get_persionalholidays_for_date(
-            organization_users,
-            read_behind_buffer_days=settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
-        )
-        logger.info(f"Found {len(user_persionalholidays)} users with PersonalHoliday in organization {organization.name}")
-        if not user_persionalholidays:
-            logger.info(
-                f"-- if PersonalHoliday output is expected, check KippoOrganization {organization.name} settings: "
-                f"slack_attendance_report_channel, enable_slack_channel_reporting"
-            )
-        user_status_blocks = []
         web_client = WebClient(token=organization.slack_api_token)
-        for user, persionalholiday in user_persionalholidays:
-            logger.info(f"User {user.username} has PersonalHoliday: {persionalholiday}")
-            user_organization_membership = organizationmembership_by_username.get(user.username, None)
-            user_image_url = SubCommandBase._get_user_image_url(
-                web_client, user_organization_membership, refresh_days=settings.REFRESH_SLACK_IMAGE_URL_DAYS
-            )
-
-            half_day_text = "半休" if persionalholiday.is_half else "全休"
-            if user_image_url:
-                logger.debug(f"User {user.username} has slack_image_url: {user_image_url}")
-                # Output message with user SLACK image
-                user_status_blocks.append(
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "image",
-                                "image_url": user_image_url,
-                                "alt_text": user.display_name,
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*{user.display_name}* 本日 {half_day_text}します。",
-                            },
-                        ],
-                    }
-                )
-            else:
-                logger.warning(f"User {user.username} has no slack_image_url: {user_image_url}")
-                # Output message WITHOUT user SLACK image, fallback to :white_square:
-                user_status_blocks.append(
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f":white_square: *{user.display_name}* 本日 {half_day_text}します。",
-                        },
-                    }
-                )
+        user_status_blocks, organization_user_persionalholidays = _prepare_organization_user_status_blocks(organization, web_client)
+        user_persionalholidays.extend(organization_user_persionalholidays)
         if user_status_blocks:
             personalholidays_report_blocks = [
                 {
@@ -128,4 +145,15 @@ def post_personalholidays(event: dict | None = None, context: dict | None = None
             logger.debug(
                 f"Posted PersonalHoliday report to {attendance_report_channel} for organization {organization.name}, response: {web_send_response}"
             )
-    return user_persionalholidays, personalholidays_report_blocks
+    serializable_user_persionalholidays = [
+        {
+            "user": user.username,
+            "personal_holiday": {
+                "day": persionalholiday.day.isoformat(),
+                "duration": persionalholiday.duration,
+                "is_half": persionalholiday.is_half,
+            },
+        }
+        for user, persionalholiday in user_persionalholidays
+    ]
+    return serializable_user_persionalholidays, personalholidays_report_blocks
