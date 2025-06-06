@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @admin.register(GithubRepository)
 class GithubRepositoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_label_set_name", "get_html_url", "api_url")
+    search_fields = ("name",)
     actions = ("update_labels",)
     ordering = ("organization", "name")
 
