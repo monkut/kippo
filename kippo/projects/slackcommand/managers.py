@@ -10,7 +10,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from ..definitions import ProjectProgressStatus
-from ..functions import current_week_startdate
+from ..functions import previous_week_startdate
 from ..models import ActiveKippoProject
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ class ProjectSlackManager:
 
     def _build_weekly_project_status_blocks(self, week_start_datetime: datetime.datetime | None = None) -> list[list[dict]]:
         if not week_start_datetime:
-            week_start_date = current_week_startdate()
+            week_start_date = previous_week_startdate()
             time_deadline = self.organization.weekly_project_time_deadline
             week_start_datetime = datetime.datetime.combine(week_start_date, time_deadline, tzinfo=settings.JST)
 
