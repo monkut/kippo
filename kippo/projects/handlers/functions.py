@@ -53,7 +53,7 @@ def handle_projectid_mapping(event: dict | None = None, context: dict | None = N
         logger.warning("PROJECTID_MAPPING_JSON_S3URI envar not defined, projectid_mapping json file will not be written!")
 
 
-def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> tuple[list, list]:  # noqa: ARG001
+def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> list:  # noqa: ARG001
     """Run weekly project status."""
     from accounts.models import KippoOrganization
 
@@ -71,4 +71,4 @@ def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> tuple[l
         all_status_groups.extend(block_groups)
         responses.append(web_client_response)
         logger.info(f"Calling ProjectSlackManager.post_weekly_project_status() for ({organization.name}) ... DONE")
-    return all_status_groups, responses
+    return all_status_groups

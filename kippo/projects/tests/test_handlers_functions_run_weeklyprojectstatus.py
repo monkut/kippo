@@ -1,3 +1,4 @@
+import json
 from unittest import mock
 
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
@@ -73,5 +74,9 @@ class RunWeeklyProjectStatusTestCase(IsStaffModelAdminTestCaseBase):
         assert ActiveKippoProject.objects.filter(organization=self.organization).count() == expected_project_count, (
             f"Expected {expected_project_count} active projects, got: {active_project_count}"
         )
-        blocks, _ = run_weeklyprojectstatus(event={}, context={})
+        blocks = run_weeklyprojectstatus(event={}, context={})
         self.assertTrue(blocks)
+        try:
+            json.dumps(blocks, ensure_ascii=False)
+        except TypeError as e:
+            self.fail(f"Blocks cannot be serialized to JSON: {e}")
