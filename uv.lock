@@ -277,6 +277,18 @@ wheels = [
 ]
 
 [[package]]
+name = "freezegun"
+version = "1.5.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/1a/99a52c2df5d1b9b20ca1b253beb1ea412cb263d9cc670edd5a52595b7083/freezegun-1.5.3.tar.gz", hash = "sha256:d7c6204e33a50affd7c7aa284f4f92e04e96f72d63313b89ceaaf60d9c64bc5e", size = 35484 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/fe/fda2d2dccda9b5eac3a7d00dea11efcbb776b00c4f1b471e0c3a26c9c751/freezegun-1.5.3-py3-none-any.whl", hash = "sha256:1ce20ee4be61349ba52c3af64f5eaba8d08ff51acfcf1b3ea671f03e54c818f1", size = 19062 },
+]
+
+[[package]]
 name = "ghorgs"
 version = "0.3.0"
 source = { git = "https://github.com/monkut/github-org-manager.git#9baa00e860d8da9075ceb732e9015988b33400ec" }
@@ -347,6 +359,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "freezegun" },
     { name = "pyright" },
     { name = "ruff" },
     { name = "unittest-xml-reporting" },
@@ -371,6 +384,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "freezegun", specifier = ">=1.5.3" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "ruff", specifier = ">=0.9.10" },
     { name = "unittest-xml-reporting", specifier = ">=3.2.0" },

@@ -36,7 +36,12 @@ dependencies = [
 Repository = "https://github.com/kiconiaworks/kippo"
 
 [dependency-groups]
-dev = ["pyright>=1.1.396", "ruff>=0.9.10", "unittest-xml-reporting>=3.2.0",]
+dev = [
+    "freezegun>=1.5.3",
+    "pyright>=1.1.396",
+ "ruff>=0.9.10",
+ "unittest-xml-reporting>=3.2.0",
+]
 
 [build-system]
 requires = ["setuptools"]

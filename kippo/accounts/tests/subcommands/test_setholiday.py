@@ -223,6 +223,94 @@ class SetHolidaySubCommandTestCase(IsStaffModelAdminTestCaseBase):
 
             personalholiday.delete()  # delete for next loop
 
+    @mock.patch("commons.slackcommand.managers.WebhookClient.send", return_value=webhook_response_factory(status_code=HTTPStatus.OK))
+    @mock.patch("accounts.slackcommand.subcommands.setholiday.WebhookClient.send", return_value=webhook_response_factory())
+    @mock.patch(
+        "accounts.slackcommand.subcommands.setholiday.WebClient.chat_postMessage", return_value=mock_slack_response_factory(status_code=HTTPStatus.OK)
+    )
+    @mock.patch(
+        "commons.slackcommand.base.WebClient.users_info",
+        return_value={"user": {"profile": {"image_192": "https://example.com/image_192.png"}}},
+    )
+    def test_consecutive_dates_duration_bug_regression(self, *_):
+        """
+        Reproduce the bug where '/kippo setholiday 25/07/24' followed by '/kippo setholiday 25/07/25'
+        incorrectly failed with 'PersonalHoliday already exists'.
+
+        This was caused by incorrect duration handling where duration=1 blocked 2 days instead of 1.
+        """
+        expected_slackcommand_count = 0
+        assert SlackCommand.objects.count() == expected_slackcommand_count
+        expected_personalholiday_count = 0
+        assert PersonalHoliday.objects.count() == expected_personalholiday_count
+
+        # First command: Set holiday for July 24, 2025
+        first_date = datetime.date(2025, 7, 24)
+        first_command_text = f"setholiday {first_date.strftime('%Y/%m/%d')}"
+        first_command = SlackCommand(
+            organization=self.organization,
+            user=self.staffuser_with_org,
+            sub_command="setholiday",
+            text=first_command_text,
+            response_url="https://example.com/response_url",
+        )
+        first_command.save()
+
+        # Execute first command - should succeed
+        blocks1, web_response1, webhook_response1 = SetHolidaySubCommand.handle(first_command)
+        self.assertTrue(blocks1)
+        self.assertTrue(web_response1)  # Should create new PersonalHoliday
+        self.assertTrue(webhook_response1)
+
+        # Verify first PersonalHoliday was created
+        expected_personalholiday_count = 1
+        actual_personalholiday_count = PersonalHoliday.objects.count()
+        self.assertEqual(actual_personalholiday_count, expected_personalholiday_count)
+
+        first_holiday = PersonalHoliday.objects.first()
+        self.assertEqual(first_holiday.day, first_date)
+        self.assertEqual(first_holiday.duration, 1)
+        self.assertFalse(first_holiday.is_half)
+
+        # Second command: Set holiday for July 25, 2025 (next day)
+        second_date = datetime.date(2025, 7, 25)
+        second_command_text = f"setholiday {second_date.strftime('%Y/%m/%d')}"
+        second_command = SlackCommand(
+            organization=self.organization,
+            user=self.staffuser_with_org,
+            sub_command="setholiday",
+            text=second_command_text,
+            response_url="https://example.com/response_url",
+        )
+        second_command.save()
+
+        # Execute second command - should succeed (this would fail before the fix)
+        blocks2, web_response2, webhook_response2 = SetHolidaySubCommand.handle(second_command)
+        self.assertTrue(blocks2)
+        self.assertTrue(web_response2)  # Should create new PersonalHoliday
+        self.assertTrue(webhook_response2)
+
+        # Verify second PersonalHoliday was created
+        expected_personalholiday_count = 2
+        actual_personalholiday_count = PersonalHoliday.objects.count()
+        self.assertEqual(actual_personalholiday_count, expected_personalholiday_count)
+
+        # Verify we have holidays for both dates
+        all_holidays = PersonalHoliday.objects.order_by("day")
+        self.assertEqual(len(all_holidays), 2)
+        self.assertEqual(all_holidays[0].day, first_date)
+        self.assertEqual(all_holidays[1].day, second_date)
+        self.assertEqual(all_holidays[0].duration, 1)
+        self.assertEqual(all_holidays[1].duration, 1)
+
+        # Verify error message is NOT present (the bug would show "休みがすでに（2025-07-25）に登録されています。")
+        error_block = None
+        for block in blocks2:
+            if block.get("type") == "section" and "休みがすでに" in block.get("text", {}).get("text", ""):
+                error_block = block
+                break
+        self.assertIsNone(error_block, "Second setholiday command should not show 'already registered' error")
+
     def test_subcommand_registered(self):
         """Confirm that the subcommand is registered."""
         from commons.slackcommand import get_all_subcommands

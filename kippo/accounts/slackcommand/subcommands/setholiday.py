@@ -110,10 +110,9 @@ class SetHolidaySubCommand(SubCommandBase):
             )
             existing_personalholiday_dates = []
             for entry in existing_personalholiday_entries:
-                existing_personalholiday_dates.append(entry.day)
                 # PersonalHoliday stored as date + duration
-                # -- build dates from duration
-                for i in range(1, entry.duration + 1):
+                # -- build dates from duration (duration=1 means 1 day total, not 1 additional day)
+                for i in range(entry.duration):
                     existing_personalholiday_dates.append(entry.day + timezone.timedelta(days=i))
             logger.debug(f"existing_personalholiday_dates={existing_personalholiday_dates}")
 
