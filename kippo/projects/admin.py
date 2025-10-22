@@ -461,6 +461,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 progress_status_display = f"{project_progress_status.current_effort_hours}h"
             elif not progress_status_display:
                 progress_status_display = "-"
+
+            # Wrap in link to project status details page
+            status_url = f"{settings.URL_PREFIX}/projects/project/{obj.id}/status/"
+            progress_status_display = f'<a href="{status_url}">{progress_status_display}</a>'
+
         return mark_safe(progress_status_display)  # noqa: S308
 
     @admin.display(description=_("稼働時間"))
