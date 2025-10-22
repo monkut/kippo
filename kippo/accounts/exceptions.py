@@ -1,4 +1,2 @@
-
-
 class OrganizationConfigurationError(Exception):
     pass

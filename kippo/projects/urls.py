@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import views
+from . import api_views, views
 
 urlpatterns = [
     re_path(
@@ -21,4 +21,6 @@ urlpatterns = [
     path("download/", views.data_download_waiter, name="download_waiter"),
     path("download/done/", views.data_download_done, name="download_done"),
     # url("$", views.view_inprogress_projects_status, name="view_project_status"),
+    path("api/project/<uuid:project_id>/status/", api_views.project_status_api, name="project_status_api"),
+    path("project/<uuid:project_id>/status/", views.get_projectstatus_details, name="project_status_details"),
 ]

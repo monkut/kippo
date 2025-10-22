@@ -1,0 +1,375 @@
+{% extends "projects/base.html" %}
+{% load static %}
+
+{% block title %}Kippo: {{ project.name }} - Status Details{% endblock %}
+
+{% block bootstrap4_extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<style>
+    .chart-container {
+        position: relative;
+        height: 500px;
+        margin: 20px 0;
+    }
+    .project-info {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+    }
+    .project-info h2 {
+        margin-top: 0;
+    }
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    .info-item {
+        padding: 10px;
+        background-color: white;
+        border-radius: 3px;
+        border-left: 3px solid #007bff;
+    }
+    .info-label {
+        font-weight: bold;
+        font-size: 0.9em;
+        color: #666;
+    }
+    .info-value {
+        font-size: 1.155em;
+        margin-top: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block bootstrap4_content %}
+<h1>{{ project.name }} - Status Details</h1>
+
+<div class="project-info">
+    <h2>{{ verbose_names.model }} Information</h2>
+    <div class="info-grid">
+        {% if project.project_manager %}
+        <div class="info-item">
+            <div class="info-label">{{ verbose_names.project_manager|default:"Project Manager" }}</div>
+            <div class="info-value">{{ project.project_manager.display_name }}</div>
+        </div>
+        {% endif %}
+        <div class="info-item">
+            <div class="info-label">{{ verbose_names.start_date }}</div>
+            <div class="info-value">{{ project.start_date|default:"Not set" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="info-label">{{ verbose_names.target_date }}</div>
+            <div class="info-value">{{ project.target_date|default:"Not set" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="info-label">{{ verbose_names.allocated_staff_days|default:"Allocated Staff Days" }}</div>
+            <div class="info-value">{{ project.allocated_staff_days|default:"Not set" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="info-label">Allocated Hours</div>
+            <div class="info-value">{{ project.allocated_effort_hours|default:"Not set" }}</div>
+        </div>
+        {% if meter_values %}
+        <div class="info-item">
+            <div class="info-label">稼働状況 (Work Status)</div>
+            <div class="info-value">
+                {{ project_progress_status.current_effort_hours }}h<br/>
+                {% if project_progress_status.get_difference_percentage %}
+                    {% if project_progress_status.get_difference_percentage > 0 %}+{% endif %}{{ project_progress_status.get_difference_percentage|floatformat:0 }}%<br/>
+                {% endif %}
+                <meter min="0"
+                    {% if meter_values.show_low %}low="{{ meter_values.low }}"{% endif %}
+                    optimum="{{ meter_values.optimum }}"
+                    high="{{ meter_values.high }}"
+                    max="{{ meter_values.max }}"
+                    value="{{ meter_values.value }}">
+                </meter>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<h2>Effort Distribution by User</h2>
+<div class="chart-container" style="height: 400px;">
+    <canvas id="pieChart"></canvas>
+</div>
+
+<h2 style="margin-top: 40px;">Effort Over Time</h2>
+<div class="chart-container">
+    <canvas id="effortChart"></canvas>
+</div>
+
+<script>
+// Chart data from Django context
+const chartData = JSON.parse('{{ chart_data_json|escapejs }}');
+
+// Generate colors for each user
+const colorPalette = [
+    'rgba(54, 162, 235, 0.8)',
+    'rgba(255, 99, 132, 0.8)',
+    'rgba(75, 192, 192, 0.8)',
+    'rgba(255, 159, 64, 0.8)',
+    'rgba(153, 102, 255, 0.8)',
+    'rgba(255, 206, 86, 0.8)',
+    'rgba(231, 233, 237, 0.8)',
+    'rgba(201, 203, 207, 0.8)'
+];
+
+// Prepare datasets for stacked bars (one per user)
+const datasets = [];
+chartData.users.forEach((user, index) => {
+    datasets.push({
+        label: user,
+        data: chartData.effort_by_user[user],
+        weeklyData: chartData.weekly_effort_by_user[user],  // Store weekly hours for tooltip
+        backgroundColor: colorPalette[index % colorPalette.length],
+        borderColor: colorPalette[index % colorPalette.length].replace('0.8', '1'),
+        borderWidth: 1,
+        type: 'bar',
+        stack: 'effort'
+    });
+});
+
+// Add expected effort line
+datasets.push({
+    label: 'Expected Effort',
+    data: chartData.expected_effort,
+    borderColor: 'rgba(255, 0, 0, 1)',
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    borderWidth: 2,
+    fill: false,
+    type: 'line',
+    tension: 0.1,
+    pointRadius: 4,
+    pointHoverRadius: 6
+});
+
+// Prepare annotations for start_date and target_date vertical lines
+const annotations = {};
+const verboseNames = {
+    start_date: '{{ verbose_names.start_date }}',
+    target_date: '{{ verbose_names.target_date }}'
+};
+
+if (chartData.start_date) {
+    annotations.startDateLine = {
+        type: 'line',
+        xMin: chartData.start_date,
+        xMax: chartData.start_date,
+        borderColor: 'rgba(0, 200, 0, 0.8)',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        label: {
+            display: true,
+            content: verboseNames.start_date,
+            position: 'start',
+            backgroundColor: 'rgba(0, 200, 0, 0.8)',
+            color: 'white',
+            font: {
+                size: 12,
+                weight: 'bold'
+            }
+        }
+    };
+}
+
+if (chartData.target_date) {
+    annotations.targetDateLine = {
+        type: 'line',
+        xMin: chartData.target_date,
+        xMax: chartData.target_date,
+        borderColor: 'rgba(255, 0, 0, 0.8)',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        label: {
+            display: true,
+            content: verboseNames.target_date,
+            position: 'start',
+            backgroundColor: 'rgba(255, 0, 0, 0.8)',
+            color: 'white',
+            font: {
+                size: 12,
+                weight: 'bold'
+            }
+        }
+    };
+}
+
+// Add horizontal line for allocated hours
+if (chartData.allocated_hours) {
+    annotations.allocatedHoursLine = {
+        type: 'line',
+        yMin: chartData.allocated_hours,
+        yMax: chartData.allocated_hours,
+        borderColor: 'rgba(128, 128, 128, 0.6)',
+        borderWidth: 2,
+        borderDash: [3, 3],
+        label: {
+            display: true,
+            content: 'Allocated Hours',
+            position: 'end',
+            backgroundColor: 'rgba(128, 128, 128, 0.6)',
+            color: 'white',
+            font: {
+                size: 12,
+                weight: 'bold'
+            }
+        }
+    };
+}
+
+// Create the chart
+const ctx = document.getElementById('effortChart').getContext('2d');
+const effortChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: chartData.labels,
+        datasets: datasets
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false
+        },
+        plugins: {
+            title: {
+                display: true,
+                text: 'Project Effort: Actual vs Expected (Hours)',
+                font: {
+                    size: 16
+                }
+            },
+            legend: {
+                display: true,
+                position: 'top'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.dataset.label || '';
+                        if (context.dataset.type === 'bar') {
+                            const cumulativeHours = context.parsed.y;
+                            const weeklyHours = context.dataset.weeklyData[context.dataIndex];
+                            return label + ': ' + weeklyHours + 'h (week) | ' + cumulativeHours + 'h (cumulative)';
+                        } else {
+                            // Expected effort line
+                            return label + ': ' + context.parsed.y + 'h';
+                        }
+                    },
+                    footer: function(tooltipItems) {
+                        let total = 0;
+                        tooltipItems.forEach(function(tooltipItem) {
+                            if (tooltipItem.dataset.type === 'bar') {
+                                total += tooltipItem.parsed.y;
+                            }
+                        });
+                        return 'Total Actual: ' + total + 'h';
+                    }
+                }
+            },
+            annotation: {
+                annotations: annotations
+            }
+        },
+        scales: {
+            x: {
+                type: 'time',
+                time: {
+                    unit: 'week',
+                    displayFormats: {
+                        week: 'yyyy-MM-dd'
+                    },
+                    tooltipFormat: 'yyyy-MM-dd'
+                },
+                title: {
+                    display: true,
+                    text: 'Week Start Date'
+                },
+                stacked: true,
+                ticks: {
+                    source: 'data',
+                    autoSkip: false
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Effort (Hours)'
+                },
+                stacked: true,
+                beginAtZero: true
+            }
+        }
+    }
+});
+
+// Create pie chart for effort distribution
+// Sort users by effort (descending) for better legend ordering
+const pieData = chartData.pie_chart.users.map((user, index) => ({
+    user: user,
+    effort: chartData.pie_chart.effort[index]
+})).sort((a, b) => b.effort - a.effort);
+
+// Calculate percentages and create labels with percentages
+const totalEffort = chartData.pie_chart.effort.reduce((a, b) => a + b, 0);
+const pieLabels = pieData.map(item => {
+    const percentage = totalEffort > 0 ? ((item.effort / totalEffort) * 100).toFixed(1) : 0;
+    return item.user + ' (' + percentage + '%)';
+});
+
+const pieEffortValues = pieData.map(item => item.effort);
+
+const pieCtx = document.getElementById('pieChart').getContext('2d');
+const pieChart = new Chart(pieCtx, {
+    type: 'pie',
+    data: {
+        labels: pieLabels,
+        datasets: [{
+            data: pieEffortValues,
+            backgroundColor: colorPalette,
+            borderColor: colorPalette.map(color => color.replace('0.8', '1')),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            title: {
+                display: true,
+                text: 'Total Cumulative Effort Distribution (%)',
+                font: {
+                    size: 16
+                }
+            },
+            legend: {
+                display: true,
+                position: 'right'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        return label + ': ' + value + 'h';
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+
+<div style="margin-top: 30px;">
+    <a href="{{ URL_PREFIX }}/admin/projects/kippoproject/" class="btn btn-secondary">Back to Projects</a>
+</div>
+
+{% endblock bootstrap4_content %}

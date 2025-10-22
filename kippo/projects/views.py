@@ -1,3 +1,4 @@
+import json
 import logging
 import urllib.parse
 from typing import TYPE_CHECKING, NamedTuple
@@ -16,6 +17,7 @@ from django.http import (
     request as DjangoRequest,  # noqa: N812
 )
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
 from kippo.awsclients import S3_CLIENT, s3_key_exists
@@ -309,3 +311,182 @@ def data_download_done(request: DjangoRequest):
         return HttpResponseRedirect(redirect_to=presigned_url)
 
     return render(request, "projects/download_done.html", {"back_path": back_path})
+
+
+@staff_member_required
+def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpResponse:  # noqa: PLR0915, C901, PLR0912
+    """
+    Display project status details with a stacked bar chart showing effort over time.
+
+    The chart shows:
+    - Stacked bars of actual effort hours by user per date
+    - Expected effort line from start to end date
+
+    Restricted to users belonging to the project's organization.
+    """
+    try:
+        selected_organization, user_organizations = get_user_session_organization(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e.args))
+
+    # Get the project and verify organization access
+    try:
+        project = KippoProject.objects.get(id=project_id, organization__in=user_organizations)
+    except KippoProject.DoesNotExist:
+        return HttpResponseBadRequest(f"Project with id {project_id} not found or access denied")
+
+    # Get all ProjectWeeklyEffort entries for this project
+    import datetime
+    from collections import defaultdict
+
+    from commons.definitions import MONDAY
+
+    from .models import ProjectWeeklyEffort
+
+    project_weekly_efforts = ProjectWeeklyEffort.objects.filter(project=project).order_by("week_start", "user__first_name", "user__last_name")
+
+    # Prepare data for the chart
+    # Group by date and collect user efforts
+    effort_by_date = defaultdict(dict)
+    all_users = set()
+
+    for effort in project_weekly_efforts:
+        effort_by_date[effort.week_start][effort.user.display_name] = effort.hours
+        all_users.add(effort.user.display_name)
+
+    # Generate all week start dates from start_date to target_date
+    all_week_starts = set()
+    if project.start_date and project.target_date:
+        # Find the Monday on or before start_date
+        current = project.start_date
+        while current.weekday() != MONDAY:
+            current -= datetime.timedelta(days=1)
+
+        # Generate all Mondays up to and including target_date
+        while current <= project.target_date:
+            all_week_starts.add(current)
+            current += datetime.timedelta(days=7)
+
+    # Include all dates from effort_by_date (to show effort beyond target_date)
+    all_week_starts.update(effort_by_date.keys())
+
+    # Sort dates and users for consistent ordering
+    sorted_dates = sorted(all_week_starts)
+    sorted_users = sorted(all_users)
+
+    # Calculate expected effort for each date
+    # Only calculate expected effort for dates within start_date to target_date range
+    expected_effort_data = []
+    for date in sorted_dates:
+        if project.start_date and project.target_date and project.start_date <= date <= project.target_date:
+            _, expected_hours = project.get_expected_effort(at_date=date)
+            expected_effort_data.append(
+                {
+                    "date": date.isoformat(),
+                    "expected_hours": expected_hours if expected_hours else 0,
+                }
+            )
+        else:
+            # No expected effort outside the project date range
+            expected_effort_data.append(
+                {
+                    "date": date.isoformat(),
+                    "expected_hours": None,  # null for dates outside range
+                }
+            )
+
+    # Prepare chart data structure
+    chart_data = {
+        "labels": [date.isoformat() for date in sorted_dates],
+        "users": sorted_users,
+        "effort_by_user": {},
+        "weekly_effort_by_user": {},
+        "expected_effort": [item["expected_hours"] for item in expected_effort_data],
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "target_date": project.target_date.isoformat() if project.target_date else None,
+        "allocated_hours": project.allocated_effort_hours,
+    }
+
+    # Fill in effort data for each user (cumulative and weekly)
+    # Do not show cumulative effort for future dates
+    today = timezone.now().date()
+    latest_cumulative_effort = {}
+    for user in sorted_users:
+        chart_data["effort_by_user"][user] = []
+        chart_data["weekly_effort_by_user"][user] = []
+        cumulative_hours = 0
+        for date in sorted_dates:
+            hours = effort_by_date[date].get(user, 0)
+            cumulative_hours += hours
+            # Only show cumulative effort for dates up to today
+            if date <= today:
+                chart_data["effort_by_user"][user].append(cumulative_hours)
+                chart_data["weekly_effort_by_user"][user].append(hours)
+            else:
+                # Future dates: show null for cumulative and weekly effort
+                chart_data["effort_by_user"][user].append(None)
+                chart_data["weekly_effort_by_user"][user].append(None)
+        # Store the latest (final) cumulative value for pie chart
+        latest_cumulative_effort[user] = cumulative_hours
+
+    # Add pie chart data (percentage of effort per user)
+    chart_data["pie_chart"] = {
+        "users": sorted_users,
+        "effort": [latest_cumulative_effort[user] for user in sorted_users],
+    }
+
+    # Get verbose names from model
+    verbose_names = {
+        "model": project._meta.verbose_name,
+        "organization": project._meta.get_field("organization").verbose_name,
+        "phase": project._meta.get_field("phase").verbose_name,
+        "start_date": project._meta.get_field("start_date").verbose_name,
+        "target_date": project._meta.get_field("target_date").verbose_name,
+        "allocated_staff_days": project._meta.get_field("allocated_staff_days").verbose_name,
+        "project_manager": project._meta.get_field("project_manager").verbose_name,
+    }
+
+    # Get project progress status for meter display
+    project_progress_status = project.get_projectprogressstatus_values()
+
+    # Calculate meter values for work status display (matching admin logic)
+    meter_values = None
+    if project_progress_status.allocated_effort_hours and project_progress_status.expected_effort_hours:
+        low = int(project_progress_status.expected_effort_hours) + 1
+        high = (
+            settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD / 100
+        ) * project_progress_status.expected_effort_hours + project_progress_status.expected_effort_hours
+
+        max_value = project_progress_status.allocated_effort_hours
+        if (
+            project_progress_status.allocated_effort_hours
+            and project_progress_status.current_effort_hours
+            and project_progress_status.allocated_effort_hours < project_progress_status.current_effort_hours
+        ):
+            max_value = project_progress_status.current_effort_hours
+
+        meter_values = {
+            "low": low,
+            "optimum": int(project_progress_status.expected_effort_hours),
+            "high": int(high),
+            "max": max_value,
+            "value": project_progress_status.current_effort_hours,
+            "show_low": low < max_value,  # Only show low if it's less than max
+        }
+
+    # Convert chart_data to JSON to properly handle None -> null conversion
+    chart_data_json = json.dumps(chart_data)
+
+    context = {
+        "project": project,
+        "chart_data_json": chart_data_json,
+        "verbose_names": verbose_names,
+        "project_progress_status": project_progress_status,
+        "meter_values": meter_values,
+        "selected_organization": selected_organization,
+        "organizations": user_organizations,
+        "URL_PREFIX": settings.URL_PREFIX,
+        "PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD": settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD,
+    }
+
+    return render(request, "projects/projectstatus_details.html", context)
