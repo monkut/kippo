@@ -474,6 +474,11 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
             "show_low": low < max_value,  # Only show low if it's less than max
         }
 
+    # Calculate remaining hours
+    remaining_hours = None
+    if project_progress_status.allocated_effort_hours is not None and project_progress_status.current_effort_hours is not None:
+        remaining_hours = project_progress_status.allocated_effort_hours - project_progress_status.current_effort_hours
+
     # Convert chart_data to JSON to properly handle None -> null conversion
     chart_data_json = json.dumps(chart_data)
 
@@ -483,6 +488,7 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
         "verbose_names": verbose_names,
         "project_progress_status": project_progress_status,
         "meter_values": meter_values,
+        "remaining_hours": remaining_hours,
         "selected_organization": selected_organization,
         "organizations": user_organizations,
         "URL_PREFIX": settings.URL_PREFIX,

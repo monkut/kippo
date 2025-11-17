@@ -82,6 +82,9 @@
                 {% if project_progress_status.get_difference_percentage %}
                     {% if project_progress_status.get_difference_percentage > 0 %}+{% endif %}{{ project_progress_status.get_difference_percentage|floatformat:0 }}%<br/>
                 {% endif %}
+                {% if remaining_hours is not None %}
+                    Remaining: {{ remaining_hours|floatformat:0 }}h<br/>
+                {% endif %}
                 <meter min="0"
                     {% if meter_values.show_low %}low="{{ meter_values.low }}"{% endif %}
                     optimum="{{ meter_values.optimum }}"
@@ -121,15 +124,22 @@ const colorPalette = [
     'rgba(201, 203, 207, 0.8)'
 ];
 
+// Create a consistent mapping from user to color
+const userColorMap = {};
+chartData.users.forEach((user, index) => {
+    userColorMap[user] = colorPalette[index % colorPalette.length];
+});
+
 // Prepare datasets for stacked bars (one per user)
 const datasets = [];
 chartData.users.forEach((user, index) => {
+    const color = userColorMap[user];
     datasets.push({
         label: user,
         data: chartData.effort_by_user[user],
         weeklyData: chartData.weekly_effort_by_user[user],  // Store weekly hours for tooltip
-        backgroundColor: colorPalette[index % colorPalette.length],
-        borderColor: colorPalette[index % colorPalette.length].replace('0.8', '1'),
+        backgroundColor: color,
+        borderColor: color.replace('0.8', '1'),
         borderWidth: 1,
         type: 'bar',
         stack: 'effort'
@@ -334,8 +344,8 @@ const pieChart = new Chart(pieCtx, {
         labels: pieLabels,
         datasets: [{
             data: pieEffortValues,
-            backgroundColor: colorPalette,
-            borderColor: colorPalette.map(color => color.replace('0.8', '1')),
+            backgroundColor: pieData.map(item => userColorMap[item.user]),
+            borderColor: pieData.map(item => userColorMap[item.user].replace('0.8', '1')),
             borderWidth: 1
         }]
     },
