@@ -71,6 +71,10 @@ INSTALLED_APPS = [
     "octocat",
     "corsheaders",
     "rangefilter",
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
@@ -353,3 +357,70 @@ ATTENDANCECANCEL_SUBCOMMAND_MINUTES = int(os.getenv("ATTENDANCECANCEL_SUBCOMMAND
 # How many days to read back to assure PerionalHolidays.duration encompasses the current date
 DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = "30"
 PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = int(os.getenv("PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS", DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS))
+
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+}
+
+# Simple JWT Configuration
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": datetime.timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": datetime.timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": False,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "VERIFYING_KEY": None,
+    "AUDIENCE": None,
+    "ISSUER": None,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "TOKEN_TYPE_CLAIM": "token_type",
+    "JTI_CLAIM": "jti",
+}
+
+# OpenAPI/Spectacular Configuration
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Kippo Project Management API",
+    "DESCRIPTION": "REST API for managing Kippo projects, tasks, and effort tracking",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/",
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": True,
+        "filter": True,
+        "defaultModelsExpandDepth": 1,
+        "defaultModelExpandDepth": 1,
+        "docExpansion": "list",
+    },
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "Bearer": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "JWT token authentication. Obtain token from /api/token/ endpoint.",
+            }
+        }
+    },
+    "SECURITY": [{"Bearer": []}],
+    "SERVERS": [
+        {"url": "http://localhost:8000", "description": "Local development server"},
+    ],
+}
