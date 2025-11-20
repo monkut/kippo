@@ -5,11 +5,34 @@ import logging
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponseBadRequest, JsonResponse, request as DjangoRequest  # noqa: N812
 from django.views.decorators.http import require_http_methods
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.authentication import SessionAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .functions import get_user_session_organization
 from .models import KippoProject, ProjectWeeklyEffort
 
 logger = logging.getLogger(__name__)
+
+
+class SessionAndJWTSpectacularAPIView(SpectacularAPIView):
+    """
+    OpenAPI schema view that supports both Django session and JWT authentication.
+
+    This allows users logged in via OAuth to access the schema without needing JWT tokens.
+    """
+
+    authentication_classes = [SessionAuthentication, JWTAuthentication]
+
+
+class SessionAndJWTSpectacularSwaggerView(SpectacularSwaggerView):
+    """
+    Swagger UI view that supports both Django session and JWT authentication.
+
+    This allows users logged in via OAuth to access the API documentation without needing JWT tokens.
+    """
+
+    authentication_classes = [SessionAuthentication, JWTAuthentication]
 
 
 @staff_member_required

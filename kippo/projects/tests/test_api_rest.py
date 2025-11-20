@@ -356,6 +356,72 @@ class OpenAPISchemaTestCase(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
+    def test_schema_endpoint_with_session_auth(self):
+        """Test that schema endpoint works with Django session authentication."""
+        # Create a new client without force_authenticate
+        client = APIClient()
+        # Login using Django session
+        client.force_login(self.user)
+
+        url = f"{settings.URL_PREFIX}/api/schema/"
+        response = client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_swagger_ui_endpoint_with_session_auth(self):
+        """Test that Swagger UI endpoint works with Django session authentication."""
+        # Create a new client without force_authenticate
+        client = APIClient()
+        # Login using Django session
+        client.force_login(self.user)
+
+        url = f"{settings.URL_PREFIX}/api/docs/"
+        response = client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_schema_endpoint_with_jwt_auth(self):
+        """Test that schema endpoint works with JWT authentication."""
+        # Create a new client
+        client = APIClient()
+        # Get JWT token
+        refresh = RefreshToken.for_user(self.user)
+        access_token = str(refresh.access_token)
+
+        # Use JWT authentication
+        url = f"{settings.URL_PREFIX}/api/schema/"
+        response = client.get(url, HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_swagger_ui_endpoint_with_jwt_auth(self):
+        """Test that Swagger UI endpoint works with JWT authentication."""
+        # Create a new client
+        client = APIClient()
+        # Get JWT token
+        refresh = RefreshToken.for_user(self.user)
+        access_token = str(refresh.access_token)
+
+        # Use JWT authentication
+        url = f"{settings.URL_PREFIX}/api/docs/"
+        response = client.get(url, HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_schema_endpoint_requires_authentication(self):
+        """Test that schema endpoint requires authentication."""
+        # Create a new client without authentication
+        client = APIClient()
+
+        url = f"{settings.URL_PREFIX}/api/schema/"
+        response = client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
+
+    def test_swagger_ui_endpoint_requires_authentication(self):
+        """Test that Swagger UI endpoint requires authentication."""
+        # Create a new client without authentication
+        client = APIClient()
+
+        url = f"{settings.URL_PREFIX}/api/docs/"
+        response = client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
+
 
 class PermissionsTestCase(TestCase):
     """Test cases for API permissions (superuser-only Create/Delete)."""
