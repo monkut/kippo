@@ -81,6 +81,8 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
     **Filtering:**
     - project: Filter by project UUID
     - user: Filter by user ID
+    - week_start_gte: Filter by week_start greater than or equal to date (YYYY-MM-DD)
+    - week_start_lte: Filter by week_start less than or equal to date (YYYY-MM-DD)
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users)
@@ -106,6 +108,18 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
                 description="Filter by user ID",
                 required=False,
                 type=int,
+            ),
+            OpenApiParameter(
+                name="week_start_gte",
+                description="Filter by week_start >= date (YYYY-MM-DD format)",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="week_start_lte",
+                description="Filter by week_start <= date (YYYY-MM-DD format)",
+                required=False,
+                type=str,
             ),
         ]
     )
@@ -135,5 +149,15 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
         user_id = self.request.query_params.get("user", None)
         if user_id:
             queryset = queryset.filter(user__id=user_id)
+
+        # Filter by week_start_gte parameter
+        week_start_gte = self.request.query_params.get("week_start_gte", None)
+        if week_start_gte:
+            queryset = queryset.filter(week_start__gte=week_start_gte)
+
+        # Filter by week_start_lte parameter
+        week_start_lte = self.request.query_params.get("week_start_lte", None)
+        if week_start_lte:
+            queryset = queryset.filter(week_start__lte=week_start_lte)
 
         return queryset
