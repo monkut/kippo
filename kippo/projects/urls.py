@@ -1,4 +1,5 @@
 from django.urls import include, path, re_path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -56,9 +57,9 @@ api_patterns = [
     # JWT Authentication
     path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    # OpenAPI Documentation (supports both session and JWT auth)
-    path("schema/", api_views.SessionAndJWTSpectacularAPIView.as_view(), name="api-schema"),
-    path("docs/", api_views.SessionAndJWTSpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),
+    # OpenAPI Documentation
+    path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
+    path("docs/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),
     # Weekly Effort endpoints (nested under projects/) - MUST come before router
     path("projects/weeklyeffort/", weeklyeffort_list, name="projectweeklyeffort-list"),
     path("projects/weeklyeffort/<int:pk>/", weeklyeffort_detail, name="projectweeklyeffort-detail"),
