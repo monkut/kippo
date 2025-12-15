@@ -1,8 +1,35 @@
-from django.urls import path, re_path
+from django.urls import include, path, re_path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from . import api_views, views
+from .viewsets import KippoProjectViewSet, ProjectWeeklyEffortViewSet
 
-urlpatterns = [
+# REST Framework router for API viewsets
+router = DefaultRouter()
+router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
+
+# Manually define weeklyeffort viewset URLs to nest under projects/
+weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(
+    {
+        "get": "list",
+        "post": "create",
+    }
+)
+
+weeklyeffort_detail = ProjectWeeklyEffortViewSet.as_view(
+    {
+        "get": "retrieve",
+        "put": "update",
+        "patch": "partial_update",
+        "delete": "destroy",
+    }
+)
+
+# HTML Views and Legacy API
+html_and_legacy_patterns = [
+    # HTML Views
     re_path(
         "set/organization/(?P<organization_id>[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12})/$",
         views.set_user_session_organization,
@@ -20,7 +47,24 @@ urlpatterns = [
     ),
     path("download/", views.data_download_waiter, name="download_waiter"),
     path("download/done/", views.data_download_done, name="download_done"),
-    # url("$", views.view_inprogress_projects_status, name="view_project_status"),
-    path("api/project/<uuid:project_id>/status/", api_views.project_status_api, name="project_status_api"),
     path("project/<uuid:project_id>/status/", views.get_projectstatus_details, name="project_status_details"),
+    # Legacy API (JSON responses, not REST framework)
+    path("api/project/<uuid:project_id>/status/", api_views.project_status_api, name="project_status_api"),
 ]
+
+# REST API URLs (under /api/ prefix in main urls.py)
+api_patterns = [
+    # JWT Authentication
+    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # OpenAPI Documentation
+    path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
+    path("docs/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),
+    # Weekly Effort endpoints (nested under projects/) - MUST come before router
+    path("projects/weeklyeffort/", weeklyeffort_list, name="projectweeklyeffort-list"),
+    path("projects/weeklyeffort/<int:pk>/", weeklyeffort_detail, name="projectweeklyeffort-detail"),
+    # API ViewSets
+    path("", include(router.urls)),
+]
+
+urlpatterns = html_and_legacy_patterns

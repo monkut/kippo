@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
+from projects.urls import api_patterns
 
 # remove "Site Admministration" text from admin
 admin.site.index_title = ""
@@ -20,5 +21,6 @@ urlpatterns = [
     path("tasks/", include("tasks.urls")),
     path("octocat/", include("octocat.urls")),
     path("admin/", admin.site.urls),
+    path("api/", include(api_patterns)),
     path("", RedirectView.as_view(url=f"{settings.URL_PREFIX}/admin")),
 ]

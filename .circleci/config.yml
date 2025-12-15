@@ -53,7 +53,7 @@ jobs:
           POSTGRES_DB: kippo
           POSTGRES_HOST_AUTH_METHOD: trust
       - image: localstack/localstack:4.3.0
-    parallelism: 16
+    parallelism: 5
 
     steps:
       - checkout
@@ -188,6 +188,98 @@ jobs:
           paths:
             - ./
 
+  generate-python-client:
+    working_directory: ~/app/
+    docker:
+      - image: cimg/python:3.13
+        environment:
+          DEBUG: "False"
+
+    steps:
+      - checkout
+      - run: sudo chown -R circleci:circleci /usr/local/bin
+      - restore_cache:
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
+      - run:
+          name: Upgrade uv
+          command: |
+            pip install uv -U
+      - run:
+          name: install dependencies
+          command: |
+            uv sync
+      - save_cache:
+          key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
+          paths:
+            - "/home/circleci/.aws"
+            - "/home/circleci/.local"
+            - "/usr/local/bin"
+
+      - run:
+          name: Generate Python API client
+          command: |
+            cd kippo
+            uv run python manage.py create_api_client --cleanup
+
+      - run:
+          name: Create tarball of Python client
+          command: |
+            cd ~/app
+            tar -czf kippo-python-client.tar.gz python-client/
+
+      - run:
+          name: Move tarball to artifacts directory
+          command: |
+            mkdir -p ~/artifacts
+            mv ~/app/kippo-python-client.tar.gz ~/artifacts/
+
+      - persist_to_workspace:
+          name: persist Python client to workspace
+          root: /home/circleci/artifacts
+          paths:
+            - ./
+
+  publish-github-release:
+    docker:
+      - image: cibuilds/github:0.13
+    steps:
+      - checkout
+      - attach_workspace:
+          at: ~/artifacts-package
+      - attach_workspace:
+          at: ~/artifacts-python
+      - run:
+          name: Combine artifacts
+          command: |
+            mkdir -p ~/artifacts
+            cp ~/artifacts-package/* ~/artifacts/ 2>/dev/null || true
+            cp ~/artifacts-python/* ~/artifacts/ 2>/dev/null || true
+            ls -lh ~/artifacts/
+      - run:
+          name: upgrade ghr to v0.15.0
+          environment:
+            GHR_VERSION: 0.15.0
+          command: |
+            GHR_URL=https://github.com/tcnksm/ghr/releases/download/v${GHR_VERSION}/ghr_v${GHR_VERSION}_linux_amd64.tar.gz
+            wget "$GHR_URL" && \
+              tar xzf ghr_v${GHR_VERSION}_linux_amd64.tar.gz && \
+              mv ghr_v${GHR_VERSION}_linux_amd64/ghr /usr/bin/ghr && \
+              rm -r ghr_v${GHR_VERSION}_linux_amd64.tar.gz ghr_v${GHR_VERSION}_linux_amd64/
+      - run:
+          name: "Publish Release on GitHub"
+          command: |
+            cd ~/project
+            export VERSION=v$(date "+%Y%m%d_%H00")
+            ghr \
+              -n "${VERSION} ($(echo $CIRCLE_SHA1 | cut -c -7))" \
+              -t ${GITHUB_TOKEN} \
+              -u ${CIRCLE_PROJECT_USERNAME} \
+              -r ${CIRCLE_PROJECT_REPONAME} \
+              -c ${CIRCLE_SHA1} \
+              -delete \
+              -generatenotes \
+              ${VERSION} ~/artifacts/
+
 workflows:
   ProjectWorkflow:
     jobs:
@@ -199,4 +291,22 @@ workflows:
           filters:
             branches:
               only:
-                - main
+                - master
+      - generate-python-client:
+          requires:
+            - check
+            - test
+          filters:
+            branches:
+              only:
+                - master
+      - publish-github-release:
+          context: "github release context"
+          requires:
+            - check
+            - build-package
+            - generate-python-client
+          filters:
+            branches:
+              only:
+                - master
