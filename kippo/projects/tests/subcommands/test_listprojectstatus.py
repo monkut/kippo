@@ -4,8 +4,10 @@ from accounts.models import OrganizationMembership, SlackCommand
 from commons.slackcommand import get_all_subcommands
 from commons.tests import IsStaffModelAdminTestCaseBase, setup_basic_project
 from commons.tests.utils import webhook_response_factory
+from django.conf import settings
 from django.utils import timezone
 
+from projects.functions import current_week_startdate
 from projects.models import KippoProjectStatus
 from projects.slackcommand.subcommands.listprojectstatus import ListProjectStatusSubCommand
 
@@ -151,10 +153,15 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
             comment=kippoprojectstatus_comment,
         )
         kippo_project_status.save()
-        localnow = timezone.localtime()
+        # Set created_datetime to be within the valid week window
+        # (after week_start_datetime calculated from current_week_startdate + time_deadline)
+        week_start_date = current_week_startdate()
+        time_deadline = self.organization.weekly_project_time_deadline
+        week_start_datetime = timezone.datetime.combine(week_start_date, time_deadline, tzinfo=settings.JST)
+        status_datetime = week_start_datetime + timezone.timedelta(hours=1)
         KippoProjectStatus.objects.filter(pk=kippo_project_status.pk).update(
-            created_datetime=localnow,
-            updated_datetime=localnow,
+            created_datetime=status_datetime,
+            updated_datetime=status_datetime,
         )
         kippo_project_status.refresh_from_db()
 
