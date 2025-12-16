@@ -53,12 +53,19 @@ from .models import (
     KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
     ProjectAssignment,
+    ProjectAssignmentRate,
     ProjectColumn,
     ProjectColumnSet,
     ProjectWeeklyEffort,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ProjectAssignmentRateInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = ProjectAssignmentRate
+    extra = 0
+    fields = ("role", "rate_per_day")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -314,6 +321,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # Milestones not used atm, commenting out.
         # KippoMilestoneReadOnlyInline,
         # KippoMilestoneAdminInline,
+        ProjectAssignmentRateInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
         ProjectWeeklyEffortAdminInline,

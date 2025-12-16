@@ -22,7 +22,7 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
-from .definitions import ProjectProgressStatus
+from .definitions import ProjectProgressStatus, ProjectRoles
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
@@ -987,3 +987,19 @@ class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
 
     def __str__(self, *args, **kwargs) -> str:
         return f"{self._meta.verbose_name} {self.project.name} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"
+
+
+class ProjectAssignmentRate(UserCreatedBaseModel):
+    """Daily rate configuration per role for a project."""
+
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="assignment_rates")
+    role = models.CharField(max_length=50, choices=ProjectRoles.choices())
+    rate_per_day = models.PositiveIntegerField(default=settings.DEFAULT_PROJECT_DAILY_RATE)
+
+    class Meta:
+        verbose_name = _("Project Assignment Rate")
+        verbose_name_plural = _("Project Assignment Rates")
+        unique_together = ("project", "role")
+
+    def __str__(self) -> str:
+        return f"{self.project.name} - {self.role}: {self.rate_per_day}"

@@ -94,7 +94,7 @@ Prerequisites:
     python manage.py migrate
     
     # Load initial fixtures
-    python manage.py loaddata default_columnset
+    python manage.py loaddata `default_columnset`
     python manage.py loaddata default_labelset
     
     # Create management users
@@ -105,7 +105,7 @@ Prerequisites:
     python manage.py loadcountries
    
     # create bucket
-    python manage.py create_required_buckets
+    `python manage.py `create_required_buckets``
     ```
    
 ### Test Fixtures
@@ -113,7 +113,7 @@ Prerequisites:
 The following fixtures are prepared for local testing and development of the admin:
 
 ```bash
-python manage.py loaddata testdata
+python manage.py loaddata testdata`
 ```
 
 creates the following:
@@ -134,7 +134,7 @@ Required Bot Users:
 - cli-manager
 - github-manager
 
-Where userpasswords are set to: 5up3r-53cr3t-p@$$w0rd
+Where user passwords are set to: 5up3r-53cr3t-p@$$w0rd
 
 
 ## Optional Features

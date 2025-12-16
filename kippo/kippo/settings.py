@@ -47,7 +47,7 @@ BASE_DIR = PurePath(Path(__file__).resolve().parent.parent)
 SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"  # noqa: S105
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = strtobool(os.getenv("DEBUG", "False"))
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "projects",
     "tasks",
     "octocat",
+    "requirements",
     "corsheaders",
     "rangefilter",
     "rest_framework",
@@ -185,6 +186,7 @@ LOGGING = {
         "tasks": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
         "accounts": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
         "octocat": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        "requirements": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
     },
 }
 
@@ -273,6 +275,7 @@ DEFAULT_KIPPOPROJECT_CATEGORY = "poc"
 DEFAULT_KIPPOTASK_CATEGORY = "study"
 DEFAULT_TASK_DISPLAY_STATE = "in-progress"
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
+DEFAULT_PROJECT_DAILY_RATE = 180_000  # Japanese Yen per day (for requirements app)
 
 TEST = False
 
@@ -358,6 +361,29 @@ ATTENDANCECANCEL_SUBCOMMAND_MINUTES = int(os.getenv("ATTENDANCECANCEL_SUBCOMMAND
 DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = "30"
 PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = int(os.getenv("PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS", DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS))
 
+# CORS Configuration - Only enabled in DEBUG mode for local development
+# In production (DEBUG=False), CORS is disabled as the UI is served from static files
+if DEBUG:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
+    CORS_ALLOW_CREDENTIALS = True
+    CORS_ALLOW_METHODS = [
+        "DELETE",
+        "GET",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT",
+    ]
+    CORS_ALLOW_HEADERS = [
+        "accept",
+        "authorization",
+        "content-type",
+        "origin",
+        "user-agent",
+        "x-csrftoken",
+        "x-requested-with",
+    ]
+
 # REST Framework Configuration
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -397,7 +423,7 @@ SIMPLE_JWT = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Kippo Project Management API",
     "DESCRIPTION": "REST API for managing Kippo projects, tasks, and effort tracking",
-    "VERSION": "1.0.0",
+    "VERSION": "1.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/",
@@ -410,17 +436,6 @@ SPECTACULAR_SETTINGS = {
         "defaultModelExpandDepth": 1,
         "docExpansion": "list",
     },
-    "APPEND_COMPONENTS": {
-        "securitySchemes": {
-            "Bearer": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT",
-                "description": "JWT token authentication. Obtain token from /api/token/ endpoint.",
-            }
-        }
-    },
-    "SECURITY": [{"Bearer": []}],
     "SERVERS": [
         {"url": "http://localhost:8000", "description": "Local development server"},
     ],
