@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand, CommandParser
 
 KIPPO_UI_REPO = "monkut/kippo-ui"
 GITHUB_API_URL = f"https://api.github.com/repos/{KIPPO_UI_REPO}/releases/latest"
-TARBALL_NAME = "kippo-ui-build.tar.gz"
+TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
 
 
 class Command(BaseCommand):
@@ -29,11 +29,6 @@ class Command(BaseCommand):
             help="Output directory for UI files (default: staticfiles/ui)",
         )
         parser.add_argument(
-            "--cleanup",
-            action="store_true",
-            help="Remove existing UI directory before installing",
-        )
-        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Show what would be done without making changes",
@@ -42,7 +37,6 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401
         """Execute the command."""
         output_dir = options["output_dir"]
-        cleanup = options["cleanup"]
         dry_run = options["dry_run"]
 
         # Determine output path (source directory, not STATIC_ROOT)
@@ -71,10 +65,17 @@ class Command(BaseCommand):
         if not tarball_url:
             return
 
-        # Clean up existing UI directory if requested
-        if cleanup and ui_path.exists():
-            self.stdout.write(f"Removing existing UI directory: {ui_path}")
+        # Clean up existing UI directories
+        if ui_path.exists():
+            self.stdout.write(f"Removing existing UI source directory: {ui_path}")
             shutil.rmtree(ui_path)
+
+        # Clean STATIC_ROOT/ui directory to ensure collectstatic replaces old files
+        if settings.STATIC_ROOT:
+            static_root_ui = Path(settings.STATIC_ROOT) / "ui"
+            if static_root_ui.exists():
+                self.stdout.write(f"Removing existing UI static directory: {static_root_ui}")
+                shutil.rmtree(static_root_ui)
 
         # Download and extract
         if not self._download_and_extract(tarball_url, ui_path):

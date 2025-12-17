@@ -179,6 +179,6 @@ collectstatic = { cmd = "python manage.py collectstatic --noinput", cwd = "kippo
 [tool.poe.tasks.update-ui]
 help = "Download latest kippo-ui and collect static files"
 sequence = [
-    { cmd = "python manage.py update_ui --cleanup", cwd = "kippo" },
+    { cmd = "python manage.py update_ui", cwd = "kippo" },
     { cmd = "python manage.py collectstatic --noinput", cwd = "kippo" },
 ]
