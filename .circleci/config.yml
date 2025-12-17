@@ -244,10 +244,14 @@ jobs:
             - "/usr/local/bin"
 
       - run:
+          name: Create artifacts directory
+          command: mkdir -p /home/circleci/artifacts
+
+      - run:
           name: Generate OpenAPI schema
           command: |
             cd kippo
-            uv run python manage.py create_openapi_schema --format yaml --output ~/app/openapi.yaml
+            uv run python manage.py create_openapi_schema --format yaml --output /home/circleci/artifacts/openapi.yaml
 
       - run:
           name: Generate Python API client
@@ -259,14 +263,7 @@ jobs:
           name: Create tarball of Python client
           command: |
             cd ~/app
-            tar -czf kippo-python-client.tar.gz python-client/
-
-      - run:
-          name: Move artifacts to artifacts directory
-          command: |
-            mkdir -p /home/circleci/artifacts
-            mv ~/app/kippo-python-client.tar.gz /home/circleci/artifacts/
-            mv ~/app/openapi.yaml /home/circleci/artifacts/
+            tar -czf /home/circleci/artifacts/kippo-python-client.tar.gz python-client/
 
       - store_artifacts:
           path: /home/circleci/artifacts
