@@ -129,7 +129,7 @@ class KippoAdminSite(admin.AdminSite):
     # update displayed header/title
     site_header = settings.SITE_HEADER
     site_title = settings.SITE_TITLE
-    site_url = f"{settings.URL_PREFIX}/projects/"
+    site_url = f"{settings.URL_PREFIX}/ui/"
 
 
 admin_site = KippoAdminSite(name="kippoadmin")

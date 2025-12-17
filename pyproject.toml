@@ -42,6 +42,7 @@ Repository = "https://github.com/kiconiaworks/kippo"
 dev = [
     "freezegun>=1.5.3",
     "openapi-python-client>=0.27.1",
+    "poethepoet>=0.32.2",
     "pyright>=1.1.396",
     "ruff>=0.9.10",
     "unittest-xml-reporting>=3.2.0",
@@ -168,3 +169,16 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.poe.tasks]
+test = { cmd = "python manage.py test --debug-mode", cwd = "kippo", help = "Run tests" }
+check = { cmd = "ruff check", help = "Run ruff code checks" }
+loadinitial = { cmd = "python manage.py loaddata default_columnset default_labelset required_bot_users", cwd = "kippo", help = "Load initial fixture data" }
+collectstatic = { cmd = "python manage.py collectstatic --noinput", cwd = "kippo", help = "Collect static files to STATIC_ROOT" }
+
+[tool.poe.tasks.update-ui]
+help = "Download latest kippo-ui and collect static files"
+sequence = [
+    { cmd = "python manage.py update_ui --cleanup", cwd = "kippo" },
+    { cmd = "python manage.py collectstatic --noinput", cwd = "kippo" },
+]

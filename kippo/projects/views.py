@@ -19,9 +19,10 @@ from django.http import (
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from tasks.models import KippoTask, KippoTaskStatus
 
@@ -533,3 +534,41 @@ class PublicTokenRefreshView(TokenRefreshView):
     )
     def post(self, request: Request, *args, **kwargs) -> Response:
         return super().post(request, *args, **kwargs)
+
+
+class CurrentUserView(APIView):
+    """Return the current authenticated user info.
+
+    Works with both session authentication (Django admin login) and JWT authentication.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["auth"],
+        summary="Get current user",
+        description="Returns the currently authenticated user's information. Works with both session and JWT auth.",
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "username": {"type": "string"},
+                    "email": {"type": "string"},
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                    "is_staff": {"type": "boolean"},
+                },
+            },
+        },
+    )
+    def get(self, request: Request) -> Response:
+        user = request.user
+        return Response(
+            {
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "is_staff": user.is_staff,
+            }
+        )

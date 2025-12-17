@@ -31,7 +31,7 @@ jobs:
       - run:
           name: code checks (ruff)
           command: |
-            make check
+            uv run poe check
 
   test:
     working_directory: ~/app/
@@ -104,8 +104,7 @@ jobs:
       - run:
           name: run tests
           command: |
-
-            make test
+            uv run poe test
 
       - store_test_results:
           path: test-reports

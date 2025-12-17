@@ -213,6 +213,15 @@ if URL_PREFIX and not URL_PREFIX.startswith("/"):
 STATIC_URL = f"{URL_PREFIX}/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# UI static files source directory (populated by 'update_ui' management command)
+# This follows Django's recommended workflow: source files in STATICFILES_DIRS,
+# then run 'collectstatic' to copy to STATIC_ROOT for production serving.
+UI_STATIC_SOURCE_DIR = Path(BASE_DIR).parent / "static" / "ui"
+STATICFILES_DIRS = []
+if UI_STATIC_SOURCE_DIR.exists():
+    # Include UI source directory for collectstatic to find
+    STATICFILES_DIRS.append(("ui", str(UI_STATIC_SOURCE_DIR)))
+
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_URL_NAMESPACE = "social"
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_KEY", None)  # client ID
