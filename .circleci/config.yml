@@ -298,7 +298,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
       - generate-python-client:
           requires:
             - check
@@ -306,7 +306,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
       - publish-github-release:
           context: "github release context"
           requires:
@@ -316,4 +316,4 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
