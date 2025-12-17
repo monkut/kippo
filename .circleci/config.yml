@@ -194,12 +194,40 @@ jobs:
       - image: cimg/python:3.13
         environment:
           DEBUG: "False"
+          AWS_PROFILE: dummyprofile
+          AWS_ACCESS_KEY_ID: dummyaccesskey
+          AWS_SECRET_ACCESS_KEY: dummysecretkey
+          AWS_DEFAULT_REGION: ap-northeast-1
 
     steps:
       - checkout
       - run: sudo chown -R circleci:circleci /usr/local/bin
       - restore_cache:
           key: deps-v1-{{ .Branch }}-{{ checksum "uv.lock" }}
+      - run:
+          name: prepare boto3 aws config/credentials
+          command: |
+            # create ~/.aws/config
+            echo "Creating: ~/.aws/config"
+            mkdir -p ~/.aws
+            cat \<<EOT > ~/.aws/config
+            [default]
+            region = ${AWS_DEFAULT_REGION}
+            output = json
+
+            [profile ${AWS_PROFILE}]
+            role_arn = ${AWS_ROLE_ARN}
+            region = ${AWS_DEFAULT_REGION}
+            source_profile = default
+            EOT
+
+            # create .aws/credentials
+            echo "Creating: ~/.aws/credentials"
+            cat \<<EOT > ~/.aws/credentials
+            [default]
+            aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+            aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+            EOT
       - run:
           name: Upgrade uv
           command: |
