@@ -18,6 +18,11 @@ from django.http import (
 )
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from tasks.models import KippoTask, KippoTaskStatus
 
 from kippo.awsclients import S3_CLIENT, s3_key_exists
@@ -496,3 +501,35 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
     }
 
     return render(request, "projects/projectstatus_details.html", context)
+
+
+class PublicTokenObtainPairView(TokenObtainPairView):
+    """JWT token obtain endpoint (public - no authentication required)."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["auth"],
+        summary="Obtain JWT token pair",
+        description="Takes username and password credentials and returns an access and refresh JWT token pair.",
+        auth=[],  # No authentication required
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        return super().post(request, *args, **kwargs)
+
+
+class PublicTokenRefreshView(TokenRefreshView):
+    """JWT token refresh endpoint (public - no authentication required)."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["auth"],
+        summary="Refresh JWT access token",
+        description="Takes a refresh token and returns a new access token if the refresh token is valid.",
+        auth=[],  # No authentication required
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        return super().post(request, *args, **kwargs)

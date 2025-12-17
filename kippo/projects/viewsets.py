@@ -2,12 +2,13 @@ from typing import Any
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from .models import KippoProject, ProjectWeeklyEffort
+from .models import KippoProject, ProjectAssignmentRate, ProjectWeeklyEffort
 from .permissions import IsSuperuserOrReadUpdateOnly
-from .serializers import KippoProjectSerializer, ProjectWeeklyEffortSerializer
+from .serializers import KippoProjectSerializer, ProjectAssignmentRateSerializer, ProjectWeeklyEffortSerializer
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
@@ -159,5 +160,62 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
         week_start_lte = self.request.query_params.get("week_start_lte", None)
         if week_start_lte:
             queryset = queryset.filter(week_start__lte=week_start_lte)
+
+        return queryset
+
+
+class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for ProjectAssignmentRate model.
+
+    Manages daily rates per role for projects.
+
+    **Organization Scoping:**
+    - Regular users can only access assignment rates for projects in organizations they belong to
+    - Superusers can access assignment rates from all organizations
+
+    **Filtering:**
+    - project: Filter by project UUID
+
+    **Permissions:**
+    - All CRUD operations require authentication
+    - Users can only manage rates for projects in their organizations
+    """
+
+    serializer_class = ProjectAssignmentRateSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = ProjectAssignmentRate.objects.all().select_related("project").order_by("project", "role")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                description="Filter by project UUID",
+                required=False,
+                type=str,
+            ),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """Filter queryset based on query parameters and user's organization membership.
+
+        Superusers can access all assignment rates. Regular users can only access
+        rates for projects in organizations they belong to.
+        """
+        queryset = super().get_queryset()
+
+        # Filter by user's organization memberships through project (skip for superusers)
+        user = self.request.user
+        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
+            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+            queryset = queryset.filter(project__organization__in=user_organizations)
+
+        # Filter by project parameter
+        project_id = self.request.query_params.get("project", None)
+        if project_id:
+            queryset = queryset.filter(project__id=project_id)
 
         return queryset

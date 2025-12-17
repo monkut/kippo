@@ -26,7 +26,7 @@ class Command(BaseCommand):
                 response = S3_CLIENT.create_bucket(
                     Bucket=bucket_name,
                     CreateBucketConfiguration={
-                        "LocationConstraint": settings.AWS_REGION,
+                        "LocationConstraint": settings.TARGET_REGION,
                     },
                 )
                 self.stdout.write(str(response))

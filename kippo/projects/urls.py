@@ -1,14 +1,15 @@
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from . import api_views, views
-from .viewsets import KippoProjectViewSet, ProjectWeeklyEffortViewSet
+from .views import PublicTokenObtainPairView, PublicTokenRefreshView
+from .viewsets import KippoProjectViewSet, ProjectAssignmentRateViewSet, ProjectWeeklyEffortViewSet
 
 # REST Framework router for API viewsets
 router = DefaultRouter()
 router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
+router.register(r"assignment-rates", ProjectAssignmentRateViewSet, basename="projectassignmentrate")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(
@@ -54,9 +55,9 @@ html_and_legacy_patterns = [
 
 # REST API URLs (under /api/ prefix in main urls.py)
 api_patterns = [
-    # JWT Authentication
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # JWT Authentication (public endpoints - no auth required)
+    path("token/", PublicTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", PublicTokenRefreshView.as_view(), name="token_refresh"),
     # OpenAPI Documentation
     path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),

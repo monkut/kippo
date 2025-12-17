@@ -2,8 +2,18 @@ import dataclasses
 import datetime
 from typing import TYPE_CHECKING
 
+from commons.definitions import StringEnumWithChoices
+
 if TYPE_CHECKING:
     from .models import KippoProject
+
+
+class ProjectRoles(StringEnumWithChoices):
+    """Roles for project assignment rates."""
+
+    DEVELOPER = "developer"
+    PROJECT_MANAGER = "project_manager"
+    TESTER = "tester"
 
 
 @dataclasses.dataclass

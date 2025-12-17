@@ -4,6 +4,8 @@ kippo/zappa_settings.json
 kippo/zappa_settings.orig
 .idea
 old-packages/
+ts-client/
+openapi.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
