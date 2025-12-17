@@ -236,12 +236,12 @@ jobs:
       - run:
           name: Move artifacts to artifacts directory
           command: |
-            mkdir -p ~/artifacts
-            mv ~/app/kippo-python-client.tar.gz ~/artifacts/
-            mv ~/app/openapi.yaml ~/artifacts/
+            mkdir -p /home/circleci/artifacts
+            mv ~/app/kippo-python-client.tar.gz /home/circleci/artifacts/
+            mv ~/app/openapi.yaml /home/circleci/artifacts/
 
       - store_artifacts:
-          path: ~/artifacts
+          path: /home/circleci/artifacts
           destination: generated-artifacts
 
       - persist_to_workspace:
@@ -256,15 +256,11 @@ jobs:
     steps:
       - checkout
       - attach_workspace:
-          at: ~/artifacts-package
-      - attach_workspace:
-          at: ~/artifacts-python
+          at: ~/artifacts
       - run:
-          name: Combine artifacts
+          name: List artifacts
           command: |
-            mkdir -p ~/artifacts
-            cp ~/artifacts-package/* ~/artifacts/ 2>/dev/null || true
-            cp ~/artifacts-python/* ~/artifacts/ 2>/dev/null || true
+            echo "Artifacts to be released:"
             ls -lh ~/artifacts/
       - run:
           name: upgrade ghr to v0.15.0
