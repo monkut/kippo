@@ -300,17 +300,13 @@ jobs:
       - run:
           name: "Publish Release on GitHub"
           command: |
-            cd ~/project
-            export VERSION=v$(date "+%Y%m%d_%H00")
-            ghr \
-              -n "${VERSION} ($(echo $CIRCLE_SHA1 | cut -c -7))" \
-              -t ${GITHUB_TOKEN} \
-              -u ${CIRCLE_PROJECT_USERNAME} \
-              -r ${CIRCLE_PROJECT_REPONAME} \
-              -c ${CIRCLE_SHA1} \
-              -delete \
-              -generatenotes \
-              ${VERSION} ~/artifacts/
+            VERSION="v$(date '+%Y%m%d_%H%M')"
+            RELEASE_NAME="${VERSION} ($(echo $CIRCLE_SHA1 | cut -c -7))"
+            echo "Creating release: ${VERSION}"
+            echo "Release name: ${RELEASE_NAME}"
+            echo "Artifacts:"
+            ls -la ~/artifacts/
+            ghr -n "${RELEASE_NAME}" -t "${GITHUB_TOKEN}" -u "${CIRCLE_PROJECT_USERNAME}" -r "${CIRCLE_PROJECT_REPONAME}" -c "${CIRCLE_SHA1}" -delete -generatenotes "${VERSION}" ~/artifacts/
 
 workflows:
   ProjectWorkflow:
