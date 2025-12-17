@@ -3,7 +3,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from . import api_views, views
-from .views import PublicTokenObtainPairView, PublicTokenRefreshView
+from .views import CurrentUserView, PublicTokenObtainPairView, PublicTokenRefreshView
 from .viewsets import KippoProjectViewSet, ProjectAssignmentRateViewSet, ProjectWeeklyEffortViewSet
 
 # REST Framework router for API viewsets
@@ -58,6 +58,8 @@ api_patterns = [
     # JWT Authentication (public endpoints - no auth required)
     path("token/", PublicTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", PublicTokenRefreshView.as_view(), name="token_refresh"),
+    # Current user (works with session and JWT auth)
+    path("auth/me/", CurrentUserView.as_view(), name="current_user"),
     # OpenAPI Documentation
     path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),
