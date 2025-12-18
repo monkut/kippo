@@ -397,8 +397,10 @@ if DEBUG:
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
+        # JWT first: if valid token present, authenticate without CSRF
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # Session second: fallback for Django admin, requires CSRF for unsafe methods
+        "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
