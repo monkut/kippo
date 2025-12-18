@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import ProjectRoles
-from .models import KippoProject, ProjectAssignmentRate, ProjectWeeklyEffort
+from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectWeeklyEffort
+
+if TYPE_CHECKING:
+    from accounts.models import OrganizationMembership
 
 
 class ProjectAssignmentRateInlineSerializer(serializers.Serializer):
@@ -146,3 +151,80 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
         if hasattr(user, "get_display_name"):
             return user.get_display_name()
         return f"{user.first_name} {user.last_name}".strip() or user.username
+
+
+class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
+    """Serializer for ProjectMonthlyAssignment model."""
+
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    user_display_name = serializers.SerializerMethodField()
+    user_github_login = serializers.CharField(source="user.github_login", read_only=True)
+    user_slack_username = serializers.SerializerMethodField()
+    user_slack_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectMonthlyAssignment
+        fields = [
+            "id",
+            "project",
+            "project_name",
+            "user",
+            "user_username",
+            "user_display_name",
+            "user_github_login",
+            "user_slack_username",
+            "user_slack_image_url",
+            "month",
+            "percentage",
+            "is_confirmed",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        read_only_fields = [
+            "id",
+            "project_name",
+            "user_username",
+            "user_display_name",
+            "user_github_login",
+            "user_slack_username",
+            "user_slack_image_url",
+            "created_datetime",
+            "updated_datetime",
+        ]
+
+    def _get_user_organization_membership(self, obj: ProjectMonthlyAssignment) -> "OrganizationMembership | None":
+        """Get the user's OrganizationMembership for the project's organization."""
+        from accounts.models import OrganizationMembership
+
+        try:
+            return OrganizationMembership.objects.get(
+                user=obj.user,
+                organization=obj.project.organization,
+            )
+        except OrganizationMembership.DoesNotExist:
+            return None
+
+    @extend_schema_field(serializers.CharField())
+    def get_user_display_name(self, obj: ProjectMonthlyAssignment) -> str:
+        """Get the user's display name."""
+        user = obj.user
+        if hasattr(user, "display_name"):
+            return user.display_name
+        return f"{user.first_name} {user.last_name}".strip() or user.username
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_slack_username(self, obj: ProjectMonthlyAssignment) -> str | None:
+        """Get the user's Slack username from their organization membership."""
+        membership = self._get_user_organization_membership(obj)
+        if membership:
+            return membership.slack_username or None
+        return None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_slack_image_url(self, obj: ProjectMonthlyAssignment) -> str | None:
+        """Get the user's Slack image URL from their organization membership."""
+        membership = self._get_user_organization_membership(obj)
+        if membership:
+            return membership.slack_image_url or None
+        return None

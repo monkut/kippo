@@ -4,12 +4,18 @@ from rest_framework.routers import DefaultRouter
 
 from . import api_views, views
 from .views import CurrentUserView, PublicTokenObtainPairView, PublicTokenRefreshView
-from .viewsets import KippoProjectViewSet, ProjectAssignmentRateViewSet, ProjectWeeklyEffortViewSet
+from .viewsets import (
+    KippoProjectViewSet,
+    ProjectAssignmentRateViewSet,
+    ProjectMonthlyAssignmentViewSet,
+    ProjectWeeklyEffortViewSet,
+)
 
 # REST Framework router for API viewsets
 router = DefaultRouter()
 router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
 router.register(r"assignment-rates", ProjectAssignmentRateViewSet, basename="projectassignmentrate")
+router.register(r"monthly-assignments", ProjectMonthlyAssignmentViewSet, basename="projectmonthlyassignment")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(

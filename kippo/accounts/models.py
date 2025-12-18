@@ -246,6 +246,11 @@ class OrganizationMembership(UserCreatedBaseModel):
         return result
 
     @property
+    def max_available_weekly_hours(self) -> int:
+        total_hours = self.committed_days * self.organization.day_workhours
+        return total_hours
+
+    @property
     def committed_weekdays(self) -> list[int]:
         """Return the integer weekday values for committed days"""
         workday_attrs = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -337,7 +342,7 @@ class KippoUser(AbstractUser):
                 date = holiday_start_date + timezone.timedelta(days=days)
                 yield date
 
-    def public_holiday_dates(self) -> list:
+    def public_holiday_dates(self) -> QuerySet:
         return PublicHoliday.objects.filter(country=self.holiday_country).values_list("day", flat=True)
 
     @property
