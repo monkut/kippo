@@ -6,9 +6,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from .models import KippoProject, ProjectAssignmentRate, ProjectWeeklyEffort
+from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectWeeklyEffort
 from .permissions import IsSuperuserOrReadUpdateOnly
-from .serializers import KippoProjectSerializer, ProjectAssignmentRateSerializer, ProjectWeeklyEffortSerializer
+from .serializers import (
+    KippoProjectSerializer,
+    ProjectAssignmentRateSerializer,
+    ProjectMonthlyAssignmentSerializer,
+    ProjectWeeklyEffortSerializer,
+)
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
@@ -217,5 +222,115 @@ class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):
         project_id = self.request.query_params.get("project", None)
         if project_id:
             queryset = queryset.filter(project__id=project_id)
+
+        return queryset
+
+
+class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for ProjectMonthlyAssignment model.
+
+    Manages monthly workload percentage assignments for users on projects.
+
+    **Organization Scoping:**
+    - Regular users can only access assignments for projects in organizations they belong to
+    - Superusers can access assignments from all organizations
+
+    **Filtering:**
+    - project: Filter by project UUID
+    - user: Filter by user ID
+    - month: Filter by exact month (YYYY-MM-DD format, day should be 01)
+    - month_gte: Filter by month >= date (YYYY-MM-DD format)
+    - month_lte: Filter by month <= date (YYYY-MM-DD format)
+
+    **Validation:**
+    - User must be a member of the project's organization
+    - Month defaults to the project's start_date month if not provided
+    - A warning is logged if total assignment percentage for a user exceeds 100% in an organization
+
+    **Permissions:**
+    - All CRUD operations require authentication
+    - Users can only manage assignments for projects in their organizations
+    """
+
+    serializer_class = ProjectMonthlyAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = ProjectMonthlyAssignment.objects.all().select_related("project", "user").order_by("project", "user", "-month")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                description="Filter by project UUID",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="user",
+                description="Filter by user ID",
+                required=False,
+                type=int,
+            ),
+            OpenApiParameter(
+                name="month",
+                description="Filter by exact month (YYYY-MM-DD format)",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="month_gte",
+                description="Filter by month >= date (YYYY-MM-DD format)",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="month_lte",
+                description="Filter by month <= date (YYYY-MM-DD format)",
+                required=False,
+                type=str,
+            ),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """Filter queryset based on query parameters and user's organization membership.
+
+        Superusers can access all monthly assignments. Regular users can only access
+        assignments for projects in organizations they belong to.
+        """
+        queryset = super().get_queryset()
+
+        # Filter by user's organization memberships through project (skip for superusers)
+        user = self.request.user
+        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
+            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+            queryset = queryset.filter(project__organization__in=user_organizations)
+
+        # Filter by project parameter
+        project_id = self.request.query_params.get("project", None)
+        if project_id:
+            queryset = queryset.filter(project__id=project_id)
+
+        # Filter by user parameter
+        user_id = self.request.query_params.get("user", None)
+        if user_id:
+            queryset = queryset.filter(user__id=user_id)
+
+        # Filter by month parameter (exact match)
+        month = self.request.query_params.get("month", None)
+        if month:
+            queryset = queryset.filter(month=month)
+
+        # Filter by month_gte parameter
+        month_gte = self.request.query_params.get("month_gte", None)
+        if month_gte:
+            queryset = queryset.filter(month__gte=month_gte)
+
+        # Filter by month_lte parameter
+        month_lte = self.request.query_params.get("month_lte", None)
+        if month_lte:
+            queryset = queryset.filter(month__lte=month_lte)
 
         return queryset

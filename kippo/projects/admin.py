@@ -52,10 +52,10 @@ from .models import (
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
-    ProjectAssignment,
     ProjectAssignmentRate,
     ProjectColumn,
     ProjectColumnSet,
+    ProjectMonthlyAssignment,
     ProjectWeeklyEffort,
 )
 
@@ -671,11 +671,11 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     inlines = [ProjectColumnInline]
 
 
-@admin.register(ProjectAssignment)
-class ProjectAssignmentAdmin(UserCreatedBaseModelAdmin):
+@admin.register(ProjectMonthlyAssignment)
+class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user")
 
-    def get_project_organization(self, obj: ProjectAssignment):
+    def get_project_organization(self, obj: ProjectMonthlyAssignment):
         organization_name = obj.project.organization.name
         return organization_name
 

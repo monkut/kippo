@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
 GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
+MAX_ASSIGNMENT_PERCENTAGE = 100
 
 
 def get_target_date_default() -> datetime.date:
@@ -873,12 +874,55 @@ def cleanup_github_milestones(sender: type[KippoMilestone], instance: KippoMiles
         logger.info("no related GithubMilestone, will not attempt to close on github")
 
 
-class ProjectAssignment(UserCreatedBaseModel):
+class ProjectMonthlyAssignment(UserCreatedBaseModel):
     project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectassignment_project")
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectassignment_user")
+    month = models.DateField(null=True, blank=True, help_text=_("Assignment month (defaults to project start_date month)"))
+    is_confirmed = models.BooleanField(default=False, help_text=_("Assignment is confirmed or not"))
     percentage = models.SmallIntegerField(
         help_text=_("Workload percentage assigned to project from available workload available for project organization")
     )
+
+    class Meta:
+        unique_together = ("project", "user", "month")
+
+    def clean(self) -> None:
+        super().clean()
+        # Default month to the project's start_date month (first day of month)
+        if not self.month and self.project and self.project.start_date:
+            self.month = self.project.start_date.replace(day=1)
+
+        # Validate that user is a member of the project's organization
+        if self.user and self.project:
+            is_member = OrganizationMembership.objects.filter(user=self.user, organization=self.project.organization).exists()
+            if not is_member:
+                raise ValidationError(
+                    _("User '%(user)s' is not a member of the project's organization '%(org)s'"),
+                    params={"user": self.user, "org": self.project.organization},
+                    code="invalid_user_organization",
+                )
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+        # Log warning if user's total percentage for the organization exceeds 100%
+        if self.user and self.project and self.month:
+            total_percentage = (
+                ProjectMonthlyAssignment.objects.filter(
+                    user=self.user,
+                    project__organization=self.project.organization,
+                    month=self.month,
+                ).aggregate(total=Sum("percentage"))["total"]
+                or 0
+            )
+            if total_percentage > MAX_ASSIGNMENT_PERCENTAGE:
+                logger.warning(
+                    "User '%s' has total assignment of %d%% for organization '%s' in month %s (exceeds 100%%)",
+                    self.user,
+                    total_percentage,
+                    self.project.organization,
+                    self.month.strftime("%Y-%m"),
+                )
 
 
 class ProjectWeeklyEffort(UserCreatedBaseModel):
