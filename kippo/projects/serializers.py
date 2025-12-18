@@ -37,6 +37,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     project_manager_username = serializers.CharField(source="project_manager.username", read_only=True, allow_null=True)
     allocated_effort_hours = serializers.SerializerMethodField()
     assignment_rates = serializers.SerializerMethodField()
+    has_requirements = serializers.SerializerMethodField()
 
     class Meta:
         model = KippoProject
@@ -67,6 +68,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "problem_definition",
             "survey_issued",
             "assignment_rates",
+            "has_requirements",
             "created_datetime",
             "updated_datetime",
         ]
@@ -77,6 +79,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "project_manager_username",
             "allocated_effort_hours",
             "assignment_rates",
+            "has_requirements",
             "created_datetime",
             "updated_datetime",
         ]
@@ -112,6 +115,13 @@ class KippoProjectSerializer(serializers.ModelSerializer):
                     }
                 )
         return rates
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_requirements(self, obj: KippoProject) -> bool:
+        """Check if the project has any problem definitions."""
+        from requirements.models import ProjectProblemDefinition
+
+        return ProjectProblemDefinition.objects.filter(project=obj).exists()
 
 
 class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
