@@ -160,6 +160,7 @@ class ProjectTechnicalRequirement(TimestampedModel):
     category = models.ForeignKey(ProjectTechnicalRequirementCategory, on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
     details = models.TextField(null=False, blank=True, default="")
+    include_in_estimate = models.BooleanField(default=True, help_text=_("見積もり計算には、含むかどうか"))
 
     class Meta:
         verbose_name = _("Technical Requirement")
