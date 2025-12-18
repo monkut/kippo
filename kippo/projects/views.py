@@ -19,10 +19,12 @@ from django.http import (
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from tasks.models import KippoTask, KippoTaskStatus
 
@@ -570,5 +572,39 @@ class CurrentUserView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "is_staff": user.is_staff,
+            }
+        )
+
+
+class SessionTokenView(APIView):
+    """Issue JWT tokens to session-authenticated users.
+
+    Allows users who logged in via SSO (Google, GitHub, etc.) to obtain
+    JWT tokens without providing username/password credentials.
+    """
+
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["auth"],
+        summary="Get JWT tokens from session",
+        description="Issues JWT access and refresh tokens to users authenticated via Django session (SSO login).",
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "access": {"type": "string", "description": "JWT access token"},
+                    "refresh": {"type": "string", "description": "JWT refresh token"},
+                },
+            },
+        },
+    )
+    def get(self, request: Request) -> Response:
+        refresh = RefreshToken.for_user(request.user)
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             }
         )
