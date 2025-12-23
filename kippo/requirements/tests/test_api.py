@@ -120,25 +120,25 @@ class RequirementsAPIAuthenticationTestCase(TestCase):
         """Test /api/requirements/problem-definitions/ requires authentication."""
         url = f"{API_PREFIX}/problem-definitions/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_assumptions_requires_auth(self):
         """Test /api/requirements/assumptions/ requires authentication."""
         url = f"{API_PREFIX}/assumptions/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_business_requirements_requires_auth(self):
         """Test /api/requirements/business-requirements/ requires authentication."""
         url = f"{API_PREFIX}/business-requirements/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_technical_requirements_requires_auth(self):
         """Test /api/requirements/technical-requirements/ requires authentication."""
         url = f"{API_PREFIX}/technical-requirements/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
 
 class ProblemDefinitionViewSetTestCase(TestCase):
@@ -861,7 +861,7 @@ class ScheduleEstimationAPITestCase(TestCase):
             "developer_count": 1,
         }
         response = unauthenticated_client.post(url, data, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_schedule_estimation_validates_developer_count(self):
         """Test that developer count must be positive."""

@@ -1,10 +1,11 @@
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.db.models import Sum
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .definitions import ProjectRoles
+from .definitions import ProjectProgressStatus, ProjectRoles
 from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectWeeklyEffort
 
 if TYPE_CHECKING:
@@ -17,6 +18,25 @@ class ProjectAssignmentRateInlineSerializer(serializers.Serializer):
     role = serializers.CharField()
     rate_per_day = serializers.IntegerField()
     is_default = serializers.BooleanField()
+
+
+class ProjectProgressStatusInlineSerializer(serializers.Serializer):
+    """Inline serializer for project progress status in OpenAPI schema."""
+
+    current_effort_hours = serializers.IntegerField()
+    expected_effort_hours = serializers.IntegerField(allow_null=True)
+    allocated_effort_hours = serializers.IntegerField(allow_null=True)
+    difference_percentage = serializers.FloatField(allow_null=True)
+
+
+class WeeklyEffortUserInlineSerializer(serializers.Serializer):
+    """Inline serializer for weekly effort user data in OpenAPI schema."""
+
+    user_id = serializers.IntegerField()
+    username = serializers.CharField()
+    display_name = serializers.CharField()
+    hours = serializers.IntegerField()
+    percentage = serializers.FloatField()
 
 
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
@@ -38,6 +58,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     allocated_effort_hours = serializers.SerializerMethodField()
     assignment_rates = serializers.SerializerMethodField()
     has_requirements = serializers.SerializerMethodField()
+    projectstatus_display = serializers.SerializerMethodField()
+    latest_comment = serializers.SerializerMethodField()
+    weekly_effort_users = serializers.SerializerMethodField()
 
     class Meta:
         model = KippoProject
@@ -69,6 +92,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "survey_issued",
             "assignment_rates",
             "has_requirements",
+            "projectstatus_display",
+            "latest_comment",
+            "weekly_effort_users",
             "created_datetime",
             "updated_datetime",
         ]
@@ -80,6 +106,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "allocated_effort_hours",
             "assignment_rates",
             "has_requirements",
+            "projectstatus_display",
+            "latest_comment",
+            "weekly_effort_users",
             "created_datetime",
             "updated_datetime",
         ]
@@ -122,6 +151,64 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         from requirements.models import ProjectProblemDefinition
 
         return ProjectProblemDefinition.objects.filter(project=obj).exists()
+
+    @extend_schema_field(ProjectProgressStatusInlineSerializer(allow_null=True))
+    def get_projectstatus_display(self, obj: KippoProject) -> dict | None:
+        """Get the project progress status display values."""
+        project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values()
+        if project_progress_status.allocated_effort_hours is None:
+            return None
+        return {
+            "current_effort_hours": project_progress_status.current_effort_hours,
+            "expected_effort_hours": project_progress_status.expected_effort_hours,
+            "allocated_effort_hours": project_progress_status.allocated_effort_hours,
+            "difference_percentage": project_progress_status.get_difference_percentage(),
+        }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_comment(self, obj: KippoProject) -> str | None:
+        """Get the latest KippoProjectStatus comment."""
+        latest_status = obj.get_latest_kippoprojectstatus()
+        if latest_status:
+            return latest_status.comment
+        return None
+
+    @extend_schema_field(WeeklyEffortUserInlineSerializer(many=True))
+    def get_weekly_effort_users(self, obj: KippoProject) -> list[dict]:
+        """Get list of users with their weekly effort percentages for this project."""
+        # Get total hours for the project
+        total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
+        total_hours = total_hours_result["total"] or 0
+
+        if total_hours == 0:
+            return []
+
+        # Get hours per user
+        user_efforts = (
+            ProjectWeeklyEffort.objects.filter(project=obj)
+            .values("user__id", "user__username", "user__first_name", "user__last_name")
+            .annotate(user_hours=Sum("hours"))
+            .order_by("-user_hours")
+        )
+
+        result = []
+        for effort in user_efforts:
+            first_name = effort["user__first_name"] or ""
+            last_name = effort["user__last_name"] or ""
+            display_name = f"{first_name} {last_name}".strip() or effort["user__username"]
+            user_hours = effort["user_hours"] or 0
+            percentage = (user_hours / total_hours) * 100 if total_hours > 0 else 0
+
+            result.append(
+                {
+                    "user_id": effort["user__id"],
+                    "username": effort["user__username"],
+                    "display_name": display_name,
+                    "hours": user_hours,
+                    "percentage": round(percentage, 2),
+                }
+            )
+        return result
 
 
 class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
