@@ -18,7 +18,7 @@ from django.http import (
 )
 from django.shortcuts import redirect, render
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -606,5 +606,141 @@ class SessionTokenView(APIView):
             {
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
+            }
+        )
+
+
+class WeeklyEffortExpectedHoursView(APIView):
+    """Calculate expected working hours for a user for a given week.
+
+    Takes into account:
+    - User's committed workdays from OrganizationMembership
+    - Organization's day_workhours setting
+    - Public holidays in the target week
+    - Personal holidays in the target week
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["weekly-effort"],
+        summary="Get expected hours for a week",
+        description="Calculate expected working hours for the current user for a given week.",
+        parameters=[
+            OpenApiParameter(
+                name="week_start",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Start date of week (YYYY-MM-DD format, must be a Monday)",
+            ),
+        ],
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "expected_hours": {"type": "number"},
+                    "week_start": {"type": "string", "format": "date"},
+                    "organization": {"type": "string", "nullable": True},
+                },
+            },
+            400: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"},
+                },
+            },
+        },
+    )
+    def get(self, request: Request) -> Response:
+        from datetime import date
+
+        from accounts.models import PersonalHoliday, PublicHoliday
+        from commons.context_processors import get_personal_holiday_hours
+
+        week_start_str = request.query_params.get("week_start")
+
+        if not week_start_str:
+            return Response(
+                {"error": "week_start parameter is required (format: YYYY-MM-DD)"},
+                status=400,
+            )
+
+        try:
+            week_start = date.fromisoformat(week_start_str)
+        except ValueError:
+            return Response(
+                {"error": "Invalid week_start format. Use YYYY-MM-DD"},
+                status=400,
+            )
+
+        # Validate that week_start is a Monday
+        if week_start.weekday() != 0:
+            return Response(
+                {"error": "week_start must be a Monday"},
+                status=400,
+            )
+
+        user = request.user
+        user_first_org = user.organizations.first()
+
+        if not user_first_org:
+            return Response(
+                {
+                    "expected_hours": 0,
+                    "week_start": week_start.isoformat(),
+                    "organization": None,
+                }
+            )
+
+        org_membership = user.get_membership(organization=user_first_org)
+        if not org_membership:
+            return Response(
+                {
+                    "expected_hours": 0,
+                    "week_start": week_start.isoformat(),
+                    "organization": user_first_org.name,
+                }
+            )
+
+        # Calculate base expected hours: committed_days × day_workhours
+        committed_days = org_membership.committed_days
+        expected_hours = committed_days * user_first_org.day_workhours
+
+        # Calculate week end date (Friday)
+        week_enddate = week_start + timezone.timedelta(days=4)
+
+        # Subtract public holidays
+        public_holidays = PublicHoliday.objects.filter(
+            day__gte=week_start,
+            day__lte=week_enddate,
+        )
+        if user.holiday_country:
+            public_holidays = public_holidays.filter(country=user.holiday_country)
+        elif org_membership.organization.default_holiday_country:
+            public_holidays = public_holidays.filter(country=org_membership.organization.default_holiday_country)
+
+        public_holiday_days = public_holidays.count()
+        public_holiday_hours = public_holiday_days * user_first_org.day_workhours
+        expected_hours -= public_holiday_hours
+
+        # Subtract personal holidays
+        personal_holidays = PersonalHoliday.objects.filter(
+            user=user,
+            day__gte=week_start,
+            day__lte=week_enddate,
+        )
+        personal_holiday_hours = get_personal_holiday_hours(
+            personal_holidays,
+            day_workhours=user_first_org.day_workhours,
+            end_date=week_enddate,
+        )
+        expected_hours -= personal_holiday_hours
+
+        return Response(
+            {
+                "expected_hours": max(expected_hours, 0),
+                "week_start": week_start.isoformat(),
+                "organization": user_first_org.name,
             }
         )
