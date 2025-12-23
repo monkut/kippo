@@ -56,9 +56,8 @@ class JWTAuthenticationTestCase(TestCase):
         """Test that API endpoints require authentication."""
         url = f"{settings.URL_PREFIX}/api/projects/"
         response = self.client.get(url)
-        # DRF returns 403 FORBIDDEN when no authentication is provided
-        # due to CSRF enforcement with SessionAuthentication
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        # DRF returns 401 UNAUTHORIZED when no authentication is provided
+        self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
 
 class KippoProjectViewSetTestCase(TestCase):
