@@ -3,7 +3,13 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from . import api_views, views
-from .views import CurrentUserView, PublicTokenObtainPairView, PublicTokenRefreshView, SessionTokenView
+from .views import (
+    CurrentUserView,
+    PublicTokenObtainPairView,
+    PublicTokenRefreshView,
+    SessionTokenView,
+    WeeklyEffortExpectedHoursView,
+)
 from .viewsets import (
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
@@ -68,6 +74,8 @@ api_patterns = [
     path("token/from-session/", SessionTokenView.as_view(), name="token_from_session"),
     # Current user (works with session and JWT auth)
     path("auth/me/", CurrentUserView.as_view(), name="current_user"),
+    # Weekly effort expected hours
+    path("weekly-effort/expected-hours/", WeeklyEffortExpectedHoursView.as_view(), name="weekly-effort-expected-hours"),
     # OpenAPI Documentation
     path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="api-docs"),
