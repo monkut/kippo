@@ -39,6 +39,15 @@ class WeeklyEffortUserInlineSerializer(serializers.Serializer):
     percentage = serializers.FloatField()
 
 
+class LatestCommentInlineSerializer(serializers.Serializer):
+    """Inline serializer for latest project status comment in OpenAPI schema."""
+
+    comment = serializers.CharField()
+    created_by_username = serializers.CharField(allow_null=True)
+    created_by_display_name = serializers.CharField(allow_null=True)
+    created_datetime = serializers.DateTimeField()
+
+
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
     """Serializer for ProjectAssignmentRate model."""
 
@@ -165,12 +174,25 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "difference_percentage": project_progress_status.get_difference_percentage(),
         }
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_latest_comment(self, obj: KippoProject) -> str | None:
-        """Get the latest KippoProjectStatus comment."""
+    @extend_schema_field(LatestCommentInlineSerializer(allow_null=True))
+    def get_latest_comment(self, obj: KippoProject) -> dict | None:
+        """Get the latest KippoProjectStatus comment with commentor info."""
         latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
-            return latest_status.comment
+            created_by = latest_status.created_by
+            display_name = None
+            username = None
+            if created_by:
+                username = created_by.username
+                first_name = created_by.first_name or ""
+                last_name = created_by.last_name or ""
+                display_name = f"{first_name} {last_name}".strip() or username
+            return {
+                "comment": latest_status.comment,
+                "created_by_username": username,
+                "created_by_display_name": display_name,
+                "created_datetime": latest_status.created_datetime,
+            }
         return None
 
     @extend_schema_field(WeeklyEffortUserInlineSerializer(many=True))
