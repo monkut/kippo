@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import reversion
 from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
-from commons.models import UserCreatedBaseModel
+from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -22,7 +22,7 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
-from .definitions import ProjectProgressStatus, ProjectRoles
+from .definitions import ProjectProgressStatus, ProjectRoles, ValidCurrencies, ValidServices
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
@@ -1047,3 +1047,12 @@ class ProjectAssignmentRate(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return f"{self.project.name} - {self.role}: {self.rate_per_day}"
+
+
+class ProjectMonthlyCost(TimestampedModel):
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE)
+    month = models.DateField(null=True, blank=True, help_text=_("COST month (defaults to project start_date month)"))
+    service = models.CharField(max_length=50, choices=ValidServices.choices())
+    cost = models.FloatField()
+    currency = models.CharField(choices=ValidCurrencies.choices(), default=ValidCurrencies.USD.value, max_length=50)
+    itemized_cost = models.JSONField(null=True)  # {"item_name": {VALUE}, ...}
