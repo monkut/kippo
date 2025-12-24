@@ -6,7 +6,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import ProjectProgressStatus, ProjectRoles
-from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectWeeklyEffort
+from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectMonthlyCost, ProjectWeeklyEffort
 
 if TYPE_CHECKING:
     from accounts.models import OrganizationMembership
@@ -347,3 +347,30 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
         if membership:
             return membership.slack_image_url or None
         return None
+
+
+class ProjectMonthlyCostSerializer(serializers.ModelSerializer):
+    """Serializer for ProjectMonthlyCost model."""
+
+    project_name = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = ProjectMonthlyCost
+        fields = [
+            "id",
+            "project",
+            "project_name",
+            "month",
+            "service",
+            "cost",
+            "currency",
+            "itemized_cost",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        read_only_fields = [
+            "id",
+            "project_name",
+            "created_datetime",
+            "updated_datetime",
+        ]

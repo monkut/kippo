@@ -38,3 +38,16 @@ class ProjectProgressStatus:
         if self.expected_effort_hours == 0:
             return 0.0
         return (self.allocated_effort_hours / self.expected_effort_hours) * 100
+
+
+class ValidCurrencies(StringEnumWithChoices):
+    USD = "USD"
+    JPY = "JPY"
+    EUR = "EUR"
+
+
+class ValidServices(StringEnumWithChoices):
+    AWS = "AWS"
+    AZURE = "AZURE"
+    GCP = "GCP"
+    OTHER = "OTHER"

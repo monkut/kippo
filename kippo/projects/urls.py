@@ -14,6 +14,7 @@ from .viewsets import (
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
     ProjectMonthlyAssignmentViewSet,
+    ProjectMonthlyCostViewSet,
     ProjectWeeklyEffortViewSet,
 )
 
@@ -22,6 +23,7 @@ router = DefaultRouter()
 router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
 router.register(r"assignment-rates", ProjectAssignmentRateViewSet, basename="projectassignmentrate")
 router.register(r"monthly-assignments", ProjectMonthlyAssignmentViewSet, basename="projectmonthlyassignment")
+router.register(r"monthly-costs", ProjectMonthlyCostViewSet, basename="projectmonthlycost")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(
