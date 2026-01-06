@@ -598,6 +598,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "is_closed",
                     "display_as_active",
                     "display_in_project_report",
+                    "enable_cost_report",
                     "document_url",
                     "github_project_html_url",
                     "github_project_api_url",
