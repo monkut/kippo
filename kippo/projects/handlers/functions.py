@@ -1,6 +1,8 @@
 import logging
 from collections import defaultdict
 
+from django.utils import timezone
+
 from ..models import KippoProject, ProjectMonthlyCost
 
 logger = logging.getLogger(__name__)
@@ -33,28 +35,34 @@ def run_project_cost_reports(event: dict | None, context: dict | None) -> list: 
 
     projects = KippoProject.objects.filter(enable_cost_report=True)
     monthlycost_by_project: dict[KippoProject, dict] = defaultdict(
-        lambda: {"cumulative": 0.0, "latest_monthly_cost": 0.0, "latest_month": None, "latest_itemized_cost": None}
+        lambda: {
+            "cumulative": 0.0,
+            "current_month_cost": 0.0,
+            "current_month_itemized_cost": None,
+        }
     )
 
-    for monthly_cost in ProjectMonthlyCost.objects.filter(project__in=projects).order_by("month"):
-        monthlycost_by_project[monthly_cost.project]["cumulative"] += monthly_cost.cost
-        # ordered by month, so last entry will be the latest
-        monthlycost_by_project[monthly_cost.project]["latest_monthly_cost"] = monthly_cost.cost
-        monthlycost_by_project[monthly_cost.project]["latest_month"] = monthly_cost.month
-        monthlycost_by_project[monthly_cost.project]["latest_itemized_cost"] = monthly_cost.itemized_cost
+    # Get current month (first day of month for comparison)
+    today = timezone.now().date()
+    current_month_start = today.replace(day=1)
 
-    responses = []
+    for monthly_cost in ProjectMonthlyCost.objects.filter(project__in=projects):
+        monthlycost_by_project[monthly_cost.project]["cumulative"] += monthly_cost.cost
+        if monthly_cost.month == current_month_start:
+            monthlycost_by_project[monthly_cost.project]["current_month_cost"] = monthly_cost.cost
+            monthlycost_by_project[monthly_cost.project]["current_month_itemized_cost"] = monthly_cost.itemized_cost
+
+    dispatched_projects = []
+    current_month_str = current_month_start.isoformat()
     for project in projects:
         cost_data = monthlycost_by_project[project]
-        latest_month = cost_data["latest_month"]
-        # Convert date to ISO string for JSON serialization (zappa async task)
-        latest_month_str = latest_month.isoformat() if latest_month else None
-        response = send_project_cost_report(
+        # send_project_cost_report is decorated with @task, returns LambdaAsyncResponse (not JSON serializable)
+        send_project_cost_report(
             project_id=str(project.pk),
             cumulative_cost=cost_data["cumulative"],
-            latest_monthly_cost=cost_data["latest_monthly_cost"],
-            latest_month=latest_month_str,
-            latest_itemized_cost=cost_data["latest_itemized_cost"],
+            current_month_cost=cost_data["current_month_cost"],
+            current_month=current_month_str,
+            current_month_itemized_cost=cost_data["current_month_itemized_cost"],
         )
-        responses.append(response)
-    return responses
+        dispatched_projects.append({"project_id": str(project.pk), "project_name": project.name})
+    return dispatched_projects

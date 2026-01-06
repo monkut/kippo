@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 def _build_cost_report_blocks(
     project: KippoProject,
     cumulative_cost: float,
-    latest_monthly_cost: float,
-    latest_month: datetime.date | None,
-    latest_itemized_cost: dict | None,
+    current_month_cost: float,
+    current_month: datetime.date,
+    current_month_itemized_cost: dict | None,
 ) -> list[dict]:
     """Build Slack blocks for cost report."""
     blocks = []
@@ -32,8 +32,7 @@ def _build_cost_report_blocks(
     blocks.append(header_block)
     blocks.append(divider_block)
 
-    # Format month display
-    month_display = latest_month.strftime("%Y-%m") if latest_month else "-"
+    current_month_display = current_month.strftime("%Y-%m")
 
     # Summary section
     summary_block = {
@@ -45,17 +44,17 @@ def _build_cost_report_blocks(
             },
             {
                 "type": "mrkdwn",
-                "text": f"*Latest Month ({month_display}):*\n${latest_monthly_cost:,.2f}",
+                "text": f"*Current Month ({current_month_display}):*\n${current_month_cost:,.2f}",
             },
         ],
     }
     blocks.append(summary_block)
     blocks.append(divider_block)
 
-    # Itemized cost breakdown if available
-    if latest_itemized_cost:
-        itemized_text = "*Itemized Breakdown:*\n"
-        for item_name, item_cost in latest_itemized_cost.items():
+    # Current month itemized breakdown if available
+    if current_month_itemized_cost:
+        itemized_text = f"*Itemized ({current_month_display}):*\n"
+        for item_name, item_cost in current_month_itemized_cost.items():
             if isinstance(item_cost, (int, float)):
                 itemized_text += f"• {item_name}: ${item_cost:,.2f}\n"
             else:
@@ -78,9 +77,9 @@ def _build_cost_report_blocks(
 def send_project_cost_report(
     project_id: str,
     cumulative_cost: float,
-    latest_monthly_cost: float,
-    latest_month: str | None,
-    latest_itemized_cost: dict | None,
+    current_month_cost: float,
+    current_month: str,
+    current_month_itemized_cost: dict | None,
 ) -> dict | None:
     """Send cost report to project's Slack channel.
 
@@ -90,9 +89,9 @@ def send_project_cost_report(
     Args:
         project_id: The KippoProject UUID as string
         cumulative_cost: Total cumulative cost across all months
-        latest_monthly_cost: Cost for the latest month
-        latest_month: The date of the latest month as ISO format string (YYYY-MM-DD)
-        latest_itemized_cost: Itemized cost breakdown for the latest month
+        current_month_cost: Cost for the current calendar month
+        current_month: The current month as ISO format string (YYYY-MM-DD)
+        current_month_itemized_cost: Itemized cost breakdown for the current month
 
     Returns:
         Slack API response or None if posting failed
@@ -107,23 +106,23 @@ def send_project_cost_report(
         logger.warning(f"Organization {project.organization.name} has no slack_api_token configured, skipping cost report")
         return None
 
-    # Parse latest_month back to date object (date has no timezone, suppress DTZ007)
-    latest_month_date = datetime.datetime.strptime(latest_month, "%Y-%m-%d").date() if latest_month else None  # noqa: DTZ007
+    # Parse date back to date object (date has no timezone, suppress DTZ007)
+    current_month_date = datetime.datetime.strptime(current_month, "%Y-%m-%d").date()  # noqa: DTZ007
 
     client = WebClient(token=project.organization.slack_api_token)
     blocks = _build_cost_report_blocks(
         project=project,
         cumulative_cost=cumulative_cost,
-        latest_monthly_cost=latest_monthly_cost,
-        latest_month=latest_month_date,
-        latest_itemized_cost=latest_itemized_cost,
+        current_month_cost=current_month_cost,
+        current_month=current_month_date,
+        current_month_itemized_cost=current_month_itemized_cost,
     )
 
-    response = None
     try:
         response = client.chat_postMessage(channel=project.slack_channel_name, blocks=blocks)
         logger.info(f"Cost report sent to {project.slack_channel_name} for project {project.name}")
+        # Return serializable dict instead of SlackResponse to avoid Lambda serialization errors
+        return {"ok": response.get("ok"), "channel": response.get("channel"), "ts": response.get("ts")}
     except SlackApiError as e:
         logger.exception(f"Failed to send cost report for {project.name}: {e.response.status_code} {e.response['error']}")
-
-    return response
+        return None
