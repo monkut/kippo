@@ -167,6 +167,9 @@ class KippoProject(UserCreatedBaseModel):
     )
     category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
     slack_channel_name = models.CharField(max_length=80, blank=True, default="", help_text=_("If given, updates are sent periodically"))
+    enable_cost_report = models.BooleanField(
+        default=False, help_text=_("Set to True if you want to enable cost reporting to the configured slack channel")
+    )
     columnset = models.ForeignKey(
         ProjectColumnSet,
         on_delete=models.DO_NOTHING,
@@ -258,6 +261,8 @@ class KippoProject(UserCreatedBaseModel):
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
             raise ValidationError(_("Given date is in the future"))
+        if self.enable_cost_report and not self.slack_channel_name:
+            raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
 
     def developers(self):
         from tasks.models import KippoTask

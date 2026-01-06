@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from string import ascii_lowercase
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
-from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
 from commons.functions import get_current_month_date_range
 from commons.widgets import MonthYearWidget
@@ -15,7 +15,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Model
+from django.db.models import JSONField, Model
 from django.forms import BaseFormSet, Form
 from django.http import (
     HttpRequest,
@@ -56,6 +56,7 @@ from .models import (
     ProjectColumn,
     ProjectColumnSet,
     ProjectMonthlyAssignment,
+    ProjectMonthlyCost,
     ProjectWeeklyEffort,
 )
 
@@ -597,6 +598,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "is_closed",
                     "display_as_active",
                     "display_in_project_report",
+                    "enable_cost_report",
                     "document_url",
                     "github_project_html_url",
                     "github_project_api_url",
@@ -680,6 +682,44 @@ class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
         return organization_name
 
     get_project_organization.short_description = _("Organization")
+
+
+@admin.register(ProjectMonthlyCost)
+class ProjectMonthlyCostAdmin(admin.ModelAdmin):
+    list_display = ("project", "get_project_organization", "month", "service", "cost", "currency")
+    list_filter = ("service", "currency")
+    search_fields = ("project__id", "project__name")
+    ordering = ("project", "-month")
+    formfield_overrides = {JSONField: {"widget": PrettyJSONWidget}}
+
+    def get_readonly_fields(self, request: DjangoRequest, obj: ProjectMonthlyCost | None = None) -> tuple:
+        if obj:  # Editing existing object
+            return ("project", "month", "service", "cost", "currency", "itemized_cost")
+        return ()
+
+    def get_project_organization(self, obj: ProjectMonthlyCost) -> str:
+        return obj.project.organization.name
+
+    get_project_organization.short_description = _("Organization")
+
+    def has_module_permission(self, request: DjangoRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_view_permission(self, request: DjangoRequest, obj: ProjectMonthlyCost | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_add_permission(self, request: DjangoRequest) -> bool:
+        return request.user.is_superuser
+
+    def has_change_permission(self, request: DjangoRequest, obj: ProjectMonthlyCost | None = None) -> bool:
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request: DjangoRequest, obj: ProjectMonthlyCost | None = None) -> bool:
+        return request.user.is_superuser
+
+    def get_queryset(self, request: DjangoRequest) -> models.QuerySet:
+        qs = super().get_queryset(request)
+        return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
 
 
 @admin.register(CollectIssuesAction)
