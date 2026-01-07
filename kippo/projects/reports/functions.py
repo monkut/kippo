@@ -10,6 +10,37 @@ from ..models import KippoProject
 logger = logging.getLogger(__name__)
 
 
+def _build_itemized_section(
+    title: str,
+    itemized_cost: dict[str, float],
+) -> dict:
+    """Build a Slack section block for itemized costs.
+
+    Args:
+        title: Section title (e.g., "Account Name" or "Total")
+        itemized_cost: Dict mapping service name to cost
+    """
+    # Calculate account total from itemized costs
+    account_total = sum(c for c in itemized_cost.values() if isinstance(c, (int, float)))
+
+    itemized_text = f"*{title}:* ${account_total:,.2f}\n"
+    # Sort by cost descending
+    sorted_items = sorted(itemized_cost.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True)
+    for item_name, item_cost in sorted_items:
+        if isinstance(item_cost, (int, float)):
+            itemized_text += f"  • {item_name}: ${item_cost:,.2f}\n"
+        else:
+            itemized_text += f"  • {item_name}: {item_cost}\n"
+
+    return {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": itemized_text,
+        },
+    }
+
+
 def _build_cost_report_blocks(
     project: KippoProject,
     cumulative_cost: float,
@@ -17,7 +48,11 @@ def _build_cost_report_blocks(
     current_month: datetime.date,
     current_month_itemized_cost: dict | None,
 ) -> list[dict]:
-    """Build Slack blocks for cost report."""
+    """Build Slack blocks for cost report.
+
+    Handles both flat itemized_cost (legacy: {"service": cost}) and
+    nested per-account itemized_cost ({"account_name": {"service": cost}, "total": {...}}).
+    """
     blocks = []
     divider_block = {"type": "divider"}
 
@@ -53,21 +88,51 @@ def _build_cost_report_blocks(
 
     # Current month itemized breakdown if available
     if current_month_itemized_cost:
-        itemized_text = f"*Itemized ({current_month_display}):*\n"
-        for item_name, item_cost in current_month_itemized_cost.items():
-            if isinstance(item_cost, (int, float)):
-                itemized_text += f"• {item_name}: ${item_cost:,.2f}\n"
-            else:
-                itemized_text += f"• {item_name}: {item_cost}\n"
+        # Check if this is nested per-account format (has 'total' key with dict value)
+        has_total_key = "total" in current_month_itemized_cost
+        total_value = current_month_itemized_cost.get("total")
+        is_nested_format = has_total_key and isinstance(total_value, dict)
 
-        itemized_block = {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": itemized_text,
-            },
-        }
-        blocks.append(itemized_block)
+        if is_nested_format:
+            # New format: per-account breakdown with 'total'
+            # First show per-account breakdowns (sorted by account total, descending)
+            account_totals = []
+            for account_name, services in current_month_itemized_cost.items():
+                if account_name == "total" or not isinstance(services, dict):
+                    continue
+                account_sum = sum(c for c in services.values() if isinstance(c, (int, float)))
+                account_totals.append((account_name, services, account_sum))
+
+            # Sort accounts by total cost descending
+            account_totals.sort(key=lambda x: x[2], reverse=True)
+
+            for account_name, services, _ in account_totals:
+                blocks.append(_build_itemized_section(account_name, services))
+
+            # Add divider before total if we have account breakdowns
+            if account_totals:
+                blocks.append(divider_block)
+
+            # Show summed total
+            blocks.append(_build_itemized_section(f"Total ({current_month_display})", total_value))
+        else:
+            # Legacy flat format: {"service": cost}
+            itemized_text = f"*Itemized ({current_month_display}):*\n"
+            for item_name, item_cost in current_month_itemized_cost.items():
+                if isinstance(item_cost, (int, float)):
+                    itemized_text += f"• {item_name}: ${item_cost:,.2f}\n"
+                else:
+                    itemized_text += f"• {item_name}: {item_cost}\n"
+
+            itemized_block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": itemized_text,
+                },
+            }
+            blocks.append(itemized_block)
+
         blocks.append(divider_block)
 
     return blocks

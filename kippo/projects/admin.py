@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import urllib.parse
 from collections import Counter, defaultdict
@@ -694,13 +695,21 @@ class ProjectMonthlyCostAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request: DjangoRequest, obj: ProjectMonthlyCost | None = None) -> tuple:
         if obj:  # Editing existing object
-            return ("project", "month", "service", "cost", "currency", "itemized_cost")
+            return ("project", "month", "service", "cost", "currency", "itemized_cost_display")
         return ()
 
     def get_project_organization(self, obj: ProjectMonthlyCost) -> str:
         return obj.project.organization.name
 
     get_project_organization.short_description = _("Organization")
+
+    @admin.display(description=_("Itemized Cost"))
+    def itemized_cost_display(self, obj: ProjectMonthlyCost) -> str:
+        """Display itemized_cost as pretty-printed JSON."""
+        if not obj.itemized_cost:
+            return "-"
+        formatted_json = json.dumps(obj.itemized_cost, indent=2, ensure_ascii=False, sort_keys=True)
+        return format_html("<pre style='margin: 0; white-space: pre-wrap;'>{}</pre>", formatted_json)
 
     def has_module_permission(self, request: DjangoRequest) -> bool:
         return request.user.is_superuser

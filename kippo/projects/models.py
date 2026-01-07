@@ -1061,3 +1061,7 @@ class ProjectMonthlyCost(TimestampedModel):
     cost = models.FloatField()
     currency = models.CharField(choices=ValidCurrencies.choices(), default=ValidCurrencies.USD.value, max_length=50)
     itemized_cost = models.JSONField(null=True)  # {"item_name": {VALUE}, ...}
+
+    def __str__(self) -> str:
+        display_month = self.month.strftime("%Y-%m")
+        return f"{self.project.name}({self.project.id}) [{display_month}]"
