@@ -166,7 +166,9 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
     category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
-    slack_channel_name = models.CharField(max_length=80, blank=True, default="", help_text=_("If given, updates are sent periodically"))
+    slack_channel_name = models.CharField(
+        max_length=80, blank=True, default="", help_text=_("Run '/invite {ORG.slack_command_name}' to enable channel notification")
+    )
     enable_cost_report = models.BooleanField(
         default=False, help_text=_("Set to True if you want to enable cost reporting to the configured slack channel")
     )
