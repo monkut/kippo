@@ -610,6 +610,93 @@ class SessionTokenView(APIView):
         )
 
 
+class WeeklyEffortMissingWeeksView(APIView):
+    """Return weeks where the current user has not entered weekly effort data.
+
+    Calculates missing weeks from the start of the user's organization's fiscal year
+    up to the current date, excluding the current week.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["weekly-effort"],
+        summary="Get missing weekly effort weeks",
+        description="Returns week start dates where the current user has not entered any weekly effort data.",
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "missing_weeks": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "date"},
+                        "description": "List of week start dates (Mondays) with no entries",
+                    },
+                    "fiscal_year_start": {"type": "string", "format": "date"},
+                    "organization": {"type": "string", "nullable": True},
+                },
+            },
+        },
+    )
+    def get(self, request: Request) -> Response:
+        from datetime import date, timedelta
+
+        from .models import ProjectWeeklyEffort
+
+        user = request.user
+        user_first_org = user.organizations.first()
+
+        if not user_first_org:
+            return Response(
+                {
+                    "missing_weeks": [],
+                    "fiscal_year_start": None,
+                    "organization": None,
+                }
+            )
+
+        # Calculate fiscal year start date
+        now = timezone.now()
+        if now.month < user_first_org.fiscalyear_start_month:
+            fiscal_year_start = date(now.year - 1, user_first_org.fiscalyear_start_month, 1)
+        else:
+            fiscal_year_start = date(now.year, user_first_org.fiscalyear_start_month, 1)
+
+        # Get all week_starts where user has entries since fiscal year start
+        user_weekstarts = set(
+            ProjectWeeklyEffort.objects.filter(
+                user=user,
+                week_start__gte=fiscal_year_start,
+                project__organization=user_first_org,
+            ).values_list("week_start", flat=True)
+        )
+
+        # Generate all Mondays from fiscal year start to now
+        all_mondays = []
+        current = fiscal_year_start
+        while current.weekday() != 0:  # Find first Monday
+            current += timedelta(days=1)
+        while current <= now.date():
+            all_mondays.append(current)
+            current += timedelta(days=7)
+
+        # Calculate current week's Monday to exclude
+        this_week_start = now.date()
+        while this_week_start.weekday() != 0:
+            this_week_start -= timedelta(days=1)
+
+        # Find missing weeks (excluding current week)
+        missing_weeks = [week.isoformat() for week in sorted(set(all_mondays) - user_weekstarts) if week != this_week_start]
+
+        return Response(
+            {
+                "missing_weeks": missing_weeks,
+                "fiscal_year_start": fiscal_year_start.isoformat(),
+                "organization": user_first_org.name,
+            }
+        )
+
+
 class WeeklyEffortExpectedHoursView(APIView):
     """Calculate expected working hours for a user for a given week.
 
