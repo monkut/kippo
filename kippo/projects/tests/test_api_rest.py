@@ -142,8 +142,12 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["allocated_effort_hours"], 60 * settings.DAY_WORKHOURS)
 
     def test_filter_by_is_active(self):
-        """Test filtering projects by is_active parameter."""
-        # Create an inactive project
+        """Test filtering projects by is_active parameter.
+
+        The is_active=true filter should match ActiveKippoProject behavior:
+        - display_as_active=True AND is_closed=False
+        """
+        # Create an inactive project (display_as_active=False)
         inactive_project = KippoProject.objects.create(
             name="Inactive Project",
             organization=self.organization,
@@ -153,13 +157,25 @@ class KippoProjectViewSetTestCase(TestCase):
             updated_by=self.user,
         )
 
-        # Filter for active projects
+        # Create a closed project (is_closed=True but display_as_active=True)
+        closed_project = KippoProject.objects.create(
+            name="Closed Project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            display_as_active=True,
+            is_closed=True,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        # Filter for active projects - should exclude both inactive and closed projects
         url = f"{settings.URL_PREFIX}/api/projects/?is_active=true"
         response = self.client.get(url)
         data = response.json()
         active_ids = [result["id"] for result in data["results"]]
         self.assertIn(str(self.project.id), active_ids)
         self.assertNotIn(str(inactive_project.id), active_ids)
+        self.assertNotIn(str(closed_project.id), active_ids)
 
         # Filter for inactive projects
         url = f"{settings.URL_PREFIX}/api/projects/?is_active=false"

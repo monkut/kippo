@@ -68,10 +68,15 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(organization__in=user_organizations)
 
         # Filter by is_active parameter
+        # When is_active=true, return only projects that are:
+        # - display_as_active=True AND is_closed=False
+        # When is_active=false, return only projects with display_as_active=False
         is_active = self.request.query_params.get("is_active", None)
         if is_active is not None:
             is_active_bool = is_active.lower() in ["true", "1", "yes"]
             queryset = queryset.filter(display_as_active=is_active_bool)
+            if is_active_bool:
+                queryset = queryset.filter(is_closed=False)
 
         return queryset
 
