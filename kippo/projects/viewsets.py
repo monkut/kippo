@@ -88,6 +88,7 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
     **Filtering:**
     - project: Filter by project UUID
     - user: Filter by user ID
+    - user_username: Filter by user's username (must match the logged-in user's username)
     - week_start_gte: Filter by week_start greater than or equal to date (YYYY-MM-DD)
     - week_start_lte: Filter by week_start less than or equal to date (YYYY-MM-DD)
 
@@ -115,6 +116,12 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
                 description="Filter by user ID",
                 required=False,
                 type=int,
+            ),
+            OpenApiParameter(
+                name="user_username",
+                description="Filter by user's username (must match logged-in user's username for non-superusers)",
+                required=False,
+                type=str,
             ),
             OpenApiParameter(
                 name="week_start_gte",
@@ -156,6 +163,16 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
         user_id = self.request.query_params.get("user", None)
         if user_id:
             queryset = queryset.filter(user__id=user_id)
+
+        # Filter by user_username parameter
+        # Non-superusers can only filter by their own username
+        user_username = self.request.query_params.get("user_username", None)
+        if user_username:
+            if not user.is_superuser and user_username != user.username:
+                # Non-superusers can only query their own data
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(user__username=user_username)
 
         # Filter by week_start_gte parameter
         week_start_gte = self.request.query_params.get("week_start_gte", None)

@@ -1,10 +1,13 @@
 """Management command to download and install the latest kippo-ui build."""
 
+import os
 import shutil
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from django.conf import settings
@@ -13,6 +16,10 @@ from django.core.management.base import BaseCommand, CommandParser
 KIPPO_UI_REPO = "monkut/kippo-ui"
 GITHUB_API_URL = f"https://api.github.com/repos/{KIPPO_UI_REPO}/releases/latest"
 TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
+HTTP_STATUS_SERVER_ERROR = 500
+HTTP_STATUS_TOO_MANY_REQUESTS = 429
 
 
 class Command(BaseCommand):
@@ -85,24 +92,43 @@ class Command(BaseCommand):
         self._show_configuration_help(ui_path)
 
     def _fetch_latest_release(self) -> dict | None:
-        """Fetch the latest release info from GitHub API."""
+        """Fetch the latest release info from GitHub API with retry logic."""
+        import json
+
         self.stdout.write(f"Fetching latest release from {KIPPO_UI_REPO}...")
 
-        try:
-            request = Request(  # noqa: S310
-                GITHUB_API_URL,
-                headers={
-                    "Accept": "application/vnd.github.v3+json",
-                    "User-Agent": "kippo-update-ui",
-                },
-            )
-            with urlopen(request, timeout=30) as response:  # noqa: S310
-                import json
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "kippo-update-ui",
+        }
 
-                return json.loads(response.read().decode("utf-8"))
-        except Exception as e:  # noqa: BLE001
-            self.stdout.write(self.style.ERROR(f"Failed to fetch release info: {e}"))
-            return None
+        # Use GITHUB_TOKEN if available for higher rate limits
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            self.stdout.write("Using GITHUB_TOKEN for authenticated request")
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                request = Request(GITHUB_API_URL, headers=headers)  # noqa: S310
+                with urlopen(request, timeout=30) as response:  # noqa: S310
+                    return json.loads(response.read().decode("utf-8"))
+            except HTTPError as e:
+                # Retry on 5xx errors or 429 (rate limit)
+                if e.code >= HTTP_STATUS_SERVER_ERROR or e.code == HTTP_STATUS_TOO_MANY_REQUESTS:
+                    retries_left = MAX_RETRIES - attempt - 1
+                    if retries_left > 0:
+                        delay = RETRY_DELAY_SECONDS * (attempt + 1)
+                        self.stdout.write(self.style.WARNING(f"Request failed with {e.code}, retrying in {delay}s... ({retries_left} retries left)"))
+                        time.sleep(delay)
+                        continue
+                self.stdout.write(self.style.ERROR(f"Failed to fetch release info: {e}"))
+                return None
+            except Exception as e:  # noqa: BLE001
+                self.stdout.write(self.style.ERROR(f"Failed to fetch release info: {e}"))
+                return None
+
+        return None
 
     def _find_tarball_url(self, release: dict) -> str | None:
         """Find the tarball download URL from release assets."""
