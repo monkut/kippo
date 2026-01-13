@@ -16,7 +16,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import JSONField, Model
+from django.db.models import Case, JSONField, Model, Value, When
 from django.forms import BaseFormSet, Form
 from django.http import (
     HttpRequest,
@@ -614,6 +614,22 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         if "/change/" in request.path:
             return False
         return super().has_delete_permission(request, obj)
+
+    def get_queryset(self, request: DjangoRequest):
+        """Custom ordering: anon-projects first, then by confidence (desc), target_date (asc), name (asc)."""
+        qs = super().get_queryset(request)
+        # Order by:
+        # 1. anon-project phase first (is_anon_project=0 comes before is_anon_project=1)
+        # 2. confidence descending (nulls last)
+        # 3. target_date ascending (nulls last)
+        # 4. name ascending
+        qs = qs.annotate(
+            is_anon_project=Case(
+                When(phase="anon-project", then=Value(0)),
+                default=Value(1),
+            )
+        ).order_by("is_anon_project", "-confidence", "target_date", "name")
+        return qs
 
 
 @admin.register(KippoMilestone)
