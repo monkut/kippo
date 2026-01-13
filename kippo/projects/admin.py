@@ -562,6 +562,8 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
     )
+    # Override parent ordering to match UI: confidence desc, target_date asc, name asc
+    ordering = ("-confidence", "target_date", "name")
 
     fieldsets = [
         (
