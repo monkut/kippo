@@ -7,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectMonthlyCost, ProjectWeeklyEffort
-from .permissions import IsSuperuserOrReadUpdateOnly
+from .permissions import IsSuperuserOrReadUpdateCreateOwn, IsSuperuserOrReadUpdateOnly
 from .serializers import (
     KippoProjectSerializer,
     ProjectAssignmentRateSerializer,
@@ -99,14 +99,18 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users)
-    - Update (PUT/PATCH): Authenticated users (organization-scoped for regular users)
-    - Create (POST): Superusers only
+    - Create (POST): Authenticated users (user is auto-set to current user)
+    - Update (PUT/PATCH): Authenticated users (own entries only)
     - Delete (DELETE): Superusers only
     """
 
     serializer_class = ProjectWeeklyEffortSerializer
-    permission_classes = [IsSuperuserOrReadUpdateOnly]
+    permission_classes = [IsSuperuserOrReadUpdateCreateOwn]
     queryset = ProjectWeeklyEffort.objects.all().select_related("project", "user").order_by("-week_start")
+
+    def perform_create(self, serializer: ProjectWeeklyEffortSerializer) -> None:
+        """Auto-set the user to the current authenticated user on create."""
+        serializer.save(user=self.request.user)
 
     @extend_schema(
         parameters=[

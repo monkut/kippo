@@ -234,7 +234,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
 
 
 class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
-    """Serializer for ProjectWeeklyEffort model."""
+    """Serializer for ProjectWeeklyEffort model.
+
+    The `user` field is optional on create - it will be auto-set to the
+    authenticated user by the viewset's perform_create method.
+    """
 
     project_name = serializers.CharField(source="project.name", read_only=True)
     user_username = serializers.CharField(source="user.username", read_only=True)
@@ -262,6 +266,9 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "created_datetime",
             "updated_datetime",
         ]
+        extra_kwargs = {
+            "user": {"required": False},  # Auto-set by viewset.perform_create()
+        }
 
     @extend_schema_field(serializers.CharField())
     def get_user_display_name(self, obj: ProjectWeeklyEffort) -> str:
