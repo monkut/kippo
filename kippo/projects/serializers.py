@@ -267,7 +267,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "updated_datetime",
         ]
         extra_kwargs = {
-            "user": {"required": False},  # Auto-set by viewset.perform_create()
+            "user": {"required": False, "allow_null": True},  # Auto-set by viewset.perform_create()
         }
 
     @extend_schema_field(serializers.CharField())
