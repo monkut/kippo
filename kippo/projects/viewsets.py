@@ -116,10 +116,6 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSuperuserOrReadUpdateCreateOwn]
     queryset = ProjectWeeklyEffort.objects.all().select_related("project", "user").order_by("-week_start")
 
-    def perform_create(self, serializer: ProjectWeeklyEffortSerializer) -> None:
-        """Auto-set the user to the current authenticated user on create."""
-        serializer.save(user=self.request.user)
-
     @extend_schema(
         parameters=[
             OpenApiParameter(

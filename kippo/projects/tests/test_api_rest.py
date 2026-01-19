@@ -544,18 +544,19 @@ class PermissionsTestCase(TestCase):
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
-    def test_regular_user_cannot_create_weekly_effort(self):
-        """Test that regular authenticated users cannot create weekly effort."""
+    def test_regular_user_can_create_own_weekly_effort(self):
+        """Test that regular authenticated users can create their own weekly effort."""
         self.client.force_authenticate(user=self.user)
         url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/"
         data = {
             "project": str(self.project.id),
-            "user": self.user.id,
             "week_start": "2024-02-01",
             "hours": 35,
         }
         response = self.client.post(url, data, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        # Verify user is auto-set to the authenticated user
+        self.assertEqual(response.data["user"], self.user.id)
 
     def test_superuser_can_create_weekly_effort(self):
         """Test that superusers can create weekly effort."""

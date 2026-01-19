@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from accounts.models import KippoUser
 from django.conf import settings
 from django.db.models import Sum
 from drf_spectacular.utils import extend_schema_field
@@ -310,13 +311,19 @@ class KippoProjectSerializer(serializers.ModelSerializer):
 class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
     """Serializer for ProjectWeeklyEffort model.
 
-    The `user` field is optional on create - it will be auto-set to the
-    authenticated user by the viewset's perform_create method.
+    The `user` field defaults to the current authenticated user on create.
+    Superusers can optionally specify a different user.
     """
 
     project_name = serializers.CharField(source="project.name", read_only=True)
-    user_username = serializers.CharField(source="user.username", read_only=True)
+    user_username = serializers.CharField(source="user.username", read_only=True, allow_null=True)
     user_display_name = serializers.SerializerMethodField()
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=KippoUser.objects.all(),
+        required=False,
+        allow_null=True,
+        default=serializers.CurrentUserDefault(),
+    )
 
     class Meta:
         model = ProjectWeeklyEffort
@@ -340,9 +347,6 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "created_datetime",
             "updated_datetime",
         ]
-        extra_kwargs = {
-            "user": {"required": False, "allow_null": True},  # Auto-set by viewset.perform_create()
-        }
 
     @extend_schema_field(serializers.CharField())
     def get_user_display_name(self, obj: ProjectWeeklyEffort) -> str:
