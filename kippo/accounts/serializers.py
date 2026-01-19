@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from .models import PersonalHoliday
+from .models import PersonalHoliday, PublicHoliday
 
 
 class PersonalHolidaySerializer(serializers.ModelSerializer):
@@ -43,3 +43,22 @@ class PersonalHolidaySerializer(serializers.ModelSerializer):
         if hasattr(user, "display_name"):
             return user.display_name
         return f"{user.first_name} {user.last_name}".strip() or user.username
+
+
+class PublicHolidaySerializer(serializers.ModelSerializer):
+    """Serializer for PublicHoliday model.
+
+    Returns public holidays for the authenticated user's holiday_country.
+    """
+
+    country_name = serializers.CharField(source="country.name", read_only=True)
+
+    class Meta:
+        model = PublicHoliday
+        fields = [
+            "id",
+            "name",
+            "day",
+            "country_name",
+        ]
+        read_only_fields = fields
