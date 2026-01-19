@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from .models import KippoProject
 
 
+# Minimum effort percentage required for a user to be included in survey tracking
+SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
+
+
 class ProjectRoles(StringEnumWithChoices):
     """Roles for project assignment rates."""
 
