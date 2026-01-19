@@ -6,10 +6,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectMonthlyCost, ProjectWeeklyEffort
+from .models import (
+    KippoProject,
+    KippoProjectUserStatisfactionResult,
+    ProjectAssignmentRate,
+    ProjectMonthlyAssignment,
+    ProjectMonthlyCost,
+    ProjectWeeklyEffort,
+)
 from .permissions import IsSuperuserOrReadUpdateCreateOwn, IsSuperuserOrReadUpdateOnly
 from .serializers import (
     KippoProjectSerializer,
+    KippoProjectUserStatisfactionResultSerializer,
     ProjectAssignmentRateSerializer,
     ProjectMonthlyAssignmentSerializer,
     ProjectMonthlyCostSerializer,
@@ -464,5 +472,80 @@ class ProjectMonthlyCostViewSet(viewsets.ModelViewSet):
         month_lte = self.request.query_params.get("month_lte", None)
         if month_lte:
             queryset = queryset.filter(month__lte=month_lte)
+
+        return queryset
+
+
+class KippoProjectUserStatisfactionResultViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for KippoProjectUserStatisfactionResult model (振り返り従業員アンケート).
+
+    Manages project closure retrospective survey results.
+
+    **Organization Scoping:**
+    - Regular users can only access surveys for projects in organizations they belong to
+    - Superusers can access surveys from all organizations
+
+    **Filtering:**
+    - project: Filter by project UUID
+    - user: Filter by user ID (created_by)
+
+    **Permissions:**
+    - Read (GET): Authenticated users (organization-scoped for regular users)
+    - Create (POST): Authenticated users (user is auto-set to current user)
+    - Update (PUT/PATCH): Authenticated users (own entries only)
+    - Delete (DELETE): Superusers only
+    """
+
+    serializer_class = KippoProjectUserStatisfactionResultSerializer
+    permission_classes = [IsSuperuserOrReadUpdateCreateOwn]
+    queryset = KippoProjectUserStatisfactionResult.objects.all().select_related("project", "created_by").order_by("-created_datetime")
+
+    def perform_create(self, serializer: KippoProjectUserStatisfactionResultSerializer) -> None:
+        """Auto-set the created_by to the current authenticated user on create."""
+        serializer.save(created_by=self.request.user)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                description="Filter by project UUID",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="user",
+                description="Filter by user ID (created_by)",
+                required=False,
+                type=int,
+            ),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """Filter queryset based on query parameters and user's organization membership.
+
+        Superusers can access all surveys. Regular users can only access
+        surveys for projects in organizations they belong to.
+        """
+        queryset = super().get_queryset()
+
+        # Filter by user's organization memberships through project (skip for superusers)
+        user = self.request.user
+        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
+            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+            queryset = queryset.filter(project__organization__in=user_organizations)
+
+        # Filter by project parameter
+        project_id = self.request.query_params.get("project", None)
+        if project_id:
+            queryset = queryset.filter(project__id=project_id)
+
+        # Filter by user parameter (created_by)
+        user_id = self.request.query_params.get("user", None)
+        if user_id:
+            queryset = queryset.filter(created_by__id=user_id)
 
         return queryset

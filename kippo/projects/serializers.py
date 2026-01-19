@@ -5,8 +5,15 @@ from django.db.models import Sum
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .definitions import ProjectProgressStatus, ProjectRoles
-from .models import KippoProject, ProjectAssignmentRate, ProjectMonthlyAssignment, ProjectMonthlyCost, ProjectWeeklyEffort
+from .definitions import SURVEY_EFFORT_THRESHOLD_PERCENTAGE, ProjectProgressStatus, ProjectRoles
+from .models import (
+    KippoProject,
+    KippoProjectUserStatisfactionResult,
+    ProjectAssignmentRate,
+    ProjectMonthlyAssignment,
+    ProjectMonthlyCost,
+    ProjectWeeklyEffort,
+)
 
 if TYPE_CHECKING:
     from accounts.models import OrganizationMembership
@@ -48,6 +55,16 @@ class LatestCommentInlineSerializer(serializers.Serializer):
     created_datetime = serializers.DateTimeField()
 
 
+class SurveyUserInlineSerializer(serializers.Serializer):
+    """Inline serializer for survey completion user data in OpenAPI schema."""
+
+    user_id = serializers.IntegerField()
+    username = serializers.CharField()
+    display_name = serializers.CharField()
+    percentage = serializers.FloatField()
+    survey_completed = serializers.BooleanField()
+
+
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
     """Serializer for ProjectAssignmentRate model."""
 
@@ -70,6 +87,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     projectstatus_display = serializers.SerializerMethodField()
     latest_comment = serializers.SerializerMethodField()
     weekly_effort_users = serializers.SerializerMethodField()
+    survey_users = serializers.SerializerMethodField()
 
     class Meta:
         model = KippoProject
@@ -87,6 +105,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "project_manager",
             "project_manager_username",
             "is_closed",
+            "closed_datetime",
             "display_as_active",
             "display_in_project_report",
             "github_project_html_url",
@@ -104,6 +123,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "projectstatus_display",
             "latest_comment",
             "weekly_effort_users",
+            "survey_users",
             "created_datetime",
             "updated_datetime",
         ]
@@ -112,12 +132,14 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "slug",
             "organization_name",
             "project_manager_username",
+            "closed_datetime",
             "allocated_effort_hours",
             "assignment_rates",
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
             "weekly_effort_users",
+            "survey_users",
             "created_datetime",
             "updated_datetime",
         ]
@@ -230,6 +252,58 @@ class KippoProjectSerializer(serializers.ModelSerializer):
                     "percentage": round(percentage, 2),
                 }
             )
+        return result
+
+    @extend_schema_field(SurveyUserInlineSerializer(many=True))
+    def get_survey_users(self, obj: KippoProject) -> list[dict]:
+        """Get list of users with >3% effort who should complete the retrospective survey.
+
+        Returns users sorted alphabetically by username with their survey completion status.
+        Only includes users with effort percentage > 3%.
+        """
+        # Get total hours for the project
+        total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
+        total_hours = total_hours_result["total"] or 0
+
+        if total_hours == 0:
+            return []
+
+        # Get hours per user
+        user_efforts = (
+            ProjectWeeklyEffort.objects.filter(project=obj)
+            .values("user__id", "user__username", "user__first_name", "user__last_name")
+            .annotate(user_hours=Sum("hours"))
+        )
+
+        # Get users who have completed the survey for this project
+        completed_user_ids = set(KippoProjectUserStatisfactionResult.objects.filter(project=obj).values_list("created_by_id", flat=True))
+
+        result = []
+        for effort in user_efforts:
+            user_hours = effort["user_hours"] or 0
+            percentage = (user_hours / total_hours) * 100 if total_hours > 0 else 0
+
+            # Only include users with effort above threshold
+            if percentage <= SURVEY_EFFORT_THRESHOLD_PERCENTAGE:
+                continue
+
+            first_name = effort["user__first_name"] or ""
+            last_name = effort["user__last_name"] or ""
+            display_name = f"{first_name} {last_name}".strip() or effort["user__username"]
+            user_id = effort["user__id"]
+
+            result.append(
+                {
+                    "user_id": user_id,
+                    "username": effort["user__username"],
+                    "display_name": display_name,
+                    "percentage": round(percentage, 2),
+                    "survey_completed": user_id in completed_user_ids,
+                }
+            )
+
+        # Sort alphabetically by username
+        result.sort(key=lambda x: x["username"])
         return result
 
 
@@ -381,3 +455,48 @@ class ProjectMonthlyCostSerializer(serializers.ModelSerializer):
             "created_datetime",
             "updated_datetime",
         ]
+
+
+class KippoProjectUserStatisfactionResultSerializer(serializers.ModelSerializer):
+    """Serializer for KippoProjectUserStatisfactionResult model (振り返り従業員アンケート).
+
+    The `created_by` field is auto-set to the current authenticated user on create.
+    """
+
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True)
+    created_by_display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KippoProjectUserStatisfactionResult
+        fields = [
+            "id",
+            "project",
+            "project_name",
+            "fullfillment_score",
+            "growth_score",
+            "created_by",
+            "created_by_username",
+            "created_by_display_name",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        read_only_fields = [
+            "id",
+            "project_name",
+            "created_by",
+            "created_by_username",
+            "created_by_display_name",
+            "created_datetime",
+            "updated_datetime",
+        ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_created_by_display_name(self, obj: KippoProjectUserStatisfactionResult) -> str:
+        """Get the user's display name."""
+        user = obj.created_by
+        if user:
+            first_name = user.first_name or ""
+            last_name = user.last_name or ""
+            return f"{first_name} {last_name}".strip() or user.username
+        return ""
