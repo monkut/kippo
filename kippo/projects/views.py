@@ -641,6 +641,8 @@ class WeeklyEffortMissingWeeksView(APIView):
     def get(self, request: Request) -> Response:
         from datetime import date, timedelta
 
+        from accounts.models import PersonalHoliday, PublicHoliday
+
         from .models import ProjectWeeklyEffort
 
         user = request.user
@@ -685,8 +687,50 @@ class WeeklyEffortMissingWeeksView(APIView):
         while this_week_start.weekday() != 0:
             this_week_start -= timedelta(days=1)
 
-        # Find missing weeks (excluding current week)
-        missing_weeks = [week.isoformat() for week in sorted(set(all_mondays) - user_weekstarts) if week != this_week_start]
+        # Get user's committed weekdays and holiday data for filtering all-holiday weeks
+        org_membership = user.get_membership(organization=user_first_org)
+        committed_weekdays = org_membership.committed_weekdays if org_membership else list(range(5))  # default Mon-Fri
+
+        # Get holiday country for public holiday lookup
+        holiday_country = user.holiday_country or (user_first_org.default_holiday_country if user_first_org else None)
+
+        # Get public holidays in the fiscal year range
+        public_holiday_dates = set()
+        if holiday_country:
+            public_holiday_dates = set(
+                PublicHoliday.objects.filter(
+                    country=holiday_country,
+                    day__gte=fiscal_year_start,
+                    day__lte=now.date(),
+                ).values_list("day", flat=True)
+            )
+
+        # Get personal holidays in the fiscal year range (expand multi-day holidays)
+        personal_holiday_dates = set()
+        personal_holidays = PersonalHoliday.objects.filter(
+            user=user,
+            day__gte=fiscal_year_start - timedelta(days=365),  # Include holidays that may span into range
+            day__lte=now.date(),
+        )
+        for holiday in personal_holidays:
+            for day_offset in range(holiday.duration):
+                holiday_date = holiday.day + timedelta(days=day_offset)
+                if fiscal_year_start <= holiday_date <= now.date():
+                    personal_holiday_dates.add(holiday_date)
+
+        all_holiday_dates = public_holiday_dates | personal_holiday_dates
+
+        def is_all_holiday_week(week_start: date) -> bool:
+            """Check if all committed weekdays in the week are holidays."""
+            for weekday in committed_weekdays:
+                day_in_week = week_start + timedelta(days=weekday)
+                if day_in_week not in all_holiday_dates:
+                    return False
+            return True
+
+        # Find missing weeks (excluding current week and all-holiday weeks)
+        candidate_missing = sorted(set(all_mondays) - user_weekstarts)
+        missing_weeks = [week.isoformat() for week in candidate_missing if week != this_week_start and not is_all_holiday_week(week)]
 
         return Response(
             {
