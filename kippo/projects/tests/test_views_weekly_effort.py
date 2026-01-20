@@ -40,7 +40,7 @@ class WeeklyEffortMissingWeeksViewTestCase(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    @freeze_time("2024-04-15")  # Monday in second week of fiscal year
+    @freeze_time("2024-04-08")  # Monday of second week of fiscal year
     def test_missing_weeks__includes_week_without_holidays(self):
         """Weeks without any effort entries should appear as missing."""
         response = self.client.get("/api/weekly-effort/missing-weeks/")
@@ -50,7 +50,7 @@ class WeeklyEffortMissingWeeksViewTestCase(TestCase):
 
         # First week of fiscal year (2024-04-01 is Monday) should be missing
         self.assertIn("2024-04-01", data["missing_weeks"])
-        # Second week should not be missing (it's the current week)
+        # Current week (2024-04-08) should not be in missing weeks
         self.assertNotIn("2024-04-08", data["missing_weeks"])
 
     @freeze_time("2024-04-15")  # Monday in second week of fiscal year
