@@ -140,7 +140,8 @@ class KippoOrganizationAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        instance = kwargs.get("instance")
+        # Use self.instance (set by ModelForm.__init__) instead of kwargs.get("instance")
+        instance = self.instance
         choices = [("", _("--- No template (create blank project) ---"))]
 
         # Get the current value from the instance
@@ -155,6 +156,7 @@ class KippoOrganizationAdminForm(forms.ModelForm):
             try:
                 token = instance.githubaccesstoken.token
                 projects = get_organization_projects_v2(instance.github_organization_name, token)
+                logger.debug(f"Fetched {len(projects)} GitHub projects for {instance.github_organization_name}")
                 for project in projects:
                     project_id = project["id"]
                     label = f"{project['title']} ({project_id})"
