@@ -158,14 +158,33 @@ class ProjectsV2FunctionsTestCase(TestCase):
 
     @patch("octocat.functions.run_graphql_request")
     def test_get_organization_projects_v2(self, mock_graphql: MagicMock) -> None:
-        """Test listing organization ProjectsV2 projects."""
+        """Test listing organization ProjectsV2 projects (templates only by default)."""
         mock_graphql.return_value = {
             "data": {
                 "organization": {
                     "projectsV2": {
                         "nodes": [
-                            {"id": "PVT_kwDOBxx1", "title": "Project 1", "url": "https://github.com/orgs/test-org/projects/1", "number": 1},
-                            {"id": "PVT_kwDOBxx2", "title": "Project 2", "url": "https://github.com/orgs/test-org/projects/2", "number": 2},
+                            {
+                                "id": "PVT_kwDOBxx1",
+                                "title": "Template 1",
+                                "url": "https://github.com/orgs/test-org/projects/1",
+                                "number": 1,
+                                "template": True,
+                            },
+                            {
+                                "id": "PVT_kwDOBxx2",
+                                "title": "Template 2",
+                                "url": "https://github.com/orgs/test-org/projects/2",
+                                "number": 2,
+                                "template": True,
+                            },
+                            {
+                                "id": "PVT_kwDOBxx3",
+                                "title": "Regular Project",
+                                "url": "https://github.com/orgs/test-org/projects/3",
+                                "number": 3,
+                                "template": False,
+                            },
                         ]
                     }
                 }
@@ -174,11 +193,12 @@ class ProjectsV2FunctionsTestCase(TestCase):
 
         result = get_organization_projects_v2("test-org", "fake-token")
 
+        # Should only return templates (2 out of 3)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["id"], "PVT_kwDOBxx1")
-        self.assertEqual(result[0]["title"], "Project 1")
+        self.assertEqual(result[0]["title"], "Template 1")
         self.assertEqual(result[1]["id"], "PVT_kwDOBxx2")
-        self.assertEqual(result[1]["title"], "Project 2")
+        self.assertEqual(result[1]["title"], "Template 2")
 
     @patch("octocat.functions.run_graphql_request")
     def test_copy_project_v2(self, mock_graphql: MagicMock) -> None:
