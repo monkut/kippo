@@ -1,3 +1,5 @@
+import logging
+
 from commons.admin import (
     AllowIsStaffAdminMixin,
     AllowIsStaffReadonlyMixin,
@@ -18,6 +20,7 @@ from django.utils import timezone
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
+from octocat.functions import get_organization_projects_v2
 from octocat.models import GithubAccessToken
 from projects.functions import collect_existing_github_projects
 from projects.models import CollectIssuesAction
@@ -36,6 +39,8 @@ from .models import (
     PublicHoliday,
     SlackCommand,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EmailDomainAdminReadOnlyInline(admin.TabularInline):
@@ -126,8 +131,40 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
         return qs.filter(organization__in=request.user.organizations)
 
 
+class KippoOrganizationAdminForm(forms.ModelForm):
+    """Custom form for KippoOrganization that dynamically populates GitHub project template choices."""
+
+    class Meta:
+        model = KippoOrganization
+        exclude = ()  # noqa: DJ006 (admin form inherits field config from ModelAdmin)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        instance = kwargs.get("instance")
+        choices = [("", _("--- No template (create blank project) ---"))]
+
+        if instance and instance.pk and instance.github_organization_name:
+            try:
+                token = instance.githubaccesstoken.token
+                projects = get_organization_projects_v2(instance.github_organization_name, token)
+                for project in projects:
+                    label = f"{project['title']} ({project['id']})"
+                    choices.append((project["id"], label))
+            except GithubAccessToken.DoesNotExist:
+                logger.warning(f"No GitHub access token for organization: {instance.name}")
+            except Exception:
+                logger.exception(f"Failed to fetch GitHub projects for organization: {instance.name}")
+
+        self.fields["default_github_project_template"] = forms.ChoiceField(
+            choices=choices,
+            required=False,
+            help_text=_("GitHub ProjectsV2 node ID to use as template when creating projects"),
+        )
+
+
 @admin.register(KippoOrganization)
 class KippoOrganizationAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMixin, UserCreatedBaseModelAdmin):
+    form = KippoOrganizationAdminForm
     list_display = (
         "name",
         "id",

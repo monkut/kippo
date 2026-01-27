@@ -1,6 +1,9 @@
-from commons.tests import IsStaffModelAdminTestCaseBase
+from unittest.mock import patch
 
-from ..admin import KippoOrganizationAdmin, KippoUserAdmin, OrganizationMembershipAdmin, PersonalHolidayAdmin
+from commons.tests import IsStaffModelAdminTestCaseBase
+from octocat.models import GithubAccessToken
+
+from ..admin import KippoOrganizationAdmin, KippoOrganizationAdminForm, KippoUserAdmin, OrganizationMembershipAdmin, PersonalHolidayAdmin
 from ..models import KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
 
 
@@ -100,3 +103,94 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
         for personalholiday in queryset:
             self.assertTrue(set(o.id for o in personalholiday.user.organizations).intersection(staff_user_orgids))
+
+
+class KippoOrganizationAdminFormTestCase(IsStaffModelAdminTestCaseBase):
+    """Test the KippoOrganizationAdminForm dynamic template choices."""
+
+    def test_form_shows_templates_when_token_exists(self):
+        """Form should show GitHub project templates when organization has a token."""
+        GithubAccessToken.objects.create(
+            organization=self.organization,
+            token="test-token",  # noqa: S106
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        mock_projects = [
+            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1},
+            {"id": "PVT_kwDOtest2", "title": "Template 2", "url": "https://github.com/orgs/test/projects/2", "number": 2},
+        ]
+
+        with patch("accounts.admin.get_organization_projects_v2", return_value=mock_projects):
+            form = KippoOrganizationAdminForm(instance=self.organization)
+
+        choices = form.fields["default_github_project_template"].choices
+        self.assertEqual(len(choices), 3)  # empty + 2 templates
+        self.assertEqual(choices[0][0], "")  # First is empty option
+        self.assertEqual(choices[1][0], "PVT_kwDOtest1")
+        self.assertEqual(choices[1][1], "Template 1 (PVT_kwDOtest1)")
+        self.assertEqual(choices[2][0], "PVT_kwDOtest2")
+        self.assertEqual(choices[2][1], "Template 2 (PVT_kwDOtest2)")
+
+    def test_form_shows_only_empty_choice_without_token(self):
+        """Form should show only the empty choice when organization has no token."""
+        form = KippoOrganizationAdminForm(instance=self.organization)
+
+        choices = form.fields["default_github_project_template"].choices
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0][0], "")
+
+    def test_form_shows_only_empty_choice_for_new_organization(self):
+        """Form should show only the empty choice for a new (unsaved) organization."""
+        form = KippoOrganizationAdminForm()
+
+        choices = form.fields["default_github_project_template"].choices
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0][0], "")
+
+    def test_form_handles_api_error_gracefully(self):
+        """Form should show only empty choice when GitHub API fails."""
+        GithubAccessToken.objects.create(
+            organization=self.organization,
+            token="test-token",  # noqa: S106
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        with patch("accounts.admin.get_organization_projects_v2", side_effect=Exception("API Error")):
+            form = KippoOrganizationAdminForm(instance=self.organization)
+
+        choices = form.fields["default_github_project_template"].choices
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0][0], "")
+
+    def test_form_saves_selected_template_id(self):
+        """Form should save the selected template node ID."""
+        GithubAccessToken.objects.create(
+            organization=self.organization,
+            token="test-token",  # noqa: S106
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        mock_projects = [
+            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1},
+        ]
+
+        with patch("accounts.admin.get_organization_projects_v2", return_value=mock_projects):
+            form = KippoOrganizationAdminForm(
+                instance=self.organization,
+                data={
+                    "name": self.organization.name,
+                    "github_organization_name": self.organization.github_organization_name,
+                    "day_workhours": self.organization.day_workhours,
+                    "default_task_display_state": self.organization.default_task_display_state,
+                    "weekly_project_time_deadline": self.organization.weekly_project_time_deadline,
+                    "slack_command_name": self.organization.slack_command_name,
+                    "fiscalyear_start_month": self.organization.fiscalyear_start_month,
+                    "default_github_project_template": "PVT_kwDOtest1",
+                },
+            )
+            self.assertTrue(form.is_valid(), form.errors)
+            org = form.save()
+
+        self.assertEqual(org.default_github_project_template, "PVT_kwDOtest1")
