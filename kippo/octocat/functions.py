@@ -472,13 +472,14 @@ def get_organization_id(org_name: str, token: str) -> str:
     return result["data"]["organization"]["id"]
 
 
-def get_organization_projects_v2(org_name: str, token: str) -> list[dict]:
+def get_organization_projects_v2(org_name: str, token: str, templates_only: bool = True) -> list[dict]:
     """
-    List available ProjectsV2 in organization (potential templates).
+    List available ProjectsV2 in organization.
 
     :param org_name: GitHub organization login name
     :param token: GitHub access token
-    :return: List of project dicts with keys: id, title, url, number
+    :param templates_only: If True, only return projects marked as templates (default: True)
+    :return: List of project dicts with keys: id, title, url, number, template
     :raises GithubGraphQLError: If the query fails
     """
     query = f"""
@@ -490,13 +491,17 @@ def get_organization_projects_v2(org_name: str, token: str) -> list[dict]:
             title
             url
             number
+            template
           }}
         }}
       }}
     }}
     """
     result = run_graphql_request(query, token, raise_on_error=True)
-    return result["data"]["organization"]["projectsV2"]["nodes"]
+    projects = result["data"]["organization"]["projectsV2"]["nodes"]
+    if templates_only:
+        projects = [p for p in projects if p.get("template")]
+    return projects
 
 
 def copy_project_v2(template_id: str, owner_id: str, title: str, token: str) -> dict:

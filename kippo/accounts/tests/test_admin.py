@@ -117,8 +117,8 @@ class KippoOrganizationAdminFormTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
         mock_projects = [
-            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1},
-            {"id": "PVT_kwDOtest2", "title": "Template 2", "url": "https://github.com/orgs/test/projects/2", "number": 2},
+            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1, "template": True},
+            {"id": "PVT_kwDOtest2", "title": "Template 2", "url": "https://github.com/orgs/test/projects/2", "number": 2, "template": True},
         ]
 
         with patch("accounts.admin.get_organization_projects_v2", return_value=mock_projects):
@@ -173,7 +173,7 @@ class KippoOrganizationAdminFormTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
         mock_projects = [
-            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1},
+            {"id": "PVT_kwDOtest1", "title": "Template 1", "url": "https://github.com/orgs/test/projects/1", "number": 1, "template": True},
         ]
 
         with patch("accounts.admin.get_organization_projects_v2", return_value=mock_projects):
