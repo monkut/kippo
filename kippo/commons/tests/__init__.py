@@ -17,26 +17,7 @@ def setup_basic_project(
     organization: KippoOrganization | None = None,
     repository_name: str = "Hello-World",
     github_project_api_id: str = "2640902",
-    column_info: list[dict] | None = None,
 ):
-    if not column_info:
-        # example content:
-        # [
-        # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
-        # ]
-        column_info = [
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1",
-                "name": "in-progress",
-                "resourcePath": "/orgs/myorg/projects/21/columns/6119645",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW42MXXX5AZQ1",
-                "name": "in-review",
-                "resourcePath": "/orgs/myorg/projects/21/columns/2803722",
-            },
-        ]
-
     created_objects = {}
     user = KippoUser(username="octocat", github_login="octocat", password="test", email="a@github.com", is_staff=True)  # noqa: S106
     user.save()
@@ -66,7 +47,6 @@ def setup_basic_project(
         github_project_html_url=f"https://github.com/orgs/{organization.github_organization_name}/projects/1",
         github_project_api_url=f"https://api.github.com/projects/{github_project_api_id}",
         columnset=default_columnset,
-        column_info=column_info,
         created_by=user,
         updated_by=user,
     )
@@ -80,7 +60,6 @@ def setup_basic_project(
         github_project_html_url=f"https://github.com/orgs/{organization.github_organization_name}/projects/2",
         github_project_api_url=f"https://api.github.com/projects/{github_project2_api_id}",
         columnset=default_columnset,
-        column_info=column_info,
         created_by=user,
         updated_by=user,
     )

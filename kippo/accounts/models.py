@@ -47,14 +47,6 @@ class KippoOrganization(UserCreatedBaseModel):
     default_task_display_state = models.CharField(
         max_length=150, default="in-progress", help_text=_("Default Task STATE to show on initial task view")
     )
-    default_columnset = models.ForeignKey(
-        "projects.ProjectColumnSet",
-        on_delete=models.DO_NOTHING,
-        null=True,
-        default=None,
-        blank=True,
-        help_text=_("If defined, this will be set as the default ColumnSet when a Project is created"),
-    )
     default_labelset = models.ForeignKey(
         "octocat.GithubRepositoryLabelSet",
         on_delete=models.DO_NOTHING,
@@ -69,6 +61,12 @@ class KippoOrganization(UserCreatedBaseModel):
         null=True,
         blank=True,
         help_text=_("Country that organization defaults to for holidays"),
+    )
+    default_github_project_template = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("GitHub ProjectsV2 node ID to use as template when creating projects"),
     )
     google_forms_project_survey_url = models.URLField(default="", blank=True, help_text=_('If a "Project Survey" is defined, include here'))
     google_forms_project_survey_projectid_entryid = models.CharField(

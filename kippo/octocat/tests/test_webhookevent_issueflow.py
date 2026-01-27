@@ -1,7 +1,5 @@
-import json
 import os
 from pathlib import Path
-from unittest import mock
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
@@ -11,7 +9,7 @@ from projects.models import KippoMilestone, KippoProject
 from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import GithubWebhookProcessor
-from ..models import GithubMilestone, GithubRepository, GithubWebhookEvent
+from ..models import GithubMilestone, GithubWebhookEvent
 from .utils import load_webhookevent
 
 assert os.getenv("KIPPO_TESTING", None)  # The KIPPO_TESTING environment variable must be set to True
@@ -24,30 +22,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
     def setUp(self):
         self.repository_name = "myrepo"
-        column_info = [
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW421",
-                "name": "planning",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769322",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW422",
-                "name": "in-progress",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769325",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW423",
-                "name": "in-review",
-                "resourcePath": "/orgs/myorg/projects/21/columns/4230564",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW424",
-                "name": "done",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769328",
-            },
-        ]
-
-        results = setup_basic_project(repository_name=self.repository_name, github_project_api_id="1926922", column_info=column_info)
+        results = setup_basic_project(repository_name=self.repository_name, github_project_api_id="1926922")
 
         self.organization = results["KippoOrganization"]
         self.secret_encoded = self.organization.github_webhook_secret.encode("utf8")
@@ -77,234 +52,9 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
         self.githubwebhookprocessor = GithubWebhookProcessor()
 
-    def test_webhookevent_issue_standard_lifecycle__same_assignment(self):  # noqa: PLR0915
-        initial_task_count = 0
-        assert KippoTask.objects.count() == initial_task_count
-        scenario_directory = TESTDATA_DIRECTORY / "issue_standard_lifecycle_from_note"
-
-        # issue created -- planning
-        # -- on initial conversion from note the related 'GithubIssue' is known via the 'content_url'
-        event_1_filepath = scenario_directory / "event_1_projectcard_converted_from_note.json"
-        event_1, _ = load_webhookevent(event_1_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_1)
-        webhookevent.save()
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue674_no_labels.json").read_text(encoding="utf8"))}
-        issue_created = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_created):
-            self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        expected_task_count = 1
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "planning")
-        self.assertIsNone(latest_taskstatus.estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        expected_assigned_user_estimate_days = 0
-        self.assertEqual(user_estimatedays, expected_assigned_user_estimate_days)
-
-        event_2_filepath = scenario_directory / "event_2_issue_opened.json"
-        event_2, _ = load_webhookevent(event_2_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_2)
-        webhookevent.save()
-        self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        expected_task_count = 1
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "planning")
-        self.assertIsNone(latest_taskstatus.estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_assigned_user_estimate_days)
-
-        # issue assigned
-        # issue add estimate label - 1 day
-        event_3_filepath = scenario_directory / "event_3_issue_labeled.json"
-        event_3, _ = load_webhookevent(event_3_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_3)
-        webhookevent.save()
-
-        event_4_filepath = scenario_directory / "event_4_issue_labeled.json"
-        event_4, _ = load_webhookevent(event_4_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_4)
-        webhookevent.save()
-
-        self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        expected_estimate_days = 1.0
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "planning")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_estimate_days)
-
-        # update estimate label - 5 days
-        # - label added
-        event_5_filepath = scenario_directory / "event_5_issue_labeled_changeestimate.json"
-        event_5, _ = load_webhookevent(event_5_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_5)
-        webhookevent.save()
-
-        self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        expected_estimate_days = 5.0
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "planning")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_estimate_days)
-
-        # - label removed
-        event_6_filepath = scenario_directory / "event_6_issue_labeled_changeesimate.json"
-        event_6, _ = load_webhookevent(event_6_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_6)
-        webhookevent.save()
-
-        self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        self.assertEqual(webhookevent.state, "processed")
-
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "planning")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_estimate_days)
-
-        # issue moved to in-progress
-        # - no estimate update
-        event_7_filepath = scenario_directory / "event_7_projectcard_moved.json"
-        event_7, _ = load_webhookevent(event_7_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_7)
-        webhookevent.save()
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue674_with_labels5days.json").read_text(encoding="utf8"))}
-        issue_created = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_created):
-            self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), 1)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        expected_estimate_days = 5.0
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "in-progress")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_estimate_days)
-
-        # issue moved to done
-        # - confirm issue estimate is no longer counted for the assignee
-        event_8_filepath = scenario_directory / "event_8_projectcard_moved.json"
-        event_8, _ = load_webhookevent(event_8_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="project_card", event=event_8)
-        webhookevent.save()
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue674_with_labels5days.json").read_text(encoding="utf8"))}
-        issue_created = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_created):
-            self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        self.assertEqual(webhookevent.state, "processed")
-        expected_task_count = 1
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "done")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        expected_user_estimate_days = 0.0
-        self.assertEqual(user_estimatedays, expected_user_estimate_days)
-
-        # issue closed
-        event_9_filepath = scenario_directory / "event_9_issue_closed.json"
-        event_9, _ = load_webhookevent(event_9_filepath, secret_encoded=self.secret_encoded, decode=True)
-        webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type="issues", event=event_9)
-        webhookevent.save()
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue674_closed.json").read_text(encoding="utf8"))}
-        issue_closed = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", return_value=issue_closed):
-            self.githubwebhookprocessor.process_webhook_events([webhookevent])
-
-        webhookevent.refresh_from_db()
-        self.assertEqual(webhookevent.state, "processed")
-        self.assertEqual(KippoTask.objects.count(), expected_task_count)
-
-        kippotask = KippoTask.objects.latest()
-
-        # check KippoTaskStatus
-        latest_taskstatus = kippotask.latest_kippotaskstatus()
-        self.assertTrue(latest_taskstatus)
-        self.assertEqual(latest_taskstatus.state, "done")
-        self.assertEqual(latest_taskstatus.estimate_days, expected_estimate_days)
-
-        # check assigned user total estimate days
-        user_estimatedays = self.user1.get_estimatedays()
-        self.assertEqual(user_estimatedays, expected_user_estimate_days)
-
-        self.assertEqual(kippotask.is_closed, True)
+    # NOTE: test_webhookevent_issue_standard_lifecycle__same_assignment was removed
+    # because it tested Classic Projects (project_card events) which are deprecated.
+    # ProjectsV2 uses different webhook events (projects_v2_item) for item tracking.
 
     def test_webhook_issue__change_assignee(self):
         initial_task_count = 0
@@ -369,112 +119,9 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
         expected_user_estimate_days = 0.0
         self.assertEqual(self.user1.get_estimatedays(), expected_user_estimate_days)
 
-    def test_webhookevents_issuefromnote__get_events(self):
-        scenario_directory = TESTDATA_DIRECTORY / "issue_creation_from_note"
-        for event_filepath in sorted(scenario_directory.glob("0*")):
-            event, _ = load_webhookevent(event_filepath, secret_encoded=self.secret_encoded, decode=True)
-            event_type = "project_card"
-            if "issues" in event_filepath.name:
-                event_type = "issues"
-            webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type=event_type, event=event)
-            webhookevent.save()
-        expected_webhookevent_count = 6
-        assert GithubWebhookEvent.objects.all().count() == expected_webhookevent_count
-        initial_task_count = 0
-        assert KippoTask.objects.all().count() == initial_task_count
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_opened.json").read_text(encoding="utf8"))}
-        issue_opened = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_assigned.json").read_text(encoding="utf8"))}
-        issue_assigned = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_1.json").read_text(encoding="utf8"))}
-        issue_labeled_1 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_2.json").read_text(encoding="utf8"))}
-        issue_labeled_2 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        side_effects = (issue_opened, issue_assigned, issue_labeled_1, issue_labeled_2)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", side_effect=side_effects):
-            self.githubwebhookprocessor.process_webhook_events()
-
-        expected_processed_event_count = 5
-        expected_ignoreed_event_count = 1
-        self.assertEqual(GithubWebhookEvent.objects.filter(state="processed").count(), expected_processed_event_count)
-        self.assertEqual(GithubWebhookEvent.objects.filter(state="ignore").count(), expected_ignoreed_event_count)
-
-        tasks = list(KippoTask.objects.all())
-        expected_task_count = 1
-        self.assertEqual(len(tasks), expected_task_count)
-
-        task = tasks[0]
-        self.assertEqual(task.assignee, self.user2)
-        self.assertEqual(task.category, "setup")
-
-        lastest_taskstatus = task.latest_kippotaskstatus()
-        self.assertEqual(lastest_taskstatus.state, "planning")
-        expected_estimate_days = 3
-        self.assertEqual(lastest_taskstatus.estimate_days, expected_estimate_days)
-
-    def test_webhookevents_issuefromnote__get_events__new_repo(self):
-        scenario_directory = TESTDATA_DIRECTORY / "issue_new_repository"
-        for event_filepath in sorted(scenario_directory.glob("0*")):
-            event, _ = load_webhookevent(event_filepath, secret_encoded=self.secret_encoded, decode=True)
-            event_type = "project_card"
-            if "issues" in event_filepath.name:
-                event_type = "issues"
-            webhookevent = GithubWebhookEvent(organization=self.organization, state="unprocessed", event_type=event_type, event=event)
-            webhookevent.save()
-
-        expected_event_count = 6
-        assert GithubWebhookEvent.objects.all().count() == expected_event_count
-        expected_task_count = 0
-        assert KippoTask.objects.all().count() == expected_task_count
-        expected_repo_count = 1
-        assert GithubRepository.objects.all().count() == expected_repo_count
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_opened.json").read_text(encoding="utf8"))}
-        issue_opened = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_assigned.json").read_text(encoding="utf8"))}
-        issue_assigned = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_1.json").read_text(encoding="utf8"))}
-        issue_labeled_1 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        issue_json = {"issue": json.loads((scenario_directory / "issue43_labeled_2.json").read_text(encoding="utf8"))}
-        issue_labeled_2 = GithubWebhookProcessor._load_event_to_githubissue(issue_json)
-
-        side_effects = (issue_opened, issue_assigned, issue_labeled_1, issue_labeled_2)
-        with mock.patch("ghorgs.managers.GithubOrganizationManager.get_github_issue", side_effect=side_effects):
-            self.githubwebhookprocessor.process_webhook_events()
-
-        expected_processed_event_count = 5
-        expected_ignoreed_event_count = 1
-        self.assertEqual(GithubWebhookEvent.objects.filter(state="processed").count(), expected_processed_event_count)
-        self.assertEqual(GithubWebhookEvent.objects.filter(state="ignore").count(), expected_ignoreed_event_count)
-
-        tasks = list(KippoTask.objects.all())
-        expected_task_count = 1
-        self.assertEqual(len(tasks), expected_task_count)
-
-        task = tasks[0]
-        self.assertEqual(task.assignee, self.user2)
-        self.assertEqual(task.category, "setup")
-
-        lastest_taskstatus = task.latest_kippotaskstatus()
-        self.assertEqual(lastest_taskstatus.state, "planning")
-        expected_planning_estimate_days = 3
-        self.assertEqual(lastest_taskstatus.estimate_days, expected_planning_estimate_days)
-
-        # check that previously undefined repo was added
-        new_repos = list(GithubRepository.objects.filter(name="myotherrepo"))
-        expected_repo_count = 1
-        self.assertEqual(len(new_repos), expected_repo_count)
-        new_repo = new_repos[0]
-        self.assertEqual(new_repo.name, "myotherrepo")
-        self.assertEqual(new_repo.label_set, self.organization.default_labelset)
+    # NOTE: test_webhookevents_issuefromnote__get_events and
+    # test_webhookevents_issuefromnote__get_events__new_repo were removed
+    # because they tested Classic Projects (project_card events) which are deprecated.
 
     def test_webhookevent_issue_unassigned_closed_task_github_user_removed(self):
         initial_task_count = 0
