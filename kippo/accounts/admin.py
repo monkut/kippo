@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
+from ghorgs.exceptions import GithubGraphQLError
 from octocat.functions import get_organization_projects_v2
 from octocat.models import GithubAccessToken
 from projects.functions import collect_existing_github_projects
@@ -143,6 +144,7 @@ class KippoOrganizationAdminForm(forms.ModelForm):
         # Use self.instance (set by ModelForm.__init__) instead of kwargs.get("instance")
         instance = self.instance
         choices = [("", _("--- No template (create blank project) ---"))]
+        help_text = _("GitHub ProjectsV2 node ID to use as template when creating projects")
 
         # Get the current value from the instance
         current_value = ""
@@ -164,6 +166,17 @@ class KippoOrganizationAdminForm(forms.ModelForm):
                     added_project_ids.add(project_id)
             except GithubAccessToken.DoesNotExist:
                 logger.warning(f"No GitHub access token for organization: {instance.name}")
+                help_text = _("No GitHub access token configured. Add a token to see available templates.")
+            except GithubGraphQLError as e:
+                error_str = str(e)
+                if "INSUFFICIENT_SCOPES" in error_str or "read:project" in error_str:
+                    logger.warning(f"GitHub token missing 'read:project' scope for organization: {instance.name}")
+                    help_text = _(
+                        "GitHub token missing 'read:project' scope. Update token at https://github.com/settings/tokens to see available templates."
+                    )
+                else:
+                    logger.exception(f"GitHub GraphQL error for organization: {instance.name}")
+                    help_text = _("Failed to fetch GitHub projects. Check logs for details.")
             except Exception:
                 logger.exception(f"Failed to fetch GitHub projects for organization: {instance.name}")
 
@@ -175,7 +188,7 @@ class KippoOrganizationAdminForm(forms.ModelForm):
             choices=choices,
             required=False,
             initial=current_value,
-            help_text=_("GitHub ProjectsV2 node ID to use as template when creating projects"),
+            help_text=help_text,
         )
 
 
