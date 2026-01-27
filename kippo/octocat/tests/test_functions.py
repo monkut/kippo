@@ -13,6 +13,7 @@ from tasks.models import KippoTask, KippoTaskStatus
 
 from ..functions import (
     GithubWebhookProcessor,
+    _escape_graphql_string,
     copy_project_v2,
     create_project_v2,
     get_kippomilestone_from_github_issue,
@@ -208,6 +209,33 @@ class ProjectsV2FunctionsTestCase(TestCase):
         self.assertIn("O_kgDOBxxxxxx", call_args[0][0])
         self.assertIn("New Project", call_args[0][0])
 
+    def test_escape_graphql_string(self) -> None:
+        """Test GraphQL string escaping handles all control characters."""
+        # Test backslashes (must be escaped first)
+        self.assertEqual(_escape_graphql_string("path\\to\\file"), "path\\\\to\\\\file")
+
+        # Test double quotes
+        self.assertEqual(_escape_graphql_string('say "hello"'), 'say \\"hello\\"')
+
+        # Test newlines
+        self.assertEqual(_escape_graphql_string("line1\nline2"), "line1\\nline2")
+
+        # Test carriage returns
+        self.assertEqual(_escape_graphql_string("line1\rline2"), "line1\\rline2")
+
+        # Test tabs
+        self.assertEqual(_escape_graphql_string("col1\tcol2"), "col1\\tcol2")
+
+        # Test backspace and form feed
+        self.assertEqual(_escape_graphql_string("text\b"), "text\\b")
+        self.assertEqual(_escape_graphql_string("text\f"), "text\\f")
+
+        # Test combined special characters
+        self.assertEqual(
+            _escape_graphql_string('Project "Test"\nwith newline'),
+            'Project \\"Test\\"\\nwith newline',
+        )
+
     @patch("octocat.functions.run_graphql_request")
     def test_copy_project_v2_escapes_special_chars(self, mock_graphql: MagicMock) -> None:
         """Test that special characters in title are properly escaped."""
@@ -216,7 +244,7 @@ class ProjectsV2FunctionsTestCase(TestCase):
                 "copyProjectV2": {
                     "projectV2": {
                         "id": "PVT_kwDOBxxNew",
-                        "title": 'Project "with" quotes',
+                        "title": 'Project "with" quotes\nand newline',
                         "url": "https://github.com/orgs/test-org/projects/3",
                         "number": 3,
                     }
@@ -224,12 +252,13 @@ class ProjectsV2FunctionsTestCase(TestCase):
             }
         }
 
-        result = copy_project_v2("PVT_kwDOBxxTemplate", "O_kgDOBxxxxxx", 'Project "with" quotes', "fake-token")
+        result = copy_project_v2("PVT_kwDOBxxTemplate", "O_kgDOBxxxxxx", 'Project "with" quotes\nand newline', "fake-token")
 
-        self.assertEqual(result["title"], 'Project "with" quotes')
+        self.assertEqual(result["title"], 'Project "with" quotes\nand newline')
         call_args = mock_graphql.call_args
-        # Verify quotes are escaped in the GraphQL query
+        # Verify quotes and newlines are escaped in the GraphQL query
         self.assertIn('\\"with\\"', call_args[0][0])
+        self.assertIn("\\n", call_args[0][0])
 
     @patch("octocat.functions.run_graphql_request")
     def test_create_project_v2(self, mock_graphql: MagicMock) -> None:

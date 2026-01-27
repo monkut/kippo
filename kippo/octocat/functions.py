@@ -430,6 +430,27 @@ def update_repository_labels(
 # These functions use the new ProjectsV2 API (replacing deprecated Projects Classic)
 
 
+def _escape_graphql_string(value: str) -> str:
+    """
+    Escape a string for safe inclusion in GraphQL queries.
+
+    Escapes backslashes, double quotes, newlines, carriage returns, tabs,
+    and other control characters per GraphQL spec.
+
+    :param value: The string to escape
+    :return: Escaped string safe for GraphQL
+    """
+    # Order matters: escape backslashes first
+    value = value.replace("\\", "\\\\")
+    value = value.replace('"', '\\"')
+    value = value.replace("\n", "\\n")
+    value = value.replace("\r", "\\r")
+    value = value.replace("\t", "\\t")
+    value = value.replace("\b", "\\b")
+    value = value.replace("\f", "\\f")
+    return value
+
+
 def get_organization_id(org_name: str, token: str) -> str:
     """
     Query organization node ID required for ProjectsV2 mutations.
@@ -489,8 +510,7 @@ def copy_project_v2(template_id: str, owner_id: str, title: str, token: str) -> 
     :return: Dict with keys: id, title, url, number
     :raises GithubGraphQLError: If the mutation fails
     """
-    # Escape title for GraphQL
-    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_title = _escape_graphql_string(title)
     mutation = f"""
     mutation {{
       copyProjectV2(input: {{
@@ -522,8 +542,7 @@ def create_project_v2(owner_id: str, title: str, token: str) -> dict:
     :return: Dict with keys: id, title, url, number
     :raises GithubGraphQLError: If the mutation fails
     """
-    # Escape title for GraphQL
-    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_title = _escape_graphql_string(title)
     mutation = f"""
     mutation {{
       createProjectV2(input: {{
