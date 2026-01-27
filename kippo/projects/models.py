@@ -226,39 +226,10 @@ class KippoProject(UserCreatedBaseModel):
     )
     survey_issued = models.BooleanField(default=False, help_text=_("Update when survey is issued!"))
     survey_issued_datetime = models.DateTimeField(null=True, editable=False, help_text=_('Updated when "survey_issued" flag is set'))
-    column_info = models.JSONField(
-        null=True,
-        blank=True,
-        editable=False,
-        # example content (graphql creation result):
-        # [
-        # {'id': 'MDEzOlByb2plY3RDb2x1bW42MTE5AZQ1', 'name': 'in-progress', 'resourcePath': '/orgs/myorg/projects/21/columns/6119645'},
-        # ]
-        help_text=_("If project created through Kippo, this field is populated with column info"),
-    )
 
     class Meta:
         verbose_name = _("プロジェクト")
         verbose_name_plural = verbose_name
-
-    def get_columnset_id_to_name_mapping(self):
-        if not self.column_info:
-            raise ValueError("KippoProject.column_info not populated, unable to generate ID to Name Mapping!")
-        mapping = {}
-        for column_definition in self.column_info:
-            name = column_definition["name"]
-            if "resourcePath" in column_definition:  # when auto-populated on creation (graphql result)
-                column_id = column_definition["resourcePath"].split("/")[-1]
-            elif "id" in column_definition:  # when manually updated with github-api result
-                column_id = column_definition["id"]
-            else:
-                raise KeyError(f'expected keys("resourcePath", "id") not in column_definition: {column_definition}')
-            mapping[int(column_id)] = name
-        return mapping
-
-    def get_columnname_from_id(self, column_id: int) -> str | None:
-        mapping = self.get_columnset_id_to_name_mapping()
-        return mapping.get(column_id, None)
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():

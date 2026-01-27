@@ -12,10 +12,11 @@ from accounts.models import KippoOrganization, KippoUser
 from distutils.util import strtobool
 from django.conf import settings
 from django.utils import timezone
+from ghorgs.functions import run_graphql_request
 from ghorgs.managers import GithubOrganizationManager
 from ghorgs.wrappers import GithubIssue
 from tasks.exceptions import GithubPullRequestUrlError, GithubRepositoryUrlError, ProjectNotFoundError
-from tasks.models import KippoTask, KippoTaskStatus
+from tasks.models import KippoTask
 from tasks.periodic.tasks import OrganizationIssueProcessor
 from zappa.asynchronous import task as zappa_task
 
@@ -168,15 +169,10 @@ def get_repo_url_from_issuecomment_url(url: str) -> str:
     return repo_url
 
 
-def queue_incoming_project_card_event(organization: KippoOrganization, event_type: str, event: dict) -> "GithubWebhookEvent":  # noqa: F821
+def queue_incoming_webhook_event(organization: KippoOrganization, event_type: str, event: dict) -> "GithubWebhookEvent":  # noqa: F821
+    """Queue an incoming GitHub webhook event for processing."""
     from .models import GithubWebhookEvent
 
-    # NOTE: Consider moving to SQS
-    # card should contain a 'content_url' representing the issue attached (if an issue card)
-    # - Use the 'content_url' to retrieve the internally managed issue,
-    # - find the related project and issue an update for that project
-    #   (Overkill, but for now this is the cleanest way without a ghorgs re-write)
-    # Accept any event (ignoring action)
     webhook_event = GithubWebhookEvent(organization=organization, event_type=event_type, event=event)
     webhook_event.save()
     logger.debug(f" -- webhookevent created: {event_type}:{event['action']}")
@@ -251,194 +247,6 @@ class GithubWebhookProcessor:
         # GithubIssue.from_dict() alone does not perform nested conversion, using json
         issue = json.loads(issue_json, object_hook=GithubIssue.from_dict)
         return issue
-
-    def _process_projectcard_event(self, webhookevent: "GithubWebhookEvent") -> str | None:  # noqa: PLR0912, PLR0915, C901, F821
-        """
-        Process the 'project_card' event and update the related KippoTaskStatus.state field
-        > If KippoTaskStatus does not exist for the current date create one based on the 'latest'.
-        """
-        from projects.models import KippoProject
-
-        assert webhookevent.event_type == "project_card"
-
-        # identify project, retrieve related KippoProject
-        github_project_api_url = webhookevent.event["project_card"]["project_url"]
-        logger.debug(f"github_project_api_url={github_project_api_url}")
-        try:
-            kippo_project = KippoProject.objects.get(github_project_api_url=github_project_api_url)
-        except KippoProject.DoesNotExist:
-            logger.exception(
-                f"GithubWebhookEvent({webhookevent}) related KippoProject not found: event.project_card.project_url={github_project_api_url}"
-            )
-            state = "error"
-            return state
-
-        if kippo_project:
-            if "content_url" not in webhookevent.event["project_card"]:
-                logger.warning(f'webhookevent({webhookevent.id}).event does not contain "content_url" key, IGNORE (notes not supported)!')
-                state = "ignore"
-            else:
-                logger.info(f"processing {kippo_project} webhook event...")
-                task_api_url = webhookevent.event["project_card"]["content_url"]
-                github_column_id = int(webhookevent.event["project_card"]["column_id"])
-                column_name = kippo_project.get_columnname_from_id(github_column_id)
-                if not column_name:
-                    logger.error(
-                        f"column_name for column_id({github_column_id}) not in KippProject.get_columnset_id_to_name_mapping(): "
-                        f"{kippo_project.get_columnset_id_to_name_mapping()}"
-                    )
-                    state = "error"
-                else:
-                    # 'column_name' is used to manage KippoTask state
-                    # github_from_column_id = webhookevent.event['changes']['column_id']['from']  # ex: 4162976
-                    state = "processed"
-                    current_action = webhookevent.event["action"]
-                    if current_action in ("created", "converted", "moved"):
-                        # update task state (column) for related task
-                        #
-                        # Sample "project_card" (moved) event
-                        # {
-                        #     "action": "moved",
-                        #     "changes": {
-                        #         "column_id": {
-                        #             "from": 4162978
-                        #         }
-                        #     },
-                        #     "project_card": {
-                        #         "url": "https://api.github.com/projects/columns/cards/24713551",
-                        #         "project_url": "https://api.github.com/projects/2075296",
-                        #         "column_url": "https://api.github.com/projects/columns/4162976",
-                        #         "column_id": 1234567,
-                        #         "id": 24711234,
-                        #         "node_id": "MDAC2lByb2plY3RDYXJkMjQ3M2jINTE=",
-                        #         "note": null,
-                        #         "archived": false,
-                        #         "creator": {
-                        #             ...
-                        #         },
-                        #         "created_at": "2019-08-02T04:26:12Z",
-                        #         "updated_at": "2019-08-02T13:21:34Z",
-                        #         "content_url": "https://api.github.com/repos/myorg/myrepo/issues/175",
-                        #         "after_id": null
-                        #     },
-                        #     "organization": {
-                        #         ...
-                        #     },
-                        #     "sender": {
-                        #         ...
-                        #     }
-                        # }
-                        card_id = webhookevent.event["project_card"]["id"]
-                        github_manager = GithubOrganizationManager(
-                            organization=webhookevent.organization.github_organization_name, token=webhookevent.organization.githubaccesstoken.token
-                        )
-                        tasks = KippoTask.objects.filter(github_issue_api_url=task_api_url)
-                        issue = github_manager.get_github_issue(api_url=task_api_url)
-                        kippo_milestone = get_kippomilestone_from_github_issue(issue, organization=webhookevent.organization)
-                        if not tasks:
-                            logger.warning(f"Related KippoTask not found for: {task_api_url}")
-                            # Create related KippoTask
-                            # - get task info
-                            logger.debug("preparing GithubOrganizationManager to retrieve GithubIssue...")
-
-                            github_manager_user = KippoUser.objects.get(username=settings.GITHUB_MANAGER_USERNAME)
-                            logger.debug(f"Retrieving issue github_manager.get_github_issue(): {task_api_url}")
-                            issue = github_manager.get_github_issue(api_url=task_api_url)
-
-                            category = get_github_issue_category_label(issue)
-                            if not category:
-                                category = webhookevent.organization.default_task_category
-
-                            organization_unassigned_user = webhookevent.organization.get_unassigned_kippouser()
-                            organization_developer_users = {u.github_login: u for u in webhookevent.organization.get_github_developer_kippousers()}
-                            organization_kippo_github_logins = organization_developer_users.keys()
-                            developer_assignees = [
-                                issue_assignee.login for issue_assignee in issue.assignees if issue_assignee.login in organization_kippo_github_logins
-                            ]
-                            if not developer_assignees:
-                                # assign task to special 'unassigned' user if task is not assigned to anyone
-                                logger.warning(f"No developer_assignees identified for issue: {issue.html_url}")
-                                developer_assignees = [organization_unassigned_user]
-                            tasks = []
-                            for issue_assignee in developer_assignees:
-                                organization_user = organization_developer_users.get(issue_assignee, organization_unassigned_user)
-                                logger.info(f"Creating KippoTask for user({organization_user})...")
-                                task = KippoTask(
-                                    created_by=github_manager_user,
-                                    updated_by=github_manager_user,
-                                    title=issue.title,
-                                    category=category,
-                                    project=kippo_project,
-                                    milestone=kippo_milestone,
-                                    assignee=organization_user,
-                                    project_card_id=card_id,
-                                    github_issue_api_url=task_api_url,
-                                    github_issue_html_url=issue.html_url,
-                                    description=issue.body,
-                                )
-                                task.save()
-                                tasks.append(task)
-                        logger.debug(f"len(tasks)={len(tasks)}")
-                        prefixed_labels = get_github_issue_prefixed_labels(issue)
-                        tags = get_tags_from_prefixedlabels(prefixed_labels)
-                        for task in tasks:
-                            # update task.project_card_id
-                            if task.project_card_id != card_id:
-                                # Don't expect this to happen, a project_card_ids a KippoTask *should* only belong to 1 project
-                                msg = (
-                                    f"Current_process_ KippoTask.project_card_id({task.project_card_id}) != "
-                                    f"card_id({card_id}), updating KippoTask: {task}"
-                                )
-                                logger.warning(msg)
-                            task.project_card_id = card_id
-
-                            if task.project is None:
-                                logger.warning(f"Updating task.project to: {kippo_project}")
-                                task.project = kippo_project
-                            task.milestone = kippo_milestone
-                            task.save()
-
-                            # create/update KippoTaskStatus
-                            # KippoTask created with 'issues' event
-                            # -- update 'state' info if KippoTaskStatus exists
-                            try:
-                                status = KippoTaskStatus.objects.filter(task=task).latest("created_datetime")
-                                logger.info(f"Updating KippoTaskStatus for task({task}) ...")
-                            except KippoTaskStatus.DoesNotExist:
-                                logger.warning("KippoTaskStatus.DoesNotExist, status set to None (KippoTaskStatus will be newly created)")
-                                status = None
-
-                            effort_date = timezone.now().date()
-                            unadjusted_issue_estimate = get_github_issue_estimate_label(issue)
-                            latest_comment = build_latest_comment(issue)
-                            if not status or status.effort_date != effort_date:
-                                # create a new KippoTaskStatus Entry
-                                logger.info(f"Creating KippoTaskStatus for task({task}) ...")
-                                if not status:
-                                    priority = 0  # DEFAULT
-                                else:
-                                    priority = status.state_priority
-
-                                status = KippoTaskStatus(
-                                    task=task,
-                                    effort_date=effort_date,
-                                    state_priority=priority,
-                                    estimate_days=unadjusted_issue_estimate,
-                                    tags=tags,
-                                    comment=latest_comment,
-                                    created_by=self.github_manager_kippouser,
-                                    updated_by=self.github_manager_kippouser,
-                                )
-                            else:
-                                status.estimate_days = unadjusted_issue_estimate
-                                status.comment = latest_comment
-                            # update column state!
-                            status.state = column_name
-                            status.save()
-                            logger.info(f"KippoTaskStatus.state updated to: {column_name}")
-            return state
-        logger.error("project not found!")
-        return None
 
     def _process_issues_event(self, webhookevent: "GithubWebhookEvent") -> str:  # noqa: F821
         from projects.models import KippoProject
@@ -540,8 +348,8 @@ class GithubWebhookProcessor:
         from .models import GithubWebhookEvent
 
         # process event_types in the following order
-        # - Make sure that issue is created and linked to the appropriate project (via project_card)
-        event_types_to_process = ("project_card", "issues", "issue_comment")
+        # NOTE: "project_card" events are for Classic Projects (deprecated), no longer processed
+        event_types_to_process = ("issues", "issue_comment")
         for event_type in event_types_to_process:
             unprocessed_events_for_update = GithubWebhookEvent.objects.filter(state="unprocessed", event_type=event_type).order_by("created_datetime")
             unprocessed_events = copy.copy(unprocessed_events_for_update)
@@ -568,7 +376,6 @@ class GithubWebhookProcessor:
             unprocessed_events = webhookevents
 
         eventtype_method_mapping = {
-            "project_card": self._process_projectcard_event,
             "issues": self._process_issues_event,
             "issue_comment": self._process_issuecomment_event,
         }
@@ -617,3 +424,120 @@ def update_repository_labels(
                 deleted_labels.append(label_name)
     logger.info(f"{github_orgainization_name} ({repository_name}) created: {created_labels}")
     logger.info(f"{github_orgainization_name} ({repository_name}) deleted: {deleted_labels}")
+
+
+# ProjectsV2 GraphQL functions for GitHub organization project creation
+# These functions use the new ProjectsV2 API (replacing deprecated Projects Classic)
+
+
+def get_organization_id(org_name: str, token: str) -> str:
+    """
+    Query organization node ID required for ProjectsV2 mutations.
+
+    :param org_name: GitHub organization login name
+    :param token: GitHub access token
+    :return: Organization node ID (e.g., "O_kgDOBxxxxxx")
+    :raises GithubGraphQLError: If the query fails or organization not found
+    """
+    # The ghorgs library uses string interpolation for GraphQL queries
+    query = f"""
+    {{
+      organization(login: "{org_name}") {{
+        id
+      }}
+    }}
+    """
+    result = run_graphql_request(query, token, raise_on_error=True)
+    return result["data"]["organization"]["id"]
+
+
+def get_organization_projects_v2(org_name: str, token: str) -> list[dict]:
+    """
+    List available ProjectsV2 in organization (potential templates).
+
+    :param org_name: GitHub organization login name
+    :param token: GitHub access token
+    :return: List of project dicts with keys: id, title, url, number
+    :raises GithubGraphQLError: If the query fails
+    """
+    query = f"""
+    {{
+      organization(login: "{org_name}") {{
+        projectsV2(first: 50) {{
+          nodes {{
+            id
+            title
+            url
+            number
+          }}
+        }}
+      }}
+    }}
+    """
+    result = run_graphql_request(query, token, raise_on_error=True)
+    return result["data"]["organization"]["projectsV2"]["nodes"]
+
+
+def copy_project_v2(template_id: str, owner_id: str, title: str, token: str) -> dict:
+    """
+    Create new ProjectsV2 by copying a template.
+
+    :param template_id: Node ID of the template project to copy
+    :param owner_id: Node ID of the organization that will own the new project
+    :param title: Title for the new project
+    :param token: GitHub access token
+    :return: Dict with keys: id, title, url, number
+    :raises GithubGraphQLError: If the mutation fails
+    """
+    # Escape title for GraphQL
+    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    mutation = f"""
+    mutation {{
+      copyProjectV2(input: {{
+        projectId: "{template_id}"
+        ownerId: "{owner_id}"
+        title: "{escaped_title}"
+        includeDraftIssues: false
+      }}) {{
+        projectV2 {{
+          id
+          title
+          url
+          number
+        }}
+      }}
+    }}
+    """
+    result = run_graphql_request(mutation, token, raise_on_error=True)
+    return result["data"]["copyProjectV2"]["projectV2"]
+
+
+def create_project_v2(owner_id: str, title: str, token: str) -> dict:
+    """
+    Create blank ProjectsV2 (fallback if no template configured).
+
+    :param owner_id: Node ID of the organization that will own the new project
+    :param title: Title for the new project
+    :param token: GitHub access token
+    :return: Dict with keys: id, title, url, number
+    :raises GithubGraphQLError: If the mutation fails
+    """
+    # Escape title for GraphQL
+    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    mutation = f"""
+    mutation {{
+      createProjectV2(input: {{
+        ownerId: "{owner_id}"
+        title: "{escaped_title}"
+      }}) {{
+        projectV2 {{
+          id
+          title
+          url
+          number
+        }}
+      }}
+    }}
+    """
+    result = run_graphql_request(mutation, token, raise_on_error=True)
+    return result["data"]["createProjectV2"]["projectV2"]

@@ -24,30 +24,7 @@ class OctocatFunctionsGithubWebhookProcessorIssueLifecycleTestCase(TestCase):
 
     def setUp(self):
         self.repository_name = "myrepo"
-        column_info = [
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW421",
-                "name": "planning",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769322",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW422",
-                "name": "in-progress",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769325",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW423",
-                "name": "in-review",
-                "resourcePath": "/orgs/myorg/projects/21/columns/4230564",
-            },
-            {
-                "id": "MDEzOlByb2plY3RDb2x1bW424",
-                "name": "done",
-                "resourcePath": "/orgs/myorg/projects/21/columns/3769328",
-            },
-        ]
-
-        results = setup_basic_project(repository_name=self.repository_name, github_project_api_id="1926922", column_info=column_info)
+        results = setup_basic_project(repository_name=self.repository_name, github_project_api_id="1926922")
 
         self.organization = results["KippoOrganization"]
         self.secret_encoded = self.organization.github_webhook_secret.encode("utf8")

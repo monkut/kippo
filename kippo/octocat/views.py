@@ -9,12 +9,13 @@ from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpR
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 
-from .functions import queue_incoming_project_card_event
+from .functions import queue_incoming_webhook_event
 from .models import KippoOrganization
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_WEBHOOK_EVENTS = ("project_card", "issue_comment", "issues")
+# NOTE: "project_card" events are for Classic Projects (deprecated), no longer supported
+SUPPORTED_WEBHOOK_EVENTS = ("issue_comment", "issues")
 
 
 def validate_webhook_request(request: HttpRequest, organization: KippoOrganization) -> True:
@@ -91,7 +92,7 @@ def webhook(request: HttpRequest, organization_id: str):  # noqa: PLR0912, PLR09
                 logger.debug(f" -- processing webhook event_type: {event_type}")
                 logger.debug(f" -- event: {event}")
                 try:
-                    queue_incoming_project_card_event(organization, event_type, event)
+                    queue_incoming_webhook_event(organization, event_type, event)
                 except KeyError as e:
                     logger.exception(f"{event_type} action={event['action']} missing expected key: {e.args}")
 

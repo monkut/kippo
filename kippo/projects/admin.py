@@ -29,7 +29,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
-from ghorgs.managers import GithubOrganizationManager
+from octocat.functions import copy_project_v2, create_project_v2, get_organization_id
 from rangefilter.filters import DateRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
@@ -169,63 +169,74 @@ class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline)
         return qs
 
 
-def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:  # noqa: PLR0912
+def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:
     """
-    Admin Action command to create a github organizational project from the selected KippoProject(s)
+    Admin Action command to create a GitHub organizational project (ProjectsV2) from the selected KippoProject(s).
 
-    Where an existing Github Organization project does not exist (not assigned)
+    Uses the GitHub ProjectsV2 API. If the organization has a default_github_project_template configured,
+    the new project will be created by copying that template. Otherwise, a blank project is created.
     """
     successful_creation_projects = []
     skipping = []
+    errors = []
+    created_without_template = []
     for kippo_project in queryset:
         if kippo_project.github_project_html_url:
             message = f"{kippo_project.name} already has GitHub Project set ({kippo_project.github_project_html_url}), SKIPPING!"
             logger.warning(message)
             skipping.append(message)
-        else:
-            if not kippo_project.columnset:
-                modeladmin.message_user(
-                    request,
-                    message=f"ProjectColumnSet not defined for {kippo_project}, cannot create Github Project!",
-                    level=messages.ERROR,
-                )
-                return
+            continue
 
-            columns = kippo_project.get_column_names()
+        try:
             github_organization_name = kippo_project.organization.github_organization_name
             githubaccesstoken = kippo_project.organization.githubaccesstoken
-            github_manager = GithubOrganizationManager(organization=github_organization_name, token=githubaccesstoken.token)
-            # create the organizational project in github
-            # create_organizational_project(organization: str, name: str, description: str, columns: list=None) -> Tuple[str, List[object]]:
-            url, responses = github_manager.create_organizational_project(
-                name=kippo_project.github_project_name,
-                description=kippo_project.github_project_description,
-                columns=columns,
-            )
-            kippo_project.github_project_html_url = url
-            logger.debug(f"kippo_project.github_project_html_url={url}")
-            logger.debug(f"github_manager.create_organizational_project() responses: {responses}")
-            # project_id appears to be a portion of the returned node_id when decoded from base64
-            # -- NOTE: not officially supported by github but seems to be the current implementation
-            # https://developer.github.com/v3/projects/#get-a-project
-            github_project_id = None
-            column_info = []
-            for item in responses:
-                if isinstance(item, dict):  # get "project_id"
-                    if "createProject" in item["data"]:
-                        github_project_id = item["data"]["createProject"]["project"]["databaseId"]
-                elif isinstance(item, list):  # get column_info
-                    for column_response in item:
-                        if "addProjectColumn" in column_response["data"]:
-                            column_info.append(column_response["data"]["addProjectColumn"]["columnEdge"]["node"])
+            token = githubaccesstoken.token
 
-            kippo_project.github_project_api_url = f"https://api.github.com/projects/{github_project_id}"
-            kippo_project.column_info = column_info
+            # Get organization node ID required for ProjectsV2 mutations
+            org_id = get_organization_id(github_organization_name, token)
+            logger.debug(f"Organization ID for {github_organization_name}: {org_id}")
+
+            # Use the project name for the GitHub project title
+            project_title = kippo_project.name
+
+            # Check if a template is configured
+            template_id = kippo_project.organization.default_github_project_template
+            if template_id:
+                # Create project by copying the template
+                logger.info(f"Creating ProjectsV2 from template {template_id} for {kippo_project.name}")
+                project_data = copy_project_v2(template_id, org_id, project_title, token)
+            else:
+                # Create a blank project
+                logger.warning(f"No template configured for {github_organization_name}, creating blank ProjectsV2 for {kippo_project.name}")
+                project_data = create_project_v2(org_id, project_title, token)
+                created_without_template.append(kippo_project.name)
+
+            # Update KippoProject with the new project URLs
+            kippo_project.github_project_html_url = project_data["url"]
+            # ProjectsV2 uses GraphQL node IDs instead of REST API URLs
+            kippo_project.github_project_api_url = project_data["id"]
             kippo_project.save()
-            successful_creation_projects.append((kippo_project.name, url, columns))
+
+            logger.info(f"Created GitHub ProjectsV2: {project_data['url']}")
+            successful_creation_projects.append((kippo_project.name, project_data["url"]))
+
+        except Exception as e:
+            error_msg = f"Failed to create GitHub Project for {kippo_project.name}: {e}"
+            logger.exception(error_msg)
+            errors.append(error_msg)
+
     if skipping:
         for m in skipping:
             modeladmin.message_user(request, message=m, level=messages.WARNING)
+    if created_without_template:
+        modeladmin.message_user(
+            request,
+            message=f"No default_github_project_template configured for organization. Empty project(s) created: {created_without_template}",
+            level=messages.WARNING,
+        )
+    if errors:
+        for m in errors:
+            modeladmin.message_user(request, message=m, level=messages.ERROR)
     if successful_creation_projects:
         modeladmin.message_user(
             request,

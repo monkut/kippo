@@ -70,6 +70,12 @@ class KippoOrganization(UserCreatedBaseModel):
         blank=True,
         help_text=_("Country that organization defaults to for holidays"),
     )
+    default_github_project_template = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("GitHub ProjectsV2 node ID to use as template when creating projects"),
+    )
     google_forms_project_survey_url = models.URLField(default="", blank=True, help_text=_('If a "Project Survey" is defined, include here'))
     google_forms_project_survey_projectid_entryid = models.CharField(
         max_length=255,
