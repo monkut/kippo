@@ -51,7 +51,7 @@ def get_user_session_organization(request: HttpRequest) -> tuple[KippoOrganizati
 
 def collect_existing_github_projects(organization: KippoOrganization, as_user: KippoUser) -> list["KippoProject"]:
     """Collect existing github organizational projects for a configured KippoOrganization"""
-    from .models import KippoProject
+    from .models import KippoProject, ProjectColumnSet
 
     manager = GithubOrganizationManager(organization=organization.github_organization_name, token=organization.githubaccesstoken.token)
 
@@ -59,6 +59,14 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
     existing_html_urls = KippoProject.objects.filter(organization=organization, github_project_html_url__isnull=False).values_list(
         "github_project_html_url", flat=True
     )
+
+    # Get a columnset: prefer organization-specific, fall back to global
+    columnset = ProjectColumnSet.objects.filter(organization=organization).first()
+    if not columnset:
+        columnset = ProjectColumnSet.objects.filter(organization__isnull=True).first()
+    if not columnset:
+        logger.warning(f"No ProjectColumnSet available for organization {organization.name}, cannot collect projects")
+        return []
 
     added_projects = []
     project_html_path_expected_path_component_count = 2
@@ -73,7 +81,7 @@ def collect_existing_github_projects(organization: KippoOrganization, as_user: K
                     updated_by=as_user,
                     organization=organization,
                     name=project.name,
-                    columnset=organization.default_columnset,
+                    columnset=columnset,
                     github_project_html_url=project.html_url,
                 )
                 kippo_project.save()

@@ -47,14 +47,6 @@ class KippoOrganization(UserCreatedBaseModel):
     default_task_display_state = models.CharField(
         max_length=150, default="in-progress", help_text=_("Default Task STATE to show on initial task view")
     )
-    default_columnset = models.ForeignKey(
-        "projects.ProjectColumnSet",
-        on_delete=models.DO_NOTHING,
-        null=True,
-        default=None,
-        blank=True,
-        help_text=_("If defined, this will be set as the default ColumnSet when a Project is created"),
-    )
     default_labelset = models.ForeignKey(
         "octocat.GithubRepositoryLabelSet",
         on_delete=models.DO_NOTHING,

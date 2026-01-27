@@ -143,21 +143,36 @@ class KippoOrganizationAdminForm(forms.ModelForm):
         instance = kwargs.get("instance")
         choices = [("", _("--- No template (create blank project) ---"))]
 
+        # Get the current value from the instance
+        current_value = ""
+        if instance and instance.pk:
+            current_value = instance.default_github_project_template or ""
+
+        # Track project IDs that we've added to choices
+        added_project_ids = {""}
+
         if instance and instance.pk and instance.github_organization_name:
             try:
                 token = instance.githubaccesstoken.token
                 projects = get_organization_projects_v2(instance.github_organization_name, token)
                 for project in projects:
-                    label = f"{project['title']} ({project['id']})"
-                    choices.append((project["id"], label))
+                    project_id = project["id"]
+                    label = f"{project['title']} ({project_id})"
+                    choices.append((project_id, label))
+                    added_project_ids.add(project_id)
             except GithubAccessToken.DoesNotExist:
                 logger.warning(f"No GitHub access token for organization: {instance.name}")
             except Exception:
                 logger.exception(f"Failed to fetch GitHub projects for organization: {instance.name}")
 
+        # If current value exists but wasn't in the fetched projects, add it to preserve the selection
+        if current_value and current_value not in added_project_ids:
+            choices.append((current_value, f"(Previously selected: {current_value})"))
+
         self.fields["default_github_project_template"] = forms.ChoiceField(
             choices=choices,
             required=False,
+            initial=current_value,
             help_text=_("GitHub ProjectsV2 node ID to use as template when creating projects"),
         )
 

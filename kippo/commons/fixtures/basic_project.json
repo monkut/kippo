@@ -2147,7 +2147,6 @@
         "day_workhours": 8,
         "default_task_category": "study",
         "default_task_display_state": "in-progress",
-        "default_columnset": null,
         "default_labelset": null,
         "google_forms_project_survey_url": null,
         "google_forms_project_survey_projectid_entryid": null,
