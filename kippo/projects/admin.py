@@ -214,7 +214,7 @@ def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, re
             # Update KippoProject with the new project URLs
             kippo_project.github_project_html_url = project_data["url"]
             # ProjectsV2 uses GraphQL node IDs instead of REST API URLs
-            kippo_project.github_project_api_url = project_data["id"]
+            kippo_project.github_project_api_nodeid = project_data["id"]
             kippo_project.save()
 
             logger.info(f"Created GitHub ProjectsV2: {project_data['url']}")
@@ -615,7 +615,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "enable_cost_report",
                     "document_url",
                     "github_project_html_url",
-                    "github_project_api_url",
+                    "github_project_api_nodeid",
                     "problem_definition",
                 ),
             },

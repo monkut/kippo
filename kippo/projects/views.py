@@ -129,7 +129,7 @@ def _get_task_details(active_taskstatus: list[KippoTaskStatus]) -> tuple[list[in
 #         # check projects for start_date, target_date
 #         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
 #         projects_missing_dates = projects_missing_dates.filter(
-#             organization=selected_organization, github_project_api_url__isnull=False, is_closed=False
+#             organization=selected_organization, github_project_api_nodeid__isnull=False, is_closed=False
 #         )
 #         if projects_missing_dates:
 #             for p in projects_missing_dates:

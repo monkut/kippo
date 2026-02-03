@@ -196,7 +196,12 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("If True, project will be included in the Project Report Summary"),
     )
     github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
-    github_project_api_url = models.URLField(_("Github Project api URL (needed for webhook event linking to project)"), blank=True, default="")
+    github_project_api_nodeid = models.CharField(
+        _("Github Project API Node ID (GraphQL node ID for ProjectsV2)"),
+        max_length=255,
+        blank=True,
+        default="",
+    )
     allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
     start_date = models.DateField(_("開始日"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
     target_date = models.DateField(

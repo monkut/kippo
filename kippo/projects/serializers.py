@@ -110,7 +110,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "display_as_active",
             "display_in_project_report",
             "github_project_html_url",
-            "github_project_api_url",
+            "github_project_api_nodeid",
             "allocated_staff_days",
             "allocated_effort_hours",
             "start_date",
