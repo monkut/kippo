@@ -2,7 +2,9 @@
 
 import datetime
 from http import HTTPStatus
+from unittest.mock import MagicMock, patch
 
+import requests
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
@@ -10,7 +12,11 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from ..definitions import EvaluationStates
 from ..models import (
+    AssumptionEvaluation,
+    BusinessRequirementEvaluation,
+    ProblemDefinitionEvaluation,
     ProjectAssumption,
     ProjectBusinessRequirement,
     ProjectBusinessRequirementCategory,
@@ -20,6 +26,7 @@ from ..models import (
     ProjectTechnicalRequirement,
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementGithubIssue,
+    TechnicalRequirementEvaluation,
 )
 
 API_PREFIX = f"{settings.URL_PREFIX}/api/requirements"
@@ -83,26 +90,34 @@ class RequirementsAPIEndpointsTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_business_requirement_comments_endpoint(self):
-        """Test /api/requirements/business-requirement-comments/ endpoint is accessible."""
-        url = f"{API_PREFIX}/business-requirement-comments/"
+        """Test nested comments endpoint under business-requirements is accessible."""
+        category = ProjectBusinessRequirementCategory.objects.create(project=self.project, name="Cat")
+        requirement = ProjectBusinessRequirement.objects.create(project=self.project, category=category, title="Req")
+        url = f"{API_PREFIX}/business-requirements/{requirement.id}/comments/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_technical_requirement_comments_endpoint(self):
-        """Test /api/requirements/technical-requirement-comments/ endpoint is accessible."""
-        url = f"{API_PREFIX}/technical-requirement-comments/"
+        """Test nested comments endpoint under technical-requirements is accessible."""
+        category = ProjectTechnicalRequirementCategory.objects.create(project=self.project, name="Cat")
+        requirement = ProjectTechnicalRequirement.objects.create(project=self.project, category=category, title="Req")
+        url = f"{API_PREFIX}/technical-requirements/{requirement.id}/comments/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_estimates_endpoint(self):
-        """Test /api/requirements/estimates/ endpoint is accessible."""
-        url = f"{API_PREFIX}/estimates/"
+        """Test nested estimates endpoint under technical-requirements is accessible."""
+        category = ProjectTechnicalRequirementCategory.objects.create(project=self.project, name="Cat")
+        requirement = ProjectTechnicalRequirement.objects.create(project=self.project, category=category, title="Req")
+        url = f"{API_PREFIX}/technical-requirements/{requirement.id}/estimates/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
     def test_github_issues_endpoint(self):
-        """Test /api/requirements/github-issues/ endpoint is accessible."""
-        url = f"{API_PREFIX}/github-issues/"
+        """Test nested github-issues endpoint under technical-requirements is accessible."""
+        category = ProjectTechnicalRequirementCategory.objects.create(project=self.project, name="Cat")
+        requirement = ProjectTechnicalRequirement.objects.create(project=self.project, category=category, title="Req")
+        url = f"{API_PREFIX}/technical-requirements/{requirement.id}/github-issues/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
@@ -460,7 +475,7 @@ class BusinessRequirementCommentViewSetTestCase(TestCase):
 
     def test_list_comments(self):
         """Test listing business requirement comments."""
-        url = f"{API_PREFIX}/business-requirement-comments/"
+        url = f"{API_PREFIX}/business-requirements/{self.requirement.id}/comments/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -468,20 +483,21 @@ class BusinessRequirementCommentViewSetTestCase(TestCase):
         self.assertEqual(data["count"], 1)
 
     def test_create_comment(self):
-        """Test creating a comment."""
-        url = f"{API_PREFIX}/business-requirement-comments/"
+        """Test creating a comment via nested endpoint."""
+        url = f"{API_PREFIX}/business-requirements/{self.requirement.id}/comments/"
         data = {
-            "requirement": self.requirement.id,
             "comment": "New comment",
         }
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
         self.assertEqual(ProjectBusinessRequirementComment.objects.count(), 2)
+        new_comment = ProjectBusinessRequirementComment.objects.latest("created_datetime")
+        self.assertEqual(new_comment.requirement_id, self.requirement.id)
 
     def test_toggle_resolved(self):
         """Test toggling the resolved status of a comment."""
-        url = f"{API_PREFIX}/business-requirement-comments/{self.comment.id}/toggle_resolved/"
+        url = f"{API_PREFIX}/business-requirements/{self.requirement.id}/comments/{self.comment.id}/toggle_resolved/"
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -494,9 +510,9 @@ class BusinessRequirementCommentViewSetTestCase(TestCase):
         self.comment.refresh_from_db()
         self.assertFalse(self.comment.is_resolved)
 
-    def test_filter_by_requirement(self):
-        """Test filtering comments by requirement."""
-        url = f"{API_PREFIX}/business-requirement-comments/?requirement={self.requirement.id}"
+    def test_comments_scoped_to_requirement(self):
+        """Test that nested endpoint only returns comments for the parent requirement."""
+        url = f"{API_PREFIX}/business-requirements/{self.requirement.id}/comments/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -539,8 +555,8 @@ class EstimateViewSetTestCase(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_list_estimates(self):
-        """Test listing estimates."""
-        url = f"{API_PREFIX}/estimates/"
+        """Test listing estimates under a technical requirement."""
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/estimates/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -549,7 +565,7 @@ class EstimateViewSetTestCase(TestCase):
 
     def test_retrieve_estimate(self):
         """Test retrieving a single estimate."""
-        url = f"{API_PREFIX}/estimates/{self.estimate.id}/"
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/estimates/{self.estimate.id}/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -557,9 +573,9 @@ class EstimateViewSetTestCase(TestCase):
         self.assertEqual(data["days"], 5.0)
         self.assertEqual(data["confidence"], 0.8)
 
-    def test_filter_by_project(self):
-        """Test filtering estimates by project."""
-        url = f"{API_PREFIX}/estimates/?project={self.project.id}"
+    def test_estimates_scoped_to_requirement(self):
+        """Test that nested endpoint only returns estimates for the parent requirement."""
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/estimates/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -599,8 +615,8 @@ class GithubIssueViewSetTestCase(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_list_github_issues(self):
-        """Test listing github issues."""
-        url = f"{API_PREFIX}/github-issues/"
+        """Test listing github issues under a technical requirement."""
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/github-issues/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -608,20 +624,21 @@ class GithubIssueViewSetTestCase(TestCase):
         self.assertEqual(data["count"], 1)
 
     def test_create_github_issue(self):
-        """Test creating a github issue link."""
-        url = f"{API_PREFIX}/github-issues/"
+        """Test creating a github issue link via nested endpoint."""
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/github-issues/"
         data = {
-            "technical_requirement": self.tech_requirement.id,
             "url": "https://github.com/org/repo/issues/2",
         }
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
         self.assertEqual(ProjectTechnicalRequirementGithubIssue.objects.count(), 2)
+        new_issue = ProjectTechnicalRequirementGithubIssue.objects.latest("created_datetime")
+        self.assertEqual(new_issue.technical_requirement_id, self.tech_requirement.id)
 
-    def test_filter_by_technical_requirement(self):
-        """Test filtering github issues by technical requirement."""
-        url = f"{API_PREFIX}/github-issues/?technical_requirement={self.tech_requirement.id}"
+    def test_github_issues_scoped_to_requirement(self):
+        """Test that nested endpoint only returns issues for the parent requirement."""
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_requirement.id}/github-issues/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -945,3 +962,748 @@ class ScheduleEstimationAPITestCase(TestCase):
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+
+
+class EvaluationStateTestCase(TestCase):
+    """Test evaluation_state field on existing models and serializer responses."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_problem_definition_defaults_to_unevaluated(self):
+        """Test that evaluation_state defaults to 'unevaluated' on creation."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_assumption_defaults_to_unevaluated(self):
+        """Test that evaluation_state defaults to 'unevaluated' on creation."""
+        assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Test Assumption",
+        )
+        self.assertEqual(assumption.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_business_requirement_defaults_to_unevaluated(self):
+        """Test that evaluation_state defaults to 'unevaluated' on creation."""
+        category = ProjectBusinessRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Category",
+        )
+        requirement = ProjectBusinessRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Requirement",
+        )
+        self.assertEqual(requirement.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_technical_requirement_defaults_to_unevaluated(self):
+        """Test that evaluation_state defaults to 'unevaluated' on creation."""
+        category = ProjectTechnicalRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Tech Category",
+        )
+        requirement = ProjectTechnicalRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Tech Requirement",
+        )
+        self.assertEqual(requirement.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_problem_definition_api_includes_evaluation_state(self):
+        """Test that evaluation_state appears in problem definition API response."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        url = f"{API_PREFIX}/problem-definitions/{problem.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertIn("evaluation_state", data)
+        self.assertEqual(data["evaluation_state"], EvaluationStates.UNEVALUATED.value)
+
+    def test_assumption_api_includes_evaluation_state(self):
+        """Test that evaluation_state appears in assumption API response."""
+        assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Test Assumption",
+        )
+        url = f"{API_PREFIX}/assumptions/{assumption.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertIn("evaluation_state", data)
+        self.assertEqual(data["evaluation_state"], EvaluationStates.UNEVALUATED.value)
+
+    def test_business_requirement_api_includes_evaluation_state(self):
+        """Test that evaluation_state appears in business requirement list API response."""
+        category = ProjectBusinessRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Category",
+        )
+        ProjectBusinessRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Requirement",
+        )
+        url = f"{API_PREFIX}/business-requirements/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertIn("evaluation_state", data["results"][0])
+        self.assertEqual(data["results"][0]["evaluation_state"], EvaluationStates.UNEVALUATED.value)
+
+    def test_technical_requirement_api_includes_evaluation_state(self):
+        """Test that evaluation_state appears in technical requirement API response."""
+        category = ProjectTechnicalRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Tech Category",
+        )
+        ProjectTechnicalRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Tech Requirement",
+        )
+        url = f"{API_PREFIX}/technical-requirements/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertIn("evaluation_state", data["results"][0])
+        self.assertEqual(data["results"][0]["evaluation_state"], EvaluationStates.UNEVALUATED.value)
+
+    def test_evaluation_state_is_read_only_on_create(self):
+        """Test that evaluation_state cannot be set via API create."""
+        url = f"{API_PREFIX}/problem-definitions/"
+        data = {
+            "project": str(self.project.id),
+            "title": "Test Problem",
+            "evaluation_state": EvaluationStates.VALID.value,
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        problem = ProjectProblemDefinition.objects.get(id=response.json()["id"])
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+
+class EvaluationModelTestCase(TestCase):
+    """Test evaluation model creation."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+    def test_create_problem_definition_evaluation(self):
+        """Test creating a ProblemDefinitionEvaluation."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        evaluation = ProblemDefinitionEvaluation.objects.create(
+            requirement=problem,
+            evaluation_result=EvaluationStates.VALID.value,
+            feedback="Well-defined problem statement.",
+            created_by=self.user,
+        )
+        self.assertEqual(evaluation.evaluation_result, EvaluationStates.VALID.value)
+        self.assertEqual(str(evaluation), f"Evaluation for {problem.display_id}: valid")
+
+    def test_create_assumption_evaluation(self):
+        """Test creating an AssumptionEvaluation."""
+        assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Test Assumption",
+        )
+        evaluation = AssumptionEvaluation.objects.create(
+            requirement=assumption,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Assumption needs more evidence.",
+            suggested_title="Revised Assumption",
+            suggested_details="Add supporting data.",
+            created_by=self.user,
+        )
+        self.assertEqual(evaluation.evaluation_result, EvaluationStates.INVALID.value)
+        self.assertEqual(evaluation.suggested_title, "Revised Assumption")
+
+    def test_create_business_requirement_evaluation(self):
+        """Test creating a BusinessRequirementEvaluation."""
+        category = ProjectBusinessRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Category",
+        )
+        requirement = ProjectBusinessRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Requirement",
+        )
+        evaluation = BusinessRequirementEvaluation.objects.create(
+            requirement=requirement,
+            evaluation_result=EvaluationStates.VALID.value,
+            feedback="Clear business requirement.",
+            created_by=self.user,
+        )
+        self.assertEqual(evaluation.evaluation_result, EvaluationStates.VALID.value)
+
+    def test_create_technical_requirement_evaluation(self):
+        """Test creating a TechnicalRequirementEvaluation."""
+        category = ProjectTechnicalRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Tech Category",
+        )
+        requirement = ProjectTechnicalRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Test Tech Requirement",
+        )
+        evaluation = TechnicalRequirementEvaluation.objects.create(
+            requirement=requirement,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Needs more technical detail.",
+            created_by=self.user,
+        )
+        self.assertEqual(evaluation.evaluation_result, EvaluationStates.INVALID.value)
+
+    def test_evaluation_cascade_delete(self):
+        """Test that deleting the requirement cascades to its evaluations."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        ProblemDefinitionEvaluation.objects.create(
+            requirement=problem,
+            evaluation_result=EvaluationStates.VALID.value,
+            feedback="Good.",
+            created_by=self.user,
+        )
+        self.assertEqual(ProblemDefinitionEvaluation.objects.count(), 1)
+        problem.delete()
+        self.assertEqual(ProblemDefinitionEvaluation.objects.count(), 0)
+
+    def test_evaluation_created_by_nullable(self):
+        """Test that created_by can be null on evaluation."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        evaluation = ProblemDefinitionEvaluation.objects.create(
+            requirement=problem,
+            evaluation_result=EvaluationStates.VALID.value,
+            feedback="Automated evaluation.",
+            created_by=None,
+        )
+        self.assertIsNone(evaluation.created_by)
+
+
+class EvaluateEndpointTestCase(TestCase):
+    """Test the evaluate action on parent viewsets."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Original Title",
+            details="Original details",
+        )
+        self.assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Original Assumption",
+            details="Assumption details",
+        )
+        self.br_category = ProjectBusinessRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Category",
+        )
+        self.business_req = ProjectBusinessRequirement.objects.create(
+            project=self.project,
+            category=self.br_category,
+            title="Original BR",
+            details="BR details",
+        )
+        self.tr_category = ProjectTechnicalRequirementCategory.objects.create(
+            project=self.project,
+            name="Test Tech Category",
+        )
+        self.tech_req = ProjectTechnicalRequirement.objects.create(
+            project=self.project,
+            category=self.tr_category,
+            title="Original TR",
+            details="TR details",
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_problem_definition_valid(self, mock_post: MagicMock):
+        """Test successful VALID evaluation of a problem definition."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "evaluation_result": "valid",
+                "feedback": "Well-defined problem.",
+                "suggested_title": "",
+                "suggested_details": "",
+            },
+        )
+
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.VALID.value)
+        self.assertEqual(ProblemDefinitionEvaluation.objects.count(), 1)
+        data = response.json()
+        self.assertEqual(data["evaluation_result"], "valid")
+        self.assertEqual(data["feedback"], "Well-defined problem.")
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_problem_definition_invalid(self, mock_post: MagicMock):
+        """Test successful INVALID evaluation with suggestions stored."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "evaluation_result": "invalid",
+                "feedback": "Needs improvement.",
+                "suggested_title": "Better Title",
+                "suggested_details": "Better details",
+            },
+        )
+
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.INVALID.value)
+        evaluation = ProblemDefinitionEvaluation.objects.first()
+        self.assertEqual(evaluation.suggested_title, "Better Title")
+        self.assertEqual(evaluation.suggested_details, "Better details")
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_service_error_returns_502(self, mock_post: MagicMock):
+        """Test that service error returns 502 and evaluation_state unchanged."""
+        mock_post.return_value = MagicMock(status_code=500, text="Internal Server Error")
+
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.BAD_GATEWAY)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    @patch("requirements.functions.requests.post", side_effect=requests.Timeout("Connection timeout"))
+    def test_evaluate_service_timeout_returns_502(self, mock_post: MagicMock):
+        """Test that service timeout returns 502 and evaluation_state unchanged."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.BAD_GATEWAY)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_assumption(self, mock_post: MagicMock):
+        """Test evaluation of an assumption."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "evaluation_result": "valid",
+                "feedback": "Good assumption.",
+                "suggested_title": "",
+                "suggested_details": "",
+            },
+        )
+
+        url = f"{API_PREFIX}/assumptions/{self.assumption.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.assumption.refresh_from_db()
+        self.assertEqual(self.assumption.evaluation_state, EvaluationStates.VALID.value)
+        self.assertEqual(AssumptionEvaluation.objects.count(), 1)
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_business_requirement(self, mock_post: MagicMock):
+        """Test evaluation of a business requirement."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "evaluation_result": "invalid",
+                "feedback": "Too vague.",
+                "suggested_title": "Specific BR",
+                "suggested_details": "Specific details",
+            },
+        )
+
+        url = f"{API_PREFIX}/business-requirements/{self.business_req.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.business_req.refresh_from_db()
+        self.assertEqual(self.business_req.evaluation_state, EvaluationStates.INVALID.value)
+        self.assertEqual(BusinessRequirementEvaluation.objects.count(), 1)
+
+    @patch("requirements.functions.requests.post")
+    def test_evaluate_technical_requirement(self, mock_post: MagicMock):
+        """Test evaluation of a technical requirement."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "evaluation_result": "valid",
+                "feedback": "Well-specified.",
+                "suggested_title": "",
+                "suggested_details": "",
+            },
+        )
+
+        url = f"{API_PREFIX}/technical-requirements/{self.tech_req.id}/evaluate/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.tech_req.refresh_from_db()
+        self.assertEqual(self.tech_req.evaluation_state, EvaluationStates.VALID.value)
+        self.assertEqual(TechnicalRequirementEvaluation.objects.count(), 1)
+
+
+class AcceptEndpointTestCase(TestCase):
+    """Test the accept action on evaluation viewsets."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Original Title",
+            details="Original details",
+        )
+        self.problem.evaluation_state = EvaluationStates.INVALID.value
+        self.problem._skip_evaluation_reset = True
+        self.problem.save(update_fields=["evaluation_state"])
+
+        self.evaluation = ProblemDefinitionEvaluation.objects.create(
+            requirement=self.problem,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Needs improvement.",
+            suggested_title="Better Title",
+            suggested_details="Better details",
+            created_by=self.user,
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_accept_applies_suggestions(self):
+        """Test that accept updates element title/details from suggestions."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluations/{self.evaluation.id}/accept/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.title, "Better Title")
+        self.assertEqual(self.problem.details, "Better details")
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.VALID.value)
+
+    def test_accept_with_empty_suggested_title_keeps_original(self):
+        """Test that accept does not overwrite title if suggested_title is empty."""
+        self.evaluation.suggested_title = ""
+        self.evaluation.save(update_fields=["suggested_title"])
+
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluations/{self.evaluation.id}/accept/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.problem.refresh_from_db()
+        self.assertEqual(self.problem.title, "Original Title")
+        self.assertEqual(self.problem.details, "Better details")
+        self.assertEqual(self.problem.evaluation_state, EvaluationStates.VALID.value)
+
+    def test_accept_assumption_evaluation(self):
+        """Test accept on an assumption evaluation."""
+        assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Original Assumption",
+            details="Original details",
+        )
+        assumption.evaluation_state = EvaluationStates.INVALID.value
+        assumption._skip_evaluation_reset = True
+        assumption.save(update_fields=["evaluation_state"])
+
+        evaluation = AssumptionEvaluation.objects.create(
+            requirement=assumption,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Needs work.",
+            suggested_title="Better Assumption",
+            suggested_details="Better assumption details",
+            created_by=self.user,
+        )
+
+        url = f"{API_PREFIX}/assumptions/{assumption.id}/evaluations/{evaluation.id}/accept/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        assumption.refresh_from_db()
+        self.assertEqual(assumption.title, "Better Assumption")
+        self.assertEqual(assumption.evaluation_state, EvaluationStates.VALID.value)
+
+    def test_accept_business_requirement_evaluation(self):
+        """Test accept on a business requirement evaluation."""
+        category = ProjectBusinessRequirementCategory.objects.create(
+            project=self.project,
+            name="Cat",
+        )
+        br = ProjectBusinessRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Original BR",
+            details="Original BR details",
+        )
+        br.evaluation_state = EvaluationStates.INVALID.value
+        br._skip_evaluation_reset = True
+        br.save(update_fields=["evaluation_state"])
+
+        evaluation = BusinessRequirementEvaluation.objects.create(
+            requirement=br,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Too vague.",
+            suggested_title="Better BR",
+            suggested_details="Better BR details",
+            created_by=self.user,
+        )
+
+        url = f"{API_PREFIX}/business-requirements/{br.id}/evaluations/{evaluation.id}/accept/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        br.refresh_from_db()
+        self.assertEqual(br.title, "Better BR")
+        self.assertEqual(br.evaluation_state, EvaluationStates.VALID.value)
+
+    def test_accept_technical_requirement_evaluation(self):
+        """Test accept on a technical requirement evaluation."""
+        category = ProjectTechnicalRequirementCategory.objects.create(
+            project=self.project,
+            name="Tech Cat",
+        )
+        tr = ProjectTechnicalRequirement.objects.create(
+            project=self.project,
+            category=category,
+            title="Original TR",
+            details="Original TR details",
+        )
+        tr.evaluation_state = EvaluationStates.INVALID.value
+        tr._skip_evaluation_reset = True
+        tr.save(update_fields=["evaluation_state"])
+
+        evaluation = TechnicalRequirementEvaluation.objects.create(
+            requirement=tr,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Needs specifics.",
+            suggested_title="Better TR",
+            suggested_details="Better TR details",
+            created_by=self.user,
+        )
+
+        url = f"{API_PREFIX}/technical-requirements/{tr.id}/evaluations/{evaluation.id}/accept/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        tr.refresh_from_db()
+        self.assertEqual(tr.title, "Better TR")
+        self.assertEqual(tr.evaluation_state, EvaluationStates.VALID.value)
+
+
+class EvaluationListEndpointTestCase(TestCase):
+    """Test the evaluation list/retrieve endpoints."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+        self.evaluation = ProblemDefinitionEvaluation.objects.create(
+            requirement=self.problem,
+            evaluation_result=EvaluationStates.VALID.value,
+            feedback="Good.",
+            created_by=self.user,
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_list_evaluations(self):
+        """Test listing evaluations for a problem definition."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluations/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+
+    def test_retrieve_evaluation(self):
+        """Test retrieving a single evaluation."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluations/{self.evaluation.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["evaluation_result"], "valid")
+        self.assertEqual(data["feedback"], "Good.")
+
+    def test_evaluations_scoped_to_requirement(self):
+        """Test that evaluations are scoped to the parent requirement."""
+        other_problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Other Problem",
+        )
+        ProblemDefinitionEvaluation.objects.create(
+            requirement=other_problem,
+            evaluation_result=EvaluationStates.INVALID.value,
+            feedback="Bad.",
+            created_by=self.user,
+        )
+
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/evaluations/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+
+
+class ResetOnEditTestCase(TestCase):
+    """Test that evaluation_state resets to UNEVALUATED when title or details change."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_reset_on_title_change_via_api(self):
+        """Test that PATCH updating title resets evaluation_state."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Original",
+            details="Details",
+        )
+        problem.evaluation_state = EvaluationStates.VALID.value
+        problem._skip_evaluation_reset = True
+        problem.save(update_fields=["evaluation_state"])
+
+        url = f"{API_PREFIX}/problem-definitions/{problem.id}/"
+        response = self.client.patch(url, {"title": "Changed Title"}, format="json")
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        problem.refresh_from_db()
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_reset_on_details_change_via_api(self):
+        """Test that PATCH updating details resets evaluation_state."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Original",
+            details="Details",
+        )
+        problem.evaluation_state = EvaluationStates.VALID.value
+        problem._skip_evaluation_reset = True
+        problem.save(update_fields=["evaluation_state"])
+
+        url = f"{API_PREFIX}/problem-definitions/{problem.id}/"
+        response = self.client.patch(url, {"details": "Changed Details"}, format="json")
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        problem.refresh_from_db()
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_no_reset_on_unrelated_field_change(self):
+        """Test that changing category on assumption does not reset evaluation_state."""
+        assumption = ProjectAssumption.objects.create(
+            project=self.project,
+            title="Original",
+            details="Details",
+            category="assumption",
+        )
+        assumption.evaluation_state = EvaluationStates.VALID.value
+        assumption._skip_evaluation_reset = True
+        assumption.save(update_fields=["evaluation_state"])
+
+        url = f"{API_PREFIX}/assumptions/{assumption.id}/"
+        response = self.client.patch(url, {"category": "constraint"}, format="json")
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        assumption.refresh_from_db()
+        self.assertEqual(assumption.evaluation_state, EvaluationStates.VALID.value)
+
+    def test_reset_on_title_change_model_level(self):
+        """Test that saving with changed title resets evaluation_state at model level."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Original",
+        )
+        problem.evaluation_state = EvaluationStates.VALID.value
+        problem._skip_evaluation_reset = True
+        problem.save(update_fields=["evaluation_state"])
+
+        # Reload to clear the _skip_evaluation_reset flag
+        problem = ProjectProblemDefinition.objects.get(pk=problem.pk)
+        problem.title = "Changed"
+        problem.save()
+        problem.refresh_from_db()
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+    def test_no_reset_on_new_object(self):
+        """Test that creating a new object does not trigger reset logic."""
+        problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="New Problem",
+        )
+        self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)

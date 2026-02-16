@@ -2,6 +2,9 @@ from django.contrib import admin
 from django.http import request as DjangoRequest  # noqa: N812
 
 from .models import (
+    AssumptionEvaluation,
+    BusinessRequirementEvaluation,
+    ProblemDefinitionEvaluation,
     ProjectAssumption,
     ProjectBusinessRequirement,
     ProjectBusinessRequirementCategory,
@@ -12,6 +15,7 @@ from .models import (
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementComment,
     ProjectTechnicalRequirementGithubIssue,
+    TechnicalRequirementEvaluation,
 )
 
 
@@ -134,4 +138,44 @@ class ProjectTechnicalRequirementGithubIssueAdmin(admin.ModelAdmin):
     def has_view_permission(self, request: DjangoRequest, obj: ProjectTechnicalRequirementGithubIssue | None = None) -> bool:
         # only for superusers, cannot return False, the module
         # wouldn't be visible in admin
+        return request.user.is_superuser and request.method != "POST"
+
+
+@admin.register(ProblemDefinitionEvaluation)
+class ProblemDefinitionEvaluationAdmin(admin.ModelAdmin):
+    list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
+    list_filter = ("evaluation_result",)
+    search_fields = ("requirement__title", "feedback")
+
+    def has_view_permission(self, request: DjangoRequest, obj: ProblemDefinitionEvaluation | None = None) -> bool:
+        return request.user.is_superuser and request.method != "POST"
+
+
+@admin.register(AssumptionEvaluation)
+class AssumptionEvaluationAdmin(admin.ModelAdmin):
+    list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
+    list_filter = ("evaluation_result",)
+    search_fields = ("requirement__title", "feedback")
+
+    def has_view_permission(self, request: DjangoRequest, obj: AssumptionEvaluation | None = None) -> bool:
+        return request.user.is_superuser and request.method != "POST"
+
+
+@admin.register(BusinessRequirementEvaluation)
+class BusinessRequirementEvaluationAdmin(admin.ModelAdmin):
+    list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
+    list_filter = ("evaluation_result",)
+    search_fields = ("requirement__title", "feedback")
+
+    def has_view_permission(self, request: DjangoRequest, obj: BusinessRequirementEvaluation | None = None) -> bool:
+        return request.user.is_superuser and request.method != "POST"
+
+
+@admin.register(TechnicalRequirementEvaluation)
+class TechnicalRequirementEvaluationAdmin(admin.ModelAdmin):
+    list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
+    list_filter = ("evaluation_result",)
+    search_fields = ("requirement__title", "feedback")
+
+    def has_view_permission(self, request: DjangoRequest, obj: TechnicalRequirementEvaluation | None = None) -> bool:
         return request.user.is_superuser and request.method != "POST"

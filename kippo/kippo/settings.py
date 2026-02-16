@@ -286,6 +286,10 @@ DEFAULT_TASK_DISPLAY_STATE = "in-progress"
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
 DEFAULT_PROJECT_DAILY_RATE = 180_000  # Japanese Yen per day (for requirements app)
 
+# Evaluation Service Configuration
+EVALUATION_SERVICE_URL = os.getenv("EVALUATION_SERVICE_URL", "")
+EVALUATION_SERVICE_API_KEY = os.getenv("EVALUATION_SERVICE_API_KEY", "")
+
 TEST = False
 
 # internally defined users

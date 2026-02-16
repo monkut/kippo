@@ -5,6 +5,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
+    AssumptionEvaluation,
+    BusinessRequirementEvaluation,
+    ProblemDefinitionEvaluation,
     ProjectAssumption,
     ProjectBusinessRequirement,
     ProjectBusinessRequirementCategory,
@@ -15,6 +18,7 @@ from .models import (
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementComment,
     ProjectTechnicalRequirementGithubIssue,
+    TechnicalRequirementEvaluation,
 )
 
 
@@ -29,10 +33,11 @@ class ProjectProblemDefinitionSerializer(serializers.ModelSerializer):
             "project",
             "title",
             "details",
+            "evaluation_state",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
 
 class ProjectAssumptionSerializer(serializers.ModelSerializer):
@@ -50,10 +55,11 @@ class ProjectAssumptionSerializer(serializers.ModelSerializer):
             "is_internal",
             "title",
             "details",
+            "evaluation_state",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
 
 class ProjectBusinessRequirementCategorySerializer(serializers.ModelSerializer):
@@ -90,6 +96,7 @@ class ProjectBusinessRequirementCommentSerializer(serializers.ModelSerializer):
             "replies",
         ]
         read_only_fields = [
+            "requirement",
             "created_by",
             "updated_by",
             "created_datetime",
@@ -121,6 +128,7 @@ class ProjectTechnicalRequirementCommentSerializer(serializers.ModelSerializer):
             "replies",
         ]
         read_only_fields = [
+            "requirement",
             "created_by",
             "updated_by",
             "created_datetime",
@@ -152,6 +160,7 @@ class ProjectBusinessRequirementEstimateSerializer(serializers.ModelSerializer):
             "updated_datetime",
         ]
         read_only_fields = [
+            "requirement",
             "created_by",
             "updated_by",
             "created_datetime",
@@ -176,7 +185,7 @@ class ProjectTechnicalRequirementGithubIssueSerializer(serializers.ModelSerializ
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["technical_requirement", "created_datetime", "updated_datetime"]
 
 
 class ProjectTechnicalRequirementSerializer(serializers.ModelSerializer):
@@ -197,12 +206,13 @@ class ProjectTechnicalRequirementSerializer(serializers.ModelSerializer):
             "title",
             "details",
             "include_in_estimate",
+            "evaluation_state",
             "estimate",
             "github_issues",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
 
 class ProjectTechnicalRequirementDetailSerializer(serializers.ModelSerializer):
@@ -224,13 +234,14 @@ class ProjectTechnicalRequirementDetailSerializer(serializers.ModelSerializer):
             "title",
             "details",
             "include_in_estimate",
+            "evaluation_state",
             "estimate",
             "github_issues",
             "comments",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
     @extend_schema_field(ProjectTechnicalRequirementCommentSerializer(many=True))
     def get_comments(self, obj: ProjectTechnicalRequirement) -> list[dict]:
@@ -259,12 +270,13 @@ class ProjectBusinessRequirementListSerializer(serializers.ModelSerializer):
             "category_name",
             "title",
             "details",
+            "evaluation_state",
             "technical_requirements_count",
             "total_estimate_days",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
     @extend_schema_field(serializers.IntegerField())
     def get_technical_requirements_count(self, obj: ProjectBusinessRequirement) -> int:
@@ -291,10 +303,11 @@ class ProjectBusinessRequirementSerializer(serializers.ModelSerializer):
             "category",
             "title",
             "details",
+            "evaluation_state",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
 
 class TotalEstimateInlineSerializer(serializers.Serializer):
@@ -327,13 +340,14 @@ class ProjectBusinessRequirementDetailSerializer(serializers.ModelSerializer):
             "category_name",
             "title",
             "details",
+            "evaluation_state",
             "technical_requirements",
             "comments",
             "total_estimate",
             "created_datetime",
             "updated_datetime",
         ]
-        read_only_fields = ["created_datetime", "updated_datetime"]
+        read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
 
     @extend_schema_field(ProjectBusinessRequirementCommentSerializer(many=True))
     def get_comments(self, obj: ProjectBusinessRequirement) -> list[dict]:
@@ -404,3 +418,79 @@ class ScheduleEstimationResponseSerializer(serializers.Serializer):
     schedule_start_date = serializers.CharField(help_text="ISO format date used as scheduling start")
     developer_count = serializers.IntegerField(help_text="Number of developers used for scheduling")
     scheduled_requirements = ScheduledRequirementSerializer(many=True, help_text="List of scheduled requirements")
+
+
+class ProblemDefinitionEvaluationSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+
+    class Meta:
+        model = ProblemDefinitionEvaluation
+        fields = [
+            "id",
+            "requirement",
+            "evaluation_result",
+            "feedback",
+            "suggested_title",
+            "suggested_details",
+            "created_by",
+            "created_by_name",
+            "created_datetime",
+        ]
+        read_only_fields = ["created_by", "created_datetime"]
+
+
+class AssumptionEvaluationSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+
+    class Meta:
+        model = AssumptionEvaluation
+        fields = [
+            "id",
+            "requirement",
+            "evaluation_result",
+            "feedback",
+            "suggested_title",
+            "suggested_details",
+            "created_by",
+            "created_by_name",
+            "created_datetime",
+        ]
+        read_only_fields = ["created_by", "created_datetime"]
+
+
+class BusinessRequirementEvaluationSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+
+    class Meta:
+        model = BusinessRequirementEvaluation
+        fields = [
+            "id",
+            "requirement",
+            "evaluation_result",
+            "feedback",
+            "suggested_title",
+            "suggested_details",
+            "created_by",
+            "created_by_name",
+            "created_datetime",
+        ]
+        read_only_fields = ["created_by", "created_datetime"]
+
+
+class TechnicalRequirementEvaluationSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+
+    class Meta:
+        model = TechnicalRequirementEvaluation
+        fields = [
+            "id",
+            "requirement",
+            "evaluation_result",
+            "feedback",
+            "suggested_title",
+            "suggested_details",
+            "created_by",
+            "created_by_name",
+            "created_datetime",
+        ]
+        read_only_fields = ["created_by", "created_datetime"]
