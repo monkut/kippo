@@ -2,9 +2,13 @@
 
 import datetime
 import logging
+from http import HTTPStatus
 from math import ceil
 from typing import TYPE_CHECKING
 
+import requests
+from django.conf import settings
+from django.db import models
 from django.utils import timezone
 from qlu.core import QluMilestone, QluTask, QluTaskEstimates, QluTaskScheduler
 
@@ -18,6 +22,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_WORKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 DEFAULT_MINIMUM_ESTIMATE = 1
 MAXIMUM_ESTIMATE_MULTIPLIER = 1.7
+
+
+ELEMENT_TYPE_MAP = {
+    "ProjectProblemDefinition": "problem_definition",
+    "ProjectAssumption": "assumption",
+    "ProjectBusinessRequirement": "business_requirement",
+    "ProjectTechnicalRequirement": "technical_requirement",
+}
+
+EVALUATION_SERVICE_TIMEOUT = 30
+
+
+class EvaluationServiceError(Exception):
+    """Raised when the external evaluation service returns an error."""
 
 
 class NoTechnicalRequirementsError(Exception):
@@ -177,3 +195,25 @@ def schedule_technical_requirements(  # noqa: PLR0915
         "developer_count": developer_count,
         "scheduled_requirements": scheduled_requirements,
     }
+
+
+def evaluate_requirement(element: models.Model) -> dict:
+    """Call external evaluation service for the given element.
+
+    Returns dict with keys: evaluation_result, feedback, suggested_title, suggested_details.
+    Raises EvaluationServiceError on failure.
+    """
+    element_type = ELEMENT_TYPE_MAP[element.__class__.__name__]
+    response = requests.post(
+        f"{settings.EVALUATION_SERVICE_URL}/evaluate/",
+        json={
+            "element_type": element_type,
+            "title": element.title,  # type: ignore[attr-defined]
+            "details": element.details,  # type: ignore[attr-defined]
+        },
+        headers={"Authorization": f"Token {settings.EVALUATION_SERVICE_API_KEY}"},
+        timeout=EVALUATION_SERVICE_TIMEOUT,
+    )
+    if response.status_code != HTTPStatus.OK:
+        raise EvaluationServiceError(f"Evaluation service returned {response.status_code}: {response.text}")
+    return response.json()

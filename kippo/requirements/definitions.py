@@ -12,3 +12,9 @@ class AssumptionCategories(StringEnumWithChoices):
             (cls.CONSTRAINT.value, "制約事項"),
         )
         return items
+
+
+class EvaluationStates(StringEnumWithChoices):
+    UNEVALUATED = "unevaluated"
+    VALID = "valid"
+    INVALID = "invalid"

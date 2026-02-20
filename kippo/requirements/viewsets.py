@@ -1,5 +1,7 @@
+import logging
 from typing import Any
 
+import requests
 from django.db.models import QuerySet
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from projects.models import KippoProject
@@ -11,9 +13,18 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
-from .definitions import AssumptionCategories
-from .functions import NoEstimatesError, NoTechnicalRequirementsError, schedule_technical_requirements
+from .definitions import AssumptionCategories, EvaluationStates
+from .functions import (
+    EvaluationServiceError,
+    NoEstimatesError,
+    NoTechnicalRequirementsError,
+    evaluate_requirement,
+    schedule_technical_requirements,
+)
 from .models import (
+    AssumptionEvaluation,
+    BusinessRequirementEvaluation,
+    ProblemDefinitionEvaluation,
     ProjectAssumption,
     ProjectBusinessRequirement,
     ProjectBusinessRequirementCategory,
@@ -24,9 +35,13 @@ from .models import (
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementComment,
     ProjectTechnicalRequirementGithubIssue,
+    TechnicalRequirementEvaluation,
 )
 from .serializers import (
+    AssumptionEvaluationSerializer,
+    BusinessRequirementEvaluationSerializer,
     ErrorResponseSerializer,
+    ProblemDefinitionEvaluationSerializer,
     ProjectAssumptionSerializer,
     ProjectBusinessRequirementCategorySerializer,
     ProjectBusinessRequirementCommentSerializer,
@@ -42,7 +57,10 @@ from .serializers import (
     ProjectTechnicalRequirementSerializer,
     ScheduleEstimationRequestSerializer,
     ScheduleEstimationResponseSerializer,
+    TechnicalRequirementEvaluationSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OrganizationFilterMixin:
@@ -103,6 +121,33 @@ class ProjectProblemDefinitionViewSet(OrganizationFilterMixin, viewsets.ModelVie
             queryset = queryset.filter(project_id=project_id)
         return queryset
 
+    @extend_schema(
+        request=None,
+        responses={201: ProblemDefinitionEvaluationSerializer},
+        description="Trigger evaluation of this problem definition via external service.",
+    )
+    @action(detail=True, methods=["post"])
+    def evaluate(self, request: Request, pk: int | None = None) -> Response:
+        """Trigger evaluation of this problem definition."""
+        element = self.get_object()
+        try:
+            result = evaluate_requirement(element)
+        except (EvaluationServiceError, requests.RequestException) as e:
+            logger.exception("Evaluation service error for problem definition %s", pk)
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        evaluation = ProblemDefinitionEvaluation.objects.create(
+            requirement=element,
+            evaluation_result=result["evaluation_result"],
+            feedback=result["feedback"],
+            suggested_title=result.get("suggested_title", ""),
+            suggested_details=result.get("suggested_details", ""),
+            created_by=request.user,
+        )
+        element.evaluation_state = result["evaluation_result"]
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["evaluation_state", "updated_datetime"])
+        return Response(ProblemDefinitionEvaluationSerializer(evaluation).data, status=status.HTTP_201_CREATED)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -162,6 +207,33 @@ class ProjectAssumptionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         """Return available assumption category choices."""
         choices = [{"value": choice[0], "label": choice[1]} for choice in AssumptionCategories.choices()]
         return Response(choices)
+
+    @extend_schema(
+        request=None,
+        responses={201: AssumptionEvaluationSerializer},
+        description="Trigger evaluation of this assumption via external service.",
+    )
+    @action(detail=True, methods=["post"])
+    def evaluate(self, request: Request, pk: int | None = None) -> Response:
+        """Trigger evaluation of this assumption."""
+        element = self.get_object()
+        try:
+            result = evaluate_requirement(element)
+        except (EvaluationServiceError, requests.RequestException) as e:
+            logger.exception("Evaluation service error for assumption %s", pk)
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        evaluation = AssumptionEvaluation.objects.create(
+            requirement=element,
+            evaluation_result=result["evaluation_result"],
+            feedback=result["feedback"],
+            suggested_title=result.get("suggested_title", ""),
+            suggested_details=result.get("suggested_details", ""),
+            created_by=request.user,
+        )
+        element.evaluation_state = result["evaluation_result"]
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["evaluation_state", "updated_datetime"])
+        return Response(AssumptionEvaluationSerializer(evaluation).data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema_view(
@@ -315,6 +387,33 @@ class ProjectBusinessRequirementViewSet(OrganizationFilterMixin, viewsets.ModelV
             queryset = queryset.filter(category_id=category_id)
         return queryset.distinct()
 
+    @extend_schema(
+        request=None,
+        responses={201: BusinessRequirementEvaluationSerializer},
+        description="Trigger evaluation of this business requirement via external service.",
+    )
+    @action(detail=True, methods=["post"])
+    def evaluate(self, request: Request, pk: int | None = None) -> Response:
+        """Trigger evaluation of this business requirement."""
+        element = self.get_object()
+        try:
+            result = evaluate_requirement(element)
+        except (EvaluationServiceError, requests.RequestException) as e:
+            logger.exception("Evaluation service error for business requirement %s", pk)
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        evaluation = BusinessRequirementEvaluation.objects.create(
+            requirement=element,
+            evaluation_result=result["evaluation_result"],
+            feedback=result["feedback"],
+            suggested_title=result.get("suggested_title", ""),
+            suggested_details=result.get("suggested_details", ""),
+            created_by=request.user,
+        )
+        element.evaluation_state = result["evaluation_result"]
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["evaluation_state", "updated_datetime"])
+        return Response(BusinessRequirementEvaluationSerializer(evaluation).data, status=status.HTTP_201_CREATED)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -386,16 +485,37 @@ class ProjectTechnicalRequirementViewSet(OrganizationFilterMixin, viewsets.Model
             queryset = queryset.filter(category_id=category_id)
         return queryset.distinct()
 
+    @extend_schema(
+        request=None,
+        responses={201: TechnicalRequirementEvaluationSerializer},
+        description="Trigger evaluation of this technical requirement via external service.",
+    )
+    @action(detail=True, methods=["post"])
+    def evaluate(self, request: Request, pk: int | None = None) -> Response:
+        """Trigger evaluation of this technical requirement."""
+        element = self.get_object()
+        try:
+            result = evaluate_requirement(element)
+        except (EvaluationServiceError, requests.RequestException) as e:
+            logger.exception("Evaluation service error for technical requirement %s", pk)
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        evaluation = TechnicalRequirementEvaluation.objects.create(
+            requirement=element,
+            evaluation_result=result["evaluation_result"],
+            feedback=result["feedback"],
+            suggested_title=result.get("suggested_title", ""),
+            suggested_details=result.get("suggested_details", ""),
+            created_by=request.user,
+        )
+        element.evaluation_state = result["evaluation_result"]
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["evaluation_state", "updated_datetime"])
+        return Response(TechnicalRequirementEvaluationSerializer(evaluation).data, status=status.HTTP_201_CREATED)
+
 
 @extend_schema_view(
     list=extend_schema(
         parameters=[
-            OpenApiParameter(
-                name="requirement",
-                description="Filter by business requirement ID",
-                required=False,
-                type=int,
-            ),
             OpenApiParameter(
                 name="top_level_only",
                 description="Return only top-level comments (no replies)",
@@ -409,6 +529,8 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
     """
     ViewSet for ProjectBusinessRequirementComment model.
 
+    Nested under: /business-requirements/{business_requirement_pk}/comments/
+
     Comments on business requirements with nested reply support.
 
     **Organization Scoping:**
@@ -416,7 +538,6 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
     - Superusers can access all comments
 
     **Filtering:**
-    - requirement: Filter by business requirement ID
     - top_level_only: Return only top-level comments (true/false)
 
     **Actions:**
@@ -430,16 +551,18 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
-        requirement_id = self.request.query_params.get("requirement")
+        queryset = queryset.filter(requirement_id=self.kwargs["business_requirement_pk"])
         top_level_only = self.request.query_params.get("top_level_only")
-        if requirement_id:
-            queryset = queryset.filter(requirement_id=requirement_id)
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
         return queryset
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        serializer.save(
+            requirement_id=self.kwargs["business_requirement_pk"],
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save(updated_by=self.request.user)
@@ -449,7 +572,7 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
         responses={200: ProjectBusinessRequirementCommentSerializer},
     )
     @action(detail=True, methods=["post"])
-    def toggle_resolved(self, request: Request, pk: int | None = None) -> Response:
+    def toggle_resolved(self, request: Request, pk: int | None = None, **kwargs) -> Response:
         """Toggle the is_resolved status for a top-level comment."""
         comment = self.get_object()
         if comment.parent_comment is not None:
@@ -468,12 +591,6 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
     list=extend_schema(
         parameters=[
             OpenApiParameter(
-                name="requirement",
-                description="Filter by technical requirement ID",
-                required=False,
-                type=int,
-            ),
-            OpenApiParameter(
                 name="top_level_only",
                 description="Return only top-level comments (no replies)",
                 required=False,
@@ -486,6 +603,8 @@ class ProjectTechnicalRequirementCommentViewSet(OrganizationFilterMixin, viewset
     """
     ViewSet for ProjectTechnicalRequirementComment model.
 
+    Nested under: /technical-requirements/{technical_requirement_pk}/comments/
+
     Comments on technical requirements with nested reply support.
 
     **Organization Scoping:**
@@ -493,7 +612,6 @@ class ProjectTechnicalRequirementCommentViewSet(OrganizationFilterMixin, viewset
     - Superusers can access all comments
 
     **Filtering:**
-    - requirement: Filter by technical requirement ID
     - top_level_only: Return only top-level comments (true/false)
     """
 
@@ -504,52 +622,34 @@ class ProjectTechnicalRequirementCommentViewSet(OrganizationFilterMixin, viewset
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
-        requirement_id = self.request.query_params.get("requirement")
+        queryset = queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
         top_level_only = self.request.query_params.get("top_level_only")
-        if requirement_id:
-            queryset = queryset.filter(requirement_id=requirement_id)
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
         return queryset
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        serializer.save(
+            requirement_id=self.kwargs["technical_requirement_pk"],
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save(updated_by=self.request.user)
 
 
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="requirement",
-                description="Filter by technical requirement ID",
-                required=False,
-                type=int,
-            ),
-            OpenApiParameter(
-                name="project",
-                description="Filter by project UUID",
-                required=False,
-                type=str,
-            ),
-        ]
-    )
-)
 class ProjectBusinessRequirementEstimateViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectBusinessRequirementEstimate model.
+
+    Nested under: /technical-requirements/{technical_requirement_pk}/estimates/
 
     Estimates for technical requirements (days and confidence level).
 
     **Organization Scoping:**
     - Regular users can only access estimates for projects in their organizations
     - Superusers can access all estimates
-
-    **Filtering:**
-    - requirement: Filter by technical requirement ID
-    - project: Filter by project UUID
     """
 
     queryset = ProjectBusinessRequirementEstimate.objects.all()
@@ -559,45 +659,31 @@ class ProjectBusinessRequirementEstimateViewSet(OrganizationFilterMixin, viewset
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
-        requirement_id = self.request.query_params.get("requirement")
-        project_id = self.request.query_params.get("project")
-        if requirement_id:
-            queryset = queryset.filter(requirement_id=requirement_id)
-        if project_id:
-            queryset = queryset.filter(requirement__project_id=project_id)
+        queryset = queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
         return queryset
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        serializer.save(
+            requirement_id=self.kwargs["technical_requirement_pk"],
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save(updated_by=self.request.user)
 
 
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="technical_requirement",
-                description="Filter by technical requirement ID",
-                required=False,
-                type=int,
-            ),
-        ]
-    )
-)
 class ProjectTechnicalRequirementGithubIssueViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectTechnicalRequirementGithubIssue model.
+
+    Nested under: /technical-requirements/{technical_requirement_pk}/github-issues/
 
     Links between technical requirements and GitHub issues.
 
     **Organization Scoping:**
     - Regular users can only access links for projects in their organizations
     - Superusers can access all links
-
-    **Filtering:**
-    - technical_requirement: Filter by technical requirement ID
     """
 
     queryset = ProjectTechnicalRequirementGithubIssue.objects.all()
@@ -607,10 +693,11 @@ class ProjectTechnicalRequirementGithubIssueViewSet(OrganizationFilterMixin, vie
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="technical_requirement__project")
-        technical_requirement_id = self.request.query_params.get("technical_requirement")
-        if technical_requirement_id:
-            queryset = queryset.filter(technical_requirement_id=technical_requirement_id)
+        queryset = queryset.filter(technical_requirement_id=self.kwargs["technical_requirement_pk"])
         return queryset
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        serializer.save(technical_requirement_id=self.kwargs["technical_requirement_pk"])
 
 
 class ScheduleEstimationAPIView(APIView):
@@ -682,3 +769,131 @@ class ScheduleEstimationAPIView(APIView):
         response_serializer = ScheduleEstimationResponseSerializer(data=result)
         response_serializer.is_valid(raise_exception=True)
         return Response(response_serializer.data)
+
+
+class ProblemDefinitionEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset for problem definition evaluations with accept action."""
+
+    queryset = ProblemDefinitionEvaluation.objects.all()
+    serializer_class = ProblemDefinitionEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        return queryset.filter(requirement_id=self.kwargs["problem_definition_pk"])
+
+    @extend_schema(
+        request=None,
+        responses={200: ProjectProblemDefinitionSerializer},
+        description="Accept this evaluation's suggestions and apply them to the problem definition.",
+    )
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: int | None = None, **kwargs) -> Response:
+        """Accept evaluation suggestions and apply to the parent element."""
+        evaluation = self.get_object()
+        element = evaluation.requirement
+        if evaluation.suggested_title:
+            element.title = evaluation.suggested_title
+        if evaluation.suggested_details:
+            element.details = evaluation.suggested_details
+        element.evaluation_state = EvaluationStates.VALID.value
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["title", "details", "evaluation_state", "updated_datetime"])
+        return Response(ProjectProblemDefinitionSerializer(element).data)
+
+
+class AssumptionEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset for assumption evaluations with accept action."""
+
+    queryset = AssumptionEvaluation.objects.all()
+    serializer_class = AssumptionEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        return queryset.filter(requirement_id=self.kwargs["assumption_pk"])
+
+    @extend_schema(
+        request=None,
+        responses={200: ProjectAssumptionSerializer},
+        description="Accept this evaluation's suggestions and apply them to the assumption.",
+    )
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: int | None = None, **kwargs) -> Response:
+        """Accept evaluation suggestions and apply to the parent element."""
+        evaluation = self.get_object()
+        element = evaluation.requirement
+        if evaluation.suggested_title:
+            element.title = evaluation.suggested_title
+        if evaluation.suggested_details:
+            element.details = evaluation.suggested_details
+        element.evaluation_state = EvaluationStates.VALID.value
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["title", "details", "evaluation_state", "updated_datetime"])
+        return Response(ProjectAssumptionSerializer(element).data)
+
+
+class BusinessRequirementEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset for business requirement evaluations with accept action."""
+
+    queryset = BusinessRequirementEvaluation.objects.all()
+    serializer_class = BusinessRequirementEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        return queryset.filter(requirement_id=self.kwargs["business_requirement_pk"])
+
+    @extend_schema(
+        request=None,
+        responses={200: ProjectBusinessRequirementSerializer},
+        description="Accept this evaluation's suggestions and apply them to the business requirement.",
+    )
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: int | None = None, **kwargs) -> Response:
+        """Accept evaluation suggestions and apply to the parent element."""
+        evaluation = self.get_object()
+        element = evaluation.requirement
+        if evaluation.suggested_title:
+            element.title = evaluation.suggested_title
+        if evaluation.suggested_details:
+            element.details = evaluation.suggested_details
+        element.evaluation_state = EvaluationStates.VALID.value
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["title", "details", "evaluation_state", "updated_datetime"])
+        return Response(ProjectBusinessRequirementSerializer(element).data)
+
+
+class TechnicalRequirementEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset for technical requirement evaluations with accept action."""
+
+    queryset = TechnicalRequirementEvaluation.objects.all()
+    serializer_class = TechnicalRequirementEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        return queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
+
+    @extend_schema(
+        request=None,
+        responses={200: ProjectTechnicalRequirementSerializer},
+        description="Accept this evaluation's suggestions and apply them to the technical requirement.",
+    )
+    @action(detail=True, methods=["post"])
+    def accept(self, request: Request, pk: int | None = None, **kwargs) -> Response:
+        """Accept evaluation suggestions and apply to the parent element."""
+        evaluation = self.get_object()
+        element = evaluation.requirement
+        if evaluation.suggested_title:
+            element.title = evaluation.suggested_title
+        if evaluation.suggested_details:
+            element.details = evaluation.suggested_details
+        element.evaluation_state = EvaluationStates.VALID.value
+        element._skip_evaluation_reset = True  # type: ignore[attr-defined]
+        element.save(update_fields=["title", "details", "evaluation_state", "updated_datetime"])
+        return Response(ProjectTechnicalRequirementSerializer(element).data)

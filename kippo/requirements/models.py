@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING
 
 from commons.models import TimestampedModel, UserCreatedBaseModel
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Max
 from django.utils.translation import gettext_lazy as _
 
-from .definitions import AssumptionCategories
+from .definitions import AssumptionCategories, EvaluationStates
 
 if TYPE_CHECKING:
     import uuid
@@ -18,7 +19,36 @@ def generate_display_id_number(model_class: type[models.Model], project_id: "uui
     return (max_result["max_num"] or 0) + 1
 
 
-class ProjectProblemDefinition(TimestampedModel):
+class EvaluationResetMixin:
+    """Mixin to reset evaluation_state when title or details change."""
+
+    pk: object
+    title: str
+    details: str
+    evaluation_state: str
+
+    def _maybe_reset_evaluation_state(self, *args, **kwargs) -> dict:
+        """Check if title/details changed and reset evaluation_state if needed.
+
+        Returns the (possibly modified) kwargs.
+        """
+        if not self.pk or getattr(self, "_skip_evaluation_reset", False):
+            return kwargs
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "title" not in update_fields and "details" not in update_fields:
+            return kwargs
+        try:
+            original = self.__class__.objects.get(pk=self.pk)  # type: ignore[attr-defined]
+        except self.__class__.DoesNotExist:  # type: ignore[attr-defined]
+            return kwargs
+        if original.title != self.title or original.details != self.details:  # type: ignore[attr-defined]
+            self.evaluation_state = EvaluationStates.UNEVALUATED.value
+            if update_fields is not None and "evaluation_state" not in update_fields:
+                kwargs["update_fields"] = list(update_fields) + ["evaluation_state"]
+        return kwargs
+
+
+class ProjectProblemDefinition(EvaluationResetMixin, TimestampedModel):
     """Problem definitions that the project aims to solve."""
 
     DISPLAY_ID_PREFIX = "P"
@@ -27,6 +57,11 @@ class ProjectProblemDefinition(TimestampedModel):
     project = models.ForeignKey("projects.KippoProject", on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
     details = models.TextField(null=False, blank=True, default="")
+    evaluation_state = models.CharField(
+        choices=EvaluationStates.choices(),
+        default=EvaluationStates.UNEVALUATED.value,
+        max_length=20,
+    )
 
     class Meta:
         verbose_name = _("Problem Definition")
@@ -39,13 +74,14 @@ class ProjectProblemDefinition(TimestampedModel):
     def save(self, *args, **kwargs) -> None:
         if not self.display_id_number:
             self.display_id_number = generate_display_id_number(ProjectProblemDefinition, self.project_id)
+        kwargs = self._maybe_reset_evaluation_state(*args, **kwargs)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.display_id}: {self.title}"
 
 
-class ProjectAssumption(TimestampedModel):
+class ProjectAssumption(EvaluationResetMixin, TimestampedModel):
     """(前提条件と制約事項) Assumptions & Constraints for a project."""
 
     DISPLAY_ID_PREFIX = "A"
@@ -56,6 +92,11 @@ class ProjectAssumption(TimestampedModel):
     is_internal = models.BooleanField(default=False, help_text=_("社内のみの場合設定"))
     title = models.CharField(max_length=100)
     details = models.TextField(null=False, blank=True, default="")
+    evaluation_state = models.CharField(
+        choices=EvaluationStates.choices(),
+        default=EvaluationStates.UNEVALUATED.value,
+        max_length=20,
+    )
 
     class Meta:
         verbose_name = _("Assumption")
@@ -68,6 +109,7 @@ class ProjectAssumption(TimestampedModel):
     def save(self, *args, **kwargs) -> None:
         if not self.display_id_number:
             self.display_id_number = generate_display_id_number(ProjectAssumption, self.project_id)
+        kwargs = self._maybe_reset_evaluation_state(*args, **kwargs)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -89,7 +131,7 @@ class ProjectBusinessRequirementCategory(TimestampedModel):
         return f"{self.project.name}: {self.name}"
 
 
-class ProjectBusinessRequirement(TimestampedModel):
+class ProjectBusinessRequirement(EvaluationResetMixin, TimestampedModel):
     """Business requirements for a project."""
 
     DISPLAY_ID_PREFIX = "B"
@@ -100,6 +142,11 @@ class ProjectBusinessRequirement(TimestampedModel):
     category = models.ForeignKey(ProjectBusinessRequirementCategory, on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
     details = models.TextField(null=False, blank=True, default="")
+    evaluation_state = models.CharField(
+        choices=EvaluationStates.choices(),
+        default=EvaluationStates.UNEVALUATED.value,
+        max_length=20,
+    )
 
     class Meta:
         verbose_name = _("Business Requirement")
@@ -112,6 +159,7 @@ class ProjectBusinessRequirement(TimestampedModel):
     def save(self, *args, **kwargs) -> None:
         if not self.display_id_number:
             self.display_id_number = generate_display_id_number(ProjectBusinessRequirement, self.project_id)
+        kwargs = self._maybe_reset_evaluation_state(*args, **kwargs)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -149,7 +197,7 @@ class ProjectTechnicalRequirementCategory(TimestampedModel):
         return f"{self.project.name}: {self.name}"
 
 
-class ProjectTechnicalRequirement(TimestampedModel):
+class ProjectTechnicalRequirement(EvaluationResetMixin, TimestampedModel):
     """（開発要件）Technical requirements linked to business requirements."""
 
     DISPLAY_ID_PREFIX = "T"
@@ -161,6 +209,11 @@ class ProjectTechnicalRequirement(TimestampedModel):
     title = models.CharField(max_length=100)
     details = models.TextField(null=False, blank=True, default="")
     include_in_estimate = models.BooleanField(default=True, help_text=_("見積もり計算には、含むかどうか"))
+    evaluation_state = models.CharField(
+        choices=EvaluationStates.choices(),
+        default=EvaluationStates.UNEVALUATED.value,
+        max_length=20,
+    )
 
     class Meta:
         verbose_name = _("Technical Requirement")
@@ -173,6 +226,7 @@ class ProjectTechnicalRequirement(TimestampedModel):
     def save(self, *args, **kwargs) -> None:
         if not self.display_id_number:
             self.display_id_number = generate_display_id_number(ProjectTechnicalRequirement, self.project_id)
+        kwargs = self._maybe_reset_evaluation_state(*args, **kwargs)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -227,3 +281,79 @@ class ProjectTechnicalRequirementGithubIssue(TimestampedModel):
 
     def __str__(self) -> str:
         return f"GitHub Issue for {self.technical_requirement.display_id}"
+
+
+class EvaluationBase(TimestampedModel):
+    """Abstract base for evaluation results."""
+
+    evaluation_result = models.CharField(
+        choices=[
+            (EvaluationStates.VALID.value, EvaluationStates.VALID.value),
+            (EvaluationStates.INVALID.value, EvaluationStates.INVALID.value),
+        ],
+        max_length=20,
+    )
+    feedback = models.TextField()
+    suggested_title = models.CharField(max_length=100, blank=True, default="")
+    suggested_details = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="%(app_label)s_%(class)s_created_by",
+    )
+
+    class Meta:
+        abstract = True
+
+
+class ProblemDefinitionEvaluation(EvaluationBase):
+    """Evaluation result for a problem definition."""
+
+    requirement = models.ForeignKey(ProjectProblemDefinition, on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = _("Problem Definition Evaluation")
+        verbose_name_plural = _("Problem Definition Evaluations")
+
+    def __str__(self) -> str:
+        return f"Evaluation for {self.requirement.display_id}: {self.evaluation_result}"
+
+
+class AssumptionEvaluation(EvaluationBase):
+    """Evaluation result for an assumption."""
+
+    requirement = models.ForeignKey(ProjectAssumption, on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = _("Assumption Evaluation")
+        verbose_name_plural = _("Assumption Evaluations")
+
+    def __str__(self) -> str:
+        return f"Evaluation for {self.requirement.display_id}: {self.evaluation_result}"
+
+
+class BusinessRequirementEvaluation(EvaluationBase):
+    """Evaluation result for a business requirement."""
+
+    requirement = models.ForeignKey(ProjectBusinessRequirement, on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = _("Business Requirement Evaluation")
+        verbose_name_plural = _("Business Requirement Evaluations")
+
+    def __str__(self) -> str:
+        return f"Evaluation for {self.requirement.display_id}: {self.evaluation_result}"
+
+
+class TechnicalRequirementEvaluation(EvaluationBase):
+    """Evaluation result for a technical requirement."""
+
+    requirement = models.ForeignKey(ProjectTechnicalRequirement, on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = _("Technical Requirement Evaluation")
+        verbose_name_plural = _("Technical Requirement Evaluations")
+
+    def __str__(self) -> str:
+        return f"Evaluation for {self.requirement.display_id}: {self.evaluation_result}"
