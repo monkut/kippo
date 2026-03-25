@@ -131,6 +131,14 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
             return qs
         return qs.filter(organization__in=request.user.organizations)
 
+    def save_model(self, request: DjangoRequest, obj: OrganizationInvite, form: Form, change: bool) -> None:
+        super().save_model(request, obj, form, change)
+        if not change:
+            from django.conf import settings
+
+            login_url = f"{settings.HOST_URL}{settings.URL_PREFIX}/admin/"
+            self.message_user(request, f"Ask invited user to login using {obj.email} at: {login_url}", level=messages.INFO)
+
 
 class KippoOrganizationAdminForm(forms.ModelForm):
     """Custom form for KippoOrganization that dynamically populates GitHub project template choices."""
