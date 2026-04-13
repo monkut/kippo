@@ -266,7 +266,7 @@ class KippoProject(UserCreatedBaseModel):
         return f"{settings.URL_PREFIX}/admin/projects/kippoproject/{self.id}/change"
 
     def get_absolute_url(self):
-        return f"{settings.URL_PREFIX}/projects/?slug={self.slug}"
+        return f"{settings.URL_PREFIX}/ui/weekly-effort"
 
     def get_column_names(self) -> list[str]:
         """

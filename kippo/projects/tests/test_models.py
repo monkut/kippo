@@ -3,11 +3,12 @@ import datetime
 from accounts.models import Country, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 from commons.definitions import SATURDAY, SUNDAY
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from django.conf import settings
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
-from projects.models import KippoMilestone, KippoProject
+from projects.models import ActiveKippoProject, KippoMilestone, KippoProject
 
 
 class KippoProjectMethodsTestCase(TestCase):
@@ -107,6 +108,15 @@ class KippoProjectMethodsTestCase(TestCase):
             updated_by=self.github_manager,
         )
         self.task3_status1.save()
+
+    def test_get_absolute_url__points_to_weekly_effort_ui(self):
+        expected = f"{settings.URL_PREFIX}/ui/weekly-effort"
+        self.assertEqual(self.project.get_absolute_url(), expected)
+
+    def test_get_absolute_url__active_project_proxy_points_to_weekly_effort_ui(self):
+        active_project = ActiveKippoProject.objects.get(pk=self.project.pk)
+        expected = f"{settings.URL_PREFIX}/ui/weekly-effort"
+        self.assertEqual(active_project.get_absolute_url(), expected)
 
     def test_get_active_taskstatus__no_max_date(self):
         results, has_estimates = self.project.get_active_taskstatus()
