@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "tasks",
     "octocat",
     "requirements",
+    "feedback",
     "corsheaders",
     "rangefilter",
     "rest_framework",
