@@ -546,6 +546,27 @@ class CurrentUserView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        # TODO: remove after diagnosing /api/auth/me/ always-401 (see PR fix/auth-me-redirect-loop).
+        # Logs whether the session cookie arrived at Lambda and whether Django's
+        # AuthenticationMiddleware resolved it to an authenticated user.
+        django_request = request._request  # noqa: SLF001
+        django_user = django_request.user
+        cookie_keys = sorted(django_request.COOKIES.keys())
+        logger.warning(
+            "auth-me-debug django_user_authenticated=%s django_user=%s sessionid_present=%s "
+            "session_key_set=%s authorization_header_present=%s cookie_keys=%s origin=%s referer=%s",
+            django_user.is_authenticated,
+            getattr(django_user, "username", None) or str(django_user),
+            "sessionid" in django_request.COOKIES,
+            bool(django_request.session.session_key),
+            "HTTP_AUTHORIZATION" in django_request.META,
+            cookie_keys,
+            django_request.META.get("HTTP_ORIGIN", ""),
+            django_request.META.get("HTTP_REFERER", ""),
+        )
+        super().initial(request, *args, **kwargs)
+
     @extend_schema(
         tags=["auth"],
         summary="Get current user",
