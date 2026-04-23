@@ -517,6 +517,13 @@ class KippoProject(UserCreatedBaseModel):
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
 
+        # Slack's slash-command payload sends "channel_name" without a leading "#",
+        # so the slash-command project lookup ("...subcommands/projectstatus.py") does
+        # an exact string match on the bare name. Store the canonical bare form here
+        # so users entering "#proj-foo" or "  proj-foo  " in admin still resolve.
+        if self.slack_channel_name:
+            self.slack_channel_name = self.slack_channel_name.strip().lstrip("#")
+
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:

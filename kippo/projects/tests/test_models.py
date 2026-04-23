@@ -185,6 +185,36 @@ class KippoProjectMethodsTestCase(TestCase):
         actual = list(self.project.related_github_repositories())
         self.assertEqual(actual, expected)
 
+    def test_save_strips_leading_hash_from_slack_channel_name(self):
+        self.project.slack_channel_name = "#proj-foo"
+        self.project.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.slack_channel_name, "proj-foo")
+
+    def test_save_strips_surrounding_whitespace_from_slack_channel_name(self):
+        self.project.slack_channel_name = "  proj-foo  "
+        self.project.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.slack_channel_name, "proj-foo")
+
+    def test_save_strips_whitespace_then_leading_hash(self):
+        self.project.slack_channel_name = "  #proj-foo "
+        self.project.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.slack_channel_name, "proj-foo")
+
+    def test_save_preserves_already_normalized_slack_channel_name(self):
+        self.project.slack_channel_name = "proj-foo"
+        self.project.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.slack_channel_name, "proj-foo")
+
+    def test_save_leaves_empty_slack_channel_name_empty(self):
+        self.project.slack_channel_name = ""
+        self.project.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.slack_channel_name, "")
+
 
 class KippoMilestoneMethodsTestCase(TestCase):
     fixtures = DEFAULT_FIXTURES
