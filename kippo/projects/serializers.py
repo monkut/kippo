@@ -66,6 +66,12 @@ class SurveyUserInlineSerializer(serializers.Serializer):
     survey_completed = serializers.BooleanField()
 
 
+class GithubRepositoryInlineSerializer(serializers.Serializer):
+    """Inline serializer for GithubRepository links in OpenAPI schema."""
+
+    repository_url = serializers.URLField()
+
+
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
     """Serializer for ProjectAssignmentRate model."""
 
@@ -89,6 +95,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     latest_comment = serializers.SerializerMethodField()
     weekly_effort_users = serializers.SerializerMethodField()
     survey_users = serializers.SerializerMethodField()
+    github_repositories = serializers.SerializerMethodField()
 
     class Meta:
         model = KippoProject
@@ -103,6 +110,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "confidence",
             "category",
             "slack_channel_name",
+            "slack_notification_channel_name",
             "project_manager",
             "project_manager_username",
             "is_closed",
@@ -111,12 +119,14 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "display_in_project_report",
             "github_project_html_url",
             "github_project_api_nodeid",
+            "github_repositories",
             "allocated_staff_days",
             "allocated_effort_hours",
             "start_date",
             "target_date",
             "actual_date",
-            "document_url",
+            "document_folder_url",
+            "docbase_tag",
             "problem_definition",
             "survey_issued",
             "assignment_rates",
@@ -141,6 +151,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "latest_comment",
             "weekly_effort_users",
             "survey_users",
+            "github_repositories",
             "created_datetime",
             "updated_datetime",
         ]
@@ -151,6 +162,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         if obj.allocated_staff_days is not None:
             return obj.allocated_staff_days * settings.DAY_WORKHOURS
         return None
+
+    @extend_schema_field(GithubRepositoryInlineSerializer(many=True))
+    def get_github_repositories(self, obj: KippoProject) -> list[dict]:
+        return [{"repository_url": repo.html_url} for repo in obj.github_repositories.all()]
 
     @extend_schema_field(ProjectAssignmentRateInlineSerializer(many=True))
     def get_assignment_rates(self, obj: KippoProject) -> list[dict]:

@@ -18,6 +18,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Case, JSONField, Model, Value, When
 from django.forms import BaseFormSet, Form
+from django.forms.models import BaseInlineFormSet
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -30,6 +31,7 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from octocat.functions import copy_project_v2, create_project_v2, get_organization_id
+from octocat.models import GithubRepository
 from rangefilter.filters import DateRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
@@ -167,6 +169,90 @@ class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline)
         # clear the queryset so that no EDITABLE entries are displayed
         qs = super().get_queryset(request).none()
         return qs
+
+
+class GithubRepositoryProjectInlineForm(forms.ModelForm):
+    class Meta:
+        model = GithubRepository
+        fields = ("html_url",)
+
+    def clean(self):
+        cleaned = super().clean()
+        html_url = (cleaned.get("html_url") or "").strip().rstrip("/")
+        if not html_url:
+            return cleaned
+        parsed = urllib.parse.urlparse(html_url)
+        parts = [p for p in parsed.path.split("/") if p]
+        github_url_min_path_segments = 2  # owner/repo
+        if parsed.netloc != "github.com" or len(parts) < github_url_min_path_segments:
+            raise forms.ValidationError(_("Invalid GitHub repository URL — expected https://github.com/owner/repo"))
+        owner, repo = parts[0], parts[1]
+        cleaned["html_url"] = f"https://github.com/{owner}/{repo}"
+        cleaned["_derived_owner"] = owner
+        cleaned["_derived_repo"] = repo
+        return cleaned
+
+    def save(self, commit: bool = True):
+        instance = self.instance
+        owner = self.cleaned_data.get("_derived_owner")
+        repo = self.cleaned_data.get("_derived_repo")
+        if not owner or not repo:
+            return super().save(commit=commit)
+
+        normalized_html_url = f"https://github.com/{owner}/{repo}"
+        api_url = f"https://api.github.com/repos/{owner}/{repo}"
+
+        if instance.pk:
+            instance.name = repo
+            instance.html_url = normalized_html_url
+            instance.api_url = api_url
+            if commit:
+                instance.save()
+            return instance
+
+        # New row: adopt an existing GithubRepository if one already matches the
+        # unique_together (name, api_url, html_url) — avoids duplicating rows that
+        # were auto-created by KippoTask.save().
+        matched = GithubRepository.objects.filter(
+            name=repo,
+            api_url=api_url,
+            html_url=normalized_html_url,
+        ).first()
+        if matched:
+            matched.project = instance.project
+            if commit:
+                matched.save(update_fields=["project"])
+            return matched
+
+        if instance.project_id and not instance.organization_id:
+            instance.organization = instance.project.organization
+        instance.name = repo
+        instance.html_url = normalized_html_url
+        instance.api_url = api_url
+        if commit:
+            instance.save()
+        return instance
+
+
+class GithubRepositoryProjectInlineFormSet(BaseInlineFormSet):
+    def delete_existing(self, obj: GithubRepository, commit: bool = True):
+        # Unlink (clear FK) instead of delete: GithubMilestone references the
+        # repository with on_delete=CASCADE, and KippoTask.save() looks up rows
+        # by URL — destroying the row would cascade and break those flows.
+        obj.project = None
+        if commit:
+            obj.save(update_fields=["project"])
+
+
+class GithubRepositoryProjectInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    model = GithubRepository
+    fk_name = "project"
+    form = GithubRepositoryProjectInlineForm
+    formset = GithubRepositoryProjectInlineFormSet
+    extra = 1
+    fields = ("html_url",)
+    verbose_name = _("Github Repository")
+    verbose_name_plural = _("Github Repositories")
 
 
 def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:
@@ -335,6 +421,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # KippoMilestoneReadOnlyInline,
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
+        GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
@@ -608,14 +695,16 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "phase",
                     "category",
                     "slack_channel_name",
+                    "slack_notification_channel_name",
                     "columnset",
                     "is_closed",
                     "display_as_active",
                     "display_in_project_report",
                     "enable_cost_report",
-                    "document_url",
+                    "document_folder_url",
                     "github_project_html_url",
                     "github_project_api_nodeid",
+                    "docbase_tag",
                     "problem_definition",
                 ),
             },

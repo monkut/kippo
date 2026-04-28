@@ -38,6 +38,14 @@ class GithubRepositoryLabelSet(models.Model):
 class GithubRepository(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE)
+    project = models.ForeignKey(
+        "projects.KippoProject",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="github_repositories",
+        help_text=_("KippoProject this repository belongs to (optional)"),
+    )
     name = models.CharField(max_length=GITHUB_REPOSITORY_NAME_MAX_LENGTH, verbose_name=_("Github Repository Name"))
     label_set = models.ForeignKey(
         GithubRepositoryLabelSet,

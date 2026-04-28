@@ -47,6 +47,10 @@ def estimate_prefixes_default():
     return ["estimate:", "est:"]
 
 
+def _normalize_slack_channel_name(value: str) -> str:
+    return value.strip().lstrip("#") if value else value
+
+
 class ProjectColumnSet(models.Model):  # not using userdefined model in order to make model definitions more portable
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
@@ -167,7 +171,16 @@ class KippoProject(UserCreatedBaseModel):
     )
     category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
     slack_channel_name = models.CharField(
-        max_length=80, blank=True, default="", help_text=_("Run '/invite {ORG.slack_command_name}' to enable channel notification")
+        max_length=80,
+        blank=True,
+        default="",
+        help_text=_("Conversation Channel — invite the organization's slack bot to enable channel notification"),
+    )
+    slack_notification_channel_name = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        help_text=_("Notification Channel for crawler / batch / development notifications (separate from the conversation channel)"),
     )
     enable_cost_report = models.BooleanField(
         default=False, help_text=_("Set to True if you want to enable cost reporting to the configured slack channel")
@@ -217,11 +230,18 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("The date the project was actually completed on (not the initial target)"),
     )
-    document_url = models.URLField(
+    document_folder_url = models.URLField(
         _("Documentation Location URL"),
         blank=True,
         default="",
         help_text=_("URL of where documents for the projects are maintained"),
+    )
+    docbase_tag = models.CharField(
+        _("DocBase Tag"),
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=_("DocBase tag used by the crawler to fetch matching posts"),
     )
     problem_definition = models.TextField(
         _("Project Problem Definition"),
@@ -521,8 +541,8 @@ class KippoProject(UserCreatedBaseModel):
         # so the slash-command project lookup ("...subcommands/projectstatus.py") does
         # an exact string match on the bare name. Store the canonical bare form here
         # so users entering "#proj-foo" or "  proj-foo  " in admin still resolve.
-        if self.slack_channel_name:
-            self.slack_channel_name = self.slack_channel_name.strip().lstrip("#")
+        self.slack_channel_name = _normalize_slack_channel_name(self.slack_channel_name)
+        self.slack_notification_channel_name = _normalize_slack_channel_name(self.slack_notification_channel_name)
 
         super().save(*args, **kwargs)
 

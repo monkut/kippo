@@ -46,7 +46,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
 
     serializer_class = KippoProjectSerializer
     permission_classes = [IsSuperuserOrReadUpdateOnly]
-    queryset = KippoProject.objects.all().select_related("organization", "project_manager").order_by("-created_datetime")
+    queryset = (
+        KippoProject.objects.all()
+        .select_related("organization", "project_manager")
+        .prefetch_related("github_repositories")
+        .order_by("-created_datetime")
+    )
 
     @extend_schema(
         parameters=[
