@@ -162,7 +162,7 @@ class Command(BaseCommand):
                     name=result["name"],
                     is_closed=result["is_closed"],
                     confidence=result["confidence"],
-                    document_url=result["document_url"],
+                    document_folder_url=result.get("document_folder_url", result.get("document_url", "")),
                     phase=result["phase"],
                     start_date=result["start_date"],
                     target_date=result["target_date"],
