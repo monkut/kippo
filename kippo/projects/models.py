@@ -151,6 +151,22 @@ VALID_PROJECT_PHASES = (
     ("project-development", "Project Development"),
 )
 
+KIPPOPROJECT_CATEGORY_CHOICES = (
+    ("new-proposal", _("新規提案")),
+    ("maintenance", _("保守")),
+    ("poc", "poc"),
+    ("instructor", _("講師")),
+    ("r-and-d", "R&D"),
+    ("PAO", "PAO"),
+    ("upsell-improvement", _("(Upsell) 追加改善・拡張")),
+    ("upsell-new-proposal", _("(Upsell) 新規提案")),
+    ("upsell-new-department", _("(Upsell) 別部署紹介")),
+    ("other", _("その他")),
+)
+UPSELL_CATEGORY_VALUES = ("upsell-improvement", "upsell-new-proposal", "upsell-new-department")
+KIPPOPROJECT_CATEGORY_MAX_LENGTH = 32
+VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_CATEGORY_CHOICES)
+
 
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
@@ -169,7 +185,11 @@ class KippoProject(UserCreatedBaseModel):
         validators=(MaxValueValidator(100), MinValueValidator(0)),
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
-    category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
+    category = models.CharField(
+        max_length=KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+        choices=KIPPOPROJECT_CATEGORY_CHOICES,
+        default=settings.DEFAULT_KIPPOPROJECT_CATEGORY,
+    )
     slack_channel_name = models.CharField(
         max_length=80,
         blank=True,
@@ -197,7 +217,16 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("Project Manager assigned to the project"),
     )
+    parent_project = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="upsell_children",
+        help_text=_("Original (parent) project for upsell projects"),
+    )
     is_closed = models.BooleanField(_("Project is Closed"), default=False, help_text=_("Manually set when project is complete"))
+    close_comment = models.TextField(_("Close Comment"), blank=True, default="")
     display_as_active = models.BooleanField(
         _("Display as Active"),
         default=True,

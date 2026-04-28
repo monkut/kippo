@@ -48,6 +48,7 @@ from .functions import (
     get_user_session_organization,
 )
 from .models import (
+    UPSELL_CATEGORY_VALUES,
     ActiveKippoProject,
     CollectIssuesAction,
     KippoMilestone,
@@ -62,6 +63,8 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
 )
+
+CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +392,84 @@ def collect_project_github_repositories_action(modeladmin: admin.ModelAdmin, req
 collect_project_github_repositories_action.short_description = _("Collect Project Repositories")  # noqa: E305
 
 
+class CloseProjectActionForm(forms.Form):
+    CATEGORY_CHOICES = (
+        ("upsell-improvement", _("(Upsell) 追加改善・拡張")),
+        ("upsell-new-proposal", _("(Upsell) 新規提案")),
+        ("upsell-new-department", _("(Upsell) 別部署紹介")),
+        (CLOSE_PROJECT_NO_UPSELL_VALUE, _("upsellなし")),
+    )
+
+    category = forms.ChoiceField(
+        label=_("Category"),
+        widget=forms.RadioSelect,
+        choices=CATEGORY_CHOICES,
+    )
+    close_comment = forms.CharField(
+        label=_("Close Comment"),
+        widget=forms.Textarea(attrs={"rows": 4, "cols": 60}),
+        required=False,
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        category = cleaned_data.get("category")
+        close_comment = cleaned_data.get("close_comment", "").strip()
+        if category == CLOSE_PROJECT_NO_UPSELL_VALUE and not close_comment:
+            raise ValidationError({"close_comment": _("Close Comment is required when upsellなし is selected.")})
+        return cleaned_data
+
+
+def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
+    """Close a KippoProject with an optional upsell follow-up project."""
+    if queryset.count() != 1:
+        modeladmin.message_user(request, _("Select exactly one project to close."), level=messages.ERROR)
+        return None
+
+    project: KippoProject = queryset.first()
+    if project.is_closed:
+        modeladmin.message_user(
+            request,
+            _("Project is already closed; re-open the project before closing again."),
+            level=messages.ERROR,
+        )
+        return None
+
+    if request.POST.get("post") == "yes":
+        form = CloseProjectActionForm(request.POST)
+        if form.is_valid():
+            selected_category = form.cleaned_data["category"]
+            project.close_comment = form.cleaned_data["close_comment"]
+            project.is_closed = True
+            project.actual_date = timezone.now().date()
+            project.display_as_active = False
+            project.display_in_project_report = False
+            project.updated_by = request.user
+            project.save()
+
+            modeladmin.message_user(request, _("Project '%s' closed.") % project.name, level=messages.INFO)
+
+            if selected_category in UPSELL_CATEGORY_VALUES:
+                params = urllib.parse.urlencode({"category": selected_category, "parent_project": str(project.id)})
+                return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/add/?{params}")
+            return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
+    else:
+        form = CloseProjectActionForm()
+
+    context = {
+        **modeladmin.admin_site.each_context(request),
+        "title": _("Close Project"),
+        "project": project,
+        "form": form,
+        "action": "close_kippoproject_action",
+        "opts": modeladmin.model._meta,
+    }
+    return TemplateResponse(request, "admin/projects/close_project_action.html", context)
+
+
+close_kippoproject_action.short_description = _("Close Project")  # noqa: E305
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
@@ -415,9 +496,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
         collect_project_github_repositories_action,
+        close_kippoproject_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
     ]
+    exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
     inlines = [
         # Milestones not used atm, commenting out.
         # KippoMilestoneReadOnlyInline,
@@ -629,7 +712,30 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             form.base_fields[fieldname].widget.can_change_related = False
             form.base_fields[fieldname].widget.can_delete_related = False
 
+        # parent_project: hidden on add form (preserves GET prefill); readonly on change form (handled in get_readonly_fields)
+        if obj is None and "parent_project" in form.base_fields:
+            form.base_fields["parent_project"].widget = forms.HiddenInput()
+            parent_project_id = request.GET.get("parent_project")
+            if parent_project_id:
+                form.base_fields["parent_project"].initial = parent_project_id
         return form
+
+    def get_readonly_fields(self, request: DjangoRequest, obj: KippoProject | None = None) -> tuple[str, ...]:
+        readonly_fields = tuple(super().get_readonly_fields(request, obj))
+        # show parent_project as readonly on the change form so admins can see the upsell parent
+        if obj is not None and "parent_project" not in readonly_fields:
+            readonly_fields = (*readonly_fields, "parent_project")
+        return readonly_fields
+
+    def get_changeform_initial_data(self, request: DjangoRequest) -> dict:
+        initial = super().get_changeform_initial_data(request)
+        category = request.GET.get("category")
+        if category:
+            initial["category"] = category
+        parent_project_id = request.GET.get("parent_project")
+        if parent_project_id:
+            initial["parent_project"] = parent_project_id
+        return initial
 
     def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
         if obj.pk is None:

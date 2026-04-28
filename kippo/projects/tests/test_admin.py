@@ -1,8 +1,10 @@
 from http import HTTPStatus
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.urls import reverse
 from django.utils import timezone
 
@@ -213,3 +215,194 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         # response = self.client.get(url)
         # self.assertEqual(response.status_code, HTTPStatus.OK)
         # self.assertTemplateUsed(response, "admin/change_list.html")
+
+
+class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.current_date = timezone.now().date()
+        # add organization membership for the superuser to satisfy has_add_permission
+        OrganizationMembership.objects.create(
+            user=self.superuser_no_org,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        self.project1 = KippoProject.objects.create(
+            organization=self.organization,
+            name="project1",
+            category="poc",
+            columnset=columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.project2 = KippoProject.objects.create(
+            organization=self.organization,
+            name="project2",
+            category="poc",
+            columnset=columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.changelist_url = reverse("admin:projects_kippoproject_changelist")
+        self.client.force_login(self.superuser_no_org)
+
+    def test_multiple_projects_selected_rejected(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id), str(self.project2.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.project1.refresh_from_db()
+        self.project2.refresh_from_db()
+        self.assertFalse(self.project1.is_closed)
+        self.assertFalse(self.project2.is_closed)
+        # ensure error message displayed
+        messages_list = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("exactly one" in m.lower() for m in messages_list), messages_list)
+
+    def test_already_closed_rejected(self):
+        self.project1.is_closed = True
+        self.project1.save()
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        messages_list = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("re-open" in m.lower() for m in messages_list), messages_list)
+
+    def test_no_upsell_requires_close_comment(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "category": "__no_upsell__",
+                "close_comment": "",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        # form was redisplayed with errors; project not closed
+        self.project1.refresh_from_db()
+        self.assertFalse(self.project1.is_closed)
+        # form should have errors attribute
+        form = response.context.get("form")
+        self.assertIsNotNone(form)
+        self.assertIn("close_comment", form.errors)
+
+    def test_no_upsell_flow_closes_project(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "category": "__no_upsell__",
+                "close_comment": "Project completed successfully.",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertIn("/admin/projects/kippoproject/", response["Location"])
+        # ensure no add page is requested for upsell-none
+        self.assertNotIn("/add/", response["Location"])
+
+        self.project1.refresh_from_db()
+        self.assertTrue(self.project1.is_closed)
+        self.assertEqual(self.project1.actual_date, timezone.now().date())
+        self.assertFalse(self.project1.display_as_active)
+        self.assertFalse(self.project1.display_in_project_report)
+        self.assertEqual(self.project1.close_comment, "Project completed successfully.")
+        self.assertIsNotNone(self.project1.closed_datetime)
+
+        # confirm no new project was created
+        self.assertEqual(KippoProject.objects.count(), 2)
+
+    def test_upsell_flow_closes_and_redirects(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "category": "upsell-improvement",
+                "close_comment": "",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertIn("/admin/projects/kippoproject/add/", response["Location"])
+        parsed = urlparse(response["Location"])
+        params = parse_qs(parsed.query)
+        self.assertEqual(params.get("category"), ["upsell-improvement"])
+        self.assertEqual(params.get("parent_project"), [str(self.project1.id)])
+
+        self.project1.refresh_from_db()
+        self.assertTrue(self.project1.is_closed)
+        self.assertFalse(self.project1.display_as_active)
+        self.assertFalse(self.project1.display_in_project_report)
+        # category on the closing project is unchanged
+        self.assertEqual(self.project1.category, "poc")
+
+    def test_intermediate_form_get(self):
+        """Without 'post=yes', the action displays the intermediate form."""
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "admin/projects/close_project_action.html")
+        self.assertContains(response, "project1")
+
+    def test_add_form_prefills_from_get_params(self):
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.project1.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertEqual(adminform.form.initial.get("category"), "upsell-improvement")
+        self.assertEqual(adminform.form.initial.get("parent_project"), str(self.project1.id))
+        # parent_project widget should be hidden on add form
+        self.assertEqual(adminform.form.fields["parent_project"].widget.input_type, "hidden")
+
+    def test_close_related_fields_hidden_from_change_form(self):
+        url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        for field_name in ("is_closed", "actual_date", "display_as_active", "display_in_project_report"):
+            self.assertNotIn(f'name="{field_name}"', content, f"{field_name} should not be in form")
+
+    def test_change_form_shows_parent_project_readonly(self):
+        child = KippoProject.objects.create(
+            organization=self.organization,
+            name="upsell-child",
+            category="upsell-improvement",
+            columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
+            parent_project=self.project1,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoproject_change", args=[child.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        # parent_project should appear as readonly (no input element with that name)
+        self.assertNotIn('name="parent_project"', response.content.decode())
+        self.assertContains(response, self.project1.name)

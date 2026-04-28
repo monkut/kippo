@@ -3,11 +3,18 @@ import datetime
 from accounts.models import Country, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 from commons.definitions import SATURDAY, SUNDAY
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from django.conf import settings
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
-from projects.models import KippoMilestone, KippoProject
+from projects.models import (
+    KIPPOPROJECT_CATEGORY_CHOICES,
+    UPSELL_CATEGORY_VALUES,
+    VALID_KIPPOPROJECT_CATEGORY_VALUES,
+    KippoMilestone,
+    KippoProject,
+)
 
 
 class KippoProjectMethodsTestCase(TestCase):
@@ -602,3 +609,32 @@ class KippoMilestoneMethodsTestCase(TestCase):
         self.assertEqual(len(actual), expected_assignee_count)
         self.assertIn(self.task1.assignee, actual)
         self.assertIn(self.task2.assignee, actual)
+
+
+class KippoProjectCategoryChoicesTestCase(TestCase):
+    fixtures = DEFAULT_FIXTURES
+
+    def test_category_field_choices_match_module_constant(self):
+        choices = KippoProject._meta.get_field("category").choices
+        self.assertEqual(tuple(choices), KIPPOPROJECT_CATEGORY_CHOICES)
+
+    def test_category_field_default_is_poc(self):
+        default = KippoProject._meta.get_field("category").default
+        self.assertEqual(default, settings.DEFAULT_KIPPOPROJECT_CATEGORY)
+        self.assertEqual(default, "poc")
+        self.assertIn(default, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+
+    def test_upsell_category_values_subset_of_choices(self):
+        for value in UPSELL_CATEGORY_VALUES:
+            self.assertIn(value, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+
+    def test_close_comment_field_defaults(self):
+        field = KippoProject._meta.get_field("close_comment")
+        self.assertTrue(field.blank)
+        self.assertEqual(field.default, "")
+
+    def test_parent_project_field_is_self_fk_with_set_null(self):
+        field = KippoProject._meta.get_field("parent_project")
+        self.assertTrue(field.null)
+        self.assertTrue(field.blank)
+        self.assertEqual(field.related_model, KippoProject)
