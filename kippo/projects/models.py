@@ -22,7 +22,14 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
-from .definitions import ProjectProgressStatus, ProjectRoles, ValidCurrencies, ValidServices
+from .definitions import (
+    KIPPOPROJECT_CATEGORY_CHOICES,
+    KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+    ProjectProgressStatus,
+    ProjectRoles,
+    ValidCurrencies,
+    ValidServices,
+)
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
@@ -150,22 +157,6 @@ VALID_PROJECT_PHASES = (
     ("project-proposal", "Project Proposal Preparation"),
     ("project-development", "Project Development"),
 )
-
-KIPPOPROJECT_CATEGORY_CHOICES = (
-    ("new-proposal", _("新規提案")),
-    ("maintenance", _("保守")),
-    ("poc", "poc"),
-    ("instructor", _("講師")),
-    ("r-and-d", "R&D"),
-    ("PAO", "PAO"),
-    ("upsell-improvement", _("(Upsell) 追加改善・拡張")),
-    ("upsell-new-proposal", _("(Upsell) 新規提案")),
-    ("upsell-new-department", _("(Upsell) 別部署紹介")),
-    ("other", _("その他")),
-)
-UPSELL_CATEGORY_VALUES = ("upsell-improvement", "upsell-new-proposal", "upsell-new-department")
-KIPPOPROJECT_CATEGORY_MAX_LENGTH = 32
-VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_CATEGORY_CHOICES)
 
 
 @reversion.register()

@@ -36,7 +36,7 @@ from rangefilter.filters import DateRangeFilterBuilder
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import ProjectProgressStatus
+from .definitions import UPSELL_CATEGORY_VALUES, ProjectProgressStatus
 from .exceptions import GithubMilestoneAlreadyExistsError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -48,7 +48,6 @@ from .functions import (
     get_user_session_organization,
 )
 from .models import (
-    UPSELL_CATEGORY_VALUES,
     ActiveKippoProject,
     CollectIssuesAction,
     KippoMilestone,

@@ -8,13 +8,12 @@ from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
-from projects.models import (
+from projects.definitions import (
     KIPPOPROJECT_CATEGORY_CHOICES,
     UPSELL_CATEGORY_VALUES,
     VALID_KIPPOPROJECT_CATEGORY_VALUES,
-    KippoMilestone,
-    KippoProject,
 )
+from projects.models import KippoMilestone, KippoProject
 
 
 class KippoProjectMethodsTestCase(TestCase):

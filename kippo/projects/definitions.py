@@ -3,6 +3,7 @@ import datetime
 from typing import TYPE_CHECKING
 
 from commons.definitions import StringEnumWithChoices
+from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
     from .models import KippoProject
@@ -10,6 +11,22 @@ if TYPE_CHECKING:
 
 # Minimum effort percentage required for a user to be included in survey tracking
 SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
+
+KIPPOPROJECT_CATEGORY_CHOICES = (
+    ("new-proposal", _("新規提案")),
+    ("maintenance", _("保守")),
+    ("poc", "poc"),
+    ("instructor", _("講師")),
+    ("r-and-d", "R&D"),
+    ("PAO", "PAO"),
+    ("upsell-improvement", _("(Upsell) 追加改善・拡張")),
+    ("upsell-new-proposal", _("(Upsell) 新規提案")),
+    ("upsell-new-department", _("(Upsell) 別部署紹介")),
+    ("other", _("その他")),
+)
+UPSELL_CATEGORY_VALUES = ("upsell-improvement", "upsell-new-proposal", "upsell-new-department")
+KIPPOPROJECT_CATEGORY_MAX_LENGTH = 32
+VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_CATEGORY_CHOICES)
 
 
 class ProjectRoles(StringEnumWithChoices):
