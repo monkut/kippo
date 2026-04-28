@@ -244,13 +244,15 @@ class GithubRepositoryProjectInlineFormSet(BaseInlineFormSet):
             obj.save(update_fields=["project"])
 
 
-class GithubRepositoryProjectInline(AllowIsStaffAdminMixin, admin.TabularInline):
+class GithubRepositoryProjectInline(AllowIsStaffAdminMixin, admin.StackedInline):
     model = GithubRepository
     fk_name = "project"
     form = GithubRepositoryProjectInlineForm
     formset = GithubRepositoryProjectInlineFormSet
-    extra = 1
+    extra = 0
+    max_num = 5
     fields = ("html_url",)
+    classes = ("collapse",)
     verbose_name = _("Github Repository")
     verbose_name_plural = _("Github Repositories")
 
