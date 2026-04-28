@@ -22,7 +22,14 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
-from .definitions import ProjectProgressStatus, ProjectRoles, ValidCurrencies, ValidServices
+from .definitions import (
+    KIPPOPROJECT_CATEGORY_CHOICES,
+    KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+    ProjectProgressStatus,
+    ProjectRoles,
+    ValidCurrencies,
+    ValidServices,
+)
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
@@ -169,7 +176,11 @@ class KippoProject(UserCreatedBaseModel):
         validators=(MaxValueValidator(100), MinValueValidator(0)),
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
-    category = models.CharField(max_length=256, default=settings.DEFAULT_KIPPOPROJECT_CATEGORY)
+    category = models.CharField(
+        max_length=KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+        choices=KIPPOPROJECT_CATEGORY_CHOICES,
+        default=settings.DEFAULT_KIPPOPROJECT_CATEGORY,
+    )
     slack_channel_name = models.CharField(
         max_length=80,
         blank=True,
@@ -197,7 +208,16 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("Project Manager assigned to the project"),
     )
+    parent_project = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="upsell_children",
+        help_text=_("Original (parent) project for upsell projects"),
+    )
     is_closed = models.BooleanField(_("Project is Closed"), default=False, help_text=_("Manually set when project is complete"))
+    close_comment = models.TextField(_("Close Comment"), blank=True, default="")
     display_as_active = models.BooleanField(
         _("Display as Active"),
         default=True,
