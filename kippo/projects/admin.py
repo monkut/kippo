@@ -564,8 +564,28 @@ def reopen_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequ
 reopen_kippoproject_action.short_description = _("Re-open Project(s)")  # noqa: E305
 
 
+class KippoProjectAdminForm(forms.ModelForm):
+    class Meta:
+        model = KippoProject
+        exclude = ()  # noqa: DJ006 (admin form inherits field config from ModelAdmin)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        category = cleaned_data.get("category")
+        # parent_project is readonly on the change form, so it won't appear in cleaned_data there
+        # — fall back to the persisted instance value so existing upsell projects keep validating.
+        parent_project = cleaned_data.get("parent_project") or getattr(self.instance, "parent_project", None)
+        if category in UPSELL_CATEGORY_VALUES and not parent_project:
+            self.add_error(
+                "parent_project",
+                _("Parent Project is required when an upsell category is selected."),
+            )
+        return cleaned_data
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    form = KippoProjectAdminForm
     list_display = (
         "id",
         "name",
@@ -823,12 +843,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             form.base_fields[fieldname].widget.can_change_related = False
             form.base_fields[fieldname].widget.can_delete_related = False
 
-        # parent_project: hidden on add form (preserves GET prefill); readonly on change form (handled in get_readonly_fields)
-        if obj is None and "parent_project" in form.base_fields:
-            form.base_fields["parent_project"].widget = forms.HiddenInput()
-            parent_project_id = request.GET.get("parent_project")
-            if parent_project_id:
-                form.base_fields["parent_project"].initial = parent_project_id
+        # parent_project: optional selectable field on add (GET-prefilled by the upsell close-action flow);
+        # readonly on change form (handled in get_readonly_fields).
+        # Required when category is an upsell value — enforced by KippoProjectAdminForm.clean().
+        # Scope queryset to the user's organizations to avoid leaking project names across orgs (superusers see all).
+        if obj is None and "parent_project" in form.base_fields and not request.user.is_superuser:
+            form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization__in=request.user.organizations)
         return form
 
     def get_readonly_fields(self, request: DjangoRequest, obj: KippoProject | None = None) -> tuple[str, ...]:
