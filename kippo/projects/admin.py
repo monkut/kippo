@@ -481,6 +481,7 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
         "form": form,
         "action": "close_kippoproject_action",
         "opts": modeladmin.model._meta,
+        "no_upsell_value": CLOSE_PROJECT_NO_UPSELL_VALUE,
     }
     return TemplateResponse(request, "admin/projects/close_project_action.html", context)
 
