@@ -1,6 +1,26 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls %}
 
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .required-indicator {
+      display: none;
+      margin-left: 6px;
+      color: #ba2121;
+      font-weight: bold;
+    }
+    .required-indicator.is-visible {
+      display: inline;
+    }
+    .form-row textarea {
+      vertical-align: top;
+    }
+  </style>
+{% endblock %}
+
+{% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }} close-project-confirmation{% endblock %}
+
 {% block breadcrumbs %}
 <div class="breadcrumbs">
   <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
@@ -28,14 +48,48 @@
       </div>
       <div class="form-row{% if form.close_comment.errors %} errors{% endif %}">
         {% if form.close_comment.errors %}{{ form.close_comment.errors }}{% endif %}
-        <label for="{{ form.close_comment.id_for_label }}">{{ form.close_comment.label }}:</label>
+        <label for="{{ form.close_comment.id_for_label }}">
+          {{ form.close_comment.label }}:
+          <span id="close-comment-required-indicator"
+                class="required-indicator"
+                data-no-upsell-value="{{ no_upsell_value }}"
+                data-comment-target="{{ form.close_comment.id_for_label }}"
+                aria-live="polite">{% trans "(required)" %}</span>
+        </label>
         {{ form.close_comment }}
       </div>
     </fieldset>
     <div class="submit-row">
       <input type="submit" class="default" value="{% trans 'OK' %}">
-      <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">{% trans 'Cancel' %}</a>
+      <a href="{% url opts|admin_urlname:'changelist' %}" class="closelink">{% trans 'Cancel' %}</a>
     </div>
   </form>
 </div>
+<script>
+  (function () {
+    var indicator = document.getElementById("close-comment-required-indicator");
+    if (!indicator) { return; }
+    var noUpsellValue = indicator.getAttribute("data-no-upsell-value");
+    var commentInput = document.getElementById(indicator.getAttribute("data-comment-target"));
+    var radios = document.querySelectorAll('input[type="radio"][name="category"]');
+    function update() {
+      var checked = document.querySelector('input[type="radio"][name="category"]:checked');
+      var isRequired = !!(checked && checked.value === noUpsellValue);
+      indicator.classList.toggle("is-visible", isRequired);
+      if (commentInput) {
+        if (isRequired) {
+          commentInput.setAttribute("required", "required");
+          commentInput.setAttribute("aria-required", "true");
+        } else {
+          commentInput.removeAttribute("required");
+          commentInput.removeAttribute("aria-required");
+        }
+      }
+    }
+    for (var i = 0; i < radios.length; i++) {
+      radios[i].addEventListener("change", update);
+    }
+    update();
+  })();
+</script>
 {% endblock %}
