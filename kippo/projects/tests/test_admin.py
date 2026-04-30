@@ -1,5 +1,7 @@
+import datetime
 from datetime import date
 from http import HTTPStatus
+from unittest import TestCase
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 
@@ -9,7 +11,13 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.urls import reverse
 from django.utils import timezone
 
-from projects.admin import KippoMilestoneAdmin, KippoProjectAdmin, ProjectWeeklyEffortAdminInline
+from projects.admin import (
+    KippoMilestoneAdmin,
+    KippoProjectAdmin,
+    ProjectWeeklyEffortAdminInline,
+    _next_upsell_project_name,
+    _start_of_next_month,
+)
 from projects.models import KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
@@ -359,6 +367,84 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # category on the closing project is unchanged
         self.assertEqual(self.project1.category, "poc")
 
+    def test_upsell_redirect_prefills_new_project_fields(self):
+        # populate source-project fields that should propagate to the upsell child
+        self.project1.slack_channel_name = "proj1"
+        self.project1.slack_notification_channel_name = "proj1-notify"
+        self.project1.document_folder_url = "https://docs.example.com/proj1"
+        self.project1.github_project_html_url = "https://github.com/orgs/example/projects/42"
+        self.project1.github_project_api_nodeid = "PVT_kwDO_NODE_ID"
+        self.project1.docbase_tag = "proj1-tag"
+        self.project1.save()
+
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "category": "upsell-new-proposal",
+                "close_comment": "",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        params = parse_qs(urlparse(response["Location"]).query)
+        self.assertEqual(params.get("name"), ["project1 Phase 2"])
+        self.assertEqual(params.get("slack_channel_name"), ["proj1"])
+        self.assertEqual(params.get("slack_notification_channel_name"), ["proj1-notify"])
+        self.assertEqual(params.get("document_folder_url"), ["https://docs.example.com/proj1"])
+        self.assertEqual(params.get("github_project_html_url"), ["https://github.com/orgs/example/projects/42"])
+        self.assertEqual(params.get("github_project_api_nodeid"), ["PVT_kwDO_NODE_ID"])
+        self.assertEqual(params.get("columnset"), [str(self.project1.columnset_id)])
+        self.assertEqual(params.get("docbase_tag"), ["proj1-tag"])
+        # start_date should be the first day of the month following today
+        today = timezone.now().date()
+        expected_start = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
+        self.assertEqual(params.get("start_date"), [expected_start.isoformat()])
+
+    def test_upsell_redirect_omits_blank_source_fields(self):
+        # leave optional source fields blank: prefill params should not include empty values
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "category": "upsell-improvement",
+                "close_comment": "",
+            },
+        )
+        params = parse_qs(urlparse(response["Location"]).query)
+        for blank_field in (
+            "slack_channel_name",
+            "slack_notification_channel_name",
+            "document_folder_url",
+            "github_project_html_url",
+            "github_project_api_nodeid",
+            "docbase_tag",
+        ):
+            with self.subTest(field=blank_field):
+                self.assertNotIn(blank_field, params)
+
+    def test_close_form_category_dropdown_default_is_no_upsell(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form = response.context["form"]
+        self.assertEqual(form.fields["category"].widget.__class__.__name__, "Select")
+        self.assertEqual(form.fields["category"].initial, "__no_upsell__")
+
+    def test_add_form_hides_close_comment_field(self):
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertNotIn('name="close_comment"', response.content.decode())
+
     def test_intermediate_form_get(self):
         """Without 'post=yes', the action displays the intermediate form."""
         response = self.client.post(
@@ -407,6 +493,23 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # parent_project should appear as readonly (no input element with that name)
         self.assertNotIn('name="parent_project"', response.content.decode())
         self.assertContains(response, self.project1.name)
+
+
+class UpsellPrefillHelpersTestCase(TestCase):
+    def test_next_upsell_project_name_appends_phase_2_when_no_existing_suffix(self):
+        self.assertEqual(_next_upsell_project_name("Foo"), "Foo Phase 2")
+        self.assertEqual(_next_upsell_project_name("Foo Bar"), "Foo Bar Phase 2")
+
+    def test_next_upsell_project_name_increments_existing_phase_number(self):
+        self.assertEqual(_next_upsell_project_name("Foo Phase 2"), "Foo Phase 3")
+        self.assertEqual(_next_upsell_project_name("Foo Phase 9"), "Foo Phase 10")
+        self.assertEqual(_next_upsell_project_name("Foo Bar Phase 11"), "Foo Bar Phase 12")
+
+    def test_start_of_next_month(self):
+        self.assertEqual(_start_of_next_month(datetime.date(2026, 1, 15)), datetime.date(2026, 2, 1))
+        self.assertEqual(_start_of_next_month(datetime.date(2026, 12, 31)), datetime.date(2027, 1, 1))
+        # boundary: first of month
+        self.assertEqual(_start_of_next_month(datetime.date(2026, 4, 1)), datetime.date(2026, 5, 1))
 
 
 class KippoProjectAdminFixtureTestCaseBase(IsStaffModelAdminTestCaseBase):

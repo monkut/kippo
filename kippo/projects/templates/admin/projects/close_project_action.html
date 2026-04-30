@@ -4,6 +4,16 @@
 {% block extrastyle %}
   {{ block.super }}
   <style>
+    .form-row.close-comment-row label {
+      display: block;
+      float: none;
+      width: auto;
+      margin-bottom: 6px;
+    }
+    .form-row.close-comment-row textarea {
+      display: block;
+      vertical-align: top;
+    }
     .required-indicator {
       display: none;
       margin-left: 6px;
@@ -12,9 +22,6 @@
     }
     .required-indicator.is-visible {
       display: inline;
-    }
-    .form-row textarea {
-      vertical-align: top;
     }
   </style>
 {% endblock %}
@@ -43,10 +50,9 @@
       {% endif %}
       <div class="form-row{% if form.category.errors %} errors{% endif %}">
         {% if form.category.errors %}{{ form.category.errors }}{% endif %}
-        <label class="required">{{ form.category.label }}:</label>
         {{ form.category }}
       </div>
-      <div class="form-row{% if form.close_comment.errors %} errors{% endif %}">
+      <div class="form-row close-comment-row{% if form.close_comment.errors %} errors{% endif %}">
         {% if form.close_comment.errors %}{{ form.close_comment.errors }}{% endif %}
         <label for="{{ form.close_comment.id_for_label }}">
           {{ form.close_comment.label }}:
@@ -71,10 +77,9 @@
     if (!indicator) { return; }
     var noUpsellValue = indicator.getAttribute("data-no-upsell-value");
     var commentInput = document.getElementById(indicator.getAttribute("data-comment-target"));
-    var radios = document.querySelectorAll('input[type="radio"][name="category"]');
+    var categorySelect = document.querySelector('select[name="category"]');
     function update() {
-      var checked = document.querySelector('input[type="radio"][name="category"]:checked');
-      var isRequired = !!(checked && checked.value === noUpsellValue);
+      var isRequired = !!(categorySelect && categorySelect.value === noUpsellValue);
       indicator.classList.toggle("is-visible", isRequired);
       if (commentInput) {
         if (isRequired) {
@@ -86,8 +91,8 @@
         }
       }
     }
-    for (var i = 0; i < radios.length; i++) {
-      radios[i].addEventListener("change", update);
+    if (categorySelect) {
+      categorySelect.addEventListener("change", update);
     }
     update();
   })();
