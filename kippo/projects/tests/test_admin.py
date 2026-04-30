@@ -1,3 +1,4 @@
+from datetime import date
 from http import HTTPStatus
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
@@ -9,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import KippoMilestoneAdmin, KippoProjectAdmin, ProjectWeeklyEffortAdminInline
-from projects.models import KippoMilestone, KippoProject, ProjectColumnSet
+from projects.models import KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
 class MockRequest:
@@ -406,3 +407,171 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # parent_project should appear as readonly (no input element with that name)
         self.assertNotIn('name="parent_project"', response.content.decode())
         self.assertContains(response, self.project1.name)
+
+
+class KippoProjectAdminFixtureTestCaseBase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        self.columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.current_date = timezone.now().date()
+        OrganizationMembership.objects.create(
+            user=self.superuser_no_org,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_login(self.superuser_no_org)
+
+    def make_project(self, name: str, *, is_closed: bool = False, actual_date: date | None = None) -> KippoProject:
+        project = KippoProject.objects.create(
+            organization=self.organization,
+            name=name,
+            category="poc",
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        if is_closed:
+            project.is_closed = True
+            project.actual_date = actual_date
+            project.save()
+        return project
+
+
+class ActiveKippoProjectChangeViewTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Regression: ActiveKippoProject.fieldsets must not reference fields excluded by the parent admin."""
+
+    def setUp(self):
+        super().setUp()
+        self.active_project = self.make_project("active-project")
+
+    def test_change_view_renders_without_keyerror(self):
+        url = reverse("admin:projects_activekippoproject_change", args=[self.active_project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_fieldsets_do_not_reference_excluded_fields(self):
+        from projects.admin import ActiveKippoProjectAdmin
+
+        excluded = set(ActiveKippoProjectAdmin.exclude or ())
+        for _label, opts in ActiveKippoProjectAdmin.fieldsets:
+            overlap = [f for f in opts["fields"] if f in excluded]
+            self.assertFalse(overlap, f"fieldset references excluded fields: {overlap}")
+
+
+class ClosedProjectReadonlyTestCase(KippoProjectAdminFixtureTestCaseBase):
+    def setUp(self):
+        super().setUp()
+        self.open_project = self.make_project("open-project")
+        self.closed_project = self.make_project("closed-project", is_closed=True)
+
+    def test_closed_project_change_form_locks_all_editable_fields(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        readonly = set(modeladmin.get_readonly_fields(self.super_user_request, self.closed_project))
+        excluded = set(modeladmin.exclude or ())
+        expected_locked = {
+            f.name for f in KippoProject._meta.get_fields() if getattr(f, "editable", False) and not f.auto_created and f.name not in excluded
+        }
+        missing = expected_locked - readonly
+        self.assertFalse(missing, f"expected fields locked but were not: {missing}")
+
+    def test_open_project_change_form_keeps_fields_editable(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        readonly = set(modeladmin.get_readonly_fields(self.super_user_request, self.open_project))
+        editable_field_names = {
+            f.name for f in KippoProject._meta.get_fields() if getattr(f, "editable", False) and not f.auto_created and f.name != "parent_project"
+        }
+        self.assertFalse(editable_field_names & readonly, f"editable fields unexpectedly locked: {editable_field_names & readonly}")
+
+    def test_closed_project_change_form_renders_no_editable_inputs_for_model_fields(self):
+        url = reverse("admin:projects_kippoproject_change", args=[self.closed_project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        for field_name in ("name", "phase", "category", "confidence", "project_manager"):
+            self.assertNotIn(f'name="{field_name}"', content, f"{field_name} should be readonly on closed project")
+
+
+class ReopenProjectActionTestCase(KippoProjectAdminFixtureTestCaseBase):
+    def setUp(self):
+        super().setUp()
+        self.closed_project_a = self.make_project("closed-a", is_closed=True, actual_date=self.current_date)
+        self.closed_project_b = self.make_project("closed-b", is_closed=True, actual_date=self.current_date)
+        self.open_project = self.make_project("still-open")
+        self.changelist_url = reverse("admin:projects_kippoproject_changelist")
+
+    def test_reopen_action_reopens_single_project_and_creates_status_comment(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "reopen_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.closed_project_a.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.closed_project_a.refresh_from_db()
+        self.assertFalse(self.closed_project_a.is_closed)
+        self.assertIsNone(self.closed_project_a.closed_datetime)
+        self.assertIsNone(self.closed_project_a.actual_date)
+        self.assertEqual(self.closed_project_a.updated_by, self.superuser_no_org)
+
+        statuses = KippoProjectStatus.objects.filter(project=self.closed_project_a)
+        self.assertEqual(statuses.count(), 1)
+        status = statuses.get()
+        self.assertEqual(status.comment, f"re-opened by {self.superuser_no_org.username}")
+        self.assertEqual(status.created_by, self.superuser_no_org)
+
+    def test_reopen_action_supports_multiple_projects(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "reopen_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.closed_project_a.id), str(self.closed_project_b.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.closed_project_a.refresh_from_db()
+        self.closed_project_b.refresh_from_db()
+        self.assertFalse(self.closed_project_a.is_closed)
+        self.assertFalse(self.closed_project_b.is_closed)
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.closed_project_a).count(), 1)
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.closed_project_b).count(), 1)
+
+    def test_reopen_action_skips_already_open_projects(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "reopen_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.closed_project_a.id), str(self.open_project.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.closed_project_a.refresh_from_db()
+        self.open_project.refresh_from_db()
+        self.assertFalse(self.closed_project_a.is_closed)
+        self.assertFalse(self.open_project.is_closed)
+        # only the originally-closed project should have a re-open status comment
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.closed_project_a).count(), 1)
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.open_project).count(), 0)
+        messages_list = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("skipped" in m.lower() for m in messages_list), messages_list)
+
+    def test_reopen_action_rejects_when_no_closed_projects_selected(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "reopen_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.open_project.id)],
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.open_project).count(), 0)
+        messages_list = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("no closed projects" in m.lower() for m in messages_list), messages_list)

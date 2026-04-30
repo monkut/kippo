@@ -68,7 +68,26 @@ CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 logger = logging.getLogger(__name__)
 
 
-class ProjectAssignmentRateInline(AllowIsStaffAdminMixin, admin.TabularInline):
+class LockWhenProjectClosedInlineMixin:
+    """Inline mixin that disables add/change/delete when the parent KippoProject is closed."""
+
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None):
+        if getattr(obj, "is_closed", False):
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request: DjangoRequest, obj: models.Model | None = None):
+        if getattr(obj, "is_closed", False):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request: DjangoRequest, obj: models.Model | None = None):
+        if getattr(obj, "is_closed", False):
+            return False
+        return super().has_delete_permission(request, obj)
+
+
+class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectAssignmentRate
     extra = 0
     fields = ("role", "rate_per_day")
@@ -120,7 +139,7 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
         return qs
 
 
-class ProjectWeeklyEffortAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
+class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectWeeklyEffort
     extra = 1
     fields = ("week_start", "user", "hours")
@@ -162,7 +181,7 @@ class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInlin
         return qs
 
 
-class KippoProjectStatusAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectStatusAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoProjectStatus
     extra = 1
     fields = ("comment",)
@@ -246,7 +265,7 @@ class GithubRepositoryProjectInlineFormSet(BaseInlineFormSet):
             obj.save(update_fields=["project"])
 
 
-class GithubRepositoryProjectInline(AllowIsStaffAdminMixin, admin.StackedInline):
+class GithubRepositoryProjectInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.StackedInline):
     model = GithubRepository
     fk_name = "project"
     form = GithubRepositoryProjectInlineForm
@@ -469,6 +488,43 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
 close_kippoproject_action.short_description = _("Close Project")  # noqa: E305
 
 
+def reopen_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
+    """Re-open one or more closed KippoProjects and record a status comment."""
+    selected = list(queryset)
+    closed_projects = [p for p in selected if p.is_closed]
+    skipped_count = len(selected) - len(closed_projects)
+    if skipped_count:
+        modeladmin.message_user(
+            request,
+            _("%(count)d project(s) were not closed and were skipped.") % {"count": skipped_count},
+            level=messages.WARNING,
+        )
+    if not closed_projects:
+        modeladmin.message_user(request, _("No closed projects selected to re-open."), level=messages.ERROR)
+        return
+
+    reopen_comment = _("re-opened by %(username)s") % {"username": request.user.username}
+    for project in closed_projects:
+        project.is_closed = False
+        project.actual_date = None
+        project.updated_by = request.user
+        project.save()
+        KippoProjectStatus.objects.create(
+            project=project,
+            comment=reopen_comment,
+            created_by=request.user,
+            updated_by=request.user,
+        )
+    modeladmin.message_user(
+        request,
+        _("Re-opened %(count)d project(s).") % {"count": len(closed_projects)},
+        level=messages.INFO,
+    )
+
+
+reopen_kippoproject_action.short_description = _("Re-open Project(s)")  # noqa: E305
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = (
@@ -496,6 +552,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         create_github_repository_milestones_action,
         collect_project_github_repositories_action,
         close_kippoproject_action,
+        reopen_kippoproject_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
     ]
@@ -689,6 +746,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
+        # closed projects: every field is readonly, so base_fields is empty — skip the editable-form tweaks
+        if obj is not None and obj.is_closed:
+            return form
         form.base_fields["project_manager"].initial = request.user.id
         try:
             user_initial_organization, user_organizations = get_user_session_organization(request)
@@ -724,6 +784,15 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # show parent_project as readonly on the change form so admins can see the upsell parent
         if obj is not None and "parent_project" not in readonly_fields:
             readonly_fields = (*readonly_fields, "parent_project")
+        # closed projects: lock every editable field — use the re-open action to edit
+        if obj is not None and obj.is_closed:
+            excluded = set(self.exclude or ())
+            locked = tuple(
+                f.name
+                for f in self.model._meta.get_fields()
+                if getattr(f, "editable", False) and not f.auto_created and f.name not in excluded and f.name not in readonly_fields
+            )
+            readonly_fields = (*readonly_fields, *locked)
         return readonly_fields
 
     def get_changeform_initial_data(self, request: DjangoRequest) -> dict:
@@ -770,6 +839,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
     # Override parent ordering to match UI: confidence desc, target_date asc, name asc
     ordering = ("-confidence", "target_date", "name")
 
+    # is_closed/actual_date/display_as_active/display_in_project_report are excluded by KippoProjectAdmin and must not appear here
     fieldsets = [
         (
             None,
@@ -788,7 +858,6 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                 "fields": (
                     "start_date",
                     "target_date",
-                    "actual_date",
                     "allocated_staff_days",
                 ),
             },
@@ -804,9 +873,6 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
                     "slack_channel_name",
                     "slack_notification_channel_name",
                     "columnset",
-                    "is_closed",
-                    "display_as_active",
-                    "display_in_project_report",
                     "enable_cost_report",
                     "document_folder_url",
                     "github_project_html_url",
