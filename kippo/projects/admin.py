@@ -29,7 +29,7 @@ from django.http import (
 )
 from django.template.response import TemplateResponse
 from django.utils import timezone
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from octocat.functions import copy_project_v2, create_project_v2, get_organization_id
@@ -349,9 +349,14 @@ def create_github_organizational_project_action(modeladmin: admin.ModelAdmin, re
         for m in errors:
             modeladmin.message_user(request, message=m, level=messages.ERROR)
     if successful_creation_projects:
+        project_links = format_html_join(
+            ", ",
+            '<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>',
+            ((url, name) for name, url in successful_creation_projects),
+        )
         modeladmin.message_user(
             request,
-            message=f"({len(successful_creation_projects)}) GitHub Projects Created: {successful_creation_projects}",
+            message=format_html("({}) GitHub Projects Created: {}", len(successful_creation_projects), project_links),
             level=messages.INFO,
         )
 
@@ -613,6 +618,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and "close_comment" not in excluded:
             excluded.append("close_comment")
         return tuple(excluded)
+
+    def get_fields(self, request: DjangoRequest, obj: KippoProject | None = None):
+        fields = list(super().get_fields(request, obj))
+        if "close_comment" in fields:
+            fields.remove("close_comment")
+            fields.append("close_comment")
+        return fields
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
         result = ""
