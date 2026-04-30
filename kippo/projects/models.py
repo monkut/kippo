@@ -162,43 +162,51 @@ VALID_PROJECT_PHASES = (
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE)
+    organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, verbose_name=_("組織"))
     name = models.CharField(max_length=256, unique=True, verbose_name=_("プロジェクト名"), help_text=_("Name of the project"))
     slug = models.CharField(max_length=300, unique=True, editable=False)
     phase = models.CharField(
         max_length=150,
         default=DEFAULT_PROJECT_PHASE,
         choices=VALID_PROJECT_PHASES,
+        verbose_name=_("フェーズ"),
         help_text=_("State or phase of the project"),
     )
     confidence = models.PositiveSmallIntegerField(
         default=80,
         validators=(MaxValueValidator(100), MinValueValidator(0)),
+        verbose_name=_("確度"),
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
     category = models.CharField(
         max_length=KIPPOPROJECT_CATEGORY_MAX_LENGTH,
         choices=KIPPOPROJECT_CATEGORY_CHOICES,
         default=settings.DEFAULT_KIPPOPROJECT_CATEGORY,
+        verbose_name=_("カテゴリ"),
     )
     slack_channel_name = models.CharField(
         max_length=80,
         blank=True,
         default="",
+        verbose_name=_("Slack会話チャンネル名"),
         help_text=_("Conversation Channel — invite the organization's slack bot to enable channel notification"),
     )
     slack_notification_channel_name = models.CharField(
         max_length=80,
         blank=True,
         default="",
+        verbose_name=_("Slack通知チャンネル名"),
         help_text=_("Notification Channel for crawler / batch / development notifications (separate from the conversation channel)"),
     )
     enable_cost_report = models.BooleanField(
-        default=False, help_text=_("Set to True if you want to enable cost reporting to the configured slack channel")
+        default=False,
+        verbose_name=_("コストレポート有効化"),
+        help_text=_("Set to True if you want to enable cost reporting to the configured slack channel"),
     )
     columnset = models.ForeignKey(
         ProjectColumnSet,
         on_delete=models.DO_NOTHING,
+        verbose_name=_("カラムセット"),
         help_text=_("ProjectColumnSet to use if/when a related Github project is created through Kippo"),
     )
     project_manager = models.ForeignKey(
@@ -206,6 +214,7 @@ class KippoProject(UserCreatedBaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        verbose_name=_("プロジェクトマネージャー"),
         help_text=_("Project Manager assigned to the project"),
     )
     parent_project = models.ForeignKey(
@@ -214,28 +223,34 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="upsell_children",
+        verbose_name=_("親プロジェクト"),
         help_text=_("Original (parent) project for upsell projects"),
     )
-    is_closed = models.BooleanField(_("Project is Closed"), default=False, help_text=_("Manually set when project is complete"))
-    close_comment = models.TextField(_("Close Comment"), blank=True, default="")
+    is_closed = models.BooleanField(_("プロジェクト終了済み"), default=False, help_text=_("Manually set when project is complete"))
+    close_comment = models.TextField(_("終了コメント"), blank=True, default="")
     display_as_active = models.BooleanField(
-        _("Display as Active"),
+        _("アクティブとして表示"),
         default=True,
         help_text=_("If True, project will be included in the ActiveKippoProject List"),
     )
     display_in_project_report = models.BooleanField(
-        _("Display in Project Report Summary (slack)"),
+        _("プロジェクトレポートサマリ(Slack)に表示"),
         default=True,
         help_text=_("If True, project will be included in the Project Report Summary"),
     )
-    github_project_html_url = models.URLField(_("Github Project HTML URL"), blank=True, default="")
+    github_project_html_url = models.URLField(_("GitHubプロジェクトのHTML URL"), blank=True, default="")
     github_project_api_nodeid = models.CharField(
-        _("Github Project API Node ID (GraphQL node ID for ProjectsV2)"),
+        _("GitHubプロジェクトAPIノードID"),
         max_length=255,
         blank=True,
         default="",
     )
-    allocated_staff_days = models.PositiveIntegerField(null=True, blank=True, help_text=_("Estimated Staff Days needed for Project Completion"))
+    allocated_staff_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("割当工数(人日)"),
+        help_text=_("Estimated Staff Days needed for Project Completion"),
+    )
     start_date = models.DateField(_("開始日"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
     target_date = models.DateField(
         _("完了予定日"),
@@ -251,26 +266,31 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("The date the project was actually completed on (not the initial target)"),
     )
     document_folder_url = models.URLField(
-        _("Documentation Location URL"),
+        _("ドキュメント保管URL"),
         blank=True,
         default="",
         help_text=_("URL of where documents for the projects are maintained"),
     )
     docbase_tag = models.CharField(
-        _("DocBase Tag"),
+        _("DocBaseタグ"),
         max_length=64,
         blank=True,
         default="",
         help_text=_("DocBase tag used by the crawler to fetch matching posts"),
     )
     problem_definition = models.TextField(
-        _("Project Problem Definition"),
+        _("プロジェクト課題定義"),
         blank=True,
         default="",
         help_text=_("Define the problem that the project is set out to solve."),
     )
-    survey_issued = models.BooleanField(default=False, help_text=_("Update when survey is issued!"))
-    survey_issued_datetime = models.DateTimeField(null=True, editable=False, help_text=_('Updated when "survey_issued" flag is set'))
+    survey_issued = models.BooleanField(default=False, verbose_name=_("アンケート発行済み"), help_text=_("Update when survey is issued!"))
+    survey_issued_datetime = models.DateTimeField(
+        null=True,
+        editable=False,
+        verbose_name=_("アンケート発行日時"),
+        help_text=_('Updated when "survey_issued" flag is set'),
+    )
 
     class Meta:
         verbose_name = _("プロジェクト")
