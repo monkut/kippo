@@ -7,13 +7,15 @@ from urllib.parse import parse_qs, urlparse
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
-from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django import forms
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
     KippoMilestoneAdmin,
     KippoProjectAdmin,
+    KippoProjectAdminForm,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
     _start_of_next_month,
@@ -458,6 +460,13 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTemplateUsed(response, "admin/projects/close_project_action.html")
         self.assertContains(response, "project1")
 
+    def _assert_parent_project_selectable(self, adminform: AdminForm, response_content: str) -> None:
+        widget = adminform.form.fields["parent_project"].widget
+        # the admin FK widget is wrapped in RelatedFieldWidgetWrapper — unwrap to get the real widget
+        inner_widget = getattr(widget, "widget", widget)
+        self.assertNotIsInstance(inner_widget, forms.HiddenInput)
+        self.assertIn('<select name="parent_project"', response_content)
+
     def test_add_form_prefills_from_get_params(self):
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.project1.id)})
@@ -465,8 +474,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         adminform = response.context["adminform"]
         self.assertEqual(adminform.form.initial.get("category"), "upsell-improvement")
         self.assertEqual(adminform.form.initial.get("parent_project"), str(self.project1.id))
-        # parent_project widget should be hidden on add form
-        self.assertEqual(adminform.form.fields["parent_project"].widget.input_type, "hidden")
+        # parent_project should be a selectable field on add (not hidden) so manual users can pick a parent
+        self._assert_parent_project_selectable(adminform, response.content.decode())
 
     def test_close_related_fields_hidden_from_change_form(self):
         url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
@@ -493,6 +502,104 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # parent_project should appear as readonly (no input element with that name)
         self.assertNotIn('name="parent_project"', response.content.decode())
         self.assertContains(response, self.project1.name)
+
+    def test_manual_add_form_exposes_parent_project_as_selectable(self):
+        # manual add (no GET params from close-action) — parent_project should be a visible Select, not hidden
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIn("parent_project", adminform.form.fields)
+        self._assert_parent_project_selectable(adminform, response.content.decode())
+        # available parent options include the existing project
+        self.assertContains(response, self.project1.name)
+
+    def test_add_form_parent_project_queryset_scoped_to_user_orgs_for_non_superuser(self):
+        # non-superuser staff: the parent_project dropdown should only list projects from their own orgs
+        other_org_project = KippoProject.objects.create(
+            organization=self.other_organization,
+            name="other-org-project",
+            category="poc",
+            columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # log in as a staff user who only belongs to self.organization (not self.other_organization)
+        self.client.force_login(self.staffuser_with_org)
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        parent_qs = response.context["adminform"].form.fields["parent_project"].queryset
+        parent_ids = set(parent_qs.values_list("id", flat=True))
+        self.assertIn(self.project1.id, parent_ids)
+        self.assertNotIn(other_org_project.id, parent_ids)
+
+
+class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        self.columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.current_date = timezone.now().date()
+        self.parent = KippoProject.objects.create(
+            organization=self.organization,
+            name="parent-project",
+            category="poc",
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def _form_data(self, *, category: str, parent_project_id: str | None = None) -> dict:
+        data = {
+            "organization": str(self.organization.id),
+            "name": "manual-new-project",
+            "phase": "lead-evaluation",
+            "confidence": "80",
+            "category": category,
+            "columnset": str(self.columnset.pk),
+            "start_date": self.current_date.isoformat(),
+        }
+        if parent_project_id:
+            data["parent_project"] = parent_project_id
+        return data
+
+    def test_upsell_category_without_parent_project_is_invalid(self):
+        form = KippoProjectAdminForm(data=self._form_data(category="upsell-improvement"))
+        self.assertFalse(form.is_valid())
+        self.assertIn("parent_project", form.errors)
+
+    def test_upsell_category_with_parent_project_is_valid(self):
+        form = KippoProjectAdminForm(
+            data=self._form_data(category="upsell-improvement", parent_project_id=str(self.parent.id)),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_non_upsell_category_does_not_require_parent_project(self):
+        form = KippoProjectAdminForm(data=self._form_data(category="poc"))
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_change_form_with_upsell_category_uses_persisted_parent_when_field_omitted(self):
+        # change form: parent_project is readonly so it isn't submitted in POST data;
+        # validation must fall back to the persisted instance value to avoid a false-positive error.
+        existing_upsell = KippoProject.objects.create(
+            organization=self.organization,
+            name="existing-upsell",
+            category="upsell-improvement",
+            columnset=self.columnset,
+            parent_project=self.parent,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        form = KippoProjectAdminForm(
+            instance=existing_upsell,
+            data=self._form_data(category="upsell-improvement"),  # no parent_project key
+        )
+        self.assertTrue(form.is_valid(), form.errors)
 
 
 class UpsellPrefillHelpersTestCase(TestCase):
