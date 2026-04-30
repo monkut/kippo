@@ -1,6 +1,8 @@
 import csv
+import datetime
 import json
 import logging
+import re
 import urllib.parse
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -420,8 +422,9 @@ class CloseProjectActionForm(forms.Form):
 
     category = forms.ChoiceField(
         label=_("Category"),
-        widget=forms.RadioSelect,
+        widget=forms.Select,
         choices=CATEGORY_CHOICES,
+        initial=CLOSE_PROJECT_NO_UPSELL_VALUE,
     )
     close_comment = forms.CharField(
         label=_("Close Comment"),
@@ -436,6 +439,36 @@ class CloseProjectActionForm(forms.Form):
         if category == CLOSE_PROJECT_NO_UPSELL_VALUE and not close_comment:
             raise ValidationError({"close_comment": _("Close Comment is required when upsellなし is selected.")})
         return cleaned_data
+
+
+def _next_upsell_project_name(name: str) -> str:
+    match = re.match(r"(.*) Phase (\d+)$", name)
+    if match:
+        return f"{match.group(1)} Phase {int(match.group(2)) + 1}"
+    return f"{name} Phase 2"
+
+
+def _start_of_next_month(today: datetime.date) -> datetime.date:
+    return (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
+
+
+def _build_upsell_prefill_params(project: KippoProject, selected_category: str) -> dict[str, str]:
+    today = timezone.now().date()
+    params = {
+        "category": selected_category,
+        "parent_project": str(project.id),
+        "name": _next_upsell_project_name(project.name),
+        "start_date": _start_of_next_month(today).isoformat(),
+        "slack_channel_name": project.slack_channel_name,
+        "slack_notification_channel_name": project.slack_notification_channel_name,
+        "document_folder_url": project.document_folder_url,
+        "github_project_html_url": project.github_project_html_url,
+        "github_project_api_nodeid": project.github_project_api_nodeid,
+        "docbase_tag": project.docbase_tag,
+    }
+    if project.columnset_id:
+        params["columnset"] = str(project.columnset_id)
+    return {k: v for k, v in params.items() if v}
 
 
 def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
@@ -468,7 +501,7 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
             modeladmin.message_user(request, _("Project '%s' closed.") % project.name, level=messages.INFO)
 
             if selected_category in UPSELL_CATEGORY_VALUES:
-                params = urllib.parse.urlencode({"category": selected_category, "parent_project": str(project.id)})
+                params = urllib.parse.urlencode(_build_upsell_prefill_params(project, selected_category))
                 return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/add/?{params}")
             return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
     else:
@@ -574,6 +607,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # check if user has organization memberships
         # - if not can't add new projects
         return request.user.memberships.exists()
+
+    def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
+        excluded = list(super().get_exclude(request, obj) or ())
+        if obj is None and "close_comment" not in excluded:
+            excluded.append("close_comment")
+        return tuple(excluded)
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
         result = ""
