@@ -835,7 +835,7 @@ class ProjectAssignmentRateInlineConfigTestCase(TestCase):
 
 
 class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """parent_project should appear in Details fieldset (after organization) on add — not on change."""
+    """parent_project should appear in Details fieldset (after category) on add — not on change."""
 
     def setUp(self):
         super().setUp()
@@ -844,17 +844,17 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
     @staticmethod
     def _details_fieldset_fields(fieldsets: list) -> tuple:
         for _label, opts in fieldsets:
-            if "organization" in opts.get("fields", ()):
+            if "category" in opts.get("fields", ()):
                 return tuple(opts["fields"])
-        raise AssertionError("No fieldset containing 'organization' found")
+        raise AssertionError("No fieldset containing 'category' found")
 
-    def test_add_fieldsets_place_parent_project_immediately_after_organization(self):
+    def test_add_fieldsets_place_parent_project_immediately_after_category(self):
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
         details_fields = self._details_fieldset_fields(fieldsets)
         self.assertIn("parent_project", details_fields)
-        org_index = details_fields.index("organization")
-        self.assertEqual(details_fields[org_index + 1], "parent_project")
+        category_index = details_fields.index("category")
+        self.assertEqual(details_fields[category_index + 1], "parent_project")
 
     def test_change_fieldsets_omit_parent_project(self):
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
@@ -903,16 +903,16 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
                     names.append(f["name"] if isinstance(f, dict) else f.name)
         return names
 
-    def test_kippoproject_add_view_places_parent_project_immediately_after_organization(self):
+    def test_kippoproject_add_view_places_parent_project_immediately_after_category(self):
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ordered = self._ordered_form_field_names(response.context["adminform"])
-        self.assertIn("organization", ordered)
+        self.assertIn("category", ordered)
         self.assertIn("parent_project", ordered)
-        self.assertEqual(ordered[ordered.index("organization") + 1], "parent_project")
+        self.assertEqual(ordered[ordered.index("category") + 1], "parent_project")
 
-    def test_kippoproject_change_view_does_not_reorder_parent_project_after_organization(self):
+    def test_kippoproject_change_view_does_not_reorder_parent_project_after_category(self):
         # On change view we don't reposition parent_project — it stays in its model-declaration slot
         # (which is several rows down, after project_manager).
         existing = self.make_project("ordering-change-target")
@@ -920,6 +920,6 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ordered = self._ordered_form_field_names(response.context["adminform"])
-        self.assertIn("organization", ordered)
+        self.assertIn("category", ordered)
         self.assertIn("parent_project", ordered)
-        self.assertNotEqual(ordered[ordered.index("organization") + 1], "parent_project")
+        self.assertNotEqual(ordered[ordered.index("category") + 1], "parent_project")

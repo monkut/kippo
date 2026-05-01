@@ -94,6 +94,7 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
     extra = 0
     max_num = 10
     fields = ("role", "rate_per_day")
+    classes = ["collapse"]
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -662,8 +663,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded = list(super().get_exclude(request, obj) or ())
-        if obj is None and "close_comment" not in excluded:
-            excluded.append("close_comment")
+        if obj is None:
+            if "close_comment" not in excluded:
+                excluded.append("close_comment")
+            if "survey_issued" not in excluded:
+                excluded.append("survey_issued")
+        if not request.user.is_superuser and "github_project_api_nodeid" not in excluded:
+            excluded.append("github_project_api_nodeid")
         return tuple(excluded)
 
     def get_fields(self, request: DjangoRequest, obj: KippoProject | None = None):
@@ -671,10 +677,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if "close_comment" in fields:
             fields.remove("close_comment")
             fields.append("close_comment")
-        # On add, surface parent_project right after organization (model order would otherwise bury it
-        # several rows down). The close-action upsell flow prefills it via GET; manual users see it as optional.
+        # On add, surface parent_project right after category (the upsell category drives whether
+        # parent_project is required). The close-action upsell flow prefills it via GET;
+        # manual users see it as optional.
         if obj is None:
-            fields = _insert_field_after(fields, "parent_project", "organization")
+            fields = _insert_field_after(fields, "parent_project", "category")
         return fields
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
@@ -994,7 +1001,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         return super().has_delete_permission(request, obj)
 
     def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
-        # On add, expose optional parent_project in Details after `organization` for manual creation.
+        # On add, expose optional parent_project in Details after `category` for manual creation.
         # The close-project upsell flow redirects to KippoProjectAdmin (not this admin), so this
         # branch only fires for users initiating creation directly.
         fieldsets = super().get_fieldsets(request, obj)
@@ -1002,12 +1009,18 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
             rebuilt = []
             for label, opts in fieldsets:
                 fields = list(opts.get("fields", ()))
-                if "organization" in fields:
-                    new_fields = _insert_field_after(fields, "parent_project", "organization")
+                if "category" in fields:
+                    new_fields = _insert_field_after(fields, "parent_project", "category")
                     rebuilt.append((label, {**opts, "fields": tuple(new_fields)}))
                 else:
                     rebuilt.append((label, opts))
             fieldsets = rebuilt
+        # github_project_api_nodeid is excluded from the form for non-superusers; mirror that here
+        # so AdminForm rendering doesn't try to look up a field that isn't in the form.
+        if not request.user.is_superuser:
+            fieldsets = [
+                (label, {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f != "github_project_api_nodeid")}) for label, opts in fieldsets
+            ]
         return fieldsets
 
     def get_queryset(self, request: DjangoRequest):
