@@ -889,6 +889,16 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and user_initial_organization and len(user_organizations) == 1:
             form.base_fields["organization"].widget = forms.HiddenInput()
 
+        # columnset: required FK. Default to the first available on /add/ and hide from non-superusers
+        # — columnset selection is an admin concern, not a per-project staff decision.
+        if "columnset" in form.base_fields:
+            if obj is None:
+                first_columnset = ProjectColumnSet.objects.first()
+                if first_columnset:
+                    form.base_fields["columnset"].initial = first_columnset
+            if not request.user.is_superuser:
+                form.base_fields["columnset"].widget = forms.HiddenInput()
+
         # remove add/change/delete buttons from all ForeignKey fields
         for fieldname in form.base_fields:
             form.base_fields[fieldname].widget.can_add_related = False

@@ -1004,3 +1004,47 @@ class KippoProjectAdminSingleOrgHidesOrganizationFieldTestCase(KippoProjectAdmin
         self.assertEqual(response.status_code, HTTPStatus.OK)
         adminform = response.context["adminform"]
         self.assertNotIsInstance(self._organization_widget(adminform), forms.HiddenInput)
+
+
+class KippoProjectAdminColumnsetFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """columnset is required, defaults to first available on /add/, and hidden for non-superusers."""
+
+    @staticmethod
+    def _columnset_widget(adminform: AdminForm) -> forms.Widget:
+        widget = adminform.form.fields["columnset"].widget
+        return getattr(widget, "widget", widget)
+
+    def test_add_view_initial_columnset_is_first_available(self):
+        # superuser
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertEqual(adminform.form.fields["columnset"].initial, ProjectColumnSet.objects.first())
+
+    def test_add_view_hides_columnset_field_for_non_superuser(self):
+        # log in as staff (single-org); columnset should be HiddenInput
+        self.client.force_login(self.staffuser_with_org)
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
+        # initial still preselects the first columnset so the form submits successfully
+        self.assertEqual(adminform.form.fields["columnset"].initial, ProjectColumnSet.objects.first())
+
+    def test_add_view_keeps_columnset_visible_for_superuser(self):
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertNotIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
+
+    def test_change_view_hides_columnset_field_for_non_superuser(self):
+        existing = self.make_project("columnset-change-target")
+        self.client.force_login(self.staffuser_with_org)
+        url = reverse("admin:projects_kippoproject_change", args=[existing.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
