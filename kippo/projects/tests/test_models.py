@@ -617,10 +617,10 @@ class KippoProjectCategoryChoicesTestCase(TestCase):
         choices = KippoProject._meta.get_field("category").choices
         self.assertEqual(tuple(choices), KIPPOPROJECT_CATEGORY_CHOICES)
 
-    def test_category_field_default_is_poc(self):
+    def test_category_field_default_is_new_proposal(self):
         default = KippoProject._meta.get_field("category").default
         self.assertEqual(default, settings.DEFAULT_KIPPOPROJECT_CATEGORY)
-        self.assertEqual(default, "poc")
+        self.assertEqual(default, "new-proposal")
         self.assertIn(default, VALID_KIPPOPROJECT_CATEGORY_VALUES)
 
     def test_upsell_category_values_subset_of_choices(self):
