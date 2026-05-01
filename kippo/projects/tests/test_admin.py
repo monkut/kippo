@@ -13,14 +13,16 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
+    ActiveKippoProjectAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
+    ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.models import KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
+from projects.models import ActiveKippoProject, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
 class MockRequest:
@@ -785,3 +787,139 @@ class ReopenProjectActionTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertEqual(KippoProjectStatus.objects.filter(project=self.open_project).count(), 0)
         messages_list = [str(m) for m in response.context["messages"]]
         self.assertTrue(any("no closed projects" in m.lower() for m in messages_list), messages_list)
+
+
+class KippoProjectAdminInlinesTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Status & weekly-effort inlines should be hidden on /add/ but present on /change/."""
+
+    def setUp(self):
+        super().setUp()
+        self.project = self.make_project("inline-test-project")
+
+    def test_add_view_hides_status_and_weeklyeffort_inlines(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
+        for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
+            self.assertNotIn(cls, inlines, f"{cls.__name__} should be hidden on add")
+
+    def test_change_view_shows_status_and_weeklyeffort_inlines(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=self.project)
+        for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
+            self.assertIn(cls, inlines, f"{cls.__name__} should be present on change")
+
+    def test_activekippoproject_add_view_hides_status_and_weeklyeffort_inlines(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
+        for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
+            self.assertNotIn(cls, inlines, f"{cls.__name__} should be hidden on ActiveKippoProject add")
+
+    def test_activekippoproject_change_view_shows_status_and_weeklyeffort_inlines(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=self.project)
+        for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
+            self.assertIn(cls, inlines, f"{cls.__name__} should be present on ActiveKippoProject change")
+
+    def test_add_view_keeps_assignment_rate_and_repository_inlines(self):
+        from projects.admin import GithubRepositoryProjectInline
+
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
+        self.assertIn(ProjectAssignmentRateInline, inlines)
+        self.assertIn(GithubRepositoryProjectInline, inlines)
+
+
+class ProjectAssignmentRateInlineConfigTestCase(TestCase):
+    def test_max_num_is_10(self):
+        self.assertEqual(ProjectAssignmentRateInline.max_num, 10)
+
+
+class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """parent_project should appear in Details fieldset (after organization) on add — not on change."""
+
+    def setUp(self):
+        super().setUp()
+        self.existing_project = self.make_project("existing-project")
+
+    @staticmethod
+    def _details_fieldset_fields(fieldsets: list) -> tuple:
+        for _label, opts in fieldsets:
+            if "organization" in opts.get("fields", ()):
+                return tuple(opts["fields"])
+        raise AssertionError("No fieldset containing 'organization' found")
+
+    def test_add_fieldsets_place_parent_project_immediately_after_organization(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
+        details_fields = self._details_fieldset_fields(fieldsets)
+        self.assertIn("parent_project", details_fields)
+        org_index = details_fields.index("organization")
+        self.assertEqual(details_fields[org_index + 1], "parent_project")
+
+    def test_change_fieldsets_omit_parent_project(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
+        details_fields = self._details_fieldset_fields(fieldsets)
+        self.assertNotIn("parent_project", details_fields)
+
+    def test_class_fieldsets_attribute_unchanged_after_get_fieldsets(self):
+        # get_fieldsets must not mutate the class attribute (would persist across requests)
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        modeladmin.get_fieldsets(self.super_user_request, obj=None)
+        for _label, opts in ActiveKippoProjectAdmin.fieldsets:
+            self.assertNotIn("parent_project", opts["fields"])
+
+    def test_add_view_renders_parent_project_select(self):
+        url = reverse("admin:projects_activekippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIn("parent_project", adminform.form.fields)
+        # available parent options include the existing project
+        self.assertContains(response, self.existing_project.name)
+        # field must be a Select (not hidden) so users can pick a parent
+        widget = adminform.form.fields["parent_project"].widget
+        inner_widget = getattr(widget, "widget", widget)
+        self.assertNotIsInstance(inner_widget, forms.HiddenInput)
+
+    def test_kippoproject_add_view_still_exposes_parent_project_for_close_action_prefill(self):
+        # KippoProjectAdmin (the close-action target) must continue to expose parent_project on /add/
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.existing_project.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIn("parent_project", adminform.form.fields)
+        self.assertEqual(adminform.form.initial.get("parent_project"), str(self.existing_project.id))
+
+    @staticmethod
+    def _ordered_form_field_names(adminform: AdminForm) -> list:
+        # AdminForm iteration yields Fieldsets → Fieldlines → AdminFields/AdminReadonlyFields.
+        # Editable fields wrap a BoundField (.field has .name); readonly fields store .field as a dict.
+        names = []
+        for fieldset in adminform:
+            for fieldline in fieldset:
+                for admin_field in fieldline:
+                    f = admin_field.field
+                    names.append(f["name"] if isinstance(f, dict) else f.name)
+        return names
+
+    def test_kippoproject_add_view_places_parent_project_immediately_after_organization(self):
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        ordered = self._ordered_form_field_names(response.context["adminform"])
+        self.assertIn("organization", ordered)
+        self.assertIn("parent_project", ordered)
+        self.assertEqual(ordered[ordered.index("organization") + 1], "parent_project")
+
+    def test_kippoproject_change_view_does_not_reorder_parent_project_after_organization(self):
+        # On change view we don't reposition parent_project — it stays in its model-declaration slot
+        # (which is several rows down, after project_manager).
+        existing = self.make_project("ordering-change-target")
+        url = reverse("admin:projects_kippoproject_change", args=[existing.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        ordered = self._ordered_form_field_names(response.context["adminform"])
+        self.assertIn("organization", ordered)
+        self.assertIn("parent_project", ordered)
+        self.assertNotEqual(ordered[ordered.index("organization") + 1], "parent_project")
