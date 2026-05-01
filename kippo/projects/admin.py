@@ -92,6 +92,7 @@ class LockWhenProjectClosedInlineMixin:
 class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectAssignmentRate
     extra = 0
+    max_num = 10
     fields = ("role", "rate_per_day")
 
 
@@ -583,9 +584,29 @@ class KippoProjectAdminForm(forms.ModelForm):
         return cleaned_data
 
 
+def _insert_field_after(fields: list[str], target: str, reference: str) -> list[str]:
+    """Return a new list with `target` placed immediately after `reference`. No-op if reference is missing.
+
+    If `target` already exists elsewhere in `fields`, it is moved (not duplicated).
+    """
+    if reference not in fields:
+        return list(fields)
+    rebuilt = [f for f in fields if f != target]
+    rebuilt.insert(rebuilt.index(reference) + 1, target)
+    return rebuilt
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     form = KippoProjectAdminForm
+    # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
+    # attribute so tests and subclasses can reference the same source of truth.
+    HIDDEN_ON_ADD_INLINES = (
+        ProjectWeeklyEffortReadOnlyInine,
+        ProjectWeeklyEffortAdminInline,
+        KippoProjectStatusReadOnlyInine,
+        KippoProjectStatusAdminInline,
+    )
     list_display = (
         "id",
         "name",
@@ -633,6 +654,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # - if not can't add new projects
         return request.user.memberships.exists()
 
+    def get_inlines(self, request: DjangoRequest, obj: KippoProject | None = None):
+        inlines = list(super().get_inlines(request, obj))
+        if obj is None:
+            inlines = [cls for cls in inlines if cls not in self.HIDDEN_ON_ADD_INLINES]
+        return inlines
+
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded = list(super().get_exclude(request, obj) or ())
         if obj is None and "close_comment" not in excluded:
@@ -644,6 +671,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if "close_comment" in fields:
             fields.remove("close_comment")
             fields.append("close_comment")
+        # On add, surface parent_project right after organization (model order would otherwise bury it
+        # several rows down). The close-action upsell flow prefills it via GET; manual users see it as optional.
+        if obj is None:
+            fields = _insert_field_after(fields, "parent_project", "organization")
         return fields
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
@@ -961,6 +992,23 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         if "/change/" in request.path:
             return False
         return super().has_delete_permission(request, obj)
+
+    def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
+        # On add, expose optional parent_project in Details after `organization` for manual creation.
+        # The close-project upsell flow redirects to KippoProjectAdmin (not this admin), so this
+        # branch only fires for users initiating creation directly.
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is None:
+            rebuilt = []
+            for label, opts in fieldsets:
+                fields = list(opts.get("fields", ()))
+                if "organization" in fields:
+                    new_fields = _insert_field_after(fields, "parent_project", "organization")
+                    rebuilt.append((label, {**opts, "fields": tuple(new_fields)}))
+                else:
+                    rebuilt.append((label, opts))
+            fieldsets = rebuilt
+        return fieldsets
 
     def get_queryset(self, request: DjangoRequest):
         """Custom ordering: anon-projects first, then by confidence (desc), target_date (asc), name (asc)."""
