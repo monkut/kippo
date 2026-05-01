@@ -574,13 +574,22 @@ class KippoProjectAdminForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         category = cleaned_data.get("category")
+        organization = cleaned_data.get("organization")
+        submitted_parent_project = cleaned_data.get("parent_project")
         # parent_project is readonly on the change form, so it won't appear in cleaned_data there
         # — fall back to the persisted instance value so existing upsell projects keep validating.
-        parent_project = cleaned_data.get("parent_project") or getattr(self.instance, "parent_project", None)
+        parent_project = submitted_parent_project or getattr(self.instance, "parent_project", None)
         if category in UPSELL_CATEGORY_VALUES and not parent_project:
             self.add_error(
                 "parent_project",
                 _("Parent Project is required when an upsell category is selected."),
+            )
+        # On /add/, parent_project must belong to the same organization as the new project.
+        # (On /change/, parent_project is readonly so it isn't in submitted data — skip this check.)
+        if submitted_parent_project and organization and submitted_parent_project.organization_id != organization.id:
+            self.add_error(
+                "parent_project",
+                _("Parent Project must belong to the same organization as this project."),
             )
         return cleaned_data
 
@@ -874,6 +883,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
         form.base_fields["organization"].initial = user_initial_organization
         form.base_fields["organization"].queryset = user_memberships
+        # On /add/, when the user belongs to exactly one organization there's nothing to choose —
+        # preselect it and hide the field. The queryset is still scoped to the user's orgs so a
+        # tampered submission gets rejected by the field's normal validation.
+        if obj is None and user_initial_organization and len(user_organizations) == 1:
+            form.base_fields["organization"].widget = forms.HiddenInput()
 
         # remove add/change/delete buttons from all ForeignKey fields
         for fieldname in form.base_fields:
@@ -884,9 +898,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # parent_project: optional selectable field on add (GET-prefilled by the upsell close-action flow);
         # readonly on change form (handled in get_readonly_fields).
         # Required when category is an upsell value — enforced by KippoProjectAdminForm.clean().
-        # Scope queryset to the user's organizations to avoid leaking project names across orgs (superusers see all).
-        if obj is None and "parent_project" in form.base_fields and not request.user.is_superuser:
-            form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization__in=request.user.organizations)
+        # Scope queryset to the new project's organization — cross-org parent/child relationships make
+        # no business sense; the form's clean() rejects mismatches at submit-time.
+        if obj is None and "parent_project" in form.base_fields and user_initial_organization:
+            form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization=user_initial_organization)
         return form
 
     def get_readonly_fields(self, request: DjangoRequest, obj: KippoProject | None = None) -> tuple[str, ...]:
