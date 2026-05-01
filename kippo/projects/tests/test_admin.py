@@ -516,8 +516,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # available parent options include the existing project
         self.assertContains(response, self.project1.name)
 
-    def test_add_form_parent_project_queryset_scoped_to_user_orgs_for_non_superuser(self):
-        # non-superuser staff: the parent_project dropdown should only list projects from their own orgs
+    def test_add_form_parent_project_queryset_scoped_to_new_projects_organization(self):
+        # parent_project dropdown should only list projects from the same org as the new project being created
         other_org_project = KippoProject.objects.create(
             organization=self.other_organization,
             name="other-org-project",
@@ -529,6 +529,27 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         )
         # log in as a staff user who only belongs to self.organization (not self.other_organization)
         self.client.force_login(self.staffuser_with_org)
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        parent_qs = response.context["adminform"].form.fields["parent_project"].queryset
+        parent_ids = set(parent_qs.values_list("id", flat=True))
+        self.assertIn(self.project1.id, parent_ids)
+        self.assertNotIn(other_org_project.id, parent_ids)
+
+    def test_add_form_parent_project_queryset_excludes_other_orgs_for_superuser(self):
+        # superuser: parent_project queryset is scoped to the new project's org, not globally visible
+        other_org_project = KippoProject.objects.create(
+            organization=self.other_organization,
+            name="other-org-project-superuser-view",
+            category="poc",
+            columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # superuser_no_org was added to self.organization in setUp; log in
+        self.client.force_login(self.superuser_no_org)
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -602,6 +623,23 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             data=self._form_data(category="upsell-improvement"),  # no parent_project key
         )
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_cross_org_parent_project_submission_is_invalid(self):
+        # parent_project from a different organization than the submitted org should be rejected
+        cross_org_parent = KippoProject.objects.create(
+            organization=self.other_organization,
+            name="cross-org-parent",
+            category="poc",
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        form = KippoProjectAdminForm(
+            data=self._form_data(category="upsell-improvement", parent_project_id=str(cross_org_parent.id)),
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("parent_project", form.errors)
 
 
 class UpsellPrefillHelpersTestCase(TestCase):
@@ -923,3 +961,46 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertIn("category", ordered)
         self.assertIn("parent_project", ordered)
         self.assertNotEqual(ordered[ordered.index("category") + 1], "parent_project")
+
+
+class KippoProjectAdminSingleOrgHidesOrganizationFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """On /add/, hide the organization field when the user belongs to exactly one organization."""
+
+    @staticmethod
+    def _organization_widget(adminform: AdminForm) -> forms.Widget:
+        widget = adminform.form.fields["organization"].widget
+        # ModelChoiceField may wrap with RelatedFieldWidgetWrapper — unwrap to inspect the inner widget
+        return getattr(widget, "widget", widget)
+
+    def test_add_view_hides_organization_field_for_single_org_user(self):
+        # superuser_no_org was added to self.organization in fixture setUp → exactly one org
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertIsInstance(self._organization_widget(adminform), forms.HiddenInput)
+        # initial value still preselects the single org
+        self.assertEqual(adminform.form.fields["organization"].initial, self.organization)
+
+    def test_add_view_keeps_organization_field_visible_for_multi_org_user(self):
+        # promote superuser into a second org so they belong to two organizations
+        OrganizationMembership.objects.create(
+            user=self.superuser_no_org,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertNotIsInstance(self._organization_widget(adminform), forms.HiddenInput)
+
+    def test_change_view_does_not_hide_organization_field_for_single_org_user(self):
+        # On /change/, the hide-on-single-org rule must not apply (organization is fixed but visible)
+        existing = self.make_project("single-org-change-target")
+        url = reverse("admin:projects_kippoproject_change", args=[existing.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        self.assertNotIsInstance(self._organization_widget(adminform), forms.HiddenInput)
