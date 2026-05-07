@@ -958,12 +958,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     @admin.display(description=_("Estimated Completion Date"))
     def estimated_completion_date(self, obj: KippoProject | None = None) -> str:
-        from .services.forecast import ProjectStartDateRequiredError, compute_estimated_completion
+        from .services.forecast import ProjectAssignmentForecastManager, ProjectStartDateRequiredError
 
         if obj is None or obj.pk is None:
             return ""
         try:
-            payload = compute_estimated_completion(obj)
+            payload = ProjectAssignmentForecastManager(obj).compute()
         except ProjectStartDateRequiredError:
             return _("(start_date required)")
         return _format_estimated_completion(payload)

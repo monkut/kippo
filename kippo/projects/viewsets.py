@@ -25,7 +25,7 @@ from .serializers import (
     ProjectMonthlyCostSerializer,
     ProjectWeeklyEffortSerializer,
 )
-from .services.forecast import ProjectStartDateRequiredError, compute_estimated_completion
+from .services.forecast import ProjectAssignmentForecastManager, ProjectStartDateRequiredError
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
@@ -117,7 +117,7 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
     def forecast(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
         project = self.get_object()
         try:
-            payload = compute_estimated_completion(project)
+            payload = ProjectAssignmentForecastManager(project).compute()
         except ProjectStartDateRequiredError as exc:
             return Response(
                 {"detail": str(exc), "code": "project_start_date_required"},

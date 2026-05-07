@@ -8,6 +8,7 @@ from http import HTTPStatus
 
 from accounts.models import Country, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 from commons.definitions import SATURDAY
+from commons.functions import first_of_next_month
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
@@ -16,9 +17,8 @@ from rest_framework.test import APIClient
 
 from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectWeeklyEffort
 from projects.services.forecast import (
+    ProjectAssignmentForecastManager,
     ProjectStartDateRequiredError,
-    _first_of_next_month,
-    compute_estimated_completion,
 )
 
 
@@ -30,7 +30,7 @@ def _set_today_dependent_dates(project: KippoProject) -> None:
 
 
 class ForecastServiceTestCase(TestCase):
-    """Direct unit tests of compute_estimated_completion."""
+    """Direct unit tests of ProjectAssignmentForecastManager.compute()."""
 
     fixtures = DEFAULT_FIXTURES
 
@@ -64,17 +64,17 @@ class ForecastServiceTestCase(TestCase):
         self.project.start_date = None
         self.project.save()
         with self.assertRaises(ProjectStartDateRequiredError):
-            compute_estimated_completion(self.project)
+            ProjectAssignmentForecastManager(self.project).compute()
 
     def test_returns_null_date_when_no_assignments_and_no_effort(self):
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         self.assertIsNone(result["estimated_completion_date"])
         self.assertIsNone(result["delta_from_target_date_days"])
 
     def test_returns_null_date_when_allocated_staff_days_zero(self):
         self.project.allocated_staff_days = 0
         self.project.save()
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         self.assertIsNone(result["estimated_completion_date"])
 
     def test_already_complete_returns_latest_logged_week_start(self):
@@ -90,20 +90,20 @@ class ForecastServiceTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         self.assertEqual(result["estimated_completion_date"], early_monday)
 
     def test_future_only_projection_finds_completion_within_horizon(self):
         # 100% allocation for one user across enough months to complete (160 hours @ 8h/day,
         # ~5 work-days/week) — should land within ~4 weeks of next-month start.
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         # Walk a few months
         for offset in range(3):
             year = next_month.year + (next_month.month - 1 + offset) // 12
             month_no = (next_month.month - 1 + offset) % 12 + 1
             self._make_assignment(month=datetime.date(year, month_no, 1), percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result["estimated_completion_date"]
         self.assertIsNotNone(completion)
         self.assertGreaterEqual(completion, next_month)
@@ -122,10 +122,10 @@ class ForecastServiceTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         self._make_assignment(month=next_month, percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result["estimated_completion_date"]
         self.assertIsNotNone(completion)
         # 80 remaining hours / 8 hours per day = 10 work-days → roughly 2 work-weeks into next month
@@ -145,10 +145,10 @@ class ForecastServiceTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         self._make_assignment(month=next_month, percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result["estimated_completion_date"]
         self.assertIsNotNone(completion)
         # Spent 80 → remaining 80 → should still finish in ~2 weeks of next month
@@ -162,13 +162,13 @@ class ForecastServiceTestCase(TestCase):
             setattr(membership, attr, False)
         membership.save()
 
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         for offset in range(8):
             year = next_month.year + (next_month.month - 1 + offset) // 12
             month_no = (next_month.month - 1 + offset) % 12 + 1
             self._make_assignment(month=datetime.date(year, month_no, 1), percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result["estimated_completion_date"]
         self.assertIsNotNone(completion)
         # Completion should be ~20 Mondays out from next_month (160h / 8h per Monday)
@@ -182,7 +182,7 @@ class ForecastServiceTestCase(TestCase):
         self.user.holiday_country = country
         self.user.save()
 
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         # Add a public holiday on the first weekday of the next-month assignment window
         first_weekday = next_month
         while first_weekday.weekday() >= SATURDAY:
@@ -196,12 +196,12 @@ class ForecastServiceTestCase(TestCase):
             month_no = (next_month.month - 1 + offset) % 12 + 1
             self._make_assignment(month=datetime.date(year, month_no, 1), percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         # Just verify it returns a future date and that the holiday was processed (no crash)
         self.assertIsNotNone(result["estimated_completion_date"])
 
     def test_personal_holiday_subtracted(self):
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         # PH on the first day of next month with duration 5 (a work week)
         PersonalHoliday.objects.create(user=self.user, day=next_month, duration=7)
         self._make_assignment(month=next_month, percentage=100)
@@ -210,14 +210,14 @@ class ForecastServiceTestCase(TestCase):
             month_no = (next_month.month - 1 + offset) % 12 + 1
             self._make_assignment(month=datetime.date(year, month_no, 1), percentage=100)
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result["estimated_completion_date"]
         self.assertIsNotNone(completion)
         # Completion is pushed back by ~5 work-days vs. no-holiday case — direction check only
         self.assertGreater(completion, next_month + datetime.timedelta(days=14))
 
     def test_target_date_set_returns_delta(self):
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         self._make_assignment(month=next_month, percentage=100)
         for offset in range(1, 4):
             year = next_month.year + (next_month.month - 1 + offset) // 12
@@ -227,17 +227,17 @@ class ForecastServiceTestCase(TestCase):
         self.project.target_date = self.today + datetime.timedelta(days=365)
         self.project.save()
 
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         self.assertEqual(result["target_date"], self.project.target_date)
         self.assertIsNotNone(result["delta_from_target_date_days"])
         self.assertLess(result["delta_from_target_date_days"], 0)  # ahead of target
 
     def test_target_date_null_returns_null_delta(self):
-        next_month = _first_of_next_month(self.today)
+        next_month = first_of_next_month(self.today)
         self._make_assignment(month=next_month, percentage=100)
         self.project.target_date = None
         self.project.save()
-        result = compute_estimated_completion(self.project)
+        result = ProjectAssignmentForecastManager(self.project).compute()
         self.assertIsNone(result["target_date"])
         self.assertIsNone(result["delta_from_target_date_days"])
 

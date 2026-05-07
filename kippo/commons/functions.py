@@ -1,6 +1,9 @@
+import datetime
 from calendar import monthrange
 
 from django.utils import timezone
+
+DECEMBER = 12
 
 
 def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime]:
@@ -10,3 +13,11 @@ def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime
     _, last_day = monthrange(today.year, today.month)
     end_date = today.replace(day=last_day)
     return start_date, end_date
+
+
+def first_of_next_month(reference: datetime.date) -> datetime.date:
+    """Return the first day of the month after the month of `reference`."""
+    year, month = reference.year, reference.month
+    if month == DECEMBER:
+        return datetime.date(year + 1, 1, 1)
+    return datetime.date(year, month + 1, 1)
