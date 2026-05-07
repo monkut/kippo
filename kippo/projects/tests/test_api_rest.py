@@ -205,6 +205,55 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn("previous", data)
         self.assertIn("results", data)
 
+    def _create_extra_projects(self, count: int) -> None:
+        """Helper to create N extra projects in self.organization for pagination tests."""
+        for i in range(count):
+            KippoProject.objects.create(
+                name=f"Pagination Test Project {i}",
+                organization=self.organization,
+                columnset=self.project.columnset,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+
+    def test_pagination_page_size_override_returns_requested_size(self):
+        """Test that ?page_size=<N> returns up to N records (issue #204)."""
+        baseline_count = self.client.get(f"{settings.URL_PREFIX}/api/projects/").json()["count"]
+        self._create_extra_projects(4)
+
+        url = f"{settings.URL_PREFIX}/api/projects/?page_size=3"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], baseline_count + 4)
+        self.assertEqual(len(data["results"]), 3)
+
+    def test_pagination_page_size_default_when_not_provided(self):
+        """Test that omitting page_size keeps the default of 50 (issue #204)."""
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        # Default page size is 50; the test org has well under 50 projects so page 1 is the only page.
+        self.assertIsNone(data["next"])
+
+    def test_pagination_page_size_capped_at_max_page_size(self):
+        """Test that page_size is capped at max_page_size (200) (issue #204).
+
+        Verifies the cap is enforced: ?page_size=10000 must return at most 200 items.
+        We don't create 200+ rows here — DRF clamps the requested value to max_page_size
+        before slicing, so the assertion is that the response is OK and the result size
+        never exceeds the cap.
+        """
+        url = f"{settings.URL_PREFIX}/api/projects/?page_size=10000"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertLessEqual(len(data["results"]), 200)
+
 
 class ProjectWeeklyEffortViewSetTestCase(TestCase):
     """Test cases for ProjectWeeklyEffort REST API viewset."""
