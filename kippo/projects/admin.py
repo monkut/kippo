@@ -97,6 +97,13 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
     classes = ["collapse"]
 
 
+class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+    model = ProjectMonthlyAssignment
+    extra = 0
+    fields = ("user", "month", "percentage", "is_confirmed")
+    classes = ["collapse"]
+
+
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoMilestone
     extra = 0
@@ -652,6 +659,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # KippoMilestoneReadOnlyInline,
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
+        ProjectMonthlyAssignmentInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
@@ -1125,7 +1133,9 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
 
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project", "get_project_organization", "user")
+    list_display = ("project", "get_project_organization", "user", "month", "percentage", "is_confirmed")
+    list_filter = ("is_confirmed", "month", "project__organization")
+    search_fields = ("project__name", "user__username")
 
     def get_project_organization(self, obj: ProjectMonthlyAssignment):
         organization_name = obj.project.organization.name
