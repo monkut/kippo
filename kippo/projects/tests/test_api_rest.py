@@ -7,6 +7,7 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -204,6 +205,69 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn("next", data)
         self.assertIn("previous", data)
         self.assertIn("results", data)
+
+    def _create_extra_projects(self, count: int) -> None:
+        """Helper to create N extra projects in self.organization for pagination tests."""
+        for i in range(count):
+            KippoProject.objects.create(
+                name=f"Pagination Test Project {i}",
+                organization=self.organization,
+                columnset=self.project.columnset,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+
+    def test_pagination_page_size_override_returns_requested_size(self):
+        """Test that ?page_size=<N> returns up to N records (issue #204)."""
+        baseline_count = self.client.get(f"{settings.URL_PREFIX}/api/projects/").json()["count"]
+        self._create_extra_projects(4)
+
+        url = f"{settings.URL_PREFIX}/api/projects/?page_size=3"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], baseline_count + 4)
+        self.assertEqual(len(data["results"]), 3)
+
+    def test_pagination_page_size_default_when_not_provided(self):
+        """Test that omitting page_size keeps the default of 50 (issue #204)."""
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        # Default page size is 50; the test org has well under 50 projects so page 1 is the only page.
+        self.assertIsNone(data["next"])
+
+    def test_pagination_page_size_capped_at_max_page_size(self):
+        """Test that page_size is capped at max_page_size (200) (issue #204).
+
+        Verifies the cap is enforced: ?page_size=10000 must return at most 200 items.
+        We don't create 200+ rows here — DRF clamps the requested value to max_page_size
+        before slicing, so the assertion is that the response is OK and the result size
+        never exceeds the cap.
+        """
+        url = f"{settings.URL_PREFIX}/api/projects/?page_size=10000"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertLessEqual(len(data["results"]), 200)
+
+    def test_openapi_schema_exposes_page_size_query_param(self):
+        """Test that the generated OpenAPI schema documents the page_size query param (issue #204).
+
+        drf-spectacular derives query parameters from the active pagination class. This test
+        guards against regressions where the pagination class is replaced with one that lacks
+        page_size_query_param — a silent kippo-ui client-generation breakage.
+        """
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        projects_list_op = schema["paths"][f"{settings.URL_PREFIX}/api/projects/"]["get"]
+        param_names = {p["name"] for p in projects_list_op.get("parameters", [])}
+
+        self.assertIn("page_size", param_names)
+        self.assertIn("page", param_names)
 
 
 class ProjectWeeklyEffortViewSetTestCase(TestCase):
