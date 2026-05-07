@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .exceptions import ProjectStartDateRequiredError
 from .models import (
     KippoProject,
     KippoProjectUserStatisfactionResult,
@@ -25,7 +26,7 @@ from .serializers import (
     ProjectMonthlyCostSerializer,
     ProjectWeeklyEffortSerializer,
 )
-from .services.forecast import ProjectAssignmentForecastManager, ProjectStartDateRequiredError
+from .services.forecast import ProjectAssignmentForecastManager
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):

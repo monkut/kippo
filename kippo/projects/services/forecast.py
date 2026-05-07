@@ -36,14 +36,6 @@ logger = logging.getLogger(__name__)
 HORIZON_PADDING_DAYS = 31  # walk one month past the latest assignment month before giving up
 PERSONAL_HOLIDAY_LOOKBACK_DAYS = 31  # PHs whose duration spans into the projection window
 
-# Re-export so callers that already import from this module keep working without
-# referring to projects.exceptions directly.
-__all__ = [
-    "ForecastResult",
-    "ProjectAssignmentForecastManager",
-    "ProjectStartDateRequiredError",
-]
-
 
 class ForecastResult(BaseModel):
     """Public result shape for ProjectAssignmentForecastManager.compute()."""

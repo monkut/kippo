@@ -15,11 +15,9 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectWeeklyEffort
-from projects.services.forecast import (
-    ProjectAssignmentForecastManager,
-    ProjectStartDateRequiredError,
-)
+from projects.services.forecast import ProjectAssignmentForecastManager
 
 
 def _set_today_dependent_dates(project: KippoProject) -> None:
