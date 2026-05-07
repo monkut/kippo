@@ -6,6 +6,8 @@ from commons.definitions import StringEnumWithChoices
 from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
+    from accounts.models import OrganizationMembership
+
     from .models import KippoProject
 
 
@@ -59,6 +61,20 @@ class ProjectProgressStatus:
         if self.expected_effort_hours == 0:
             return 0.0
         return (self.allocated_effort_hours / self.expected_effort_hours) * 100
+
+
+@dataclasses.dataclass
+class ProjectAssignmentForecastUserContext:
+    """Pre-fetched per-user inputs consumed by the forecast day-walking loop.
+
+    Fields are keyed by `KippoUser.id` (int).
+    """
+
+    by_user_month: dict[int, dict[datetime.date, int]]
+    user_membership: dict[int, "OrganizationMembership"]
+    user_holiday_country: dict[int, int | None]
+    public_holidays_by_country: dict[int, set[datetime.date]]
+    user_personal_holidays: dict[int, set[datetime.date]]
 
 
 class ValidCurrencies(StringEnumWithChoices):

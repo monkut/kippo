@@ -16,7 +16,6 @@ from __future__ import annotations
 import datetime
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from accounts.models import KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
@@ -25,6 +24,8 @@ from django.db.models import Sum
 from django.utils import timezone
 from pydantic import BaseModel
 
+from projects.definitions import ProjectAssignmentForecastUserContext
+from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import ProjectMonthlyAssignment, ProjectWeeklyEffort
 
 if TYPE_CHECKING:
@@ -35,9 +36,13 @@ logger = logging.getLogger(__name__)
 HORIZON_PADDING_DAYS = 31  # walk one month past the latest assignment month before giving up
 PERSONAL_HOLIDAY_LOOKBACK_DAYS = 31  # PHs whose duration spans into the projection window
 
-
-class ProjectStartDateRequiredError(ValueError):
-    """Raised when forecast is requested for a project with no start_date."""
+# Re-export so callers that already import from this module keep working without
+# referring to projects.exceptions directly.
+__all__ = [
+    "ForecastResult",
+    "ProjectAssignmentForecastManager",
+    "ProjectStartDateRequiredError",
+]
 
 
 class ForecastResult(BaseModel):
@@ -46,17 +51,6 @@ class ForecastResult(BaseModel):
     estimated_completion_date: datetime.date | None
     delta_from_target_date_days: int | None
     target_date: datetime.date | None
-
-
-@dataclass
-class _UserContext:
-    """Pre-fetched per-user inputs for the day-walking loop."""
-
-    by_user_month: dict[int, dict[datetime.date, int]]
-    user_membership: dict[int, OrganizationMembership]
-    user_holiday_country: dict[int, int | None]
-    public_holidays_by_country: dict[int, set[datetime.date]]
-    user_personal_holidays: dict[int, set[datetime.date]]
 
 
 class ProjectAssignmentForecastManager:
@@ -135,7 +129,7 @@ class ProjectAssignmentForecastManager:
         future_assignments: list[ProjectMonthlyAssignment],
         next_month_start: datetime.date,
         horizon: datetime.date,
-    ) -> _UserContext:
+    ) -> ProjectAssignmentForecastUserContext:
         organization = self.project.organization
 
         by_user_month: dict[int, dict[datetime.date, int]] = defaultdict(dict)
@@ -165,7 +159,7 @@ class ProjectAssignmentForecastManager:
             for offset in range(ph.duration):
                 user_personal_holidays[ph.user_id].add(ph.day + datetime.timedelta(days=offset))
 
-        return _UserContext(
+        return ProjectAssignmentForecastUserContext(
             by_user_month=by_user_month,
             user_membership=user_membership,
             user_holiday_country=user_holiday_country,
@@ -174,7 +168,7 @@ class ProjectAssignmentForecastManager:
         )
 
     @staticmethod
-    def __user_contributes_on(ctx: _UserContext, user_id: int, day: datetime.date, weekday: int) -> int | None:
+    def __user_contributes_on(ctx: ProjectAssignmentForecastUserContext, user_id: int, day: datetime.date, weekday: int) -> int | None:
         """Return the user's assignment percentage for `day`, or None if they don't contribute."""
         month_key = day.replace(day=1)
         percentage = ctx.by_user_month.get(user_id, {}).get(month_key)
@@ -194,7 +188,7 @@ class ProjectAssignmentForecastManager:
     def __walk_to_completion(
         cls,
         *,
-        ctx: _UserContext,
+        ctx: ProjectAssignmentForecastUserContext,
         start_day: datetime.date,
         horizon: datetime.date,
         initial_hours: float,
