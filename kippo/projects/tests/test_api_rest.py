@@ -7,6 +7,7 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -253,6 +254,20 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         data = response.json()
         self.assertLessEqual(len(data["results"]), 200)
+
+    def test_openapi_schema_exposes_page_size_query_param(self):
+        """Test that the generated OpenAPI schema documents the page_size query param (issue #204).
+
+        drf-spectacular derives query parameters from the active pagination class. This test
+        guards against regressions where the pagination class is replaced with one that lacks
+        page_size_query_param — a silent kippo-ui client-generation breakage.
+        """
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        projects_list_op = schema["paths"][f"{settings.URL_PREFIX}/api/projects/"]["get"]
+        param_names = {p["name"] for p in projects_list_op.get("parameters", [])}
+
+        self.assertIn("page_size", param_names)
+        self.assertIn("page", param_names)
 
 
 class ProjectWeeklyEffortViewSetTestCase(TestCase):
