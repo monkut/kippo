@@ -81,27 +81,26 @@ class ProjectMonthlyAssignmentModelTestCase(TestCase):
         assignment.save()
         self.assertIsNotNone(assignment.pk)
 
-    def test_save_hard_fails_on_confirmed_total_over_100(self):
+    def test_save_warns_only_on_confirmed_total_over_100(self):
+        # Two confirmed rows summing to 130% — over-allocation is allowed; logs a warning.
         existing = self._make_assignment(percentage=70, is_confirmed=True)
         existing.save()
-
-        # Same user/org/month, would push confirmed total to 130%
-        # NOTE: needs a second project in the same org to test cross-project totals
         second_project = KippoProject.objects.create(
-            name="second-project",
+            name="confirmed-warn-project",
             organization=self.organization,
             columnset=self.project.columnset,
             start_date=datetime.date(2026, 3, 15),
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        offending = self._make_assignment(project=second_project, percentage=60, is_confirmed=True)
-        with self.assertRaises(ValidationError) as ctx:
-            offending.save()
-        self.assertEqual(ctx.exception.error_dict["__all__"][0].code, "confirmed_assignment_exceeds_cap")
+        with self.assertLogs("projects.models", level=logging.WARNING) as logs:
+            offending = self._make_assignment(project=second_project, percentage=60, is_confirmed=True)
+            offending.save()  # must not raise
+        self.assertTrue(any("exceeds 100" in record.getMessage() for record in logs.records))
+        self.assertIsNotNone(offending.pk)
 
     def test_save_warns_only_on_unconfirmed_total_over_100(self):
-        # Two unconfirmed rows summing to 130% — should warn but not raise
+        # Two unconfirmed rows summing to 130% — over-allocation is allowed; logs a warning.
         existing = self._make_assignment(percentage=70, is_confirmed=False)
         existing.save()
         second_project = KippoProject.objects.create(
@@ -115,38 +114,12 @@ class ProjectMonthlyAssignmentModelTestCase(TestCase):
         with self.assertLogs("projects.models", level=logging.WARNING) as logs:
             second = self._make_assignment(project=second_project, percentage=60, is_confirmed=False)
             second.save()  # must not raise
-        self.assertTrue(any("exceeds 100%%" in record.getMessage() or "exceeds 100%" in record.getMessage() for record in logs.records))
+        self.assertTrue(any("exceeds 100" in record.getMessage() for record in logs.records))
         self.assertIsNotNone(second.pk)
 
-    def test_save_does_not_double_count_self_when_updating_confirmed_row(self):
-        assignment = self._make_assignment(percentage=80, is_confirmed=True)
-        assignment.save()
-        # Update same row's percentage upward — must not see itself in the existing total
-        assignment.percentage = 95
-        assignment.save()  # must not raise
-        self.assertEqual(ProjectMonthlyAssignment.objects.get(pk=assignment.pk).percentage, 95)
-
-    def test_save_unconfirmed_does_not_count_against_confirmed_cap(self):
-        # 90% unconfirmed already exists; adding 50% confirmed should succeed because cap
-        # only sums *confirmed* rows.
-        unconfirmed = self._make_assignment(percentage=90, is_confirmed=False)
-        unconfirmed.save()
-
-        second_project = KippoProject.objects.create(
-            name="confirmed-on-top",
-            organization=self.organization,
-            columnset=self.project.columnset,
-            start_date=datetime.date(2026, 3, 15),
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        confirmed = self._make_assignment(project=second_project, percentage=50, is_confirmed=True)
-        confirmed.save()  # must not raise — confirmed total is only 50
-        self.assertIsNotNone(confirmed.pk)
-
-    def test_save_promote_unconfirmed_to_confirmed_rejects_when_over_cap(self):
-        # 70% confirmed elsewhere, 50% unconfirmed on this row → toggling to confirmed
-        # would push confirmed total to 120% → must reject.
+    def test_save_promote_unconfirmed_to_confirmed_allows_over_cap(self):
+        # 70% confirmed elsewhere + 50% unconfirmed locally → toggling to confirmed pushes
+        # the confirmed total to 120%. Allowed; warning logged.
         elsewhere = self._make_assignment(percentage=70, is_confirmed=True)
         elsewhere.save()
 
@@ -161,9 +134,11 @@ class ProjectMonthlyAssignmentModelTestCase(TestCase):
         candidate = self._make_assignment(project=second_project, percentage=50, is_confirmed=False)
         candidate.save()
         candidate.is_confirmed = True
-        with self.assertRaises(ValidationError) as ctx:
-            candidate.save()
-        self.assertEqual(ctx.exception.error_dict["__all__"][0].code, "confirmed_assignment_exceeds_cap")
+        with self.assertLogs("projects.models", level=logging.WARNING) as logs:
+            candidate.save()  # must not raise
+        self.assertTrue(any("exceeds 100" in record.getMessage() for record in logs.records))
+        candidate.refresh_from_db()
+        self.assertTrue(candidate.is_confirmed)
 
 
 class ProjectMonthlyAssignmentSerializerTestCase(TestCase):
