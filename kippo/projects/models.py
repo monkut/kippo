@@ -955,7 +955,9 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
     def save(self, *args, **kwargs) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
-        # Log warning if user's total percentage for the organization exceeds 100%
+        # Warn (do not block) when the user's total percentage for the organization in this
+        # month exceeds 100%. Over-allocation is permitted; UI / admin surfaces are
+        # responsible for visually displaying the warning to end users.
         if self.user and self.project and self.month:
             total_percentage = (
                 ProjectMonthlyAssignment.objects.filter(
