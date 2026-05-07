@@ -952,10 +952,39 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
                     code="invalid_user_organization",
                 )
 
+        # Hard-fail when is_confirmed=True and confirmed-only org-total would exceed 100%.
+        # Unconfirmed projections may exceed (warning-only, see save()) so the suggester can
+        # surface infeasible patterns honestly.
+        if self.is_confirmed and self.user and self.project and self.month and self.percentage is not None:
+            confirmed_others = ProjectMonthlyAssignment.objects.filter(
+                user=self.user,
+                project__organization=self.project.organization,
+                month=self.month,
+                is_confirmed=True,
+            )
+            if self.pk:
+                confirmed_others = confirmed_others.exclude(pk=self.pk)
+            existing_total = confirmed_others.aggregate(total=Sum("percentage"))["total"] or 0
+            if existing_total + self.percentage > MAX_ASSIGNMENT_PERCENTAGE:
+                raise ValidationError(
+                    _(
+                        "Confirmed assignment total %(total)d%% for user '%(user)s' in organization '%(org)s' for month %(month)s exceeds %(cap)d%%",
+                    ),
+                    params={
+                        "total": existing_total + self.percentage,
+                        "user": self.user,
+                        "org": self.project.organization,
+                        "month": self.month.strftime("%Y-%m"),
+                        "cap": MAX_ASSIGNMENT_PERCENTAGE,
+                    },
+                    code="confirmed_assignment_exceeds_cap",
+                )
+
     def save(self, *args, **kwargs) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
         # Log warning if user's total percentage for the organization exceeds 100%
+        # (informational; hard-fail enforcement on confirmed rows lives in clean()).
         if self.user and self.project and self.month:
             total_percentage = (
                 ProjectMonthlyAssignment.objects.filter(
