@@ -613,6 +613,21 @@ def _insert_field_after(fields: list[str], target: str, reference: str) -> list[
     return rebuilt
 
 
+def _format_estimated_completion(payload: dict) -> str:
+    """Render the forecast payload as a one-line admin display string."""
+    date = payload.get("estimated_completion_date")
+    if date is None:
+        return str(_("(not estimable — no future assignments or insufficient data)"))
+    delta = payload.get("delta_from_target_date_days")
+    if delta is None:
+        return date.isoformat()
+    if delta == 0:
+        return f"{date.isoformat()} (on target)"
+    if delta > 0:
+        return f"{date.isoformat()} ({delta} days behind target)"
+    return f"{date.isoformat()} ({-delta} days ahead of target)"
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     form = KippoProjectAdminForm
@@ -927,6 +942,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # show parent_project as readonly on the change form so admins can see the upsell parent
         if obj is not None and "parent_project" not in readonly_fields:
             readonly_fields = (*readonly_fields, "parent_project")
+        # forecast on non-closed projects only (per kippo#224 C2 + #226)
+        if obj is not None and not obj.is_closed and "estimated_completion_date" not in readonly_fields:
+            readonly_fields = (*readonly_fields, "estimated_completion_date")
         # closed projects: lock every editable field — use the re-open action to edit
         if obj is not None and obj.is_closed:
             excluded = set(self.exclude or ())
@@ -937,6 +955,18 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
             readonly_fields = (*readonly_fields, *locked)
         return readonly_fields
+
+    @admin.display(description=_("Estimated Completion Date"))
+    def estimated_completion_date(self, obj: KippoProject | None = None) -> str:
+        from .services.forecast import ProjectStartDateRequiredError, compute_estimated_completion
+
+        if obj is None or obj.pk is None:
+            return ""
+        try:
+            payload = compute_estimated_completion(obj)
+        except ProjectStartDateRequiredError:
+            return _("(start_date required)")
+        return _format_estimated_completion(payload)
 
     def get_changeform_initial_data(self, request: DjangoRequest) -> dict:
         initial = super().get_changeform_initial_data(request)
