@@ -1,11 +1,14 @@
+from http import HTTPStatus
 from typing import Any
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .exceptions import ProjectStartDateRequiredError
 from .models import (
     KippoProject,
     KippoProjectUserStatisfactionResult,
@@ -23,6 +26,7 @@ from .serializers import (
     ProjectMonthlyCostSerializer,
     ProjectWeeklyEffortSerializer,
 )
+from .services.forecast import ProjectAssignmentForecastManager
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
@@ -92,6 +96,35 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(is_closed=False)
 
         return queryset
+
+    @extend_schema(
+        responses={
+            HTTPStatus.OK: inline_serializer(
+                name="ProjectForecastResponse",
+                fields={
+                    "estimated_completion_date": serializers.DateField(allow_null=True),
+                    "delta_from_target_date_days": serializers.IntegerField(allow_null=True),
+                    "target_date": serializers.DateField(allow_null=True),
+                },
+            ),
+            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute the forecast"),
+        },
+        description=(
+            "Estimated completion date for the project, derived from logged effort + future "
+            "ProjectMonthlyAssignment rows. Returns 400 if the project has no start_date set."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="forecast")
+    def forecast(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
+        project = self.get_object()
+        try:
+            result = ProjectAssignmentForecastManager(project).compute()
+        except ProjectStartDateRequiredError as exc:
+            return Response(
+                {"detail": str(exc), "code": "project_start_date_required"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+        return Response(result.model_dump(mode="json"))
 
 
 class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
