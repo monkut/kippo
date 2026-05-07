@@ -7,6 +7,7 @@ import urllib.parse
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from string import ascii_lowercase
+from typing import TYPE_CHECKING
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
@@ -64,6 +65,9 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
 )
+
+if TYPE_CHECKING:
+    from .services.forecast import ForecastResult
 
 CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 
@@ -613,12 +617,12 @@ def _insert_field_after(fields: list[str], target: str, reference: str) -> list[
     return rebuilt
 
 
-def _format_estimated_completion(payload: dict) -> str:
-    """Render the forecast payload as a one-line admin display string."""
-    date = payload.get("estimated_completion_date")
+def _format_estimated_completion(result: "ForecastResult") -> str:
+    """Render the forecast result as a one-line admin display string."""
+    date = result.estimated_completion_date
     if date is None:
         return str(_("(not estimable — no future assignments or insufficient data)"))
-    delta = payload.get("delta_from_target_date_days")
+    delta = result.delta_from_target_date_days
     if delta is None:
         return date.isoformat()
     if delta == 0:
@@ -963,10 +967,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None or obj.pk is None:
             return ""
         try:
-            payload = ProjectAssignmentForecastManager(obj).compute()
+            result = ProjectAssignmentForecastManager(obj).compute()
         except ProjectStartDateRequiredError:
             return _("(start_date required)")
-        return _format_estimated_completion(payload)
+        return _format_estimated_completion(result)
 
     def get_changeform_initial_data(self, request: DjangoRequest) -> dict:
         initial = super().get_changeform_initial_data(request)

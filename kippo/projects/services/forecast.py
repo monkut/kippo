@@ -23,6 +23,7 @@ from accounts.models import KippoUser, OrganizationMembership, PersonalHoliday, 
 from commons.functions import first_of_next_month
 from django.db.models import Sum
 from django.utils import timezone
+from pydantic import BaseModel
 
 from projects.models import ProjectMonthlyAssignment, ProjectWeeklyEffort
 
@@ -37,6 +38,14 @@ PERSONAL_HOLIDAY_LOOKBACK_DAYS = 31  # PHs whose duration spans into the project
 
 class ProjectStartDateRequiredError(ValueError):
     """Raised when forecast is requested for a project with no start_date."""
+
+
+class ForecastResult(BaseModel):
+    """Public result shape for ProjectAssignmentForecastManager.compute()."""
+
+    estimated_completion_date: datetime.date | None
+    delta_from_target_date_days: int | None
+    target_date: datetime.date | None
 
 
 @dataclass
@@ -63,10 +72,10 @@ class ProjectAssignmentForecastManager:
     def __init__(self, project: KippoProject) -> None:
         self.project = project
 
-    def compute(self) -> dict:
+    def compute(self) -> ForecastResult:
         """Return the forecast payload.
 
-        Returns a dict with keys ``estimated_completion_date`` (date | None),
+        Returns a `ForecastResult` with ``estimated_completion_date`` (date | None),
         ``delta_from_target_date_days`` (int | None — positive = behind target),
         and ``target_date`` (date | None — echo of project.target_date).
 
@@ -104,15 +113,15 @@ class ProjectAssignmentForecastManager:
         )
         return self.__build_response(completion)
 
-    def __build_response(self, completion_date: datetime.date | None) -> dict:
+    def __build_response(self, completion_date: datetime.date | None) -> ForecastResult:
         delta = None
         if self.project.target_date and completion_date:
             delta = (completion_date - self.project.target_date).days
-        return {
-            "estimated_completion_date": completion_date,
-            "delta_from_target_date_days": delta,
-            "target_date": self.project.target_date,
-        }
+        return ForecastResult(
+            estimated_completion_date=completion_date,
+            delta_from_target_date_days=delta,
+            target_date=self.project.target_date,
+        )
 
     def __logged_hours_through(self, today: datetime.date) -> int:
         return ProjectWeeklyEffort.objects.filter(project=self.project, week_start__lte=today).aggregate(total=Sum("hours"))["total"] or 0

@@ -117,13 +117,13 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
     def forecast(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
         project = self.get_object()
         try:
-            payload = ProjectAssignmentForecastManager(project).compute()
+            result = ProjectAssignmentForecastManager(project).compute()
         except ProjectStartDateRequiredError as exc:
             return Response(
                 {"detail": str(exc), "code": "project_start_date_required"},
                 status=HTTPStatus.BAD_REQUEST,
             )
-        return Response(payload)
+        return Response(result.model_dump(mode="json"))
 
 
 class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
