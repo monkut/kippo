@@ -115,7 +115,7 @@ class KippoOrganization(UserCreatedBaseModel):
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
     )
     project_assignment_member_soft_ceiling = models.PositiveSmallIntegerField(
-        default=75,
+        default=settings.DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING,
         validators=[MinValueValidator(1), MaxValueValidator(100)],
         help_text=_(
             "Target maximum total project utilization percentage per organization member. "
