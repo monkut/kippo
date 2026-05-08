@@ -65,7 +65,7 @@ class ProjectMembersEndpointTestCase(TestCase):
 
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        usernames = {row["username"] for row in response.json()}
+        usernames = {row["username"] for row in response.json()["members"]}
         # The default setup user (octocat) plus the two dev users
         self.assertIn("octocat", usernames)
         self.assertIn("dev-1", usernames)
@@ -80,14 +80,14 @@ class ProjectMembersEndpointTestCase(TestCase):
         inactive.save()
 
         response = self.client.get(self.url)
-        usernames = {row["username"] for row in response.json()}
+        usernames = {row["username"] for row in response.json()["members"]}
         self.assertIn(active.username, usernames)
         self.assertNotIn(inactive.username, usernames)
 
     def test_response_shape(self):
         self._add_org_member("dev-shape", is_developer=True, is_project_manager=False)
         response = self.client.get(self.url)
-        rows = response.json()
+        rows = response.json()["members"]
         self.assertGreater(len(rows), 0)
         sample = rows[0]
         for field in ["user_id", "username", "display_name", "github_login", "is_developer", "is_project_manager"]:
@@ -96,7 +96,7 @@ class ProjectMembersEndpointTestCase(TestCase):
     def test_includes_role_flags_from_organization_membership(self):
         pm_user = self._add_org_member("the-pm", is_developer=False, is_project_manager=True)
         response = self.client.get(self.url)
-        target = next(row for row in response.json() if row["username"] == pm_user.username)
+        target = next(row for row in response.json()["members"] if row["username"] == pm_user.username)
         self.assertTrue(target["is_project_manager"])
         self.assertFalse(target["is_developer"])
 
@@ -114,3 +114,18 @@ class ProjectMembersEndpointTestCase(TestCase):
         path = f"{settings.URL_PREFIX}/api/projects/{{id}}/members/"
         self.assertIn(path, schema["paths"])
         self.assertIn("get", schema["paths"][path])
+
+    def test_openapi_schema_response_is_not_paginated(self):
+        """Regression: drf-spectacular auto-paginates `Serializer(many=True)` responses on a
+        ModelViewSet. We wrap in `{members: [...]}` to bypass that — the picker only ever
+        shows ~10s of users and pagination is wasted complexity.
+        """
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        members_response = schema["components"]["schemas"]["ProjectMembersResponse"]
+        # Should be `{members: array}`, not `{count, next, previous, results}`
+        self.assertIn("members", members_response["properties"])
+        self.assertNotIn("count", members_response["properties"])
+        self.assertNotIn("results", members_response["properties"])
+        self.assertEqual(members_response["properties"]["members"]["type"], "array")
