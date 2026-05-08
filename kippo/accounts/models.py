@@ -355,7 +355,12 @@ class KippoUser(AbstractUser):
     @property
     def organizations(self) -> QuerySet:
         organization_ids = OrganizationMembership.objects.filter(user=self).values_list("organization", flat=True).distinct()
-        return KippoOrganization.objects.filter(id__in=organization_ids)
+        # Ordered by name so callers that index `[0]` (e.g. set_user_session_organization in
+        # projects.views) get a deterministic "first" organization across separate query
+        # invocations. Without an explicit ORDER BY, PostgreSQL is free to return rows in
+        # different orders between SELECTs in the same transaction depending on plan choice,
+        # which made test_set_organization__valid_user_nonmember_org intermittently flake.
+        return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
 
     def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=self, organization=organization)
