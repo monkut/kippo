@@ -1,3 +1,4 @@
+import datetime
 from http import HTTPStatus
 from typing import Any
 
@@ -27,6 +28,7 @@ from .serializers import (
     ProjectWeeklyEffortSerializer,
 )
 from .services.forecast import ProjectAssignmentForecastManager
+from .services.suggest import ProjectAssignmentSuggestionManager
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
@@ -125,6 +127,48 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 status=HTTPStatus.BAD_REQUEST,
             )
         return Response(result.model_dump(mode="json"))
+
+    @extend_schema(
+        request=inline_serializer(
+            name="SuggestAssignmentsRequest",
+            fields={"from_month": serializers.DateField(required=False, allow_null=True)},
+        ),
+        responses={
+            HTTPStatus.OK: inline_serializer(
+                name="SuggestAssignmentsResponse",
+                fields={
+                    "patterns": serializers.ListField(child=serializers.JSONField()),
+                },
+            ),
+            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute suggestions"),
+        },
+        description=(
+            "Generate up to 3 candidate assignment patterns for the project. Patterns vary "
+            "along a continuity gradient (max past-member reuse / blend / most-available pool). "
+            "Returns 400 if the project has no start_date set. See monkut/kippo#224 B1-B13."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="suggest-assignments", permission_classes=[IsAuthenticated])
+    def suggest_assignments(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
+        project = self.get_object()
+        from_month_str = (request.data or {}).get("from_month")
+        from_month = None
+        if from_month_str:
+            try:
+                from_month = datetime.date.fromisoformat(from_month_str).replace(day=1)
+            except ValueError:
+                return Response(
+                    {"detail": f"invalid from_month: {from_month_str!r}", "code": "invalid_from_month"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+        try:
+            patterns = ProjectAssignmentSuggestionManager(project, from_month=from_month).compute()
+        except ProjectStartDateRequiredError as exc:
+            return Response(
+                {"detail": str(exc), "code": "project_start_date_required"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+        return Response({"patterns": [p.model_dump(mode="json") for p in patterns]})
 
 
 class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
