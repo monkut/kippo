@@ -6,6 +6,7 @@ from accounts.models import KippoUser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,6 +25,7 @@ from .serializers import (
     KippoProjectSerializer,
     KippoProjectUserStatisfactionResultSerializer,
     OrganizationMemberSerializer,
+    ProjectAssignmentPatternSerializer,
     ProjectAssignmentRateSerializer,
     ProjectMonthlyAssignmentSerializer,
     ProjectMonthlyCostSerializer,
@@ -103,15 +105,27 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         responses={
-            HTTPStatus.OK: inline_serializer(
-                name="ProjectForecastResponse",
-                fields={
-                    "estimated_completion_date": serializers.DateField(allow_null=True),
-                    "delta_from_target_date_days": serializers.IntegerField(allow_null=True),
-                    "target_date": serializers.DateField(allow_null=True),
-                },
+            HTTPStatus.OK: OpenApiResponse(
+                response=inline_serializer(
+                    name="ProjectForecastResponse",
+                    fields={
+                        "estimated_completion_date": serializers.DateField(
+                            allow_null=True,
+                            help_text="Day-precision completion date; null when the project has no future assignments to project from.",
+                        ),
+                        "delta_from_target_date_days": serializers.IntegerField(
+                            allow_null=True,
+                            help_text="Days between estimated_completion_date and target_date. Positive = behind target; negative = ahead.",
+                        ),
+                        "target_date": serializers.DateField(
+                            allow_null=True,
+                            help_text="Echo of project.target_date for client-side delta computation.",
+                        ),
+                    },
+                ),
+                description="Forecast payload — estimated completion date plus delta vs target_date.",
             ),
-            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute the forecast"),
+            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute the forecast."),
         },
         description=(
             "Estimated completion date for the project, derived from logged effort + future "
@@ -169,16 +183,31 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
     @extend_schema(
         request=inline_serializer(
             name="SuggestAssignmentsRequest",
-            fields={"from_month": serializers.DateField(required=False, allow_null=True)},
+            fields={
+                "from_month": serializers.DateField(
+                    required=False,
+                    allow_null=True,
+                    help_text=(
+                        "First-of-month ISO date to start projecting from. When omitted, defaults "
+                        "to the first day of the month after the current date."
+                    ),
+                ),
+            },
         ),
         responses={
-            HTTPStatus.OK: inline_serializer(
-                name="SuggestAssignmentsResponse",
-                fields={
-                    "patterns": serializers.ListField(child=serializers.JSONField()),
-                },
+            HTTPStatus.OK: OpenApiResponse(
+                response=inline_serializer(
+                    name="SuggestAssignmentsResponse",
+                    fields={
+                        "patterns": ProjectAssignmentPatternSerializer(many=True),
+                    },
+                ),
+                description=(
+                    "0–3 candidate patterns, ranked by closeness to project.target_date "
+                    "(feasible patterns first). Greenfield projects skip the P1-max-reuse pattern."
+                ),
             ),
-            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute suggestions"),
+            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute suggestions."),
         },
         description=(
             "Generate up to 3 candidate assignment patterns for the project. Patterns vary "
@@ -186,7 +215,14 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
             "Returns 400 if the project has no start_date set. See monkut/kippo#224 B1-B13."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="suggest-assignments", permission_classes=[IsAuthenticated])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="suggest-assignments",
+        permission_classes=[IsAuthenticated],
+        # JSON only — drop the multipart/form-urlencoded variants from the OpenAPI schema.
+        parser_classes=[JSONParser],
+    )
     def suggest_assignments(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
         project = self.get_object()
         from_month_str = (request.data or {}).get("from_month")

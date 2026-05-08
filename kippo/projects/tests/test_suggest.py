@@ -290,3 +290,38 @@ class SuggestionEndpointTestCase(SuggesterTestCaseBase):
         path = f"{settings.URL_PREFIX}/api/projects/{{id}}/suggest-assignments/"
         self.assertIn(path, schema["paths"])
         self.assertIn("post", schema["paths"][path])
+
+    def test_openapi_schema_patterns_field_is_typed(self):
+        """kippo#231: response.patterns must reference the typed pattern schema, not a generic JSONField.
+
+        Catches regressions where the inline_serializer reverts to ListField(child=JSONField()).
+        """
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        suggest_response = schema["components"]["schemas"]["SuggestAssignmentsResponse"]
+        patterns = suggest_response["properties"]["patterns"]
+        self.assertEqual(patterns["type"], "array")
+        item_schema = patterns["items"]
+        # Either the item is a $ref to the typed model, or it's an inline object with members.
+        # Both indicate the response is typed (not the unknown-shaped `unknown[]` from JSONField).
+        if "$ref" in item_schema:
+            ref = item_schema["$ref"]
+            self.assertIn("ProjectAssignmentPattern", ref)
+        else:
+            self.assertIn("members", item_schema.get("properties", {}))
+            self.assertIn("pattern_ids", item_schema.get("properties", {}))
+
+    def test_openapi_schema_suggest_endpoint_is_json_only(self):
+        """kippo#231: the suggest endpoint must advertise application/json only.
+
+        DRF's default parser_classes include multipart/form-data + form-urlencoded; we restrict
+        to JSONParser so the OpenAPI schema doesn't carry the noise.
+        """
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        path = f"{settings.URL_PREFIX}/api/projects/{{id}}/suggest-assignments/"
+        request_body = schema["paths"][path]["post"]["requestBody"]
+        content_types = set(request_body["content"].keys())
+        self.assertEqual(content_types, {"application/json"})

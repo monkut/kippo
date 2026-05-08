@@ -85,6 +85,52 @@ class OrganizationMemberSerializer(serializers.Serializer):
     is_project_manager = serializers.BooleanField()
 
 
+class ProjectAssignmentPatternMemberSerializer(serializers.Serializer):
+    """One member of a suggested assignment pattern. Mirrors the Pydantic
+    `ProjectAssignmentPatternMember` shape from `projects.definitions`.
+    """
+
+    user_id = serializers.UUIDField(help_text="KippoUser primary key.")
+    is_past_member = serializers.BooleanField(help_text="True when the user already has a row on this project.")
+    monthly_percentages = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Per-month percentage allocation. Keys are first-of-month ISO dates ('YYYY-MM-01').",
+    )
+
+
+class ProjectAssignmentPatternConflictSerializer(serializers.Serializer):
+    """An over-allocation conflict surfaced by the suggester for a (user × month) cell."""
+
+    user_id = serializers.UUIDField()
+    month = serializers.DateField(help_text="First-of-month ISO date.")
+    reason = serializers.CharField()
+
+
+class ProjectAssignmentPatternSerializer(serializers.Serializer):
+    """A complete suggested project-assignment pattern. Mirrors the Pydantic
+    `ProjectAssignmentPattern` shape from `projects.definitions`. Per kippo#231.
+
+    `pattern_ids` carries every strategy key that produced this pattern after dedup
+    (kippo#227 S3) — typically one entry, e.g. `['P1-max-reuse']`, but multiple when
+    strategies converged on the same members + monthly_percentages.
+    """
+
+    pattern_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Strategy keys that produced this pattern (one entry, or several after dedup).",
+    )
+    label = serializers.CharField(help_text="Human-readable label derived from pattern_ids.")
+    estimated_completion = serializers.DateField(
+        allow_null=True,
+        help_text="Day-precision completion date; null when the pattern can't reach the allocated effort.",
+    )
+    infeasible = serializers.BooleanField(
+        help_text="True when the pattern overshoots target_date or breaches the per-user 100% cap.",
+    )
+    conflicts = ProjectAssignmentPatternConflictSerializer(many=True)
+    members = ProjectAssignmentPatternMemberSerializer(many=True)
+
+
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
     """Serializer for ProjectAssignmentRate model."""
 
