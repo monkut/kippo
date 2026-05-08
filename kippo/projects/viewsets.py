@@ -145,7 +145,15 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         return Response(result.model_dump(mode="json"))
 
     @extend_schema(
-        responses={HTTPStatus.OK: OrganizationMemberSerializer(many=True)},
+        responses={
+            HTTPStatus.OK: OpenApiResponse(
+                response=inline_serializer(
+                    name="ProjectMembersResponse",
+                    fields={"members": OrganizationMemberSerializer(many=True)},
+                ),
+                description="Members of the project's organization eligible for assignment.",
+            ),
+        },
         description=(
             "Active members of the project's organization. Lists every KippoUser with an "
             "OrganizationMembership in the project's org, filtered by KippoUser.is_active=True. "
@@ -178,7 +186,10 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
             }
             for user in members_qs
         ]
-        return Response(OrganizationMemberSerializer(payload, many=True).data)
+        # Wrap in a named-key response so drf-spectacular doesn't auto-paginate the schema
+        # (it does that for `OrganizationMemberSerializer(many=True)` on a ModelViewSet).
+        # The picker only ever displays ~10s of users; pagination would be wasted complexity.
+        return Response({"members": OrganizationMemberSerializer(payload, many=True).data})
 
     @extend_schema(
         request=inline_serializer(
