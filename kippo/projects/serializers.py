@@ -72,6 +72,19 @@ class GithubRepositoryInlineSerializer(serializers.Serializer):
     repository_url = serializers.URLField()
 
 
+class OrganizationMemberSerializer(serializers.Serializer):
+    """Minimal projection of a `KippoUser` + their `OrganizationMembership` for use as a
+    user-picker source on the kippo-ui add-assignment modal (kippo-ui#57). Per kippo#233.
+    """
+
+    user_id = serializers.UUIDField(help_text="KippoUser primary key.")
+    username = serializers.CharField()
+    display_name = serializers.CharField(help_text="Composed first + last + (github_login).")
+    github_login = serializers.CharField(allow_blank=True)
+    is_developer = serializers.BooleanField()
+    is_project_manager = serializers.BooleanField()
+
+
 class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
     """Serializer for ProjectAssignmentRate model."""
 

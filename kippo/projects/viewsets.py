@@ -2,6 +2,7 @@ import datetime
 from http import HTTPStatus
 from typing import Any
 
+from accounts.models import KippoUser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -22,6 +23,7 @@ from .permissions import IsSuperuserOrReadUpdateCreateOwn, IsSuperuserOrReadUpda
 from .serializers import (
     KippoProjectSerializer,
     KippoProjectUserStatisfactionResultSerializer,
+    OrganizationMemberSerializer,
     ProjectAssignmentRateSerializer,
     ProjectMonthlyAssignmentSerializer,
     ProjectMonthlyCostSerializer,
@@ -127,6 +129,42 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 status=HTTPStatus.BAD_REQUEST,
             )
         return Response(result.model_dump(mode="json"))
+
+    @extend_schema(
+        responses={HTTPStatus.OK: OrganizationMemberSerializer(many=True)},
+        description=(
+            "Active members of the project's organization. Lists every KippoUser with an "
+            "OrganizationMembership in the project's org, filtered by KippoUser.is_active=True. "
+            "Used by kippo-ui's add-assignment picker so day-zero projects can pick from anyone "
+            "in the org rather than only users already on the project."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="members", permission_classes=[IsAuthenticated])
+    def members(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
+        project = self.get_object()
+        members_qs = (
+            KippoUser.objects.filter(
+                is_active=True,
+                organizationmembership__organization=project.organization,
+            )
+            .select_related()
+            .prefetch_related("organizationmembership_set")
+            .order_by("username")
+            .distinct()
+        )
+        memberships_by_user = {m.user_id: m for m in project.organization.organizationmembership_set.filter(user__in=members_qs)}
+        payload = [
+            {
+                "user_id": user.id,
+                "username": user.username,
+                "display_name": user.display_name.strip() or user.username,
+                "github_login": user.github_login or "",
+                "is_developer": memberships_by_user[user.id].is_developer if user.id in memberships_by_user else False,
+                "is_project_manager": (memberships_by_user[user.id].is_project_manager if user.id in memberships_by_user else False),
+            }
+            for user in members_qs
+        ]
+        return Response(OrganizationMemberSerializer(payload, many=True).data)
 
     @extend_schema(
         request=inline_serializer(
