@@ -20,6 +20,7 @@ from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectWeekl
 from projects.services.suggest import (
     ALLOCATION_FLOOR_PERCENTAGE,
     SOFT_CAP_TEAM_SIZE,
+    PatternId,
     ProjectAssignmentSuggestionManager,
 )
 
@@ -226,6 +227,49 @@ class SuggestionServiceCoreTestCase(SuggesterTestCaseBase):
         self.assertIsInstance(pattern.infeasible, bool)
         self.assertIsInstance(pattern.conflicts, list)
         self.assertIsInstance(pattern.members, list)
+
+    def test_p4_emitted_when_previous_month_has_assignments(self):
+        """P4 carries each user's previous-month percentage forward verbatim."""
+        from_month = first_of_next_month(self.today)
+        previous_month = (from_month - datetime.timedelta(days=1)).replace(day=1)
+        # Two users with non-uniform allocations on this project last month.
+        dev2 = self._add_member("dev2-p4")
+        self._make_assignment(month=previous_month, percentage=30, is_confirmed=True)
+        self._make_assignment(user=dev2, month=previous_month, percentage=50, is_confirmed=True)
+
+        patterns = ProjectAssignmentSuggestionManager(self.project, from_month=from_month).compute()
+        p4 = next((p for p in patterns if PatternId.P4_PREVIOUS_MONTH.value in p.pattern_ids), None)
+        self.assertIsNotNone(p4, "Expected a P4-previous-month pattern when prior-month rows exist")
+        member_pcts = {m.user_id: m.monthly_percentages for m in p4.members}
+        self.assertEqual(set(member_pcts.keys()), {self.user.id, dev2.id})
+        # Every month from from_month → end_month carries each user's prior-month percentage.
+        for month_pcts in member_pcts[self.user.id].values():
+            self.assertEqual(month_pcts, 30)
+        for month_pcts in member_pcts[dev2.id].values():
+            self.assertEqual(month_pcts, 50)
+
+    def test_p4_skipped_when_no_previous_month_assignments(self):
+        """No prior-month rows on this project → P4 strategy is dropped silently."""
+        # Greenfield project: setUp creates no assignments.
+        self._add_member("dev2-p4-skip")
+        patterns = ProjectAssignmentSuggestionManager(self.project).compute()
+        p4 = next((p for p in patterns if PatternId.P4_PREVIOUS_MONTH.value in p.pattern_ids), None)
+        self.assertIsNone(p4, "P4 should be absent when no prior-month assignments exist")
+
+    def test_p4_excludes_zero_percent_prior_rows(self):
+        """A user with a 0% prior-month row shouldn't appear in the P4 team."""
+        from_month = first_of_next_month(self.today)
+        previous_month = (from_month - datetime.timedelta(days=1)).replace(day=1)
+        ghost = self._add_member("dev2-p4-zero")
+        self._make_assignment(month=previous_month, percentage=40, is_confirmed=True)
+        self._make_assignment(user=ghost, month=previous_month, percentage=0, is_confirmed=True)
+
+        patterns = ProjectAssignmentSuggestionManager(self.project, from_month=from_month).compute()
+        p4 = next((p for p in patterns if PatternId.P4_PREVIOUS_MONTH.value in p.pattern_ids), None)
+        self.assertIsNotNone(p4)
+        proposed_user_ids = {m.user_id for m in p4.members}
+        self.assertIn(self.user.id, proposed_user_ids)
+        self.assertNotIn(ghost.id, proposed_user_ids)
 
     def test_per_member_pct_capped_at_org_soft_ceiling(self):
         """No proposed (member, month) percentage should exceed the org soft ceiling.
