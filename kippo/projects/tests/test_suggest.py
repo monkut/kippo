@@ -227,6 +227,26 @@ class SuggestionServiceCoreTestCase(SuggesterTestCaseBase):
         self.assertIsInstance(pattern.conflicts, list)
         self.assertIsInstance(pattern.members, list)
 
+    def test_per_member_pct_capped_at_org_soft_ceiling(self):
+        """No proposed (member, month) percentage should exceed the org soft ceiling.
+
+        The soft ceiling caps both the baseline split and the thin-pattern push-up,
+        so even on a single-member project we never propose 100% on this project.
+        """
+        self.organization.project_assignment_member_soft_ceiling = 60
+        self.organization.save()
+
+        patterns = ProjectAssignmentSuggestionManager(self.project).compute()
+        self.assertGreater(len(patterns), 0)
+        for pattern in patterns:
+            for member in pattern.members:
+                for pct in member.monthly_percentages.values():
+                    self.assertLessEqual(
+                        pct,
+                        self.organization.project_assignment_member_soft_ceiling,
+                        msg=f"pattern {pattern.pattern_ids} proposed {pct}% > soft ceiling 60%",
+                    )
+
 
 class SuggestionEndpointTestCase(SuggesterTestCaseBase):
     """Test the POST /api/projects/<id>/suggest-assignments/ endpoint."""

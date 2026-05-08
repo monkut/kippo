@@ -286,6 +286,9 @@ DEFAULT_KIPPOTASK_CATEGORY = "study"
 DEFAULT_TASK_DISPLAY_STATE = "in-progress"
 DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS = 90
 DEFAULT_PROJECT_DAILY_RATE = 180_000  # Japanese Yen per day (for requirements app)
+# Per-org default soft ceiling for project_assignment_member_soft_ceiling on KippoOrganization.
+# Used at organization creation as the default value of the model field; existing rows are not touched.
+DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING = int(os.getenv("DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING", "75"))
 
 # Evaluation Service Configuration
 EVALUATION_SERVICE_URL = os.getenv("EVALUATION_SERVICE_URL", "")

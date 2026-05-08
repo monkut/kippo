@@ -114,6 +114,15 @@ class KippoOrganization(UserCreatedBaseModel):
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
     )
+    project_assignment_member_soft_ceiling = models.PositiveSmallIntegerField(
+        default=settings.DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        help_text=_(
+            "Target maximum total project utilization percentage per organization member. "
+            "Drives the suggester's per-pattern percentage cap so proposed assignments leave "
+            "headroom for non-project work. 1-100; the absolute hard cap remains 100%."
+        ),
+    )
 
     @property
     def email_domains(self) -> QuerySet:
