@@ -363,6 +363,10 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         params = parse_qs(parsed.query)
         self.assertEqual(params.get("category"), ["upsell-improvement"])
         self.assertEqual(params.get("parent_project"), [str(self.project1.id)])
+        # close-action upsell redirect must include the parent's organization and the upsell marker
+        # so the add form can derive the org server-side and detect the entry point.
+        self.assertEqual(params.get("organization"), [str(self.project1.organization_id)])
+        self.assertEqual(params.get("_upsell_source"), ["close"])
 
         self.project1.refresh_from_db()
         self.assertTrue(self.project1.is_closed)
@@ -557,6 +561,83 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         parent_ids = set(parent_qs.values_list("id", flat=True))
         self.assertIn(self.project1.id, parent_ids)
         self.assertNotIn(other_org_project.id, parent_ids)
+
+    def test_upsell_redirect_hides_parent_project_and_organization(self):
+        # close-action upsell redirect: parent_project and organization must render as hidden inputs
+        # so the user cannot edit them; the values still POST so the existing validator runs.
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(
+            url,
+            {
+                "_upsell_source": "close",
+                "category": "upsell-improvement",
+                "parent_project": str(self.project1.id),
+                "organization": str(self.project1.organization_id),
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        for field_name in ("parent_project", "organization"):
+            with self.subTest(field=field_name):
+                widget = adminform.form.fields[field_name].widget
+                inner_widget = getattr(widget, "widget", widget)
+                self.assertIsInstance(inner_widget, forms.HiddenInput)
+        content = response.content.decode()
+        self.assertIn('type="hidden" name="parent_project"', content)
+        self.assertIn('type="hidden" name="organization"', content)
+
+    def test_manual_add_without_upsell_marker_keeps_organization_visible(self):
+        # manual add (no _upsell_source marker) — organization should NOT be forced hidden by the
+        # upsell branch. (When the user has multiple orgs, organization is shown as a visible select.)
+        url = reverse("admin:projects_kippoproject_add")
+        # GET with parent_project but no _upsell_source: must remain in manual-add mode
+        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.project1.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        adminform = response.context["adminform"]
+        # parent_project remains selectable (not hidden)
+        self._assert_parent_project_selectable(adminform, response.content.decode())
+
+    def test_upsell_form_with_derived_organization_is_valid_and_saves_parent(self):
+        # the upsell prefill always sets organization = parent_project.organization, so the form
+        # validator's parent-org invariant is satisfied by construction. Save and verify the result.
+        form = KippoProjectAdminForm(
+            data={
+                "organization": str(self.project1.organization_id),
+                "parent_project": str(self.project1.id),
+                "name": "project1 Phase 2",
+                "phase": "lead-evaluation",
+                "confidence": "80",
+                "category": "upsell-improvement",
+                "columnset": str(self.project1.columnset_id),
+                "start_date": self.current_date.isoformat(),
+            },
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        new_project = form.save(commit=False)
+        new_project.created_by = self.superuser_no_org
+        new_project.updated_by = self.superuser_no_org
+        new_project.save()
+        self.assertEqual(new_project.parent_project_id, self.project1.id)
+        self.assertEqual(new_project.organization_id, self.project1.organization_id)
+
+    def test_upsell_form_with_mismatched_organization_is_rejected(self):
+        # tampered POST: hidden organization differs from parent_project.organization — the existing
+        # validator must catch the mismatch (no validator changes were made for this issue).
+        form = KippoProjectAdminForm(
+            data={
+                # parent is in self.organization, but the submitted organization is the other org
+                "organization": str(self.other_organization.id),
+                "parent_project": str(self.project1.id),
+                "name": "tampered-project",
+                "phase": "lead-evaluation",
+                "confidence": "80",
+                "category": "upsell-improvement",
+                "columnset": str(self.project1.columnset_id),
+                "start_date": self.current_date.isoformat(),
+            },
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("parent_project", form.errors)
 
 
 class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):

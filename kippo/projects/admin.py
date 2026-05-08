@@ -475,6 +475,8 @@ def _build_upsell_prefill_params(project: KippoProject, selected_category: str) 
     params = {
         "category": selected_category,
         "parent_project": str(project.id),
+        "organization": str(project.organization_id),
+        "_upsell_source": "close",
         "name": _next_upsell_project_name(project.name),
         "start_date": _start_of_next_month(today).isoformat(),
         "slack_channel_name": project.slack_channel_name,
@@ -939,7 +941,24 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # no business sense; the form's clean() rejects mismatches at submit-time.
         if obj is None and "parent_project" in form.base_fields and user_initial_organization:
             form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization=user_initial_organization)
+
+        if obj is None and request.GET.get("_upsell_source") == "close":
+            self._apply_upsell_source_widgets(form, user_memberships)
         return form
+
+    @staticmethod
+    def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:
+        """Hide parent_project + organization on the upsell close-action redirect.
+
+        Values still POST and the existing validator runs; only the widgets are swapped to hidden.
+        parent_project queryset is widened to all of the user's orgs because the default scope
+        (user_initial_organization) may not match the parent's org for multi-org users.
+        """
+        if "parent_project" in form.base_fields:
+            form.base_fields["parent_project"].widget = forms.HiddenInput()
+            form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization__in=user_memberships)
+        if "organization" in form.base_fields:
+            form.base_fields["organization"].widget = forms.HiddenInput()
 
     def get_readonly_fields(self, request: DjangoRequest, obj: KippoProject | None = None) -> tuple[str, ...]:
         readonly_fields = tuple(super().get_readonly_fields(request, obj))
@@ -981,6 +1000,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         parent_project_id = request.GET.get("parent_project")
         if parent_project_id:
             initial["parent_project"] = parent_project_id
+        organization_id = request.GET.get("organization")
+        if organization_id:
+            initial["organization"] = organization_id
         return initial
 
     def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
