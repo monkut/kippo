@@ -58,8 +58,16 @@ class ProjectAssignmentForecastManager:
     def __init__(self, project: KippoProject) -> None:
         self.project = project
 
-    def compute(self) -> ForecastResult:
+    def compute(self, overlay: dict[int, dict[datetime.date, int]] | None = None) -> ForecastResult:
         """Return the forecast payload.
+
+        Args:
+            overlay: Optional `{user_id: {month_first_day: percentage}}` mapping. When
+                provided, the future projection uses this hypothetical assignment set
+                instead of querying `ProjectMonthlyAssignment` rows on the project.
+                Used by the suggestion engine to evaluate candidate patterns without
+                persisting them. Past + in-progress logged effort is still computed
+                from `ProjectWeeklyEffort` regardless.
 
         Returns a `ForecastResult` with ``estimated_completion_date`` (date | None),
         ``delta_from_target_date_days`` (int | None — positive = behind target),
@@ -83,12 +91,24 @@ class ProjectAssignmentForecastManager:
             return self.__build_response(self.__latest_logged_week_start(today) or today)
 
         next_month_start = first_of_next_month(today)
-        future_assignments = list(ProjectMonthlyAssignment.objects.filter(project=project, month__gte=next_month_start).order_by("month"))
-        if not future_assignments:
-            return self.__build_response(None)
+        if overlay is None:
+            future_rows = list(ProjectMonthlyAssignment.objects.filter(project=project, month__gte=next_month_start).order_by("month"))
+            if not future_rows:
+                return self.__build_response(None)
+            by_user_month: dict[int, dict[datetime.date, int]] = defaultdict(dict)
+            for assignment in future_rows:
+                by_user_month[assignment.user_id][assignment.month] = assignment.percentage
+        else:
+            by_user_month = {
+                user_id: {month: pct for month, pct in months.items() if month >= next_month_start} for user_id, months in overlay.items()
+            }
+            by_user_month = {user_id: months for user_id, months in by_user_month.items() if months}
+            if not by_user_month:
+                return self.__build_response(None)
 
-        horizon = max(a.month for a in future_assignments) + datetime.timedelta(days=HORIZON_PADDING_DAYS)
-        ctx = self.__load_user_context(future_assignments, next_month_start, horizon)
+        all_months = [m for months in by_user_month.values() for m in months]
+        horizon = max(all_months) + datetime.timedelta(days=HORIZON_PADDING_DAYS)
+        ctx = self.__load_user_context(by_user_month, next_month_start, horizon)
         completion = self.__walk_to_completion(
             ctx=ctx,
             start_day=next_month_start,
@@ -118,16 +138,11 @@ class ProjectAssignmentForecastManager:
 
     def __load_user_context(
         self,
-        future_assignments: list[ProjectMonthlyAssignment],
+        by_user_month: dict[int, dict[datetime.date, int]],
         next_month_start: datetime.date,
         horizon: datetime.date,
     ) -> ProjectAssignmentForecastUserContext:
         organization = self.project.organization
-
-        by_user_month: dict[int, dict[datetime.date, int]] = defaultdict(dict)
-        for assignment in future_assignments:
-            by_user_month[assignment.user_id][assignment.month] = assignment.percentage
-
         user_ids = list(by_user_month.keys())
 
         user_membership = {m.user_id: m for m in OrganizationMembership.objects.filter(user_id__in=user_ids, organization=organization)}
