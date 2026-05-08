@@ -57,6 +57,9 @@ class ProjectAssignmentForecastManager:
 
     def __init__(self, project: KippoProject) -> None:
         self.project = project
+        self.__logged_hours_cache: int | None = None
+        self.__latest_logged_week_start_cache: datetime.date | None = None
+        self.__latest_logged_week_start_loaded: bool = False
 
     def compute(self, overlay: dict[int, dict[datetime.date, int]] | None = None) -> ForecastResult:
         """Return the forecast payload.
@@ -130,11 +133,21 @@ class ProjectAssignmentForecastManager:
         )
 
     def __logged_hours_through(self, today: datetime.date) -> int:
-        return ProjectWeeklyEffort.objects.filter(project=self.project, week_start__lte=today).aggregate(total=Sum("hours"))["total"] or 0
+        # Cached per manager instance — the suggester reuses one manager across many compute()
+        # calls (one per candidate pattern + thin-pattern retries), and the logged-hours total
+        # doesn't depend on the overlay being evaluated.
+        if self.__logged_hours_cache is None:
+            self.__logged_hours_cache = (
+                ProjectWeeklyEffort.objects.filter(project=self.project, week_start__lte=today).aggregate(total=Sum("hours"))["total"] or 0
+            )
+        return self.__logged_hours_cache
 
     def __latest_logged_week_start(self, today: datetime.date) -> datetime.date | None:
-        latest = ProjectWeeklyEffort.objects.filter(project=self.project, week_start__lte=today).order_by("-week_start").first()
-        return latest.week_start if latest else None
+        if not self.__latest_logged_week_start_loaded:
+            latest = ProjectWeeklyEffort.objects.filter(project=self.project, week_start__lte=today).order_by("-week_start").first()
+            self.__latest_logged_week_start_cache = latest.week_start if latest else None
+            self.__latest_logged_week_start_loaded = True
+        return self.__latest_logged_week_start_cache
 
     def __load_user_context(
         self,
