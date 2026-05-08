@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from commons.definitions import StringEnumWithChoices
 from django.utils.translation import gettext_lazy as _
-from pydantic import BaseModel as _BaseModel
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from accounts.models import OrganizationMembership
@@ -79,7 +79,7 @@ class ProjectAssignmentForecastUserContext:
     user_personal_holidays: dict[int, set[datetime.date]]
 
 
-class PatternMember(_BaseModel):
+class ProjectAssignmentPatternMember(BaseModel):
     """One member of a suggested assignment pattern.
 
     `monthly_percentages` keys are first-of-month dates; pydantic serializes them as
@@ -91,29 +91,30 @@ class PatternMember(_BaseModel):
     monthly_percentages: dict[datetime.date, int]
 
 
-class PatternConflict(_BaseModel):
-    """An over-allocation point in a suggested pattern."""
+class ProjectAssignmentPatternConflict(BaseModel):
+    """An over-allocation point in a suggested project-assignment pattern."""
 
     user_id: uuid.UUID
     month: datetime.date
     reason: str
 
 
-class Pattern(_BaseModel):
-    """A complete suggested assignment pattern.
+class ProjectAssignmentPattern(BaseModel):
+    """A complete suggested project-assignment pattern.
 
     `pattern_ids` carries the strategy keys that produced this pattern. Normally a
     single id (e.g. ['P1-max-reuse']); when multiple strategies converge on the
-    same member set + monthly percentages they are deduplicated into one Pattern
-    with the union (e.g. ['P1-max-reuse', 'P2-blend']) — see kippo#227 S3.
+    same member set + monthly percentages they are deduplicated into one
+    ProjectAssignmentPattern with the union (e.g. ['P1-max-reuse', 'P2-blend'])
+    — see kippo#227 S3.
     """
 
     pattern_ids: list[str]
     label: str
     estimated_completion: datetime.date | None
     infeasible: bool
-    conflicts: list[PatternConflict]
-    members: list[PatternMember]
+    conflicts: list[ProjectAssignmentPatternConflict]
+    members: list[ProjectAssignmentPatternMember]
 
 
 class ValidCurrencies(StringEnumWithChoices):

@@ -20,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Sum
 from django.utils import timezone
 
-from projects.definitions import Pattern, PatternConflict, PatternMember
+from projects.definitions import ProjectAssignmentPattern, ProjectAssignmentPatternConflict, ProjectAssignmentPatternMember
 from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import ProjectMonthlyAssignment, ProjectWeeklyEffort
 from projects.services.forecast import ProjectAssignmentForecastManager
@@ -118,7 +118,7 @@ class ProjectAssignmentSuggestionManager:
     """Generate ranked assignment patterns for a project.
 
     Construct with a project (and optional `from_month`), call `compute()` to get
-    the list of candidate patterns. Returns 0–3 `Pattern` objects after pattern
+    the list of candidate patterns. Returns 0–3 `ProjectAssignmentPattern` objects after pattern
     generation, dedup (S3), and ranking (B10).
 
     See monkut/kippo#224 B1–B13 and monkut/kippo#227 clarifications S1–S4.
@@ -131,7 +131,7 @@ class ProjectAssignmentSuggestionManager:
         # repeated logged-hours / latest-week-start lookups.
         self._forecaster = ProjectAssignmentForecastManager(project)
 
-    def compute(self) -> list[Pattern]:
+    def compute(self) -> list[ProjectAssignmentPattern]:
         if self.project.start_date is None:
             raise ProjectStartDateRequiredError(f"project {self.project.pk} has no start_date")
 
@@ -144,7 +144,7 @@ class ProjectAssignmentSuggestionManager:
             all_time_hours=self.__all_time_logged_hours_per_user(),
         )
 
-        patterns: list[Pattern] = []
+        patterns: list[ProjectAssignmentPattern] = []
         for strategy in _STRATEGIES:
             team = strategy.select(inputs)
             if not team:
@@ -171,7 +171,7 @@ class ProjectAssignmentSuggestionManager:
         """B4: existing percentage commitment per user/month across all projects in the organization.
 
         Returns `{user_id: {month: existing_total_pct}}`. New pattern percentages will be added on
-        top of these values; over-allocation (>100) becomes a `PatternConflict`.
+        top of these values; over-allocation (>100) becomes a `ProjectAssignmentPatternConflict`.
         """
         rows = (
             ProjectMonthlyAssignment.objects.filter(project__organization=organization, month__gte=from_month)
@@ -196,7 +196,7 @@ class ProjectAssignmentSuggestionManager:
         team: list[KippoUser],
         inputs: _SelectionInputs,
         from_month: datetime.date,
-    ) -> Pattern:
+    ) -> ProjectAssignmentPattern:
         target_date = self.project.target_date
         if target_date is None:
             end_month = from_month + relativedelta(months=HORIZON_MONTHS_NO_TARGET)
@@ -213,14 +213,14 @@ class ProjectAssignmentSuggestionManager:
             )
 
         members = [
-            PatternMember(
+            ProjectAssignmentPatternMember(
                 user_id=user.id,
                 is_past_member=user.id in inputs.past_members,
                 monthly_percentages=overlay.get(user.id, {}),
             )
             for user in team
         ]
-        return Pattern(
+        return ProjectAssignmentPattern(
             pattern_ids=[pattern_id.value],
             label=PATTERN_LABELS[pattern_id],
             estimated_completion=estimated,
@@ -237,7 +237,7 @@ class ProjectAssignmentSuggestionManager:
         end_month: datetime.date,
         capacity: dict,
         target_date: datetime.date | None,
-    ) -> tuple[dict, list[PatternConflict], datetime.date | None, bool]:
+    ) -> tuple[dict, list[ProjectAssignmentPatternConflict], datetime.date | None, bool]:
         """Build the overlay at `per_member_pct`, run the forecast, return (overlay, conflicts, estimated, infeasible)."""
         overlay, conflicts = self.__compose_overlay(team, per_member_pct, from_month, end_month, capacity)
         estimated = self._forecaster.compute(overlay=overlay).estimated_completion_date
@@ -251,16 +251,16 @@ class ProjectAssignmentSuggestionManager:
         from_month: datetime.date,
         end_month: datetime.date,
         capacity: dict,
-    ) -> tuple[dict, list[PatternConflict]]:
+    ) -> tuple[dict, list[ProjectAssignmentPatternConflict]]:
         """Build the user-month overlay and collect over-allocation conflicts.
 
-        Pattern percentage is fixed at `per_member_pct`. A `PatternConflict` is recorded for any
+        Pattern percentage is fixed at `per_member_pct`. A `ProjectAssignmentPatternConflict` is recorded for any
         (user, month) where adding the proposed pattern would push the user's org-total beyond
         `MAX_INDIVIDUAL_PERCENTAGE`. The pattern still proposes the requested percentage —
         per kippo#224 D3 the suggester surfaces the conflict rather than silently capping.
         """
         overlay: dict = {}
-        conflicts: list[PatternConflict] = []
+        conflicts: list[ProjectAssignmentPatternConflict] = []
 
         current_month = from_month
         while current_month <= end_month:
@@ -269,7 +269,7 @@ class ProjectAssignmentSuggestionManager:
                 existing = capacity.get(user.id, {}).get(current_month, 0)
                 if existing + per_member_pct > MAX_INDIVIDUAL_PERCENTAGE:
                     conflicts.append(
-                        PatternConflict(
+                        ProjectAssignmentPatternConflict(
                             user_id=user.id,
                             month=current_month,
                             reason=f"already {existing}% on other projects (proposed +{per_member_pct}% would total {existing + per_member_pct}%)",
@@ -282,13 +282,13 @@ class ProjectAssignmentSuggestionManager:
     # ----------------------------------------------------------------- post-pass
 
     @staticmethod
-    def __deduplicate(patterns: list[Pattern]) -> list[Pattern]:
+    def __deduplicate(patterns: list[ProjectAssignmentPattern]) -> list[ProjectAssignmentPattern]:
         """S3: collapse Patterns with identical members + monthly_percentages into one.
 
         Merged pattern's `pattern_ids` lists every strategy that converged. The earliest
         (P1, P2, P3) determines the survivor's primary label.
         """
-        canonical: list[Pattern] = []
+        canonical: list[ProjectAssignmentPattern] = []
         for pattern in patterns:
             duplicate_of = next((p for p in canonical if _patterns_equivalent(p, pattern)), None)
             if duplicate_of is None:
@@ -299,7 +299,7 @@ class ProjectAssignmentSuggestionManager:
         return canonical
 
     @staticmethod
-    def __rank(patterns: list[Pattern]) -> list[Pattern]:
+    def __rank(patterns: list[ProjectAssignmentPattern]) -> list[ProjectAssignmentPattern]:
         """B10: feasible first; among feasible with target_date, prefer closest to target_date."""
         return sorted(
             patterns,
@@ -310,7 +310,7 @@ class ProjectAssignmentSuggestionManager:
         )
 
 
-def _patterns_equivalent(a: Pattern, b: Pattern) -> bool:
+def _patterns_equivalent(a: ProjectAssignmentPattern, b: ProjectAssignmentPattern) -> bool:
     """Two patterns are equivalent when their member set + monthly_percentages match."""
     if len(a.members) != len(b.members):
         return False
