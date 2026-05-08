@@ -33,8 +33,7 @@ if TYPE_CHECKING:
 
 ALLOCATION_FLOOR_PERCENTAGE = 10  # B5
 SOFT_CAP_TEAM_SIZE = 3  # B6
-MAX_INDIVIDUAL_PERCENTAGE = 100
-THIN_PATTERN_PUSH_PERCENTAGE = MAX_INDIVIDUAL_PERCENTAGE  # B11 — push to the cap when capacity is insufficient
+MAX_INDIVIDUAL_PERCENTAGE = 100  # absolute hard cap — over-allocation past this is always a conflict
 HORIZON_MONTHS_NO_TARGET = 24  # walk this many months when project.target_date is null
 HORIZON_MONTHS_PAST_TARGET = 6  # walk this many months past target for the infeasible-flag path
 
@@ -68,11 +67,12 @@ class _SelectionInputs:
     past_members: set
     capacity: dict
     all_time_hours: dict[int, int]
+    member_soft_ceiling: int
 
 
-def _by_capacity_then_id(user: KippoUser, capacity: dict) -> tuple[int, int]:
+def _by_capacity_then_id(user: KippoUser, capacity: dict, ceiling: int) -> tuple[int, int]:
     user_existing = capacity.get(user.id, {})
-    available = MAX_INDIVIDUAL_PERCENTAGE if not user_existing else MAX_INDIVIDUAL_PERCENTAGE - max(user_existing.values())
+    available = ceiling if not user_existing else ceiling - max(user_existing.values())
     return (-available, str(user.id).__hash__())
 
 
@@ -81,7 +81,7 @@ def _select_p1_past_only(inputs: _SelectionInputs) -> list[KippoUser]:
         return []  # S2: greenfield project — empty selection skips this strategy
     past_pool = sorted(
         (u for u in inputs.org_pool if u.id in inputs.past_members),
-        key=lambda u: (-inputs.all_time_hours.get(u.id, 0), _by_capacity_then_id(u, inputs.capacity)),
+        key=lambda u: (-inputs.all_time_hours.get(u.id, 0), _by_capacity_then_id(u, inputs.capacity, inputs.member_soft_ceiling)),
     )
     return past_pool[:SOFT_CAP_TEAM_SIZE]
 
@@ -89,12 +89,12 @@ def _select_p1_past_only(inputs: _SelectionInputs) -> list[KippoUser]:
 def _select_p2_blend(inputs: _SelectionInputs) -> list[KippoUser]:
     past_pool = sorted(
         (u for u in inputs.org_pool if u.id in inputs.past_members),
-        key=lambda u: (-inputs.all_time_hours.get(u.id, 0), _by_capacity_then_id(u, inputs.capacity)),
+        key=lambda u: (-inputs.all_time_hours.get(u.id, 0), _by_capacity_then_id(u, inputs.capacity, inputs.member_soft_ceiling)),
     )
     team = past_pool[:SOFT_CAP_TEAM_SIZE]
     non_past = sorted(
         (u for u in inputs.org_pool if u.id not in inputs.past_members),
-        key=lambda u: _by_capacity_then_id(u, inputs.capacity),
+        key=lambda u: _by_capacity_then_id(u, inputs.capacity, inputs.member_soft_ceiling),
     )
     for candidate in non_past:
         if len(team) >= SOFT_CAP_TEAM_SIZE:
@@ -104,7 +104,7 @@ def _select_p2_blend(inputs: _SelectionInputs) -> list[KippoUser]:
 
 
 def _select_p3_most_available(inputs: _SelectionInputs) -> list[KippoUser]:
-    return sorted(inputs.org_pool, key=lambda u: _by_capacity_then_id(u, inputs.capacity))[:SOFT_CAP_TEAM_SIZE]
+    return sorted(inputs.org_pool, key=lambda u: _by_capacity_then_id(u, inputs.capacity, inputs.member_soft_ceiling))[:SOFT_CAP_TEAM_SIZE]
 
 
 _STRATEGIES: tuple[_PatternStrategy, ...] = (
@@ -142,6 +142,7 @@ class ProjectAssignmentSuggestionManager:
             past_members=self.__past_members(),
             capacity=self.__capacity_lookup(self.project.organization, from_month),
             all_time_hours=self.__all_time_logged_hours_per_user(),
+            member_soft_ceiling=self.project.organization.project_assignment_member_soft_ceiling,
         )
 
         patterns: list[ProjectAssignmentPattern] = []
@@ -203,13 +204,14 @@ class ProjectAssignmentSuggestionManager:
         else:
             end_month = target_date.replace(day=1) + relativedelta(months=HORIZON_MONTHS_PAST_TARGET)
 
-        baseline_pct = max(ALLOCATION_FLOOR_PERCENTAGE, MAX_INDIVIDUAL_PERCENTAGE // len(team))
+        baseline_pct = max(ALLOCATION_FLOOR_PERCENTAGE, inputs.member_soft_ceiling // len(team))
         overlay, conflicts, estimated, infeasible = self.__evaluate_overlay(team, baseline_pct, from_month, end_month, inputs.capacity, target_date)
 
-        # B11: thin-pattern fallback — push every member to the cap if the baseline can't meet target_date.
+        # B11: thin-pattern fallback — push every member to the soft ceiling if the baseline
+        # can't meet target_date. We never push past the org soft ceiling on a single project.
         if infeasible:
             overlay, conflicts, estimated, infeasible = self.__evaluate_overlay(
-                team, THIN_PATTERN_PUSH_PERCENTAGE, from_month, end_month, inputs.capacity, target_date
+                team, inputs.member_soft_ceiling, from_month, end_month, inputs.capacity, target_date
             )
 
         members = [

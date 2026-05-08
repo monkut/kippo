@@ -187,6 +187,7 @@ class KippoOrganizationAdminFormTestCase(IsStaffModelAdminTestCaseBase):
                     "weekly_project_time_deadline": self.organization.weekly_project_time_deadline,
                     "slack_command_name": self.organization.slack_command_name,
                     "fiscalyear_start_month": self.organization.fiscalyear_start_month,
+                    "project_assignment_member_soft_ceiling": self.organization.project_assignment_member_soft_ceiling,
                     "default_github_project_template": "PVT_kwDOtest1",
                 },
             )
