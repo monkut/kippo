@@ -4,7 +4,6 @@ import uuid
 from accounts.models import KippoOrganization
 from commons.models import UserCreatedBaseModel
 from django.conf import settings
-from django.contrib.postgres import fields
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -139,9 +138,8 @@ class GithubOrganizationalWebhook(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE)
     hook_id = models.PositiveSmallIntegerField(null=True, blank=True)
-    events = fields.ArrayField(
+    events = models.JSONField(
         default=webhook_events_default,
-        base_field=models.CharField(max_length=15),
         help_text=_("Github webhook event(s)"),
     )
     url = models.URLField(default=settings.WEBHOOK_URL, help_text=_("The endpoint which github will send webhook events to"))
