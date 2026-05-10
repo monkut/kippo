@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('projects', '0029_normalize_kippoproject_slack_channel_name'),
+        ('projects', '0030_normalize_kippoproject_slack_channel_name'),
     ]
 
     operations = [

@@ -12,7 +12,7 @@ def normalize_slack_channel_names(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0028_rename_github_project_api_url_to_nodeid"),
+        ("projects", "0029_alter_projectcolumnset_label_category_prefixes_and_more"),
     ]
 
     operations = [

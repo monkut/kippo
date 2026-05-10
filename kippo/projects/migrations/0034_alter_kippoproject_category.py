@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('projects', '0032_kippoproject_japanese_verbose_names'),
+        ('projects', '0033_kippoproject_japanese_verbose_names'),
     ]
 
     operations = [

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('accounts', '0013_remove_kippoorganization_default_columnset'),
-        ('projects', '0031_kippoproject_category_choices_close_fields'),
+        ('projects', '0032_kippoproject_category_choices_close_fields'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

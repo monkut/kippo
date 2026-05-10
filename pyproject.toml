@@ -35,7 +35,6 @@ dependencies = [
     "drf-spectacular>=0.29.0",
     "drf-nested-routers>=0.95.0",
     "pydantic>=2.0,<3.0",
-    "django-rustyhip",
 ]
 
 [project.urls]
@@ -186,5 +185,3 @@ sequence = [
     { cmd = "python manage.py collectstatic --noinput", cwd = "kippo" },
 ]
 
-[tool.uv.sources]
-django-rustyhip = { git = "https://github.com/monkut/django-rustyhip.git" }

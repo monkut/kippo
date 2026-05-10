@@ -27,7 +27,7 @@ def noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0030_issue9_project_external_resources"),
+        ("projects", "0031_issue9_project_external_resources"),
     ]
 
     operations = [
