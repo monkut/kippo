@@ -3,6 +3,19 @@
 import octocat.models
 from django.db import migrations, models
 
+# Postgres has no implicit cast from varchar[] -> jsonb, so Django's default
+# `USING events::jsonb` fails. Issue the ALTER ourselves with `to_jsonb(events)`
+# (array -> JSON array), and mirror the field change in Django's migration state
+# so the model and migration graph stay consistent.
+#
+# Reverse is a no-op: postgres ALTER COLUMN USING does not allow subqueries, so
+# unpacking jsonb back to varchar[] requires a helper function or an in-place
+# data rewrite. Reverse migration is rare in practice; if needed, do it by hand.
+_FORWARD_SQL = (
+    'ALTER TABLE "octocat_githuborganizationalwebhook" '
+    'ALTER COLUMN "events" TYPE jsonb USING to_jsonb("events")'
+)
+
 
 class Migration(migrations.Migration):
 
@@ -11,9 +24,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='githuborganizationalwebhook',
-            name='events',
-            field=models.JSONField(default=octocat.models.webhook_events_default, help_text='Github webhook event(s)'),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(sql=_FORWARD_SQL, reverse_sql=migrations.RunSQL.noop),
+            ],
+            state_operations=[
+                migrations.AlterField(
+                    model_name='githuborganizationalwebhook',
+                    name='events',
+                    field=models.JSONField(default=octocat.models.webhook_events_default, help_text='Github webhook event(s)'),
+                ),
+            ],
         ),
     ]
