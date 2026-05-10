@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Kippo dev shared infrastructure — Zappa deploy bucket, rustyhip DB bucket,
-  and kippo Lambda execution role. Foundation for all kippo-dev stacks.
+  Kippo shared infrastructure — Zappa deploy bucket, rustyhip DB bucket,
+  and kippo Lambda execution role. Foundation for all kippo stacks.
 
 Parameters:
   Environment:
