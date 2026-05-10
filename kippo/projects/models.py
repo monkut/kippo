@@ -9,7 +9,6 @@ import reversion
 from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -65,15 +64,13 @@ class ProjectColumnSet(models.Model):  # not using userdefined model in order to
     )
     created_datetime = models.DateTimeField(auto_now_add=True, editable=False)
     updated_datetime = models.DateTimeField(auto_now=True, editable=False)
-    label_category_prefixes = ArrayField(
-        models.CharField(max_length=10, blank=True),
+    label_category_prefixes = models.JSONField(
         null=True,
         blank=True,
         default=category_prefixes_default,
         help_text=_("Github Issue Labels Category Prefixes"),
     )
-    label_estimate_prefixes = ArrayField(
-        models.CharField(max_length=10, blank=True),
+    label_estimate_prefixes = models.JSONField(
         null=True,
         blank=True,
         default=estimate_prefixes_default,

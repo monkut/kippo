@@ -299,6 +299,14 @@ wheels = [
 ]
 
 [[package]]
+name = "django-rustyhip"
+version = "0.1.0"
+source = { git = "https://github.com/monkut/django-rustyhip.git#f9485c80e4fffaea3ec8b8de6ce1c05b8bc6cc2c" }
+dependencies = [
+    { name = "django" },
+]
+
+[[package]]
 name = "djangorestframework"
 version = "3.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -519,6 +527,7 @@ dependencies = [
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
     { name = "django-reversion" },
+    { name = "django-rustyhip" },
     { name = "djangorestframework" },
     { name = "djangorestframework-simplejwt" },
     { name = "drf-nested-routers" },
@@ -550,6 +559,7 @@ requires-dist = [
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
     { name = "django-reversion" },
+    { name = "django-rustyhip", git = "https://github.com/monkut/django-rustyhip.git" },
     { name = "djangorestframework", specifier = ">=3.16.1" },
     { name = "djangorestframework-simplejwt", specifier = ">=5.5.1" },
     { name = "drf-nested-routers", specifier = ">=0.95.0" },
