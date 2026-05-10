@@ -15,7 +15,7 @@ from django.core.management.base import BaseCommand, CommandParser
 
 KIPPO_UI_REPO = "monkut/kippo-ui"
 GITHUB_API_URL = f"https://api.github.com/repos/{KIPPO_UI_REPO}/releases/latest"
-TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
+DEFAULT_TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 HTTP_STATUS_SERVER_ERROR = 500
@@ -33,7 +33,13 @@ class Command(BaseCommand):
             "--output-dir",
             type=str,
             default=None,
-            help="Output directory for UI files (default: staticfiles/ui)",
+            help="Output directory for UI files (default: static/ui)",
+        )
+        parser.add_argument(
+            "--tarball-name",
+            type=str,
+            default=DEFAULT_TARBALL_NAME,
+            help=f"Name of the release asset tarball to download (default: {DEFAULT_TARBALL_NAME})",
         )
         parser.add_argument(
             "--dry-run",
@@ -45,6 +51,7 @@ class Command(BaseCommand):
         """Execute the command."""
         output_dir = options["output_dir"]
         dry_run = options["dry_run"]
+        tarball_name = options["tarball_name"]
 
         # Determine output path (source directory, not STATIC_ROOT)
         if output_dir:
@@ -68,7 +75,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Latest release: {release['tag_name']}")
 
         # Find the tarball asset
-        tarball_url = self._find_tarball_url(release)
+        tarball_url = self._find_tarball_url(release, tarball_name)
         if not tarball_url:
             return
 
@@ -130,15 +137,15 @@ class Command(BaseCommand):
 
         return None
 
-    def _find_tarball_url(self, release: dict) -> str | None:
+    def _find_tarball_url(self, release: dict, tarball_name: str = DEFAULT_TARBALL_NAME) -> str | None:
         """Find the tarball download URL from release assets."""
         for asset in release.get("assets", []):
-            if asset.get("name") == TARBALL_NAME:
+            if asset.get("name") == tarball_name:
                 return asset.get("browser_download_url")
 
         self.stdout.write(
             self.style.ERROR(
-                f"{TARBALL_NAME} not found in release {release['tag_name']}. Available assets: {[a['name'] for a in release.get('assets', [])]}"
+                f"{tarball_name} not found in release {release['tag_name']}. Available assets: {[a['name'] for a in release.get('assets', [])]}"
             )
         )
         return None

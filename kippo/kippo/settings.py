@@ -126,12 +126,10 @@ MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
 
 
 # Database
-# https://docs.djangoproject.com/en/2.0/ref/settings/#databases
-# Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.postgresql"),
         "NAME": os.getenv("DB_NAME", "kippo"),
         "USER": os.getenv("DB_USER", "postgres"),
         "PASSWORD": os.getenv("DB_PASSWORD", "mysecretpassword"),
@@ -378,10 +376,13 @@ ATTENDANCECANCEL_SUBCOMMAND_MINUTES = int(os.getenv("ATTENDANCECANCEL_SUBCOMMAND
 DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = "30"
 PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS = int(os.getenv("PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS", DEFAULT_PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS))
 
-# CORS Configuration - Only enabled in DEBUG mode for local development
-# In production (DEBUG=False), CORS is disabled as the UI is served from static files
-if DEBUG:
-    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
+# CORS Configuration
+# Enabled when CORS_ALLOWED_ORIGINS env var is set (cross-origin dev deployments),
+# or defaulting to localhost in DEBUG mode.
+_cors_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173" if DEBUG else "")
+_cors_allowed_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+if _cors_allowed_origins:
+    CORS_ALLOWED_ORIGINS = _cors_allowed_origins
     CORS_ALLOW_CREDENTIALS = True
     CORS_ALLOW_METHODS = [
         "DELETE",

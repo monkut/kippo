@@ -184,3 +184,4 @@ sequence = [
     { cmd = "python manage.py update_ui", cwd = "kippo" },
     { cmd = "python manage.py collectstatic --noinput", cwd = "kippo" },
 ]
+
