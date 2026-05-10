@@ -21,7 +21,7 @@ def map_invalid_categories_to_other(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0031_normalize_kippoproject_slack_channel_name"),
+        ("projects", "0034_alter_projectcolumnset_label_category_prefixes_and_more"),
     ]
 
     operations = [
