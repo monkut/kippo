@@ -94,7 +94,11 @@ MIDDLEWARE = [
 
 # https://github.com/evansd/whitenoise/issues/164
 WHITENOISE_STATIC_PREFIX = "/static/"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# STATICFILES_STORAGE was removed in Django 5.1; use STORAGES instead
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 ROOT_URLCONF = "kippo.urls"
 
@@ -121,7 +125,6 @@ WSGI_APPLICATION = "kippo.wsgi.application"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-STATIC_URL = os.getenv("STATIC_URL", "/static/")
 MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
 
 
