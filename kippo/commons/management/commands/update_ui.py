@@ -92,7 +92,7 @@ class Command(BaseCommand):
                 shutil.rmtree(static_root_ui)
 
         # Download and extract
-        if not self._download_and_extract(tarball_url, ui_path):
+        if not self._download_and_extract(tarball_url, ui_path, tarball_name):
             return
 
         self.stdout.write(self.style.SUCCESS(f"UI installed successfully to: {ui_path}"))
@@ -150,14 +150,14 @@ class Command(BaseCommand):
         )
         return None
 
-    def _download_and_extract(self, tarball_url: str, ui_path: Path) -> bool:
+    def _download_and_extract(self, tarball_url: str, ui_path: Path, tarball_name: str = DEFAULT_TARBALL_NAME) -> bool:
         """Download the tarball and extract to the target directory."""
-        self.stdout.write(f"Downloading {TARBALL_NAME}...")
+        self.stdout.write(f"Downloading {tarball_name}...")
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
-                tarball_path = temp_path / TARBALL_NAME
+                tarball_path = temp_path / tarball_name
 
                 # Download tarball
                 request = Request(tarball_url, headers={"User-Agent": "kippo-update-ui"})  # noqa: S310
