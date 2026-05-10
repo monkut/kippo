@@ -44,7 +44,7 @@ BASE_DIR = PurePath(Path(__file__).resolve().parent.parent)
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya"  # noqa: S105
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "(asz2@@dcx1zvj0j)ym_tz!z!!i#f$z5!hh_*stl@&e$sd#jya")  # noqa: S105
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = strtobool(os.getenv("DEBUG", "False"))
@@ -132,12 +132,12 @@ _db_config: dict = {
     "ENGINE": _db_engine,
     "NAME": os.getenv("DB_NAME", "kippo"),
     "USER": os.getenv("DB_USER", "postgres"),
-    "PASSWORD": os.getenv("DB_PASSWORD", "mysecretpassword"),
+    "PASSWORD": os.getenv("DB_PASSWORD", ""),
     "HOST": os.getenv("DB_HOST", "127.0.0.1"),
     "PORT": os.getenv("DB_PORT", "5432"),
 }
 if _db_engine == "rustyhip":
-    _db_config["OPTIONS"] = {"endpoint": os.getenv("RUSTYHIP_ENDPOINT", "http://localhost:9000")}
+    _db_config["OPTIONS"] = {"endpoint": os.getenv("RUSTYHIP_ENDPOINT")}
 DATABASES = {"default": _db_config}
 
 
