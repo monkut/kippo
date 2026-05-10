@@ -127,16 +127,18 @@ MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
-DATABASES = {
-    "default": {
-        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.postgresql"),
-        "NAME": os.getenv("DB_NAME", "kippo"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "mysecretpassword"),
-        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("DB_PORT", "5432"),
-    }
+_db_engine = os.getenv("DB_ENGINE", "django.db.backends.postgresql")
+_db_config: dict = {
+    "ENGINE": _db_engine,
+    "NAME": os.getenv("DB_NAME", "kippo"),
+    "USER": os.getenv("DB_USER", "postgres"),
+    "PASSWORD": os.getenv("DB_PASSWORD", "mysecretpassword"),
+    "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+    "PORT": os.getenv("DB_PORT", "5432"),
 }
+if _db_engine == "rustyhip":
+    _db_config["OPTIONS"] = {"endpoint": os.getenv("RUSTYHIP_ENDPOINT", "http://localhost:9000")}
+DATABASES = {"default": _db_config}
 
 
 # Password validation
