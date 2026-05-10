@@ -3,6 +3,57 @@
 import projects.models
 from django.db import migrations, models
 
+# Recreate projects_projectcolumnset in one shot to avoid SQLite rejecting the
+# postgres-specific varchar(10)[] column type when _remake_table copies the old
+# schema during an AlterField call. Running both AlterField ops via raw SQL lets
+# us write the final schema directly without going through PRAGMA table_info.
+_CREATE_NEW = """
+CREATE TABLE "new__projects_projectcolumnset" (
+    "id" char(32) NOT NULL PRIMARY KEY,
+    "name" varchar(256) NOT NULL,
+    "created_datetime" datetime NOT NULL,
+    "updated_datetime" datetime NOT NULL,
+    "label_category_prefixes" text NULL CHECK ((JSON_VALID("label_category_prefixes") OR "label_category_prefixes" IS NULL)),
+    "label_estimate_prefixes" text NULL CHECK ((JSON_VALID("label_estimate_prefixes") OR "label_estimate_prefixes" IS NULL)),
+    "organization_id" char(32) NULL REFERENCES "accounts_kippoorganization" ("id") DEFERRABLE INITIALLY DEFERRED,
+    "default_column_name" varchar(256) NOT NULL
+)
+"""
+
+_COPY_DATA = """
+INSERT INTO "new__projects_projectcolumnset"
+    SELECT "id", "name", "created_datetime", "updated_datetime",
+           "label_category_prefixes", "label_estimate_prefixes",
+           "organization_id", "default_column_name"
+    FROM "projects_projectcolumnset"
+"""
+
+_DROP_OLD = 'DROP TABLE "projects_projectcolumnset"'
+
+_RENAME = 'ALTER TABLE "new__projects_projectcolumnset" RENAME TO "projects_projectcolumnset"'
+
+# Reverse: plain text columns (no CHECK), compatible with pre-migration state
+_BWD_CREATE_NEW = """
+CREATE TABLE "new__projects_projectcolumnset" (
+    "id" char(32) NOT NULL PRIMARY KEY,
+    "name" varchar(256) NOT NULL,
+    "created_datetime" datetime NOT NULL,
+    "updated_datetime" datetime NOT NULL,
+    "label_category_prefixes" text NULL,
+    "label_estimate_prefixes" text NULL,
+    "organization_id" char(32) NULL REFERENCES "accounts_kippoorganization" ("id") DEFERRABLE INITIALLY DEFERRED,
+    "default_column_name" varchar(256) NOT NULL
+)
+"""
+
+_BWD_COPY_DATA = _COPY_DATA.replace('"new__projects_projectcolumnset"', '"bwd__projects_projectcolumnset"').replace(
+    '"projects_projectcolumnset"', '"new__projects_projectcolumnset"'
+)
+
+_BWD_DROP_OLD = 'DROP TABLE "new__projects_projectcolumnset"'
+
+_BWD_RENAME = 'ALTER TABLE "bwd__projects_projectcolumnset" RENAME TO "projects_projectcolumnset"'
+
 
 class Migration(migrations.Migration):
 
@@ -11,14 +62,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='projectcolumnset',
-            name='label_category_prefixes',
-            field=models.JSONField(blank=True, default=projects.models.category_prefixes_default, help_text='Github Issue Labels Category Prefixes', null=True),
-        ),
-        migrations.AlterField(
-            model_name='projectcolumnset',
-            name='label_estimate_prefixes',
-            field=models.JSONField(blank=True, default=projects.models.estimate_prefixes_default, help_text='Github Issue Labels Estimate Prefixes', null=True),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(sql=_CREATE_NEW, reverse_sql=migrations.RunSQL.noop),
+                migrations.RunSQL(sql=_COPY_DATA, reverse_sql=migrations.RunSQL.noop),
+                migrations.RunSQL(sql=_DROP_OLD, reverse_sql=migrations.RunSQL.noop),
+                migrations.RunSQL(sql=_RENAME, reverse_sql=migrations.RunSQL.noop),
+            ],
+            state_operations=[
+                migrations.AlterField(
+                    model_name='projectcolumnset',
+                    name='label_category_prefixes',
+                    field=models.JSONField(blank=True, default=projects.models.category_prefixes_default, help_text='Github Issue Labels Category Prefixes', null=True),
+                ),
+                migrations.AlterField(
+                    model_name='projectcolumnset',
+                    name='label_estimate_prefixes',
+                    field=models.JSONField(blank=True, default=projects.models.estimate_prefixes_default, help_text='Github Issue Labels Estimate Prefixes', null=True),
+                ),
+            ],
         ),
     ]
