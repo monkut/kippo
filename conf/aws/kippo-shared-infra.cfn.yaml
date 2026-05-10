@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Kippo shared infrastructure — Zappa deploy bucket, rustyhip DB bucket,
+  and kippo Lambda execution role. Foundation for all kippo stacks.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment (used in resource names and tags).
+
+Resources:
+
+  KippoZappaDeployBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "kippo-${Environment}-zappa-deploy"
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldDeployments
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
+
+  RustyhipDbBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "rustyhip-${Environment}-db"
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
+
+  KippoLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "kippo-${Environment}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SsmReadKippoParams
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kippo/${Environment}/*"
+        - PolicyName: S3ZappaDeployAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt KippoZappaDeployBucket.Arn
+                  - !Sub "${KippoZappaDeployBucket.Arn}/*"
+      Tags:
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  ZappaDeployBucketName:
+    Description: S3 bucket for Zappa Lambda package uploads.
+    Value: !Ref KippoZappaDeployBucket
+    Export:
+      Name: !Sub "kippo-${Environment}-zappa-deploy-bucket"
+
+  RustyhipDbBucketName:
+    Description: S3 bucket for rustyhip SQLite-over-S3 database pages.
+    Value: !Ref RustyhipDbBucket
+    Export:
+      Name: !Sub "kippo-${Environment}-rustyhip-db-bucket"
+
+  LambdaExecutionRoleArn:
+    Description: ARN of the kippo Lambda execution role.
+    Value: !GetAtt KippoLambdaExecutionRole.Arn
+    Export:
+      Name: !Sub "kippo-${Environment}-lambda-role-arn"
+
+  LambdaExecutionRoleName:
+    Description: Name of the kippo Lambda execution role.
+    Value: !Ref KippoLambdaExecutionRole
+    Export:
+      Name: !Sub "kippo-${Environment}-lambda-role-name"
