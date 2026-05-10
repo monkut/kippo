@@ -3,6 +3,25 @@
 import projects.models
 from django.db import migrations, models
 
+# Postgres has no implicit cast from varchar[] -> jsonb, so Django's default
+# `USING <col>::jsonb` fails. Issue the ALTER ourselves with `to_jsonb(<col>)`
+# (array -> JSON array) for each column, and mirror the field changes in
+# Django's migration state so the model and migration graph stay consistent.
+#
+# Reverse is a no-op: postgres ALTER COLUMN USING does not allow subqueries,
+# so unpacking jsonb back to varchar[] requires a helper function or manual
+# data rewrite. Reverse migration is rare in practice; if needed, do it by hand.
+_FORWARD_CATEGORY_SQL = (
+    'ALTER TABLE "projects_projectcolumnset" '
+    'ALTER COLUMN "label_category_prefixes" TYPE jsonb '
+    'USING to_jsonb("label_category_prefixes")'
+)
+_FORWARD_ESTIMATE_SQL = (
+    'ALTER TABLE "projects_projectcolumnset" '
+    'ALTER COLUMN "label_estimate_prefixes" TYPE jsonb '
+    'USING to_jsonb("label_estimate_prefixes")'
+)
+
 
 class Migration(migrations.Migration):
 
@@ -11,14 +30,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='projectcolumnset',
-            name='label_category_prefixes',
-            field=models.JSONField(blank=True, default=projects.models.category_prefixes_default, help_text='Github Issue Labels Category Prefixes', null=True),
-        ),
-        migrations.AlterField(
-            model_name='projectcolumnset',
-            name='label_estimate_prefixes',
-            field=models.JSONField(blank=True, default=projects.models.estimate_prefixes_default, help_text='Github Issue Labels Estimate Prefixes', null=True),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(sql=_FORWARD_CATEGORY_SQL, reverse_sql=migrations.RunSQL.noop),
+                migrations.RunSQL(sql=_FORWARD_ESTIMATE_SQL, reverse_sql=migrations.RunSQL.noop),
+            ],
+            state_operations=[
+                migrations.AlterField(
+                    model_name='projectcolumnset',
+                    name='label_category_prefixes',
+                    field=models.JSONField(blank=True, default=projects.models.category_prefixes_default, help_text='Github Issue Labels Category Prefixes', null=True),
+                ),
+                migrations.AlterField(
+                    model_name='projectcolumnset',
+                    name='label_estimate_prefixes',
+                    field=models.JSONField(blank=True, default=projects.models.estimate_prefixes_default, help_text='Github Issue Labels Estimate Prefixes', null=True),
+                ),
+            ],
         ),
     ]
