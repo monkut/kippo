@@ -44,36 +44,27 @@ Prerequisites:
     ```
     
     
-3. Prepare the local settings:
+3. Configure environment variables:
 
-    > The settings directory contains the `base.py` file, this file is intended to be imported by 
-    > the appropriate settings file (local.py, production.py, etc)
+    > `kippo/kippo/settings.py` reads all deployment-specific values from the environment.
+    > For local development, only `DEBUG` and the postgres connection vars need to be set;
+    > everything else falls back to sensible defaults defined in `settings.py`.
 
+    ```bash
+    export DEBUG=True
+    export DB_NAME=kippo
+    export DB_USER=postgres
+    export DB_PASSWORD=mysecretpassword
+    export DB_HOST=127.0.0.1
+    export DB_PORT=5432
     ```
-    # kippo/settings/local.py:
-    from .base import *  # noqa: F401
-    
-    STATIC_URL = '/static/'
-    
-    DEBUG = True
-    
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'kippo',
-            'HOST': '127.0.0.1',
-            'PORT': 5432,
-            'USER': 'postgres',
-            'PASSWORD': 'mysecretpassword',
-        }
-    }    
-    ```   
 
-4. Set `local.py` as the settings file to use:
+    Optional variables that affect serving:
 
-    ```
-    export DJANGO_SETTINGS_MODULE=kippo.settings.local
-    ```
+    - `URL_PREFIX` — prefix prepended to `STATIC_URL`, `LOGIN_REDIRECT_URL`, etc. Required when the
+      app is mounted under a stage path such as `/prod/` (e.g. on AWS API Gateway).
+    - `STATIC_URL` is **derived** as `f"{URL_PREFIX}/static/"` — do not set it directly.
+    - `ALLOWED_HOSTS` — comma-separated list; defaults to `*`.
 
 5. Setup database:
 
@@ -136,6 +127,80 @@ Required Bot Users:
 
 Where user passwords are set to: 5up3r-53cr3t-p@$$w0rd
 
+
+## Deploying the kippo-ui SPA
+
+The Django backend serves the [monkut/kippo-ui](https://github.com/monkut/kippo-ui)
+React SPA under `/ui/`. The SPA bundle is **not** vendored in this repo — it is downloaded
+from the latest `monkut/kippo-ui` GitHub release at deploy time by the `update_ui`
+management command.
+
+### One-step deploy (recommended)
+
+```bash
+uv run poe update-ui
+```
+
+This poe task is a sequence that runs:
+
+```bash
+uv run python manage.py update_ui
+uv run python manage.py collectstatic --noinput
+```
+
+`update_ui` downloads `kippo-ui-build-prod.tar.gz` from the latest release of
+`monkut/kippo-ui` and extracts the `client/` directory into `static/ui/`
+(at the repo root). `collectstatic` then copies it into `STATIC_ROOT`
+(`kippo/staticfiles/`) where whitenoise can serve it.
+
+> **`collectstatic` is mandatory after `update_ui`.** Without it, `/ui/*` returns
+> 404 from Django even though the API still works — the `update_ui` step alone
+> writes to the source directory only, not to `STATIC_ROOT`.
+
+### GitHub API rate limits
+
+`update_ui` calls the unauthenticated GitHub API. If you hit a 403 rate-limit,
+set a personal access token (any token with `public_repo` scope) and rerun:
+
+```bash
+export GITHUB_TOKEN=<your-pat>
+uv run poe update-ui
+```
+
+The retry path in `update_ui.py` currently handles only 5xx and 429 — 403s are
+not retried automatically.
+
+### How the UI is mounted
+
+The Django URL conf (`kippo/kippo/urls.py`) catches every path under `/ui/` with a
+`SPAView` that returns the SPA's `index.html` so React Router can take over
+client-side. SPA assets (JS/CSS) are served from `/static/ui/assets/` by whitenoise.
+
+If `SPAView` raises `Http404("UI not installed. Run 'uv run poe update-ui' to install.")`,
+either `update_ui` was never run or `collectstatic` was skipped after running it.
+
+## Static files configuration
+
+kippo uses [whitenoise](https://whitenoise.evans.io/) middleware to serve static
+files in production. Relevant settings (in `kippo/kippo/settings.py`):
+
+| Setting | Value | Notes |
+| --- | --- | --- |
+| `STATIC_URL` | `f"{URL_PREFIX}/static/"` | Derived from `URL_PREFIX` env var |
+| `STATIC_ROOT` | `<repo>/kippo/staticfiles/` | Target of `collectstatic` |
+| `STATICFILES_DIRS` | `[("ui", "<repo>/static/ui/")]` if present | Populated by `update_ui` |
+| `WHITENOISE_STATIC_PREFIX` | `/static/` | See whitenoise issue #164 |
+| `STATICFILES_STORAGE` | `whitenoise.storage.CompressedManifestStaticFilesStorage` | See note below |
+
+> **Note on `STATICFILES_STORAGE` and Django 5.2.** The setting was deprecated in
+> Django 4.2 and removed in 5.1, so on the current Django 5.2 dependency it is
+> silently ignored — manifest hashing and `.gz` precompression are **not** active.
+> Whitenoise still serves `/static/*` from `STATIC_ROOT` via middleware, so files
+> load correctly, just without cache-busting hashes. Migration to the Django 5.1+
+> `STORAGES` dict is tracked in [#258](https://github.com/monkut/kippo/issues/258).
+> Any such migration must exclude the `static/ui/` bundle from manifest re-hashing
+> because Vite already pre-hashes those filenames and the SPA's `index.html`
+> hard-codes them.
 
 ## Optional Features
 
