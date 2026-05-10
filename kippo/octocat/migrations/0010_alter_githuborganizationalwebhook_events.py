@@ -3,18 +3,38 @@
 import octocat.models
 from django.db import migrations, models
 
-# Postgres has no implicit cast from varchar[] -> jsonb, so Django's default
-# `USING events::jsonb` fails. Issue the ALTER ourselves with `to_jsonb(events)`
-# (array -> JSON array), and mirror the field change in Django's migration state
-# so the model and migration graph stay consistent.
-#
-# Reverse is a no-op: postgres ALTER COLUMN USING does not allow subqueries, so
-# unpacking jsonb back to varchar[] requires a helper function or an in-place
-# data rewrite. Reverse migration is rare in practice; if needed, do it by hand.
-_FORWARD_SQL = (
-    'ALTER TABLE "octocat_githuborganizationalwebhook" '
-    'ALTER COLUMN "events" TYPE jsonb USING to_jsonb("events")'
-)
+
+class _AlterFieldArrayToJSONB(migrations.AlterField):
+    """AlterField that converts a postgres `varchar[]` column to `jsonb`.
+
+    Postgres has no implicit cast from `varchar[]` to `jsonb`, so Django's
+    default `ALTER COLUMN ... TYPE jsonb USING <col>::jsonb` fails. On
+    postgres, issue the ALTER with `USING to_jsonb(<col>)` instead, which
+    converts the array into a JSON array and preserves NULL/empty rows.
+
+    On every other backend (notably sqlite), defer to Django's default
+    behavior: sqlite rebuilds the table via `_remake_table`, which handles
+    the type change implicitly without needing a USING clause.
+
+    Reverse is a no-op on postgres because `ALTER COLUMN USING` does not
+    permit subqueries, so unpacking jsonb back to `varchar[]` would need
+    a helper function or manual data rewrite — both are rare in practice.
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        if schema_editor.connection.vendor == 'postgresql':
+            table = from_state.apps.get_model(app_label, self.model_name)._meta.db_table
+            schema_editor.execute(
+                f'ALTER TABLE "{table}" '
+                f'ALTER COLUMN "{self.name}" TYPE jsonb USING to_jsonb("{self.name}")'
+            )
+            return
+        super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        if schema_editor.connection.vendor == 'postgresql':
+            return
+        super().database_backwards(app_label, schema_editor, from_state, to_state)
 
 
 class Migration(migrations.Migration):
@@ -24,16 +44,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(sql=_FORWARD_SQL, reverse_sql=migrations.RunSQL.noop),
-            ],
-            state_operations=[
-                migrations.AlterField(
-                    model_name='githuborganizationalwebhook',
-                    name='events',
-                    field=models.JSONField(default=octocat.models.webhook_events_default, help_text='Github webhook event(s)'),
-                ),
-            ],
+        _AlterFieldArrayToJSONB(
+            model_name='githuborganizationalwebhook',
+            name='events',
+            field=models.JSONField(default=octocat.models.webhook_events_default, help_text='Github webhook event(s)'),
         ),
     ]
