@@ -157,6 +157,46 @@ uv run python manage.py collectstatic --noinput
 > 404 from Django even though the API still works — the `update_ui` step alone
 > writes to the source directory only, not to `STATIC_ROOT`.
 
+### Stage-matched UI bundles (`--base-prefix` / `KIPPO_UI_BASE_PREFIX`)
+
+The kippo-ui Vite bundle hard-codes its asset `base` URL at build time. To serve
+the SPA from a non-prod API Gateway stage (e.g. the `dev` stage where assets
+live under `/dev/static/ui/...`), select the stage-matched tarball with
+`--base-prefix`:
+
+```bash
+# Dev stage (Zappa dev stage, URL_PREFIX=dev)
+uv run python manage.py update_ui --base-prefix=/dev
+uv run python manage.py collectstatic --noinput
+
+# Or via env var (no poe-task changes needed)
+KIPPO_UI_BASE_PREFIX=/dev uv run poe update-ui
+```
+
+Resolution order, highest precedence first:
+
+1. `--tarball-name <name>` — explicit override (existing escape hatch from #256)
+2. `--base-prefix <prefix>` — mapped via the `TARBALL_BY_PREFIX` table
+3. `KIPPO_UI_BASE_PREFIX` env var — same mapping as `--base-prefix`
+4. Default — `kippo-ui-build-prod.tar.gz` (preserved, no production regression)
+
+Known prefixes and their tarballs:
+
+| `--base-prefix` | Release asset                  |
+| ---             | ---                            |
+| (unset / `""`)  | `kippo-ui-build-prod.tar.gz`   |
+| `/prod`         | `kippo-ui-build-prod.tar.gz`   |
+| `/dev`          | `kippo-ui-build-dev.tar.gz`    |
+
+An unknown `--base-prefix` (e.g. `/staging`) fails fast with a `CommandError`
+that lists the known prefixes — use `--tarball-name=<name>` to override
+explicitly when needed.
+
+> **Note**: the `/dev` path requires the matching `monkut/kippo-ui` CI change
+> that publishes `kippo-ui-build-dev.tar.gz` alongside the existing prod tarball
+> to be merged and a release cut. Until then, `--base-prefix=/dev` will fail at
+> the asset-lookup step with "tarball not found in release".
+
 ### GitHub API rate limits
 
 `update_ui` calls the unauthenticated GitHub API. If you hit a 403 rate-limit,
