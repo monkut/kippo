@@ -216,6 +216,9 @@ class GithubRepositoryProjectInlineForm(forms.ModelForm):
         cleaned = super().clean()
         html_url = (cleaned.get("html_url") or "").strip().rstrip("/")
         if not html_url:
+            # Untouched extra rows must no-op so the parent project save isn't blocked.
+            if self.has_changed():
+                raise forms.ValidationError(_("GitHub repository URL is required."))
             return cleaned
         parsed = urllib.parse.urlparse(html_url)
         parts = [p for p in parsed.path.split("/") if p]
@@ -230,6 +233,14 @@ class GithubRepositoryProjectInlineForm(forms.ModelForm):
 
     def save(self, commit: bool = True):
         instance = self.instance
+        # BaseModelFormSet.save_m2m() iterates saved_forms calling form.save_m2m();
+        # ModelForm.save() normally wires that up — this override bypasses it.
+        self.save_m2m = self._save_m2m
+        # organization is non-nullable; seed it from the parent project before any
+        # GithubRepository.save() path runs (fixes monkut/kippo#266).
+        if not instance.organization_id and instance.project_id:
+            instance.organization = instance.project.organization
+
         owner = self.cleaned_data.get("_derived_owner")
         repo = self.cleaned_data.get("_derived_repo")
         if not owner or not repo:
@@ -238,7 +249,9 @@ class GithubRepositoryProjectInlineForm(forms.ModelForm):
         normalized_html_url = f"https://github.com/{owner}/{repo}"
         api_url = f"https://api.github.com/repos/{owner}/{repo}"
 
-        if instance.pk:
+        # GithubRepository.id is a UUIDField with default=uuid.uuid4, so instance.pk is
+        # always truthy — use instance._state.adding to detect a brand-new row instead.
+        if not instance._state.adding:
             instance.name = repo
             instance.html_url = normalized_html_url
             instance.api_url = api_url
@@ -260,8 +273,6 @@ class GithubRepositoryProjectInlineForm(forms.ModelForm):
                 matched.save(update_fields=["project"])
             return matched
 
-        if instance.project_id and not instance.organization_id:
-            instance.organization = instance.project.organization
         instance.name = repo
         instance.html_url = normalized_html_url
         instance.api_url = api_url

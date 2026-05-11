@@ -57,9 +57,13 @@ class GithubRepository(UserCreatedBaseModel):
     html_url = models.URLField(help_text=_("Github Repository HTML URL"))
 
     def save(self, *args, **kwargs):
-        if self.organization and not self.label_set:
+        # Check via the FK column (organization_id) rather than the descriptor:
+        # accessing self.organization on a non-nullable FK with no cached value raises
+        # RelatedObjectDoesNotExist, which surfaced as a 500 from the admin inline
+        # before the parent organization had been propagated onto the new instance.
+        if self.organization_id and not self.label_set:
             self.label_set = self.organization.default_labelset
-        if self._state.adding is True and settings.OCTOCAT_APPLY_DEFAULT_LABELSET:
+        if self._state.adding is True and settings.OCTOCAT_APPLY_DEFAULT_LABELSET and self.organization_id:
             github_organization_name = self.organization.github_organization_name
             githubaccesstoken = self.organization.githubaccesstoken
             label_definitions = tuple(self.label_set.labels)
