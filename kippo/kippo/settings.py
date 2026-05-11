@@ -94,7 +94,13 @@ MIDDLEWARE = [
 
 # https://github.com/evansd/whitenoise/issues/164
 WHITENOISE_STATIC_PREFIX = "/static/"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# Django 5.1 removed STATICFILES_STORAGE; STORAGES is the supported API.
+# KippoStaticFilesStorage hashes Django assets but passes the Vite-pre-hashed
+# kippo-ui bundle through verbatim — see commons/storage.py for the why.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "commons.storage.KippoStaticFilesStorage"},
+}
 
 ROOT_URLCONF = "kippo.urls"
 
