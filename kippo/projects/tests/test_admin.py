@@ -1,14 +1,21 @@
 import datetime
 from datetime import date
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 from unittest import TestCase
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
+
+if TYPE_CHECKING:
+    from octocat.models import GithubRepository
+
+    from projects.admin import GithubRepositoryProjectInlineForm
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
 from django import forms
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
+from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1129,3 +1136,193 @@ class KippoProjectAdminColumnsetFieldTestCase(KippoProjectAdminFixtureTestCaseBa
         self.assertEqual(response.status_code, HTTPStatus.OK)
         adminform = response.context["adminform"]
         self.assertIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
+
+
+class GithubRepositoryInlineSaveTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Regression: github_repository inline on (Active)KippoProjectAdmin must seed organization
+    from the parent project on every code path so GithubRepository.save() never raises
+    RelatedObjectDoesNotExist (monkut/kippo#266).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.project = self.make_project("github-repo-inline-target")
+
+    def _build_form(
+        self,
+        *,
+        data: dict,
+        instance: "GithubRepository | None" = None,
+        empty_permitted: bool = False,
+        with_parent_fk: bool = True,
+    ) -> "GithubRepositoryProjectInlineForm":
+        from octocat.models import GithubRepository
+
+        from projects.admin import GithubRepositoryProjectInlineForm
+
+        if instance is None:
+            instance = GithubRepository()
+        if with_parent_fk:
+            instance.project_id = self.project.id
+        kwargs: dict = {"data": data, "instance": instance}
+        if empty_permitted:
+            kwargs["empty_permitted"] = True
+            kwargs["use_required_attribute"] = False
+        return GithubRepositoryProjectInlineForm(**kwargs)
+
+    def test_clean_raises_when_edit_form_clears_url(self):
+        from octocat.models import GithubRepository
+
+        # Edit scenario: existing repo whose URL the user has wiped — must surface an
+        # error rather than reach GithubRepository.save() with an empty URL.
+        existing = GithubRepository(html_url="https://github.com/owner/repo")
+        form = self._build_form(data={"html_url": ""}, instance=existing)
+        self.assertFalse(form.is_valid())
+        self.assertIn("html_url", str(form.errors) + str(form.non_field_errors()))
+
+    def test_empty_extra_form_is_valid_and_does_not_block_parent_save(self):
+        # empty_permitted=True mirrors what BaseInlineFormSet sets on extra rows; the
+        # combination of unchanged + empty must validate so the parent project saves.
+        form = self._build_form(data={"html_url": ""}, empty_permitted=True)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.has_changed())
+
+    def test_save_commit_false_seeds_organization_from_parent_project(self):
+        form = self._build_form(data={"html_url": "https://github.com/owner/repo"})
+        self.assertTrue(form.is_valid(), form.errors)
+        instance = form.save(commit=False)
+        self.assertEqual(instance.organization_id, self.project.organization_id)
+        self.assertEqual(instance.name, "repo")
+        self.assertEqual(instance.html_url, "https://github.com/owner/repo")
+        self.assertEqual(instance.api_url, "https://api.github.com/repos/owner/repo")
+
+    def test_save_commit_true_persists_repository_with_parent_organization(self):
+        from octocat.models import GithubRepository
+
+        form = self._build_form(data={"html_url": "https://github.com/owner/repo"})
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save(commit=True)
+        self.assertEqual(saved.organization_id, self.project.organization_id)
+        self.assertEqual(saved.project_id, self.project.id)
+        from_db = GithubRepository.objects.get(pk=saved.pk)
+        self.assertEqual(from_db.organization_id, self.project.organization_id)
+
+    def test_save_adopts_existing_matching_repository_and_links_it_to_project(self):
+        from octocat.models import GithubRepository
+
+        # Repos may be pre-created by KippoTask.save(); adopt instead of duplicating.
+        existing = GithubRepository.objects.create(
+            organization=self.organization,
+            name="repo",
+            html_url="https://github.com/owner/repo",
+            api_url="https://api.github.com/repos/owner/repo",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        form = self._build_form(data={"html_url": "https://github.com/owner/repo"})
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save(commit=True)
+        self.assertEqual(saved.pk, existing.pk)
+        self.assertEqual(GithubRepository.objects.filter(name="repo").count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.project_id, self.project.id)
+
+    def test_github_repository_save_does_not_raise_on_missing_organization(self):
+        """GithubRepository.save() must not raise RelatedObjectDoesNotExist when
+        accessing fields that depend on organization — it should rely on the FK
+        column (organization_id) and let DB-level NOT NULL surface as IntegrityError
+        if no organization was assigned at all.
+        """
+        from django.db import IntegrityError, transaction
+        from octocat.models import GithubRepository
+
+        repo = GithubRepository(
+            name="orphan",
+            html_url="https://github.com/owner/orphan",
+            api_url="https://api.github.com/repos/owner/orphan",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            repo.save()  # may not raise RelatedObjectDoesNotExist before reaching the DB
+
+    def test_change_view_post_with_valid_inline_creates_repository(self):
+        """End-to-end: POST the active-project change form with a new github_repository
+        inline row containing a valid URL — must succeed (302) and persist a row whose
+        organization matches the parent project's organization.
+        """
+        from octocat.models import GithubRepository
+
+        url = reverse("admin:projects_activekippoproject_change", args=[self.project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form_data = _extract_admin_form_post_data(response, self.project)
+        prefix = "github_repositories"
+        form_data.update(
+            {
+                f"{prefix}-TOTAL_FORMS": "1",
+                f"{prefix}-INITIAL_FORMS": "0",
+                f"{prefix}-MIN_NUM_FORMS": "0",
+                f"{prefix}-MAX_NUM_FORMS": "5",
+                f"{prefix}-0-html_url": "https://github.com/owner/new-repo",
+                f"{prefix}-0-id": "",
+                f"{prefix}-0-project": str(self.project.id),
+            }
+        )
+        post_response = self.client.post(url, data=form_data, follow=False)
+        self.assertEqual(post_response.status_code, HTTPStatus.FOUND, post_response.content[:500])
+        repo = GithubRepository.objects.get(name="new-repo", project=self.project)
+        self.assertEqual(repo.organization_id, self.project.organization_id)
+
+
+def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProject) -> dict:
+    """Build a POST payload for a KippoProject admin change form from a prior GET response.
+
+    Pulls the change form's adminform plus every inline formset's management form so the
+    POST mirrors the rendered page; inline rows default to empty (TOTAL=0) and can be
+    overridden by the caller.
+    """
+    adminform = get_response.context["adminform"]
+    data: dict = {}
+    for name in adminform.form.fields:
+        value = adminform.form[name].value()
+        if value is None:
+            data[name] = ""
+        elif hasattr(value, "isoformat"):
+            data[name] = value.isoformat()
+        else:
+            data[name] = str(value)
+    # Ensure required fields are present and aligned with the stored project.
+    data["name"] = project.name
+    data["organization"] = str(project.organization_id)
+    data["columnset"] = str(project.columnset_id)
+    data["start_date"] = project.start_date.isoformat() if project.start_date else ""
+    data["confidence"] = str(project.confidence) if project.confidence is not None else ""
+
+    # Inline management forms: send INITIAL existing rows only, no extras. Including
+    # extras with their initial-field values flips has_changed() True on otherwise-empty
+    # rows (e.g. projectweeklyeffort_project's auto-populated week_start), which forces
+    # required-field validation and blocks the parent save. Callers that want a real
+    # extra row override TOTAL_FORMS and supply their own row data.
+    for inline_formset in get_response.context["inline_admin_formsets"]:
+        formset = inline_formset.formset
+        prefix = formset.prefix
+        initial_count = formset.initial_form_count()
+        data.update(
+            {
+                f"{prefix}-TOTAL_FORMS": str(initial_count),
+                f"{prefix}-INITIAL_FORMS": str(initial_count),
+                f"{prefix}-MIN_NUM_FORMS": str(formset.min_num),
+                f"{prefix}-MAX_NUM_FORMS": str(formset.max_num),
+            }
+        )
+        for i, form in enumerate(formset.forms[:initial_count]):
+            for name in form.fields:
+                value = form[name].value()
+                if value is None:
+                    data[f"{prefix}-{i}-{name}"] = ""
+                elif hasattr(value, "isoformat"):
+                    data[f"{prefix}-{i}-{name}"] = value.isoformat()
+                else:
+                    data[f"{prefix}-{i}-{name}"] = str(value)
+    return data
