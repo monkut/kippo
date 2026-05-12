@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from accounts.models import KippoUser
+from commons.fields import CommaSeparatedField
 from django.conf import settings
 from django.db.models import Sum
 from drf_spectacular.utils import extend_schema_field
@@ -155,6 +156,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     weekly_effort_users = serializers.SerializerMethodField()
     survey_users = serializers.SerializerMethodField()
     github_repositories = serializers.SerializerMethodField()
+    docbase_tag = CommaSeparatedField(max_length=255, allow_blank=True, required=False)
 
     class Meta:
         model = KippoProject
