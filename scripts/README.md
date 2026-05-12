@@ -1,51 +1,49 @@
-# scripts/
+# kippo-cli
 
-Standalone CLI utilities for operating on a running kippo instance. Each script
-declares its own dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)),
-so nothing in this folder needs to live in the project's `pyproject.toml`.
+Operator CLI for interacting with a running kippo instance via its REST API.
 
-## Running
+This directory is a **standalone Python project** — it has its own
+`pyproject.toml` and is **not** packaged with the kippo Django project. Its
+dependencies (`requests`, `python-toon`) are not part of kippo's runtime deps.
 
-### Directly from GitHub (no clone required)
+## Install / Run
 
-`uv run` accepts a URL to a PEP 723 script: it fetches the file, resolves the
-inline dependencies into an ephemeral environment, and runs it — without
-installing anything globally and without modifying the kippo project's
-dependency set.
+### Run without installing (`uvx`)
+
+`uvx` builds the package in an ephemeral environment, runs the `kippo-cli`
+entry point, and discards the environment when done — nothing pollutes your
+system or the kippo venv.
 
 ```bash
-uv run https://raw.githubusercontent.com/monkut/kippo/main/scripts/kippo.py --help
+# Latest commit on main
+uvx --from git+https://github.com/monkut/kippo.git#subdirectory=scripts kippo-cli --help
+
+# Pin to a tag or commit
+uvx --from "git+https://github.com/monkut/kippo.git@<sha-or-tag>#subdirectory=scripts" kippo-cli --help
 ```
 
-Pin to a tag or commit by swapping `main` in the URL.
+### Install as a persistent tool
 
-> `uvx` is reserved for tools with a packaged console-script entry point;
-> single-file PEP 723 scripts are run with `uv run` instead.
+```bash
+# uv (creates a managed tool environment; `kippo-cli` lands on PATH)
+uv tool install --from git+https://github.com/monkut/kippo.git#subdirectory=scripts
+
+# pipx
+pipx install git+https://github.com/monkut/kippo.git#subdirectory=scripts
+```
 
 ### From a local clone
 
 ```bash
-uv run scripts/kippo.py --help
+cd scripts
+uv run kippo-cli --help          # uses scripts/pyproject.toml automatically
 ```
 
-## kippo.py (`kippo-cli`)
+## Authentication
 
-`kippo-cli` is a small multi-command CLI for operators. The file is named
-`kippo.py` for brevity, but it is a standalone script — it is never imported,
-and it does **not** depend on the `kippo` Django package living under `<repo>/kippo/`.
-
-Run with `--help` to list subcommands:
-
-```bash
-uv run scripts/kippo.py --help
-```
-
-### Authentication
-
-All subcommands accept the same credentials/base URL options, which fall back
+All subcommands accept the same credentials/base-URL options, which fall back
 to environment variables. If `--password` and `KIPPO_PASSWORD` are both unset
-and stdin is a TTY, the script prompts interactively via `getpass` — preferred,
-because passwords passed via `--password` show up in process listings.
+and stdin is a TTY, the script prompts via `getpass` — keeps secrets off `ps`.
 
 | Option       | Env var          |
 |--------------|------------------|
@@ -53,28 +51,30 @@ because passwords passed via `--password` show up in process listings.
 | `--username` | `KIPPO_USERNAME` |
 | `--password` | `KIPPO_PASSWORD` |
 
+## Subcommands
+
 ### `project-details`
 
-Fetches every `ActiveKippoProject` (`/api/projects/?is_active=true`) via the
-REST API, paginates through every result, and writes the collected list to a
-file as JSON (default) or TOON.
+Paginates `GET /api/projects/?is_active=true` and writes every
+`ActiveKippoProject` to a file as JSON (default) or TOON.
 
 ```bash
 # JSON, default filename (active_projects_<YYYYMMDD_HHMMSS>JST.json in cwd)
-uv run scripts/kippo.py project-details \
+kippo-cli project-details \
     --base-url https://kippo.example.com \
-    --username alice  # prompts for password
+    --username alice         # prompts for password
 
 # TOON output, explicit destination, env-var credentials
 KIPPO_BASE_URL=https://kippo.example.com \
 KIPPO_USERNAME=alice \
 KIPPO_PASSWORD=secret \
-    uv run scripts/kippo.py project-details --format toon --output /tmp/projects.toon
+    kippo-cli project-details --format toon --output /tmp/projects.toon
 
-# Same thing without cloning the repo
-uv run https://raw.githubusercontent.com/monkut/kippo/main/scripts/kippo.py \
-    project-details --base-url https://kippo.example.com --username alice --format toon
+# Same thing without installing
+uvx --from git+https://github.com/monkut/kippo.git#subdirectory=scripts \
+    kippo-cli project-details \
+    --base-url https://kippo.example.com --username alice --format toon
 ```
 
-TOON encoding uses [python-toon](https://github.com/xaviviro/python-toon) for
-a more token-efficient representation when feeding the data to LLMs.
+TOON encoding uses [python-toon](https://github.com/xaviviro/python-toon) for a
+more token-efficient representation when feeding the data to LLMs.

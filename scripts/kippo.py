@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "requests>=2.31",
-#     "python-toon>=0.1.3",
-# ]
-# ///
 """kippo-cli — operator CLI for interacting with a running kippo instance via its REST API.
 
-This file is a single-file PEP 723 script — its dependencies are declared inline,
-so it can be run with `uv run scripts/kippo.py <command> ...` without adding
-anything to the kippo Django project's dependencies.
+This file is the source for the ``kippo-cli`` console script. Dependencies are
+declared in scripts/pyproject.toml; install with:
+
+    uvx --from git+https://github.com/monkut/kippo.git#subdirectory=scripts kippo-cli --help
 
 Subcommands:
   project-details   Dump every ActiveKippoProject to a JSON or TOON file.
@@ -41,7 +35,7 @@ PROG = "kippo-cli"
 
 JST = datetime.timezone(datetime.timedelta(hours=9))
 
-TOKEN_PATH = "/api/token/"  # noqa: S105 — URL path, not a credential
+TOKEN_PATH = "/api/token/"
 PROJECTS_PATH = "/api/projects/"
 DEFAULT_PAGE_SIZE = 200  # matches CustomPageNumberPagination.max_page_size
 
@@ -157,7 +151,7 @@ def handle_project_details(args: argparse.Namespace) -> int:
 
     output_path = args.output or default_output_path(args.format)
     output_path.write_text(serialize(projects, args.format), encoding="utf-8")
-    print(f"wrote {len(projects)} project(s) to {output_path}", file=sys.stderr)  # noqa: T201 — CLI status output
+    print(f"wrote {len(projects)} project(s) to {output_path}", file=sys.stderr)
     return 0
 
 
