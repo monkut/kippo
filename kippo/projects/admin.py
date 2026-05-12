@@ -495,7 +495,7 @@ def _build_upsell_prefill_params(project: KippoProject, selected_category: str) 
         "document_folder_url": project.document_folder_url,
         "github_project_html_url": project.github_project_html_url,
         "github_project_api_nodeid": project.github_project_api_nodeid,
-        "docbase_tag": project.docbase_tag,
+        "docbase_tag": ",".join(project.docbase_tag),  # type: ignore[arg-type]
     }
     if project.columnset_id:
         params["columnset"] = str(project.columnset_id)

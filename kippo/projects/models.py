@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 import reversion
 from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
+from commons.fields import CommaSeparatedCharField
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -268,12 +269,12 @@ class KippoProject(UserCreatedBaseModel):
         default="",
         help_text=_("URL of where documents for the projects are maintained"),
     )
-    docbase_tag = models.CharField(
+    docbase_tag = CommaSeparatedCharField(
         _("DocBaseタグ"),
-        max_length=64,
+        max_length=255,
         blank=True,
         default="",
-        help_text=_("DocBase tag used by the crawler to fetch matching posts"),
+        help_text=_("Comma-separated DocBase tags used by the crawler to fetch matching posts (e.g. 'foo,bar')"),
     )
     problem_definition = models.TextField(
         _("プロジェクト課題定義"),
