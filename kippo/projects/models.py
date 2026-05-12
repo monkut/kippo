@@ -169,6 +169,12 @@ class KippoCustomer(UserCreatedBaseModel):
     email = models.EmailField(blank=True, default="", verbose_name=_("メールアドレス"))
     phone = models.CharField(max_length=50, blank=True, default="", verbose_name=_("電話番号"))
     website = models.URLField(blank=True, default="", verbose_name=_("ウェブサイト"))
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name=_("ドキュメントURL"),
+        help_text=_("Link to customer-related documents (folder, drive, wiki, etc.)"),
+    )
     notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
     display_as_active = models.BooleanField(
         _("Display as Active"),

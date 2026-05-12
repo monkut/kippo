@@ -724,3 +724,23 @@ class KippoCustomerModelTestCase(TestCase):
         self.assertTrue(field.null)
         self.assertTrue(field.blank)
         self.assertEqual(field.related_model, KippoCustomer)
+
+    def test_document_url_defaults_to_blank_and_persists(self):
+        default_customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="DocDefaults",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.assertEqual(default_customer.document_url, "")
+
+        url = "https://example.com/customers/acme/docs"
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="DocSet",
+            document_url=url,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        refreshed = KippoCustomer.objects.get(pk=customer.pk)
+        self.assertEqual(refreshed.document_url, url)

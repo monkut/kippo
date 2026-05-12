@@ -159,6 +159,7 @@ class KippoCustomerSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "website",
+            "document_url",
             "notes",
             "display_as_active",
             "created_datetime",

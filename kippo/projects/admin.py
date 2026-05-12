@@ -1147,7 +1147,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_filter = ("organization", "display_as_active")
     search_fields = ("name", "email")
     ordering = ("organization", "-display_as_active", "name")
-    fields = ("organization", "name", "email", "phone", "website", "notes", "display_as_active")
+    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
 
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
