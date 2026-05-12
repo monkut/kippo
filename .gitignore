@@ -7,6 +7,8 @@ kippo/zappa_settings.orig
 old-packages/
 ts-client/
 openapi.yaml
+# kippo-cli (scripts/) is consumed via uvx — uv.lock is a local-only artifact
+scripts/uv.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
