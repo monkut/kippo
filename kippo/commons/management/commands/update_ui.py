@@ -11,11 +11,17 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 KIPPO_UI_REPO = "monkut/kippo-ui"
 GITHUB_API_URL = f"https://api.github.com/repos/{KIPPO_UI_REPO}/releases/latest"
 DEFAULT_TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
+TARBALL_BY_PREFIX = {
+    "": "kippo-ui-build.tar.gz",
+    "/prod": "kippo-ui-build-prod.tar.gz",
+    "/stg": "kippo-ui-build-stg.tar.gz",
+    "/dev": "kippo-ui-build-dev.tar.gz",
+}
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 HTTP_STATUS_SERVER_ERROR = 500
@@ -38,8 +44,23 @@ class Command(BaseCommand):
         parser.add_argument(
             "--tarball-name",
             type=str,
-            default=DEFAULT_TARBALL_NAME,
-            help=f"Name of the release asset tarball to download (default: {DEFAULT_TARBALL_NAME})",
+            default=None,
+            help=(
+                f"Name of the release asset tarball to download. "
+                f"Overrides --base-prefix when set. "
+                f"(default: derived from --base-prefix, falling back to {DEFAULT_TARBALL_NAME})"
+            ),
+        )
+        parser.add_argument(
+            "--base-prefix",
+            type=str,
+            default=os.environ.get("KIPPO_UI_BASE_PREFIX", "/prod"),
+            help=(
+                "URL prefix the kippo-ui bundle was built for "
+                "(e.g. '/prod', '/stg', '/dev'). Used to pick the matching release "
+                "tarball. Ignored if --tarball-name is given. "
+                f"Defaults to KIPPO_UI_BASE_PREFIX env var or '/prod' (uses {DEFAULT_TARBALL_NAME})."
+            ),
         )
         parser.add_argument(
             "--dry-run",
@@ -51,7 +72,7 @@ class Command(BaseCommand):
         """Execute the command."""
         output_dir = options["output_dir"]
         dry_run = options["dry_run"]
-        tarball_name = options["tarball_name"]
+        tarball_name = self._resolve_tarball_name(options["tarball_name"], options["base_prefix"])
 
         # Determine output path (source directory, not STATIC_ROOT)
         if output_dir:
@@ -63,6 +84,7 @@ class Command(BaseCommand):
             ui_path = base_dir / "static" / "ui"
 
         if dry_run:
+            self.stdout.write(f"Would download tarball: {tarball_name}")
             self.stdout.write(f"Would install UI to: {ui_path}")
             self.stdout.write("Dry run - no changes made")
             return
@@ -97,6 +119,27 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"UI installed successfully to: {ui_path}"))
         self._show_configuration_help(ui_path)
+
+    @staticmethod
+    def _resolve_tarball_name(tarball_name: str | None, base_prefix: str) -> str:
+        """Resolve which release asset tarball to download.
+
+        Resolution order (highest precedence first):
+            1. Explicit --tarball-name
+            2. --base-prefix (or KIPPO_UI_BASE_PREFIX env var) mapped via TARBALL_BY_PREFIX
+            3. DEFAULT_TARBALL_NAME
+        """
+        if tarball_name:
+            return tarball_name
+        normalized_prefix = (base_prefix or "").rstrip("/")
+        if not normalized_prefix:
+            return DEFAULT_TARBALL_NAME
+        try:
+            return TARBALL_BY_PREFIX[normalized_prefix]
+        except KeyError:
+            known = sorted(p for p in TARBALL_BY_PREFIX if p)
+            msg = f"No tarball mapping for --base-prefix={normalized_prefix!r}. Known prefixes: {known}. Use --tarball-name to override explicitly."
+            raise CommandError(msg) from None
 
     def _fetch_latest_release(self) -> dict | None:
         """Fetch the latest release info from GitHub API with retry logic."""
