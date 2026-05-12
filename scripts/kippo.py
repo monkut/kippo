@@ -142,7 +142,11 @@ def default_output_path(fmt: str) -> Path:
 def serialize(projects: list[dict[str, Any]], fmt: str) -> str:
     if fmt == "json":
         return json.dumps(projects, indent=2, ensure_ascii=False, default=str)
-    return toon_encode(projects)
+    # TOON: key each project by "{name}({id})" instead of the default [N] array marker,
+    # so each project is directly addressable. id and name are dropped from the body
+    # since they're now in the key.
+    keyed = {f"{p['name']}({p['id']})": {k: v for k, v in p.items() if k not in ("id", "name")} for p in projects}
+    return toon_encode(keyed)
 
 
 def handle_project_details(args: argparse.Namespace) -> int:
