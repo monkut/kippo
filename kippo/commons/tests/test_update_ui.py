@@ -29,6 +29,11 @@ class ResolveTarballNameTestCase(SimpleTestCase):
         resolved = Command._resolve_tarball_name(tarball_name=None, base_prefix="/prod")
         self.assertEqual(resolved, "kippo-ui-build-prod.tar.gz")
 
+    def test_base_prefix_stg_derives_stg_tarball(self):
+        """--base-prefix=/stg maps to kippo-ui-build-stg.tar.gz."""
+        resolved = Command._resolve_tarball_name(tarball_name=None, base_prefix="/stg")
+        self.assertEqual(resolved, "kippo-ui-build-stg.tar.gz")
+
     def test_base_prefix_accepts_trailing_slash(self):
         """--base-prefix=/dev/ resolves identically to --base-prefix=/dev."""
         resolved = Command._resolve_tarball_name(tarball_name=None, base_prefix="/dev/")
@@ -42,6 +47,7 @@ class ResolveTarballNameTestCase(SimpleTestCase):
         self.assertIn("/staging", message)
         # Known non-empty prefixes should be surfaced to the operator
         self.assertIn("/dev", message)
+        self.assertIn("/stg", message)
         self.assertIn("/prod", message)
 
     def test_explicit_tarball_overrides_base_prefix(self):

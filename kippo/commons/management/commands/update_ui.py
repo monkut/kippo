@@ -19,6 +19,7 @@ DEFAULT_TARBALL_NAME = "kippo-ui-build-prod.tar.gz"
 TARBALL_BY_PREFIX = {
     "": "kippo-ui-build.tar.gz",
     "/prod": "kippo-ui-build-prod.tar.gz",
+    "/stg": "kippo-ui-build-stg.tar.gz",
     "/dev": "kippo-ui-build-dev.tar.gz",
 }
 MAX_RETRIES = 3
@@ -56,7 +57,7 @@ class Command(BaseCommand):
             default=os.environ.get("KIPPO_UI_BASE_PREFIX", ""),
             help=(
                 "URL prefix the kippo-ui bundle was built for "
-                "(e.g. '/prod', '/dev'). Used to pick the matching release "
+                "(e.g. '/prod', '/stg', '/dev'). Used to pick the matching release "
                 "tarball. Ignored if --tarball-name is given. "
                 f"Defaults to KIPPO_UI_BASE_PREFIX env var or '' (uses {DEFAULT_TARBALL_NAME})."
             ),

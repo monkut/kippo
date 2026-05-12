@@ -160,13 +160,17 @@ uv run python manage.py collectstatic --noinput
 ### Stage-matched UI bundles (`--base-prefix` / `KIPPO_UI_BASE_PREFIX`)
 
 The kippo-ui Vite bundle hard-codes its asset `base` URL at build time. To serve
-the SPA from a non-prod API Gateway stage (e.g. the `dev` stage where assets
-live under `/dev/static/ui/...`), select the stage-matched tarball with
-`--base-prefix`:
+the SPA from a non-prod API Gateway stage (e.g. the `dev` or `stg` stage where
+assets live under `/dev/static/ui/...` or `/stg/static/ui/...`), select the
+stage-matched tarball with `--base-prefix`:
 
 ```bash
 # Dev stage (Zappa dev stage, URL_PREFIX=dev)
 uv run python manage.py update_ui --base-prefix=/dev
+uv run python manage.py collectstatic --noinput
+
+# Staging stage (Zappa stg stage, URL_PREFIX=stg)
+uv run python manage.py update_ui --base-prefix=/stg
 uv run python manage.py collectstatic --noinput
 
 # Or via env var (no poe-task changes needed)
@@ -186,16 +190,18 @@ Known prefixes and their tarballs:
 | ---             | ---                            |
 | (unset / `""`)  | `kippo-ui-build-prod.tar.gz`   |
 | `/prod`         | `kippo-ui-build-prod.tar.gz`   |
+| `/stg`          | `kippo-ui-build-stg.tar.gz`    |
 | `/dev`          | `kippo-ui-build-dev.tar.gz`    |
 
 An unknown `--base-prefix` (e.g. `/staging`) fails fast with a `CommandError`
 that lists the known prefixes — use `--tarball-name=<name>` to override
 explicitly when needed.
 
-> **Note**: the `/dev` path requires the matching `monkut/kippo-ui` CI change
-> that publishes `kippo-ui-build-dev.tar.gz` alongside the existing prod tarball
-> to be merged and a release cut. Until then, `--base-prefix=/dev` will fail at
-> the asset-lookup step with "tarball not found in release".
+> **Note**: the `/dev` and `/stg` paths require the matching `monkut/kippo-ui`
+> CI change that publishes per-stage tarballs alongside the existing prod
+> tarball to be merged and a release cut. Until then, `--base-prefix=/dev` or
+> `--base-prefix=/stg` will fail at the asset-lookup step with "tarball not
+> found in release".
 
 ### GitHub API rate limits
 
