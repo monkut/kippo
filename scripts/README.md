@@ -77,4 +77,7 @@ uvx --from git+https://github.com/monkut/kippo.git#subdirectory=scripts \
 ```
 
 TOON encoding uses [python-toon](https://github.com/xaviviro/python-toon) for a
-more token-efficient representation when feeding the data to LLMs.
+more token-efficient representation when feeding the data to LLMs. The TOON
+output keys each project by `"{name}({id})"` at the top level (rather than the
+default `[N]:` array marker), making individual projects directly addressable;
+`id` and `name` are not duplicated inside the body.
