@@ -57,11 +57,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]  # list of folders that contain the packages (["."] by default)
 include = ["kippo"]  # package names should match these glob patterns (["*"] by default)
-exclude = []  # exclude packages matching these glob patterns (empty by default)
+# scripts/ is a sibling project (see scripts/pyproject.toml) and must not be packaged with kippo
+exclude = ["scripts*"]
 
 [tool.pyright]
 include = ["kippo", "notebooks"]
-exclude = ["**/.venv", "tmp/", "**/node_modules/", "**/__pycache__", "**/*.pyc", "**/tests/", "**/migrations/"]
+exclude = ["**/.venv", "tmp/", "**/node_modules/", "**/__pycache__", "**/*.pyc", "**/tests/", "**/migrations/", "scripts"]
 typeCheckingMode = "basic"
 pythonVersion = "3.13"
 
@@ -69,7 +70,7 @@ pythonVersion = "3.13"
 line-length = 150
 indent-width = 4
 target-version ='py313'
-exclude = [".git", ".venv", "**/node_modules/", "**/.volta", "jupyter/*", "**/migrations/" ]
+exclude = [".git", ".venv", "**/node_modules/", "**/.volta", "jupyter/*", "**/migrations/", "scripts" ]
 fix = true
 respect-gitignore = true
 unsafe-fixes = false
