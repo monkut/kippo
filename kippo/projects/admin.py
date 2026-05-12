@@ -53,6 +53,7 @@ from .functions import (
 from .models import (
     ActiveKippoProject,
     CollectIssuesAction,
+    KippoCustomer,
     KippoMilestone,
     KippoProject,
     KippoProjectStatus,
@@ -703,6 +704,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 "classes": ("collapse",),
                 "fields": (
                     "organization",
+                    "customer",
                     "phase",
                     "category",
                     "parent_project",
@@ -994,9 +996,22 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and "parent_project" in form.base_fields and user_initial_organization:
             form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization=user_initial_organization)
 
+        # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
+        self._scope_customer_queryset(form, obj, user_memberships)
+
         if obj is None and request.GET.get("_upsell_source") == "close":
             self._apply_upsell_source_widgets(form, user_memberships)
         return form
+
+    @staticmethod
+    def _scope_customer_queryset(form: Form, obj: KippoProject | None, user_memberships: models.QuerySet) -> None:
+        """Scope the customer queryset to the project's organization (or user's orgs on /add/)."""
+        if "customer" not in form.base_fields:
+            return
+        if obj is not None and obj.organization_id:
+            form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
+        else:
+            form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
 
     @staticmethod
     def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:
@@ -1123,6 +1138,28 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
             )
         ).order_by("is_anon_project", "-confidence", "target_date", "name")
         return qs
+
+
+@admin.register(KippoCustomer)
+class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    list_display = ("name", "organization", "email", "display_as_active", "updated_datetime")
+    list_display_links = ("name",)
+    list_filter = ("organization", "display_as_active")
+    search_fields = ("name", "email")
+    ordering = ("organization", "-display_as_active", "name")
+    fields = ("organization", "name", "email", "phone", "website", "notes", "display_as_active")
+
+    def get_queryset(self, request: DjangoRequest):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(organization__in=request.user.organizations).order_by("organization").distinct()
+
+    def get_form(self, request: DjangoRequest, obj: KippoCustomer | None = None, **kwargs) -> Form:
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser and "organization" in form.base_fields:
+            form.base_fields["organization"].queryset = request.user.memberships.all()
+        return form
 
 
 @admin.register(KippoMilestone)

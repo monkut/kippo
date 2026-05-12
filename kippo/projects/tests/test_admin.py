@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from projects.admin import (
     ActiveKippoProjectAdmin,
+    KippoCustomerAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
@@ -29,7 +30,7 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.models import ActiveKippoProject, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
+from projects.models import ActiveKippoProject, KippoCustomer, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
 class MockRequest:
@@ -1330,3 +1331,37 @@ def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProj
                 else:
                     data[f"{prefix}-{i}-{name}"] = str(value)
     return data
+
+
+class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        # Customers in the user's org and another org
+        self.customer_in_org = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.customer_in_other_org = KippoCustomer.objects.create(
+            organization=self.other_organization,
+            name="Globex",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_superuser_sees_all_customers(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.super_user_request)
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.customer_in_org.id, ids)
+        self.assertIn(self.customer_in_other_org.id, ids)
+
+    def test_staffuser_only_sees_own_org_customers(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.staff_user_request)
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.customer_in_org.id, ids)
+        self.assertNotIn(self.customer_in_other_org.id, ids)
