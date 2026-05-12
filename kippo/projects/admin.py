@@ -1157,8 +1157,19 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     def get_form(self, request: DjangoRequest, obj: KippoCustomer | None = None, **kwargs) -> Form:
         form = super().get_form(request, obj, **kwargs)
-        if not request.user.is_superuser and "organization" in form.base_fields:
+        if "organization" not in form.base_fields:
+            return form
+        try:
+            user_initial_organization, _user_organizations = get_user_session_organization(request)
+        except ValueError:
+            user_initial_organization = None
+        if not request.user.is_superuser:
             form.base_fields["organization"].queryset = request.user.memberships.all()
+        if user_initial_organization:
+            form.base_fields["organization"].initial = user_initial_organization
+            # Hide — derived from the user's session organization. Multi-org users still get
+            # the session value; to create a customer in a different org, switch the session org first.
+            form.base_fields["organization"].widget = forms.HiddenInput()
         return form
 
 

@@ -1365,3 +1365,29 @@ class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBas
         ids = set(qs.values_list("id", flat=True))
         self.assertIn(self.customer_in_org.id, ids)
         self.assertNotIn(self.customer_in_other_org.id, ids)
+
+
+class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
+    """KippoCustomerAdmin auto-sets the organization from the user's session and hides the field."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    @staticmethod
+    def _make_request(user: KippoUser, *, organization_id: str | None = None) -> MagicMock:
+        request = MagicMock()
+        request.user = user
+        request.session = {"organization_id": organization_id} if organization_id else {}
+        return request
+
+    def test_get_form_hides_organization_field_and_initializes_to_session_org(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._make_request(self.staffuser_with_org, organization_id=str(self.organization.id))
+        form_class = modeladmin.get_form(request)
+        self.assertIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
+        self.assertEqual(form_class.base_fields["organization"].initial, self.organization)
+
+    def test_get_form_does_not_hide_field_for_user_without_membership(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._make_request(self.superuser_no_org)
+        form_class = modeladmin.get_form(request)
+        self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
