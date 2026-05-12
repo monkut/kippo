@@ -989,11 +989,15 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertNotIn("parent_project", details_fields)
 
     def test_class_fieldsets_attribute_unchanged_after_get_fieldsets(self):
-        # get_fieldsets must not mutate the class attribute (would persist across requests)
+        # get_fieldsets must not mutate the (inherited) class attribute — exclusions are applied
+        # to a copy, otherwise mutations would persist across requests.
+        from copy import deepcopy
+
+        before = deepcopy(ActiveKippoProjectAdmin.fieldsets)
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         modeladmin.get_fieldsets(self.super_user_request, obj=None)
-        for _label, opts in ActiveKippoProjectAdmin.fieldsets:
-            self.assertNotIn("parent_project", opts["fields"])
+        modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
+        self.assertEqual(ActiveKippoProjectAdmin.fieldsets, before)
 
     def test_add_view_renders_parent_project_select(self):
         url = reverse("admin:projects_activekippoproject_add")
@@ -1038,9 +1042,9 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertIn("parent_project", ordered)
         self.assertEqual(ordered[ordered.index("category") + 1], "parent_project")
 
-    def test_kippoproject_change_view_does_not_reorder_parent_project_after_category(self):
-        # On change view we don't reposition parent_project — it stays in its model-declaration slot
-        # (which is several rows down, after project_manager).
+    def test_kippoproject_change_view_places_parent_project_after_category(self):
+        # parent_project is statically slotted after `category` in the Details fieldset, so the
+        # ordering is consistent across add and change views.
         existing = self.make_project("ordering-change-target")
         url = reverse("admin:projects_kippoproject_change", args=[existing.id])
         response = self.client.get(url)
@@ -1048,7 +1052,7 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         ordered = self._ordered_form_field_names(response.context["adminform"])
         self.assertIn("category", ordered)
         self.assertIn("parent_project", ordered)
-        self.assertNotEqual(ordered[ordered.index("category") + 1], "parent_project")
+        self.assertEqual(ordered[ordered.index("category") + 1], "parent_project")
 
 
 class KippoProjectAdminSingleOrgHidesOrganizationFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
