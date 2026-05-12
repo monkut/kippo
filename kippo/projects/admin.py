@@ -618,18 +618,6 @@ class KippoProjectAdminForm(forms.ModelForm):
         return cleaned_data
 
 
-def _insert_field_after(fields: list[str], target: str, reference: str) -> list[str]:
-    """Return a new list with `target` placed immediately after `reference`. No-op if reference is missing.
-
-    If `target` already exists elsewhere in `fields`, it is moved (not duplicated).
-    """
-    if reference not in fields:
-        return list(fields)
-    rebuilt = [f for f in fields if f != target]
-    rebuilt.insert(rebuilt.index(reference) + 1, target)
-    return rebuilt
-
-
 def _format_estimated_completion(result: "ForecastResult") -> str:
     """Render the forecast result as a one-line admin display string."""
     date = result.estimated_completion_date
@@ -686,6 +674,61 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "export_kippoprojectstatus_comments_csv",
     ]
     exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": (
+                    "name",
+                    "confidence",
+                    "project_manager",
+                )
+            },
+        ),
+        (
+            _("Dates & Estimates"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "start_date",
+                    "target_date",
+                    "allocated_staff_days",
+                    "estimated_completion_date",
+                ),
+            },
+        ),
+        (
+            _("Details"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "organization",
+                    "phase",
+                    "category",
+                    "parent_project",
+                    "slack_channel_name",
+                    "slack_notification_channel_name",
+                    "columnset",
+                    "enable_cost_report",
+                    "document_folder_url",
+                    "github_project_html_url",
+                    "github_project_api_nodeid",
+                    "docbase_tag",
+                    "problem_definition",
+                ),
+            },
+        ),
+        (
+            _("Closure & Survey"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "survey_issued",
+                    "close_comment",
+                ),
+            },
+        ),
+    ]
     inlines = [
         # Milestones not used atm, commenting out.
         # KippoMilestoneReadOnlyInline,
@@ -721,17 +764,15 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             excluded.append("github_project_api_nodeid")
         return tuple(excluded)
 
-    def get_fields(self, request: DjangoRequest, obj: KippoProject | None = None):
-        fields = list(super().get_fields(request, obj))
-        if "close_comment" in fields:
-            fields.remove("close_comment")
-            fields.append("close_comment")
-        # On add, surface parent_project right after category (the upsell category drives whether
-        # parent_project is required). The close-action upsell flow prefills it via GET;
-        # manual users see it as optional.
-        if obj is None:
-            fields = _insert_field_after(fields, "parent_project", "category")
-        return fields
+    def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
+        fieldsets = super().get_fieldsets(request, obj)
+        excluded: set[str] = set(self.get_exclude(request, obj) or ())
+        # estimated_completion_date is a computed readonly field, only surfaced for open projects on edit
+        if obj is None or obj.is_closed:
+            excluded.add("estimated_completion_date")
+        if not excluded:
+            return fieldsets
+        return [(label, {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f not in excluded)}) for label, opts in fieldsets]
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
         result = ""
@@ -1050,79 +1091,22 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
     # Override parent ordering to match UI: confidence desc, target_date asc, name asc
     ordering = ("-confidence", "target_date", "name")
 
-    # is_closed/actual_date/display_as_active/display_in_project_report are excluded by KippoProjectAdmin and must not appear here
-    fieldsets = [
-        (
-            None,
-            {
-                "fields": (
-                    "name",
-                    "confidence",
-                    "project_manager",
-                )
-            },
-        ),
-        (
-            _("Dates & Estimates"),
-            {
-                "classes": ("collapse",),
-                "fields": (
-                    "start_date",
-                    "target_date",
-                    "allocated_staff_days",
-                ),
-            },
-        ),
-        (
-            _("Details"),
-            {
-                "classes": ("collapse",),
-                "fields": (
-                    "organization",
-                    "phase",
-                    "category",
-                    "slack_channel_name",
-                    "slack_notification_channel_name",
-                    "columnset",
-                    "enable_cost_report",
-                    "document_folder_url",
-                    "github_project_html_url",
-                    "github_project_api_nodeid",
-                    "docbase_tag",
-                    "problem_definition",
-                ),
-            },
-        ),
-    ]
-
     def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
         """Remove delete button from details/change page"""
         if "/change/" in request.path:
             return False
         return super().has_delete_permission(request, obj)
 
-    def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
-        # On add, expose optional parent_project in Details after `category` for manual creation.
-        # The close-project upsell flow redirects to KippoProjectAdmin (not this admin), so this
-        # branch only fires for users initiating creation directly.
-        fieldsets = super().get_fieldsets(request, obj)
-        if obj is None:
-            rebuilt = []
-            for label, opts in fieldsets:
-                fields = list(opts.get("fields", ()))
-                if "category" in fields:
-                    new_fields = _insert_field_after(fields, "parent_project", "category")
-                    rebuilt.append((label, {**opts, "fields": tuple(new_fields)}))
-                else:
-                    rebuilt.append((label, opts))
-            fieldsets = rebuilt
-        # github_project_api_nodeid is excluded from the form for non-superusers; mirror that here
-        # so AdminForm rendering doesn't try to look up a field that isn't in the form.
-        if not request.user.is_superuser:
-            fieldsets = [
-                (label, {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f != "github_project_api_nodeid")}) for label, opts in fieldsets
-            ]
-        return fieldsets
+    def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
+        excluded: list[str] = list(super().get_exclude(request, obj) or ())
+        # Active projects are never closed (filtered by ActiveKippoProjectManager); hide closure fields
+        for field in ("close_comment", "survey_issued"):
+            if field not in excluded:
+                excluded.append(field)
+        # parent_project is only relevant on add (manual upsell creation); hide on change
+        if obj is not None and "parent_project" not in excluded:
+            excluded.append("parent_project")
+        return tuple(excluded)
 
     def get_queryset(self, request: DjangoRequest):
         """Custom ordering: anon-projects first, then by confidence (desc), target_date (asc), name (asc)."""
