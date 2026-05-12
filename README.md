@@ -182,16 +182,16 @@ Resolution order, highest precedence first:
 1. `--tarball-name <name>` — explicit override (existing escape hatch from #256)
 2. `--base-prefix <prefix>` — mapped via the `TARBALL_BY_PREFIX` table
 3. `KIPPO_UI_BASE_PREFIX` env var — same mapping as `--base-prefix`
-4. Default — `kippo-ui-build-prod.tar.gz` (preserved, no production regression)
+4. Default `--base-prefix=/prod` → `kippo-ui-build-prod.tar.gz` (no production regression)
 
 Known prefixes and their tarballs:
 
-| `--base-prefix` | Release asset                  |
-| ---             | ---                            |
-| (unset / `""`)  | `kippo-ui-build-prod.tar.gz`   |
-| `/prod`         | `kippo-ui-build-prod.tar.gz`   |
-| `/stg`          | `kippo-ui-build-stg.tar.gz`    |
-| `/dev`          | `kippo-ui-build-dev.tar.gz`    |
+| `--base-prefix`     | Release asset                  |
+| ---                 | ---                            |
+| (unset, defaults to `/prod`) | `kippo-ui-build-prod.tar.gz` |
+| `/prod`             | `kippo-ui-build-prod.tar.gz`   |
+| `/stg`              | `kippo-ui-build-stg.tar.gz`    |
+| `/dev`              | `kippo-ui-build-dev.tar.gz`    |
 
 An unknown `--base-prefix` (e.g. `/staging`) fails fast with a `CommandError`
 that lists the known prefixes — use `--tarball-name=<name>` to override

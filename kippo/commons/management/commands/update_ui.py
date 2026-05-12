@@ -54,12 +54,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--base-prefix",
             type=str,
-            default=os.environ.get("KIPPO_UI_BASE_PREFIX", ""),
+            default=os.environ.get("KIPPO_UI_BASE_PREFIX", "/prod"),
             help=(
                 "URL prefix the kippo-ui bundle was built for "
                 "(e.g. '/prod', '/stg', '/dev'). Used to pick the matching release "
                 "tarball. Ignored if --tarball-name is given. "
-                f"Defaults to KIPPO_UI_BASE_PREFIX env var or '' (uses {DEFAULT_TARBALL_NAME})."
+                f"Defaults to KIPPO_UI_BASE_PREFIX env var or '/prod' (uses {DEFAULT_TARBALL_NAME})."
             ),
         )
         parser.add_argument(
