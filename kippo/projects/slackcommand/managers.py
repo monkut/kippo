@@ -10,8 +10,9 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from ..definitions import ProjectProgressStatus
+from ..exceptions import SlackChannelNotFoundError
 from ..functions import previous_week_startdate
-from ..models import ActiveKippoProject
+from ..models import ActiveKippoProject, KippoProject
 
 logger = logging.getLogger(__name__)
 
@@ -193,3 +194,67 @@ class ProjectSlackManager:
                 logger.exception(f"{e.response.status_code} {e.response['error']}")
 
         return project_status_block_groups, responses
+
+
+class ProjectCalendarLinkManager:
+    """Manage a project's MTG calendar-template URL as a Slack channel bookmark ('tab' link).
+
+    See kiconiaworks/kippo#13.
+    """
+
+    CALENDAR_BOOKMARK_TITLE = "MTG カレンダー作成 URL"
+    CALENDAR_BOOKMARK_EMOJI = ":calendar:"
+    _CONVERSATIONS_PAGE_LIMIT = 200
+
+    def __init__(self, organization: KippoOrganization) -> None:
+        if not organization.slack_api_token:
+            raise ValueError("organization.slack_api_token is not set; cannot manage Slack channel bookmarks.")
+        self.organization = organization
+        self.client = WebClient(token=organization.slack_api_token)
+
+    def _resolve_channel_id(self, channel_name: str) -> str | None:
+        """Resolve a (possibly '#'-prefixed) channel name to its Slack channel id, or None if not found."""
+        target_name = channel_name.lstrip("#")
+        cursor = None
+        while True:
+            response = self.client.conversations_list(
+                limit=self._CONVERSATIONS_PAGE_LIMIT,
+                cursor=cursor,
+                exclude_archived=True,
+                types="public_channel,private_channel",
+            )
+            channels: list = response.get("channels") or []
+            for channel in channels:
+                if channel["name"] == target_name:
+                    return channel["id"]
+            cursor = response.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                return None
+
+    def set_calendar_bookmark(self, project: KippoProject) -> str:
+        """Add (or update) the project's MTG calendar-template URL bookmark on its Slack conversation channel.
+
+        Returns ``"added"`` or ``"updated"``.
+        Raises ``ValueError`` if the project has no ``slack_channel_name`` and
+        ``SlackChannelNotFoundError`` if the channel does not resolve in the workspace.
+        """
+        if not project.slack_channel_name:
+            raise ValueError("project.slack_channel_name is not set.")
+        channel_id = self._resolve_channel_id(project.slack_channel_name)
+        if not channel_id:
+            raise SlackChannelNotFoundError(f"Slack channel not found: {project.slack_channel_name}")
+
+        url = project.get_meeting_calendar_template_url()
+        existing_bookmarks: list = self.client.bookmarks_list(channel_id=channel_id).get("bookmarks") or []
+        for bookmark in existing_bookmarks:
+            if bookmark.get("title") == self.CALENDAR_BOOKMARK_TITLE:
+                self.client.bookmarks_edit(bookmark_id=bookmark["id"], channel_id=channel_id, link=url)
+                return "updated"
+        self.client.bookmarks_add(
+            channel_id=channel_id,
+            title=self.CALENDAR_BOOKMARK_TITLE,
+            type="link",
+            link=url,
+            emoji=self.CALENDAR_BOOKMARK_EMOJI,
+        )
+        return "added"

@@ -110,6 +110,15 @@ class KippoOrganization(UserCreatedBaseModel):
         default=False,
         help_text=_("Enable Slack channel reporting for this organization"),
     )
+    calendar_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text=_(
+            "Optional. Resource Calendar email (c_xxx@resource.calendar.google.com). "
+            "When set, it is added as a forced attendee (the 'add' parameter) of project MTG "
+            "calendar-template URLs so created meeting minutes are collected per-project."
+        ),
+    )
 
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]

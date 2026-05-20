@@ -1,0 +1,35 @@
+{% extends "admin/change_form.html" %}
+{# Copy-to-clipboard handler + "コピーしました" toast for the MTG calendar link #}
+{# readonly fields on the KippoProject change form (kiconiaworks/kippo#13). #}
+{% block extrahead %}{{ block.super }}
+<script>
+'use strict';
+(function () {
+    function showToast(message) {
+        var toast = document.createElement('div');
+        toast.className = 'kippo-copy-toast';
+        toast.textContent = message;
+        toast.style.cssText = [
+            'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+            'background:#417690', 'color:#fff', 'padding:10px 18px', 'border-radius:4px',
+            'font-size:13px', 'z-index:1100', 'box-shadow:0 2px 6px rgba(0,0,0,0.3)'
+        ].join(';');
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.remove(); }, 2000);
+    }
+
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('.kippo-copy-button');
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        var text = button.dataset.clipboardText || '';
+        navigator.clipboard.writeText(text).then(
+            function () { showToast('コピーしました'); },
+            function () { showToast('コピーに失敗しました'); }
+        );
+    });
+})();
+</script>
+{% endblock %}
