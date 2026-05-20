@@ -9,6 +9,7 @@ from rest_framework import serializers
 
 from .definitions import SURVEY_EFFORT_THRESHOLD_PERCENTAGE, ProjectProgressStatus, ProjectRoles
 from .models import (
+    KippoCustomer,
     KippoProject,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -18,7 +19,7 @@ from .models import (
 )
 
 if TYPE_CHECKING:
-    from accounts.models import OrganizationMembership
+    from accounts.models import KippoOrganization, OrganizationMembership
 
 
 class ProjectAssignmentRateInlineSerializer(serializers.Serializer):
@@ -143,11 +144,45 @@ class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "project_name", "created_datetime", "updated_datetime"]
 
 
+class KippoCustomerSerializer(serializers.ModelSerializer):
+    """Serializer for KippoCustomer model."""
+
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+
+    class Meta:
+        model = KippoCustomer
+        fields = [
+            "id",
+            "organization",
+            "organization_name",
+            "name",
+            "email",
+            "phone",
+            "website",
+            "document_url",
+            "notes",
+            "display_as_active",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        read_only_fields = ["id", "organization_name", "created_datetime", "updated_datetime"]
+
+    def validate_organization(self, value: "KippoOrganization") -> "KippoOrganization":
+        request = self.context.get("request")
+        if request is None or request.user.is_superuser:
+            return value
+        user_org_ids = set(request.user.organizationmembership_set.values_list("organization_id", flat=True))
+        if value.id not in user_org_ids:
+            raise serializers.ValidationError("You can only create/update customers in organizations you belong to.")
+        return value
+
+
 class KippoProjectSerializer(serializers.ModelSerializer):
     """Serializer for KippoProject model."""
 
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     project_manager_username = serializers.CharField(source="project_manager.username", read_only=True, allow_null=True)
+    customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True)
     allocated_effort_hours = serializers.SerializerMethodField()
     assignment_rates = serializers.SerializerMethodField()
     has_requirements = serializers.SerializerMethodField()
@@ -164,6 +199,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "id",
             "organization",
             "organization_name",
+            "customer",
+            "customer_name",
             "name",
             "slug",
             "columnset",
@@ -203,6 +240,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "id",
             "slug",
             "organization_name",
+            "customer_name",
             "project_manager_username",
             "closed_datetime",
             "allocated_effort_hours",

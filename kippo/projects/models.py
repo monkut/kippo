@@ -158,6 +158,40 @@ VALID_PROJECT_PHASES = (
 
 
 @reversion.register()
+class KippoCustomer(UserCreatedBaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        "accounts.KippoOrganization",
+        on_delete=models.CASCADE,
+        verbose_name=_("組織"),
+    )
+    name = models.CharField(max_length=256, verbose_name=_("顧客名"))
+    email = models.EmailField(blank=True, default="", verbose_name=_("メールアドレス"))
+    phone = models.CharField(max_length=50, blank=True, default="", verbose_name=_("電話番号"))
+    website = models.URLField(blank=True, default="", verbose_name=_("ウェブサイト"))
+    document_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name=_("ドキュメントURL"),
+        help_text=_("Link to customer-related documents (folder, drive, wiki, etc.)"),
+    )
+    notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
+    display_as_active = models.BooleanField(
+        _("Display as Active"),
+        default=True,
+        help_text=_("If False, hidden from default admin lists"),
+    )
+
+    class Meta:
+        unique_together = (("organization", "name"),)
+        verbose_name = _("顧客")
+        verbose_name_plural = _("顧客")
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.name})"
+
+
+@reversion.register()
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, verbose_name=_("組織"))
@@ -223,6 +257,15 @@ class KippoProject(UserCreatedBaseModel):
         related_name="upsell_children",
         verbose_name=_("親プロジェクト"),
         help_text=_("Original (parent) project for upsell projects"),
+    )
+    customer = models.ForeignKey(
+        "projects.KippoCustomer",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="projects",
+        verbose_name=_("顧客"),
+        help_text=_("Customer this project is delivered for (optional)"),
     )
     is_closed = models.BooleanField(_("プロジェクト終了済み"), default=False, help_text=_("Manually set when project is complete"))
     close_comment = models.TextField(_("終了コメント"), blank=True, default="")

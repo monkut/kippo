@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from projects.admin import (
     ActiveKippoProjectAdmin,
+    KippoCustomerAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
@@ -29,7 +30,7 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.models import ActiveKippoProject, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
+from projects.models import ActiveKippoProject, KippoCustomer, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
 class MockRequest:
@@ -1330,3 +1331,63 @@ def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProj
                 else:
                     data[f"{prefix}-{i}-{name}"] = str(value)
     return data
+
+
+class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        # Customers in the user's org and another org
+        self.customer_in_org = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.customer_in_other_org = KippoCustomer.objects.create(
+            organization=self.other_organization,
+            name="Globex",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_superuser_sees_all_customers(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.super_user_request)
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.customer_in_org.id, ids)
+        self.assertIn(self.customer_in_other_org.id, ids)
+
+    def test_staffuser_only_sees_own_org_customers(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.staff_user_request)
+        ids = set(qs.values_list("id", flat=True))
+        self.assertIn(self.customer_in_org.id, ids)
+        self.assertNotIn(self.customer_in_other_org.id, ids)
+
+
+class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
+    """KippoCustomerAdmin auto-sets the organization from the user's session and hides the field."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    @staticmethod
+    def _make_request(user: KippoUser, *, organization_id: str | None = None) -> MagicMock:
+        request = MagicMock()
+        request.user = user
+        request.session = {"organization_id": organization_id} if organization_id else {}
+        return request
+
+    def test_get_form_hides_organization_field_and_initializes_to_session_org(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._make_request(self.staffuser_with_org, organization_id=str(self.organization.id))
+        form_class = modeladmin.get_form(request)
+        self.assertIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
+        self.assertEqual(form_class.base_fields["organization"].initial, self.organization)
+
+    def test_get_form_does_not_hide_field_for_user_without_membership(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._make_request(self.superuser_no_org)
+        form_class = modeladmin.get_form(request)
+        self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
