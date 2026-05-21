@@ -2,6 +2,10 @@
 {# Copy-to-clipboard handler + "コピーしました" toast for the MTG calendar link #}
 {# readonly fields on the KippoProject change form (kiconiaworks/kippo#13). #}
 {% block extrahead %}{{ block.super }}
+<style>
+    .kippo-copy-field { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .kippo-copy-button { padding: 4px 10px; line-height: 1.2; white-space: nowrap; }
+</style>
 <script>
 'use strict';
 (function () {

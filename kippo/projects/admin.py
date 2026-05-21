@@ -1118,33 +1118,25 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             return _("(start_date required)")
         return _format_estimated_completion(result)
 
-    # Explanatory note shown next to the MTG calendar link copy buttons (kippo#13)
-    MEETING_LINKS_HELP_TEXT = _(
-        "ここから作成・追記した MTG の議事録が、社内ドキュメント検索 "
-        "(https://search.internal.kiconiaworks.com) に自動でプロジェクト単位に登録されます。"
-    )
-
     @staticmethod
-    def _render_copy_field(copy_text: str, display_html: str, help_text: str = "") -> str:
-        """Render a readonly value followed by a 📋 copy-to-clipboard button (handler in change_form.html)."""
-        help_html = format_html('<p class="help">{}</p>', help_text) if help_text else ""
+    def _render_copy_field(copy_text: str, display_html: str) -> str:
+        """Render a readonly value followed by a copy-to-clipboard button (handler in change_form.html)."""
         return format_html(
-            '{}<div class="kippo-copy-field">{}<button type="button" class="kippo-copy-button" data-clipboard-text="{}">{}</button></div>',
-            help_html,
+            '<span class="kippo-copy-field">{}<button type="button" class="button kippo-copy-button" data-clipboard-text="{}">{}</button></span>',
             display_html,
             copy_text,
-            _("📋 コピー"),
+            _("コピー"),
         )
 
-    @admin.display(description=_("📅 MTG カレンダー作成 URL"))
+    @admin.display(description=_("MTG カレンダー作成 URL"))
     def meeting_calendar_url_field(self, obj: KippoProject | None = None) -> str:
         if obj is None or obj._state.adding:
             return ""
         url = obj.get_meeting_calendar_template_url()
-        link_html = format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, url)
-        return self._render_copy_field(url, link_html, help_text=self.MEETING_LINKS_HELP_TEXT)
+        link_html = format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, _("Create Project Meeting"))
+        return self._render_copy_field(url, link_html)
 
-    @admin.display(description=_("📋 カレンダーの説明欄"))
+    @admin.display(description=_("カレンダーの説明欄"))
     def meeting_description_tag_field(self, obj: KippoProject | None = None) -> str:
         if obj is None or obj._state.adding:
             return ""

@@ -42,9 +42,9 @@ class MeetingCalendarAdminFieldTestCase(TestCase):
         html = self.admin.meeting_calendar_url_field(self.project)
         assert "kippo-copy-button" in html
         assert "data-clipboard-text" in html
-        assert "calendar.google.com/calendar/render" in html
+        assert "calendar.google.com/calendar/render" in html  # url in href + data-clipboard-text
         assert "<a href=" in html
-        assert "search.internal.kiconiaworks.com" in html  # explanatory help text
+        assert "Create Project Meeting" in html  # link label, not the raw url
 
     def test_meeting_description_tag_field_renders_tag_and_copy_button(self):
         html = self.admin.meeting_description_tag_field(self.project)
