@@ -24,7 +24,7 @@ SET_BOOKMARK_PATH = "projects.slackcommand.managers.ProjectCalendarLinkManager.s
 def _request_with_messages(user: KippoUser) -> HttpRequest:
     request = RequestFactory().post("/admin/projects/kippoproject/")
     request.user = user
-    request.session = "session"
+    request.session = {}  # dict satisfies FallbackStorage's session read/write contract
     request._messages = FallbackStorage(request)
     return request
 
