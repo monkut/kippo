@@ -1120,9 +1120,14 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     @staticmethod
     def _render_copy_field(copy_text: str, display_html: str) -> str:
-        """Render a readonly value followed by a copy-to-clipboard button (handler in change_form.html)."""
+        """Render a readonly value, a copy-to-clipboard button, and a polite aria-live status slot.
+
+        The button and the status slot are driven by the handler in change_form.html.
+        """
         return format_html(
-            '<span class="kippo-copy-field">{}<button type="button" class="button kippo-copy-button" data-clipboard-text="{}">{}</button></span>',
+            '<span class="kippo-copy-field">{}'
+            '<button type="button" class="button kippo-copy-button" data-clipboard-text="{}">{}</button>'
+            '<span class="kippo-copy-status" role="status" aria-live="polite"></span></span>',
             display_html,
             copy_text,
             _("コピー"),

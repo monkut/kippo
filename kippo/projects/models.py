@@ -362,13 +362,14 @@ class KippoProject(UserCreatedBaseModel):
         return f'[dsearch]{{"project":"{self.id}"}}[/dsearch]'
 
     def get_meeting_calendar_template_url(self) -> str:
-        """Return a Google Calendar event-template URL pre-filled with this project's dsearch tag.
+        """Return a Google Calendar event-template URL pre-filled for this project.
 
-        When the organization has a ``calendar_email`` configured it is added as a forced
-        attendee (the ``add`` parameter) so created meeting minutes are discovered and
-        collected per-project (see kiconiaworks/kippo#13).
+        The event title (``text``) is pre-filled with the project name and the description
+        (``details``) carries the dsearch tag. When the organization has a ``calendar_email``
+        configured it is added as a forced attendee (the ``add`` parameter) so created meeting
+        minutes are discovered and collected per-project (see kiconiaworks/kippo#13).
         """
-        params = [("action", "TEMPLATE"), ("details", self.get_dsearch_tag())]
+        params = [("action", "TEMPLATE"), ("text", self.name), ("details", self.get_dsearch_tag())]
         if self.organization.calendar_email:
             params.append(("add", self.organization.calendar_email))
         query = "&".join(f"{key}={quote(value, safe='')}" for key, value in params)

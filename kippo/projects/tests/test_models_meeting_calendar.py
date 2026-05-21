@@ -26,9 +26,11 @@ class MeetingCalendarModelTestCase(TestCase):
         self.organization.calendar_email = ""
         self.organization.save()
         url = self.project.get_meeting_calendar_template_url()
-        assert url.startswith("https://calendar.google.com/calendar/render?action=TEMPLATE&details=")
+        assert url.startswith("https://calendar.google.com/calendar/render?")
         assert "add=" not in url
         parsed = parse_qs(urlparse(url).query)
+        assert parsed["action"][0] == "TEMPLATE"
+        assert parsed["text"][0] == self.project.name
         assert parsed["details"][0] == self.project.get_dsearch_tag()
 
     def test_calendar_template_url_with_calendar_email(self):
@@ -38,10 +40,24 @@ class MeetingCalendarModelTestCase(TestCase):
         project = KippoProject.objects.get(pk=self.project.pk)
         url = project.get_meeting_calendar_template_url()
         parsed = parse_qs(urlparse(url).query)
+        assert parsed["text"][0] == project.name
         assert parsed["details"][0] == project.get_dsearch_tag()
         assert parsed["add"][0] == RESOURCE_CALENDAR_EMAIL
         # the '/' in [/dsearch] must be percent-encoded (encodeURIComponent-equivalent)
         assert "%2F" in url
+
+    def test_calendar_template_url_prefills_meeting_title_with_project_name(self):
+        # a name with space / '&' / non-ascii must be percent-encoded so it cannot
+        # corrupt the query string
+        self.project.name = "案件 Alpha & Beta"
+        self.project.save()
+        project = KippoProject.objects.get(pk=self.project.pk)
+        url = project.get_meeting_calendar_template_url()
+        parsed = parse_qs(urlparse(url).query)
+        assert parsed["text"][0] == "案件 Alpha & Beta"
+        text_encoded = url.split("text=", 1)[1].split("&", 1)[0]
+        assert " " not in text_encoded
+        assert text_encoded == "%E6%A1%88%E4%BB%B6%20Alpha%20%26%20Beta"
 
     def test_calendar_template_url_details_fully_escaped(self):
         """The details tag must be fully percent-escaped (no raw [ ] { } " : characters)."""

@@ -45,12 +45,15 @@ class MeetingCalendarAdminFieldTestCase(TestCase):
         assert "calendar.google.com/calendar/render" in html  # url in href + data-clipboard-text
         assert "<a href=" in html
         assert "Create Project Meeting" in html  # link label, not the raw url
+        assert 'class="kippo-copy-status"' in html  # aria-live status slot for copy feedback
+        assert 'aria-live="polite"' in html
 
     def test_meeting_description_tag_field_renders_tag_and_copy_button(self):
         html = self.admin.meeting_description_tag_field(self.project)
         assert "kippo-copy-button" in html
         assert "data-clipboard-text" in html
         assert "dsearch" in html
+        assert 'class="kippo-copy-status"' in html
 
     def test_meeting_fields_empty_for_unsaved_project(self):
         assert self.admin.meeting_calendar_url_field(None) == ""
