@@ -36,11 +36,12 @@ from django.utils.translation import gettext_lazy as _
 from octocat.functions import copy_project_v2, create_project_v2, get_organization_id
 from octocat.models import GithubRepository
 from rangefilter.filters import DateRangeFilterBuilder
+from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
 from .definitions import UPSELL_CATEGORY_VALUES, ProjectProgressStatus
-from .exceptions import GithubMilestoneAlreadyExistsError
+from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
@@ -591,6 +592,53 @@ def reopen_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequ
 reopen_kippoproject_action.short_description = _("Re-open Project(s)")  # noqa: E305
 
 
+def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
+    """Add each selected project's MTG calendar-template URL as a Slack channel bookmark ('tab' link).
+
+    Skips projects without a Slack conversation channel (or whose organization has no Slack API token)
+    and reports them as errors. See kiconiaworks/kippo#13.
+    """
+    from .slackcommand.managers import ProjectCalendarLinkManager
+
+    added: list[str] = []
+    updated: list[str] = []
+    errors: list[str] = []
+    managers: dict = {}
+    for project in queryset.select_related("organization"):
+        if not project.slack_channel_name:
+            errors.append(_("%(name)s: no Slack conversation channel is configured.") % {"name": project.name})
+            continue
+        organization = project.organization
+        if not organization.slack_api_token:
+            errors.append(_("%(name)s: organization '%(org)s' has no Slack API token configured.") % {"name": project.name, "org": organization.name})
+            continue
+        manager = managers.get(organization.id)
+        if manager is None:
+            manager = ProjectCalendarLinkManager(organization)
+            managers[organization.id] = manager
+        try:
+            result = manager.set_calendar_bookmark(project)
+        except SlackChannelNotFoundError:
+            errors.append(
+                _("%(name)s: Slack channel '%(channel)s' was not found in the workspace.")
+                % {"name": project.name, "channel": project.slack_channel_name}
+            )
+        except SlackApiError as e:
+            errors.append(_("%(name)s: Slack API error — %(error)s") % {"name": project.name, "error": e.response["error"]})
+        else:
+            (added if result == "added" else updated).append(project.name)
+
+    if added:
+        modeladmin.message_user(request, _("Added calendar link to: %s") % ", ".join(added), level=messages.INFO)
+    if updated:
+        modeladmin.message_user(request, _("Updated calendar link for: %s") % ", ".join(updated), level=messages.INFO)
+    for error in errors:
+        modeladmin.message_user(request, error, level=messages.ERROR)
+
+
+add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calendar link to Slack channel")  # noqa: E305
+
+
 class KippoProjectAdminForm(forms.ModelForm):
     class Meta:
         model = KippoProject
@@ -671,6 +719,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         collect_project_github_repositories_action,
         close_kippoproject_action,
         reopen_kippoproject_action,
+        add_calendar_links_to_slack_channels_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
     ]
@@ -683,6 +732,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "name",
                     "confidence",
                     "project_manager",
+                    "meeting_calendar_url_field",
+                    "meeting_description_tag_field",
                 )
             },
         ),
@@ -743,6 +794,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         ProjectWeeklyEffortAdminInline,
         KippoProjectStatusAdminInline,
     ]
+    # copy-to-clipboard handler + toast for the MTG calendar link readonly fields (kippo#13)
+    # lives in templates/admin/projects/kippoproject/change_form.html
+    change_form_template = "admin/projects/kippoproject/change_form.html"
 
     def has_add_permission(self, request: DjangoRequest, obj: KippoProject | None = None):  # No Add button
         # check if user has organization memberships
@@ -758,10 +812,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded = list(super().get_exclude(request, obj) or ())
         if obj is None:
-            if "close_comment" not in excluded:
-                excluded.append("close_comment")
-            if "survey_issued" not in excluded:
-                excluded.append("survey_issued")
+            # MTG calendar links + survey/close fields are only meaningful once a project exists
+            for fieldname in ("close_comment", "survey_issued", "meeting_calendar_url_field", "meeting_description_tag_field"):
+                if fieldname not in excluded:
+                    excluded.append(fieldname)
         if not request.user.is_superuser and "github_project_api_nodeid" not in excluded:
             excluded.append("github_project_api_nodeid")
         return tuple(excluded)
@@ -1032,6 +1086,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # show parent_project as readonly on the change form so admins can see the upsell parent
         if obj is not None and "parent_project" not in readonly_fields:
             readonly_fields = (*readonly_fields, "parent_project")
+        # MTG calendar link fields are computed displays — readonly on the change form (kippo#13)
+        if obj is not None:
+            for fieldname in ("meeting_calendar_url_field", "meeting_description_tag_field"):
+                if fieldname not in readonly_fields:
+                    readonly_fields = (*readonly_fields, fieldname)
         # forecast on non-closed projects only (per kippo#224 C2 + #226)
         if obj is not None and not obj.is_closed and "estimated_completion_date" not in readonly_fields:
             readonly_fields = (*readonly_fields, "estimated_completion_date")
@@ -1058,6 +1117,36 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         except ProjectStartDateRequiredError:
             return _("(start_date required)")
         return _format_estimated_completion(result)
+
+    @staticmethod
+    def _render_copy_field(copy_text: str, display_html: str) -> str:
+        """Render a readonly value, a copy-to-clipboard button, and a polite aria-live status slot.
+
+        The button and the status slot are driven by the handler in change_form.html.
+        """
+        return format_html(
+            '<span class="kippo-copy-field">{}'
+            '<button type="button" class="button kippo-copy-button" data-clipboard-text="{}">{}</button>'
+            '<span class="kippo-copy-status" role="status" aria-live="polite"></span></span>',
+            display_html,
+            copy_text,
+            _("コピー"),
+        )
+
+    @admin.display(description=_("MTG カレンダー作成 URL"))
+    def meeting_calendar_url_field(self, obj: KippoProject | None = None) -> str:
+        if obj is None or obj._state.adding:
+            return ""
+        url = obj.get_meeting_calendar_template_url()
+        link_html = format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, _("Create Project Meeting"))
+        return self._render_copy_field(url, link_html)
+
+    @admin.display(description=_("カレンダーの説明欄"))
+    def meeting_description_tag_field(self, obj: KippoProject | None = None) -> str:
+        if obj is None or obj._state.adding:
+            return ""
+        tag = obj.get_dsearch_tag()
+        return self._render_copy_field(tag, format_html("<code>{}</code>", tag))
 
     def get_changeform_initial_data(self, request: DjangoRequest) -> dict:
         initial = super().get_changeform_initial_data(request)

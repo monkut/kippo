@@ -3,7 +3,7 @@ import logging
 import uuid
 from collections import Counter
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import reversion
 from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
@@ -352,6 +352,28 @@ class KippoProject(UserCreatedBaseModel):
                 assignee__github_login__startswith=UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
             )
         }
+
+    def get_dsearch_tag(self) -> str:
+        """Return the single-line sentinel JSON tag embedding this project's id.
+
+        Used by the internal document-search crawler to register meeting minutes
+        per-project (see kiconiaworks/kippo#13).
+        """
+        return f'[dsearch]{{"project":"{self.id}"}}[/dsearch]'
+
+    def get_meeting_calendar_template_url(self) -> str:
+        """Return a Google Calendar event-template URL pre-filled for this project.
+
+        The event title (``text``) is pre-filled with the project name and the description
+        (``details``) carries the dsearch tag. When the organization has a ``calendar_email``
+        configured it is added as a forced attendee (the ``add`` parameter) so created meeting
+        minutes are discovered and collected per-project (see kiconiaworks/kippo#13).
+        """
+        params = [("action", "TEMPLATE"), ("text", self.name), ("details", self.get_dsearch_tag())]
+        if self.organization.calendar_email:
+            params.append(("add", self.organization.calendar_email))
+        query = "&".join(f"{key}={quote(value, safe='')}" for key, value in params)
+        return f"https://calendar.google.com/calendar/render?{query}"
 
     @property
     def default_column_name(self):

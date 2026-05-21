@@ -1,0 +1,69 @@
+{% extends "admin/change_form.html" %}
+{# Copy-to-clipboard handler + inline "コピーしました" status for the MTG calendar #}
+{# link readonly fields on the KippoProject change form (kiconiaworks/kippo#13). #}
+{% block extrahead %}{{ block.super }}
+<style>
+    .kippo-copy-field { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .kippo-copy-button { padding: 4px 10px; line-height: 1.2; white-space: nowrap; }
+    .kippo-copy-status { font-size: 12px; color: #4f8a10; opacity: 0; transition: opacity 0.15s ease; }
+    .kippo-copy-status.is-visible { opacity: 1; }
+    .kippo-copy-status--error { color: #ba2121; }
+</style>
+<script>
+'use strict';
+(function () {
+    function copyText(text) {
+        // navigator.clipboard is undefined in non-secure contexts (admin over plain HTTP /
+        // internal IP) and accessing .writeText would throw synchronously — guard + fall back.
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve, reject) {
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy') ? resolve() : reject();
+            } catch (err) {
+                reject(err);
+            } finally {
+                textarea.remove();
+            }
+        });
+    }
+
+    function flashStatus(button, message, isError) {
+        // Inline, contextual feedback next to the clicked button. The status span is a
+        // polite aria-live region, so assistive tech announces the result too.
+        var status = button.parentNode.querySelector('.kippo-copy-status');
+        if (!status) {
+            return;
+        }
+        if (status.hideTimer) {
+            clearTimeout(status.hideTimer);
+        }
+        status.textContent = message;
+        status.classList.toggle('kippo-copy-status--error', Boolean(isError));
+        status.classList.add('is-visible');
+        status.hideTimer = setTimeout(function () {
+            status.classList.remove('is-visible');
+        }, 2000);
+    }
+
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('.kippo-copy-button');
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        var text = button.dataset.clipboardText || '';
+        copyText(text).then(
+            function () { flashStatus(button, 'コピーしました', false); },
+            function () { flashStatus(button, 'コピーに失敗しました', true); }
+        );
+    });
+})();
+</script>
+{% endblock %}
