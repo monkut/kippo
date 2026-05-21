@@ -695,7 +695,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     list_display = (
         "id",
-        "customer__name",
+        "get_customer_name",
         "name",
         "phase",
         "category",
@@ -839,6 +839,10 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return result
 
     get_updated_by_display.short_description = "updated by"
+
+    @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
+    def get_customer_name(self, obj: KippoProject) -> str:
+        return obj.customer.name if obj.customer else ""
 
     @admin.display(description=_("confidence"), ordering="confidence")
     def get_confidence_display(self, obj: KippoProject):
@@ -1184,7 +1188,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 class ActiveKippoProjectAdmin(KippoProjectAdmin):
     list_display = (
         "id",
-        "customer__name",
+        "get_customer_name",
         "name",
         "get_confidence_display",
         "get_projectstatus_display",
