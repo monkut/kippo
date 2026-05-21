@@ -202,7 +202,7 @@ class ProjectCalendarLinkManager:
     See kiconiaworks/kippo#13.
     """
 
-    CALENDAR_BOOKMARK_TITLE = "MTG カレンダー作成 URL"
+    CALENDAR_BOOKMARK_TITLE = "MTG カレンダー作成"
     CALENDAR_BOOKMARK_EMOJI = ":calendar:"
     _CONVERSATIONS_PAGE_LIMIT = 200
 
