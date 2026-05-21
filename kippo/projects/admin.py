@@ -695,6 +695,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     list_display = (
         "id",
+        "customer__name",
         "name",
         "phase",
         "category",
@@ -711,6 +712,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "updated_datetime",
     )
     list_display_links = ("id", "name")
+    list_select_related = ("customer",)
     search_fields = ("id", "name", "phase", "category", "problem_definition")
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
@@ -1182,6 +1184,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 class ActiveKippoProjectAdmin(KippoProjectAdmin):
     list_display = (
         "id",
+        "customer__name",
         "name",
         "get_confidence_display",
         "get_projectstatus_display",
