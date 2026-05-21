@@ -593,7 +593,7 @@ reopen_kippoproject_action.short_description = _("Re-open Project(s)")  # noqa: 
 
 
 def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
-    """Add each selected project's MTG calendar-template URL as a Slack channel bookmark ('tab' link).
+    """Add each selected project's MTG calendar-template URL as a pinned message on its Slack conversation channel.
 
     Skips projects without a Slack conversation channel (or whose organization has no Slack API token)
     and reports them as errors. See kiconiaworks/kippo#13.
@@ -617,7 +617,7 @@ def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, re
             manager = ProjectCalendarLinkManager(organization)
             managers[organization.id] = manager
         try:
-            result = manager.set_calendar_bookmark(project)
+            result = manager.set_calendar_pinned_message(project)
         except SlackChannelNotFoundError:
             errors.append(
                 _("%(name)s: Slack channel '%(channel)s' was not found in the workspace.")
