@@ -188,7 +188,7 @@ class KippoCustomer(UserCreatedBaseModel):
         verbose_name_plural = _("顧客")
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.name})"
+        return self.name
 
 
 @reversion.register()
