@@ -1,4 +1,4 @@
-"""Tests for ProjectCalendarLinkManager Slack channel bookmark management (kiconiaworks/kippo#13)."""
+"""Tests for ProjectCalendarLinkManager Slack pinned-message management (kiconiaworks/kippo#13)."""
 
 from unittest import mock
 
@@ -32,43 +32,61 @@ class ProjectCalendarLinkManagerTestCase(TestCase):
         with self.assertRaises(ValueError):
             ProjectCalendarLinkManager(self.organization)
 
-    @mock.patch("projects.slackcommand.managers.WebClient.bookmarks_add", return_value={"ok": True})
-    @mock.patch("projects.slackcommand.managers.WebClient.bookmarks_list", return_value={"bookmarks": []})
+    @mock.patch("projects.slackcommand.managers.WebClient.pins_add", return_value={"ok": True})
+    @mock.patch("projects.slackcommand.managers.WebClient.chat_postMessage", return_value={"ok": True, "ts": "1700000000.000100"})
+    @mock.patch("projects.slackcommand.managers.WebClient.pins_list", return_value={"items": []})
     @mock.patch("projects.slackcommand.managers.WebClient.conversations_list", return_value=CHANNELS_RESPONSE)
-    def test_set_calendar_bookmark_adds_new(self, mock_conversations: mock.MagicMock, mock_list: mock.MagicMock, mock_add: mock.MagicMock):
+    def test_set_calendar_pinned_message_adds_new(
+        self,
+        mock_conversations: mock.MagicMock,
+        mock_pins_list: mock.MagicMock,
+        mock_post: mock.MagicMock,
+        mock_pins_add: mock.MagicMock,
+    ):
         manager = ProjectCalendarLinkManager(self.organization)
-        result = manager.set_calendar_bookmark(self.project)
+        result = manager.set_calendar_pinned_message(self.project)
         assert result == "added"
-        mock_add.assert_called_once()
-        _, kwargs = mock_add.call_args
-        assert kwargs["channel_id"] == "C0ALPHA"
-        assert kwargs["link"] == self.project.get_meeting_calendar_template_url()
-        assert kwargs["title"] == ProjectCalendarLinkManager.CALENDAR_BOOKMARK_TITLE
+        mock_post.assert_called_once()
+        _, post_kwargs = mock_post.call_args
+        assert post_kwargs["channel"] == "C0ALPHA"
+        assert self.project.get_meeting_calendar_template_url() in post_kwargs["text"]
+        assert ProjectCalendarLinkManager.CALENDAR_MESSAGE_TITLE in post_kwargs["text"]
+        mock_pins_add.assert_called_once()
+        _, pin_kwargs = mock_pins_add.call_args
+        assert pin_kwargs["channel"] == "C0ALPHA"
+        assert pin_kwargs["timestamp"] == "1700000000.000100"
 
-    @mock.patch("projects.slackcommand.managers.WebClient.bookmarks_edit", return_value={"ok": True})
-    @mock.patch("projects.slackcommand.managers.WebClient.bookmarks_list")
+    @mock.patch("projects.slackcommand.managers.WebClient.chat_update", return_value={"ok": True})
+    @mock.patch("projects.slackcommand.managers.WebClient.pins_list")
     @mock.patch("projects.slackcommand.managers.WebClient.conversations_list", return_value=CHANNELS_RESPONSE)
-    def test_set_calendar_bookmark_updates_existing(self, mock_conversations: mock.MagicMock, mock_list: mock.MagicMock, mock_edit: mock.MagicMock):
-        mock_list.return_value = {"bookmarks": [{"id": "Bk1", "title": ProjectCalendarLinkManager.CALENDAR_BOOKMARK_TITLE}]}
+    def test_set_calendar_pinned_message_updates_existing(
+        self,
+        mock_conversations: mock.MagicMock,
+        mock_pins_list: mock.MagicMock,
+        mock_update: mock.MagicMock,
+    ):
+        existing_text = f":calendar: <https://calendar.google.com/old|{ProjectCalendarLinkManager.CALENDAR_MESSAGE_TITLE}>"
+        mock_pins_list.return_value = {"items": [{"type": "message", "message": {"ts": "1699999999.000200", "text": existing_text}}]}
         manager = ProjectCalendarLinkManager(self.organization)
-        result = manager.set_calendar_bookmark(self.project)
+        result = manager.set_calendar_pinned_message(self.project)
         assert result == "updated"
-        mock_edit.assert_called_once()
-        _, kwargs = mock_edit.call_args
-        assert kwargs["bookmark_id"] == "Bk1"
-        assert kwargs["link"] == self.project.get_meeting_calendar_template_url()
+        mock_update.assert_called_once()
+        _, kwargs = mock_update.call_args
+        assert kwargs["channel"] == "C0ALPHA"
+        assert kwargs["ts"] == "1699999999.000200"
+        assert self.project.get_meeting_calendar_template_url() in kwargs["text"]
 
     @mock.patch("projects.slackcommand.managers.WebClient.conversations_list", return_value=CHANNELS_RESPONSE)
-    def test_set_calendar_bookmark_channel_not_found(self, mock_conversations: mock.MagicMock):
+    def test_set_calendar_pinned_message_channel_not_found(self, mock_conversations: mock.MagicMock):
         self.project.slack_channel_name = "nonexistent-channel"
         self.project.save()
         manager = ProjectCalendarLinkManager(self.organization)
         with self.assertRaises(SlackChannelNotFoundError):
-            manager.set_calendar_bookmark(self.project)
+            manager.set_calendar_pinned_message(self.project)
 
-    def test_set_calendar_bookmark_requires_channel_name(self):
+    def test_set_calendar_pinned_message_requires_channel_name(self):
         self.project.slack_channel_name = ""
         self.project.save()
         manager = ProjectCalendarLinkManager(self.organization)
         with self.assertRaises(ValueError):
-            manager.set_calendar_bookmark(self.project)
+            manager.set_calendar_pinned_message(self.project)

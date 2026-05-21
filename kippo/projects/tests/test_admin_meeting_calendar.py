@@ -18,7 +18,7 @@ from projects.exceptions import SlackChannelNotFoundError
 from projects.models import KippoProject
 from projects.tests.test_admin import KippoProjectAdminFixtureTestCaseBase
 
-SET_BOOKMARK_PATH = "projects.slackcommand.managers.ProjectCalendarLinkManager.set_calendar_bookmark"
+SET_PINNED_MESSAGE_PATH = "projects.slackcommand.managers.ProjectCalendarLinkManager.set_calendar_pinned_message"
 
 
 def _request_with_messages(user: KippoUser) -> HttpRequest:
@@ -88,7 +88,7 @@ class AddCalendarLinksActionTestCase(TestCase):
         add_calendar_links_to_slack_channels_action(self.admin, request, queryset)
         return list(request._messages)
 
-    @mock.patch(SET_BOOKMARK_PATH, return_value="added")
+    @mock.patch(SET_PINNED_MESSAGE_PATH, return_value="added")
     def test_action_adds_link_success(self, mock_set: mock.MagicMock):
         self.organization.slack_api_token = "xoxb-test"  # noqa: S105
         self.organization.save()
@@ -117,7 +117,7 @@ class AddCalendarLinksActionTestCase(TestCase):
         assert messages[0].level == message_constants.ERROR
         assert "no Slack API token" in messages[0].message
 
-    @mock.patch(SET_BOOKMARK_PATH, side_effect=SlackChannelNotFoundError("nope"))
+    @mock.patch(SET_PINNED_MESSAGE_PATH, side_effect=SlackChannelNotFoundError("nope"))
     def test_action_reports_channel_not_found(self, mock_set: mock.MagicMock):
         self.organization.slack_api_token = "xoxb-test"  # noqa: S105
         self.organization.save()
@@ -128,7 +128,7 @@ class AddCalendarLinksActionTestCase(TestCase):
         assert messages[0].level == message_constants.ERROR
         assert "was not found in the workspace" in messages[0].message
 
-    @mock.patch(SET_BOOKMARK_PATH, side_effect=SlackApiError("err", {"error": "missing_scope"}))
+    @mock.patch(SET_PINNED_MESSAGE_PATH, side_effect=SlackApiError("err", {"error": "missing_scope"}))
     def test_action_reports_slack_api_error(self, mock_set: mock.MagicMock):
         self.organization.slack_api_token = "xoxb-test"  # noqa: S105
         self.organization.save()

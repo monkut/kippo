@@ -197,18 +197,18 @@ class ProjectSlackManager:
 
 
 class ProjectCalendarLinkManager:
-    """Manage a project's MTG calendar-template URL as a Slack channel bookmark ('tab' link).
+    """Manage a project's MTG calendar-template URL as a pinned Slack message.
 
     See kiconiaworks/kippo#13.
     """
 
-    CALENDAR_BOOKMARK_TITLE = "MTG カレンダー作成"
-    CALENDAR_BOOKMARK_EMOJI = ":calendar:"
+    CALENDAR_MESSAGE_TITLE = "MTG カレンダー作成"
+    CALENDAR_MESSAGE_EMOJI = ":calendar:"
     _CONVERSATIONS_PAGE_LIMIT = 200
 
     def __init__(self, organization: KippoOrganization) -> None:
         if not organization.slack_api_token:
-            raise ValueError("organization.slack_api_token is not set; cannot manage Slack channel bookmarks.")
+            raise ValueError("organization.slack_api_token is not set; cannot manage Slack channel messages.")
         self.organization = organization
         self.client = WebClient(token=organization.slack_api_token)
 
@@ -231,8 +231,19 @@ class ProjectCalendarLinkManager:
             if not cursor:
                 return None
 
-    def set_calendar_bookmark(self, project: KippoProject) -> str:
-        """Add (or update) the project's MTG calendar-template URL bookmark on its Slack conversation channel.
+    def _find_calendar_message_ts(self, channel_id: str) -> str | None:
+        """Return the ts of an already-pinned MTG calendar message in the channel, or None."""
+        pinned_items: list = self.client.pins_list(channel=channel_id).get("items") or []
+        for item in pinned_items:
+            if item.get("type") != "message":
+                continue
+            message = item.get("message") or {}
+            if self.CALENDAR_MESSAGE_TITLE in message.get("text", ""):
+                return message.get("ts")
+        return None
+
+    def set_calendar_pinned_message(self, project: KippoProject) -> str:
+        """Post (or update) the project's MTG calendar-template URL as a pinned message on its Slack conversation channel.
 
         Returns ``"added"`` or ``"updated"``.
         Raises ``ValueError`` if the project has no ``slack_channel_name`` and
@@ -245,16 +256,12 @@ class ProjectCalendarLinkManager:
             raise SlackChannelNotFoundError(f"Slack channel not found: {project.slack_channel_name}")
 
         url = project.get_meeting_calendar_template_url()
-        existing_bookmarks: list = self.client.bookmarks_list(channel_id=channel_id).get("bookmarks") or []
-        for bookmark in existing_bookmarks:
-            if bookmark.get("title") == self.CALENDAR_BOOKMARK_TITLE:
-                self.client.bookmarks_edit(bookmark_id=bookmark["id"], channel_id=channel_id, link=url)
-                return "updated"
-        self.client.bookmarks_add(
-            channel_id=channel_id,
-            title=self.CALENDAR_BOOKMARK_TITLE,
-            type="link",
-            link=url,
-            emoji=self.CALENDAR_BOOKMARK_EMOJI,
-        )
+        text = f"{self.CALENDAR_MESSAGE_EMOJI} <{url}|{self.CALENDAR_MESSAGE_TITLE}>"
+
+        existing_ts = self._find_calendar_message_ts(channel_id)
+        if existing_ts:
+            self.client.chat_update(channel=channel_id, ts=existing_ts, text=text)
+            return "updated"
+        response = self.client.chat_postMessage(channel=channel_id, text=text)
+        self.client.pins_add(channel=channel_id, timestamp=response["ts"])
         return "added"
