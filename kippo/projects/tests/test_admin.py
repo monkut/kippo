@@ -25,6 +25,7 @@ from projects.admin import (
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
+    KippoProjectReadOnlyInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
@@ -1365,6 +1366,73 @@ class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBas
         ids = set(qs.values_list("id", flat=True))
         self.assertIn(self.customer_in_org.id, ids)
         self.assertNotIn(self.customer_in_other_org.id, ids)
+
+
+class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """KippoCustomerAdmin shows a read-only inline listing the customer's related projects."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.other_customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Globex",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def _make_customer_project(self, name: str, customer: KippoCustomer, target_date: date, billing_date: date) -> KippoProject:
+        return KippoProject.objects.create(
+            organization=self.organization,
+            name=name,
+            category="poc",
+            columnset=self.columnset,
+            customer=customer,
+            target_date=target_date,
+            billing_date=billing_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_inline_registered_and_read_only(self):
+        self.assertIn(KippoProjectReadOnlyInline, KippoCustomerAdmin.inlines)
+        inline = KippoProjectReadOnlyInline(KippoCustomer, self.site)
+        self.assertFalse(inline.has_add_permission(self.staff_user_request))
+        self.assertFalse(inline.can_delete)
+        # every displayed field is read-only
+        self.assertEqual(set(inline.fields), set(inline.readonly_fields))
+        for fieldname in ("get_project_link", "start_date", "target_date", "billing_date"):
+            self.assertIn(fieldname, inline.fields)
+
+    def test_change_view_lists_related_project_with_admin_link_and_billing_date(self):
+        project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1), date(2026, 6, 15))
+        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        self.assertIn(project.name, content)
+        self.assertIn(project.get_admin_url(), content)
+        self.assertIn("2026-06-15", content)  # billing_date rendered
+
+    def test_change_view_orders_projects_by_target_date_ascending(self):
+        later = self._make_customer_project("acme-later", self.customer, date(2026, 9, 1), date(2026, 9, 1))
+        earlier = self._make_customer_project("acme-earlier", self.customer, date(2026, 3, 1), date(2026, 3, 1))
+        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
+        content = self.client.get(url).content.decode()
+        self.assertLess(content.index(earlier.name), content.index(later.name))
+
+    def test_change_view_excludes_other_customers_projects(self):
+        mine = self._make_customer_project("acme-mine", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        theirs = self._make_customer_project("globex-theirs", self.other_customer, date(2026, 6, 1), date(2026, 6, 1))
+        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
+        content = self.client.get(url).content.decode()
+        self.assertIn(mine.name, content)
+        self.assertNotIn(theirs.name, content)
 
 
 class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
