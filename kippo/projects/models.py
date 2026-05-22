@@ -306,6 +306,12 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("The date the project was actually completed on (not the initial target)"),
     )
+    billing_date = models.DateField(
+        _("請求日"),
+        null=True,
+        blank=True,
+        help_text=_("Date the project is billed. Defaults to the target date when left blank."),
+    )
     document_folder_url = models.URLField(
         _("ドキュメント保管URL"),
         blank=True,
@@ -636,6 +642,9 @@ class KippoProject(UserCreatedBaseModel):
             self.closed_datetime = timezone.now()
         elif not self.is_closed and self.closed_datetime:
             self.closed_datetime = None
+
+        if not self.billing_date and self.target_date:
+            self.billing_date = self.target_date
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
