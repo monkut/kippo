@@ -1236,6 +1236,30 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         return qs
 
 
+class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    """Read-only list of projects linked to a KippoCustomer (managed via KippoProjectAdmin)."""
+
+    model = KippoProject
+    fk_name = "customer"
+    extra = 0
+    can_delete = False
+    verbose_name = _("プロジェクト")
+    verbose_name_plural = _("プロジェクト")
+    fields = ("get_project_link", "start_date", "target_date", "billing_date")
+    readonly_fields = ("get_project_link", "start_date", "target_date", "billing_date")
+
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No Add button
+        return False
+
+    def get_queryset(self, request: DjangoRequest):
+        # earliest target_date first
+        return super().get_queryset(request).order_by("target_date")
+
+    @admin.display(description=KippoProject._meta.get_field("name").verbose_name)
+    def get_project_link(self, obj: KippoProject):
+        return format_html('<a href="{}">{}</a>', obj.get_admin_url(), obj.name)
+
+
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "organization", "email", "display_as_active", "updated_datetime")
@@ -1244,6 +1268,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     search_fields = ("name", "email")
     ordering = ("organization", "-display_as_active", "name")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
+    inlines = (KippoProjectReadOnlyInline,)
 
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
