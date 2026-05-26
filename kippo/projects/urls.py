@@ -1,7 +1,7 @@
 from accounts.viewsets import OrganizationViewSet, PersonalHolidayViewSet, PublicHolidayViewSet
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from octocat.viewsets import GithubRepositoryViewSet, ProjectGithubRepositoryViewSet
+from octocat.viewsets import ProjectGithubRepositoryViewSet
 from rest_framework.routers import DefaultRouter
 
 from . import api_views, views
@@ -67,9 +67,6 @@ project_github_repository_detail = ProjectGithubRepositoryViewSet.as_view(
     }
 )
 
-github_repository_list = GithubRepositoryViewSet.as_view({"get": "list"})
-github_repository_detail = GithubRepositoryViewSet.as_view({"get": "retrieve"})
-
 # HTML Views and Legacy API
 html_and_legacy_patterns = [
     # HTML Views
@@ -124,8 +121,6 @@ api_patterns = [
         project_github_repository_detail,
         name="project-github-repository-detail",
     ),
-    path("github-repositories/", github_repository_list, name="github-repository-list"),
-    path("github-repositories/<uuid:pk>/", github_repository_detail, name="github-repository-detail"),
     # API ViewSets
     path("", include(router.urls)),
 ]

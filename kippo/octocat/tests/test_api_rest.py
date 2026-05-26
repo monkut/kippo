@@ -74,16 +74,16 @@ class GithubRepositoryAPITestCase(TestCase):
 
         self.client = APIClient()
 
-    # --- top-level /api/github-repositories/ -----------------------------
+    # --- top-level /api/octocat/github-repositories/ ---------------------
 
     def test_list_requires_authentication(self):
-        url = f"{settings.URL_PREFIX}/api/github-repositories/"
+        url = f"{settings.URL_PREFIX}/api/octocat/github-repositories/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_list_is_org_scoped(self):
         self.client.force_authenticate(user=self.user)
-        url = f"{settings.URL_PREFIX}/api/github-repositories/"
+        url = f"{settings.URL_PREFIX}/api/octocat/github-repositories/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ids = [r["id"] for r in response.json()["results"]]
@@ -92,7 +92,7 @@ class GithubRepositoryAPITestCase(TestCase):
 
     def test_retrieve_other_org_repo_returns_404(self):
         self.client.force_authenticate(user=self.user)
-        url = f"{settings.URL_PREFIX}/api/github-repositories/{self.other_org_repo.id}/"
+        url = f"{settings.URL_PREFIX}/api/octocat/github-repositories/{self.other_org_repo.id}/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
@@ -105,7 +105,7 @@ class GithubRepositoryAPITestCase(TestCase):
             is_superuser=True,
         )
         self.client.force_authenticate(user=superuser)
-        url = f"{settings.URL_PREFIX}/api/github-repositories/"
+        url = f"{settings.URL_PREFIX}/api/octocat/github-repositories/"
         response = self.client.get(url)
         ids = [r["id"] for r in response.json()["results"]]
         self.assertIn(str(self.own_repo.id), ids)
