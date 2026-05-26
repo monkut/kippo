@@ -1,4 +1,4 @@
-from accounts.viewsets import PersonalHolidayViewSet, PublicHolidayViewSet
+from accounts.viewsets import OrganizationViewSet, PersonalHolidayViewSet, PublicHolidayViewSet
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
@@ -32,6 +32,7 @@ router.register(r"monthly-costs", ProjectMonthlyCostViewSet, basename="projectmo
 router.register(r"project-surveys", KippoProjectUserStatisfactionResultViewSet, basename="projectsurvey")
 router.register(r"personal-holidays", PersonalHolidayViewSet, basename="personalholiday")
 router.register(r"public-holidays", PublicHolidayViewSet, basename="publicholiday")
+router.register(r"organizations", OrganizationViewSet, basename="kippoorganization")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(

@@ -5,6 +5,41 @@ from rest_framework import serializers
 from .models import PersonalHoliday, PublicHoliday
 
 
+class OrganizationSerializer(serializers.Serializer):
+    """Minimal projection of a `KippoOrganization` for the org-listing endpoint.
+
+    Used by `GET /api/organizations/` so kippo-ui can render an org picker
+    without needing to embed the full admin model. Per kippo#14.
+    """
+
+    id = serializers.UUIDField(help_text="KippoOrganization primary key.")
+    name = serializers.CharField()
+    github_organization_name = serializers.CharField()
+
+
+class OrganizationMemberDetailSerializer(serializers.Serializer):
+    """Org-scoped projection of `KippoUser` joined with their `OrganizationMembership`.
+
+    Returned by `GET /api/organizations/<id>/members/`. Adds the per-org PII
+    (`email`, `slack_*`) that `projects.serializers.OrganizationMemberSerializer`
+    intentionally omits — keep these two serializers separate so the per-project
+    contract consumed by kippo-ui#57 is not coupled to this richer shape. Per kippo#14.
+    """
+
+    user_id = serializers.UUIDField(help_text="KippoUser primary key.")
+    username = serializers.CharField()
+    display_name = serializers.CharField(help_text="Composed first + last + (github_login).")
+    first_name = serializers.CharField(allow_blank=True)
+    last_name = serializers.CharField(allow_blank=True)
+    email = serializers.CharField(allow_blank=True, help_text="Per-org email from OrganizationMembership, not KippoUser.")
+    github_login = serializers.CharField(allow_blank=True)
+    is_developer = serializers.BooleanField()
+    is_project_manager = serializers.BooleanField()
+    slack_username = serializers.CharField(allow_blank=True)
+    slack_user_id = serializers.CharField(allow_blank=True)
+    slack_image_url = serializers.CharField(allow_blank=True)
+
+
 class PersonalHolidaySerializer(serializers.ModelSerializer):
     """Serializer for PersonalHoliday model.
 
