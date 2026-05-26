@@ -22,7 +22,7 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
 )
-from .permissions import IsSuperuserOrReadUpdateCreateOwn, IsSuperuserOrReadUpdateOnly
+from .permissions import IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
     KippoCustomerSerializer,
     KippoProjectSerializer,
@@ -52,19 +52,25 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users)
-    - Update (PUT/PATCH): Authenticated users (organization-scoped for regular users)
-    - Create (POST): Superusers only
+    - Create (POST): Authenticated users for orgs they belong to; superusers any org
+    - Update (PUT/PATCH): Authenticated users for projects in orgs they belong to; superusers any project
     - Delete (DELETE): Superusers only
     """
 
     serializer_class = KippoProjectSerializer
-    permission_classes = [IsSuperuserOrReadUpdateOnly]
+    permission_classes = [IsSuperuserOrOwnOrgReadUpdateCreate]
     queryset = (
         KippoProject.objects.all()
         .select_related("organization", "project_manager")
         .prefetch_related("github_repositories")
         .order_by("-created_datetime")
     )
+
+    def perform_create(self, serializer: KippoProjectSerializer) -> None:
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer: KippoProjectSerializer) -> None:
+        serializer.save(updated_by=self.request.user)
 
     @extend_schema(
         parameters=[

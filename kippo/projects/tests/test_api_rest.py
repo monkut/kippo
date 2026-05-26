@@ -547,13 +547,48 @@ class PermissionsTestCase(TestCase):
 
         self.client = APIClient()
 
-    def test_regular_user_cannot_create_project(self):
-        """Test that regular authenticated users cannot create projects."""
+    def test_regular_user_can_create_project_in_own_org(self):
+        """Org-member can POST /api/projects/ for an org they belong to (kippo#284)."""
         self.client.force_authenticate(user=self.user)
         url = f"{settings.URL_PREFIX}/api/projects/"
         data = {
-            "name": "New Project",
+            "name": "Org Member Project",
             "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+
+        created = KippoProject.objects.get(name="Org Member Project")
+        # created_by/updated_by auto-set from request.user (kippo#284 decision #5)
+        self.assertEqual(created.created_by, self.user)
+        self.assertEqual(created.updated_by, self.user)
+
+    def test_regular_user_cannot_create_project_in_other_org(self):
+        """Org-member cannot POST /api/projects/ for an org they don't belong to (kippo#284)."""
+        other_org = KippoOrganization.objects.create(
+            name="permissions-other-org",
+            github_organization_name="permissions-other-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Forbidden Cross-Org Project",
+            "organization": str(other_org.id),
+            "columnset": self.project.columnset.id,
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertFalse(KippoProject.objects.filter(name="Forbidden Cross-Org Project").exists())
+
+    def test_regular_user_post_without_organization_is_forbidden(self):
+        """POST without an organization field cannot pass org-membership check (kippo#284)."""
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Missing Org Project",
             "columnset": self.project.columnset.id,
         }
         response = self.client.post(url, data, format="json")
@@ -566,6 +601,24 @@ class PermissionsTestCase(TestCase):
         data = {
             "name": "Superuser Project",
             "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+
+    def test_superuser_can_create_project_in_any_org(self):
+        """Superusers retain unrestricted create across orgs (kippo#284)."""
+        other_org = KippoOrganization.objects.create(
+            name="superuser-foreign-org",
+            github_organization_name="superuser-foreign-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_authenticate(user=self.superuser)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Superuser Cross-Org Project",
+            "organization": str(other_org.id),
             "columnset": self.project.columnset.id,
         }
         response = self.client.post(url, data, format="json")
@@ -607,6 +660,31 @@ class PermissionsTestCase(TestCase):
         data = {"name": "Updated Project Name"}
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        # updated_by auto-set from request.user (kippo#284 decision #5)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.updated_by, self.user)
+
+    def test_regular_user_cannot_update_other_org_project(self):
+        """PATCH against a project in a foreign org is rejected (kippo#284, queryset-scoped → 404)."""
+        other_org = KippoOrganization.objects.create(
+            name="cross-org-patch-org",
+            github_organization_name="cross-org-patch-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        foreign_project = KippoProject.objects.create(
+            name="Foreign Project",
+            organization=other_org,
+            columnset=self.project.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/{foreign_project.id}/"
+        response = self.client.patch(url, {"name": "Hijack Attempt"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+        foreign_project.refresh_from_db()
+        self.assertEqual(foreign_project.name, "Foreign Project")
 
     def test_regular_user_can_create_own_weekly_effort(self):
         """Test that regular authenticated users can create their own weekly effort."""
