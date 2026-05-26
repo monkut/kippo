@@ -38,6 +38,15 @@ class OrganizationMemberDetailSerializer(serializers.Serializer):
     slack_username = serializers.CharField(allow_blank=True)
     slack_user_id = serializers.CharField(allow_blank=True)
     slack_image_url = serializers.CharField(allow_blank=True)
+    available_work_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Workdays this member is available in the calendar month requested via "
+            "the `month` query parameter (committed weekdays minus public/personal "
+            "holidays). Null/absent when `month` is not provided."
+        ),
+    )
 
 
 class PersonalHolidaySerializer(serializers.ModelSerializer):

@@ -1,5 +1,6 @@
 """Tests for the org-level user-listing API (kippo#14)."""
 
+import datetime
 import uuid
 from http import HTTPStatus
 
@@ -8,7 +9,7 @@ from django.conf import settings
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
+from accounts.models import Country, EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 
 
 class OrganizationListTestCase(TestCase):
@@ -260,8 +261,11 @@ class OrganizationMembersAPITestCase(TestCase):
                 "slack_username",
                 "slack_user_id",
                 "slack_image_url",
+                "available_work_days",
             },
         )
+        # `available_work_days` is null when the `month` query parameter is not given.
+        self.assertIsNone(pm["available_work_days"])
         # Slack/email fields come from OrganizationMembership, not KippoUser.
         self.assertEqual(pm["email"], "pat@github.com")
         self.assertEqual(pm["slack_username"], "pat")
@@ -279,3 +283,123 @@ class OrganizationMembersAPITestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         usernames = [m["username"] for m in response.json()["members"]]
         self.assertIn(self.other_org_user.username, usernames)
+
+
+class OrganizationMembersMonthAvailableWorkdaysTestCase(TestCase):
+    """`?month=YYYY-MM-DD` populates per-member `available_work_days`."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.user = created["KippoUser"]
+        self.organization = created["KippoOrganization"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+
+        # 2026-06: 22 weekdays (1-Mon … 30-Tue). No JP public holidays in June.
+        self.country = Country.objects.create(name="Japan")
+
+        # User with full Mon-Fri commitment, JP holidays, one personal holiday.
+        self.fulltime_user = KippoUser.objects.create(
+            username="ft-user",
+            first_name="Full",
+            last_name="Time",
+            holiday_country=self.country,
+            is_staff=True,
+        )
+        OrganizationMembership.objects.create(
+            user=self.fulltime_user,
+            organization=self.organization,
+            email="ft@github.com",
+            monday=True,
+            tuesday=True,
+            wednesday=True,
+            thursday=True,
+            friday=True,
+            saturday=False,
+            sunday=False,
+            is_developer=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # Personal holiday: 2026-06-15 (Mon), 3 days → 15, 16, 17.
+        PersonalHoliday.objects.create(user=self.fulltime_user, day=datetime.date(2026, 6, 15), duration=3, is_half=False)
+
+        # Public holiday in JP: 2026-06-08 (Mon) — synthetic, real JP June has none.
+        PublicHoliday.objects.create(country=self.country, name="Synthetic Holiday", day=datetime.date(2026, 6, 8))
+
+        # Part-time user: Mon/Wed/Fri only, no holiday country (skips public holidays).
+        self.parttime_user = KippoUser.objects.create(
+            username="pt-user",
+            first_name="Part",
+            last_name="Time",
+            is_staff=True,
+        )
+        OrganizationMembership.objects.create(
+            user=self.parttime_user,
+            organization=self.organization,
+            email="pt@github.com",
+            monday=True,
+            tuesday=False,
+            wednesday=True,
+            thursday=False,
+            friday=True,
+            saturday=False,
+            sunday=False,
+            is_developer=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _url(self, **params) -> str:
+        url = f"{settings.URL_PREFIX}/api/organizations/{self.organization.id}/members/"
+        if params:
+            url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        return url
+
+    def _member(self, response_json: dict, username: str) -> dict:
+        return next(m for m in response_json["members"] if m["username"] == username)
+
+    def test_no_month_param_returns_null_available_work_days(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        ft = self._member(response.json(), "ft-user")
+        self.assertIsNone(ft["available_work_days"])
+
+    def test_month_param_populates_available_work_days(self):
+        response = self.client.get(self._url(month="2026-06-01"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        ft = self._member(response.json(), "ft-user")
+        # June 2026: 22 weekdays minus 1 public holiday (06-08) minus 3 personal (06-15..17) = 18.
+        self.assertEqual(ft["available_work_days"], 18)
+
+    def test_parttime_user_only_committed_weekdays_counted(self):
+        response = self.client.get(self._url(month="2026-06-01"))
+        pt = self._member(response.json(), "pt-user")
+        # Mon/Wed/Fri only in June 2026:
+        # Mon: 1, 8, 15, 22, 29 = 5
+        # Wed: 3, 10, 17, 24 = 4
+        # Fri: 5, 12, 19, 26 = 4
+        # Total = 13 (no holiday subtraction; pt-user has no holiday_country and no PersonalHoliday).
+        self.assertEqual(pt["available_work_days"], 13)
+
+    def test_month_param_with_arbitrary_day_snaps_to_month_start(self):
+        # Any day-of-month should yield the same count as day=01.
+        response_mid = self.client.get(self._url(month="2026-06-17"))
+        response_first = self.client.get(self._url(month="2026-06-01"))
+        ft_mid = self._member(response_mid.json(), "ft-user")
+        ft_first = self._member(response_first.json(), "ft-user")
+        self.assertEqual(ft_mid["available_work_days"], ft_first["available_work_days"])
+
+    def test_invalid_month_param_returns_400(self):
+        response = self.client.get(self._url(month="not-a-date"))
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+
+    def test_month_param_other_month_unaffected_by_june_holidays(self):
+        # July 2026: 23 weekdays, no JP public holidays declared, no personal holidays for ft-user → 23.
+        response = self.client.get(self._url(month="2026-07-01"))
+        ft = self._member(response.json(), "ft-user")
+        self.assertEqual(ft["available_work_days"], 23)
