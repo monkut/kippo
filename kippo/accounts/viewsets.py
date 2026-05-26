@@ -1,8 +1,11 @@
 """ViewSets for Accounts API."""
 
+import datetime
+from collections import defaultdict
 from http import HTTPStatus
 from typing import Any
 
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import viewsets
@@ -20,6 +23,50 @@ from .serializers import (
     PersonalHolidaySerializer,
     PublicHolidaySerializer,
 )
+
+
+def _calc_available_workdays_in_month(
+    memberships: list[OrganizationMembership],
+    month_start: datetime.date,
+) -> dict[Any, int]:
+    """Return {user_id: available_workdays_count} for the calendar month starting at `month_start`.
+
+    Available = committed weekdays in the month, minus public holidays for the
+    user's holiday_country, minus the user's personal holidays. Batched to avoid
+    N+1 queries.
+    """
+    month_end = month_start + relativedelta(months=1) - datetime.timedelta(days=1)
+    user_ids = [m.user_id for m in memberships]
+
+    # Personal holidays touching the month (expand by `duration`).
+    personal_by_user: dict[Any, set[datetime.date]] = defaultdict(set)
+    earliest_relevant_start = month_start - datetime.timedelta(days=365)
+    for ph in PersonalHoliday.objects.filter(user_id__in=user_ids, day__gte=earliest_relevant_start, day__lte=month_end):
+        for offset in range(ph.duration):
+            d = ph.day + datetime.timedelta(days=offset)
+            if month_start <= d <= month_end:
+                personal_by_user[ph.user_id].add(d)
+
+    # Public holidays per country for the month window.
+    country_ids = {m.user.holiday_country_id for m in memberships if m.user.holiday_country_id}
+    public_by_country: dict[Any, set[datetime.date]] = defaultdict(set)
+    if country_ids:
+        for ph in PublicHoliday.objects.filter(country_id__in=country_ids, day__gte=month_start, day__lte=month_end):
+            public_by_country[ph.country_id].add(ph.day)
+
+    result: dict[Any, int] = {}
+    for membership in memberships:
+        committed = set(membership.committed_weekdays)
+        personal = personal_by_user.get(membership.user_id, set())
+        public = public_by_country.get(membership.user.holiday_country_id, set())
+        count = 0
+        current = month_start
+        while current <= month_end:
+            if current.weekday() in committed and current not in personal and current not in public:
+                count += 1
+            current += datetime.timedelta(days=1)
+        result[membership.user_id] = count
+    return result
 
 
 class PersonalHolidayViewSet(viewsets.ModelViewSet):
@@ -149,6 +196,17 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 required=False,
                 type=bool,
             ),
+            OpenApiParameter(
+                name="month",
+                description=(
+                    "When set (YYYY-MM-DD; any day, snapped to month start), each member's "
+                    "`available_work_days` field is populated with the count of available "
+                    "workdays in that month (committed weekdays minus public/personal holidays). "
+                    "Omitted or invalid → `available_work_days` is null."
+                ),
+                required=False,
+                type=str,
+            ),
         ],
         responses={
             HTTPStatus.OK: OpenApiResponse(
@@ -158,13 +216,17 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 ),
                 description="Members of the organization, with per-org Slack and email fields.",
             ),
+            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="`month` query parameter is not in YYYY-MM-DD format."),
             HTTPStatus.FORBIDDEN: OpenApiResponse(description="Requester is not a member of the organization."),
             HTTPStatus.NOT_FOUND: OpenApiResponse(description="Organization does not exist."),
         },
         description=(
             "Active members of the given organization. Excludes the unassigned bot user "
             "and (by default) KippoUser.is_active=False users. Returns the richer per-org "
-            "shape (adds email and slack_* fields) that the per-project endpoint omits."
+            "shape (adds email and slack_* fields) that the per-project endpoint omits. "
+            "Pass `?month=YYYY-MM-DD` to include each member's `available_work_days` for "
+            "that calendar month — used by the assignments-matrix UI to express row totals "
+            "in person-days instead of percentages."
         ),
     )
     @action(detail=True, methods=["get"], url_path="members", permission_classes=[IsAuthenticated])
@@ -190,20 +252,33 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         include_inactive_raw = self.request.query_params.get("include_inactive")
         include_inactive = include_inactive_raw is not None and include_inactive_raw.lower() in _TRUTHY
 
+        month_raw = self.request.query_params.get("month")
+        month_start: datetime.date | None = None
+        if month_raw:
+            try:
+                month_start = datetime.datetime.strptime(month_raw, "%Y-%m-%d").date().replace(day=1)  # noqa: DTZ007
+            except ValueError:
+                return Response(
+                    {"detail": "month must be YYYY-MM-DD"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+
         membership_filters: dict[str, Any] = {"organization": organization}
         for key in ("is_developer", "is_project_manager"):
             raw = self.request.query_params.get(key)
             if raw is not None:
                 membership_filters[key] = raw.lower() in _TRUTHY
 
-        memberships = (
+        memberships = list(
             OrganizationMembership.objects.filter(**membership_filters)
             .select_related("user")
             .exclude(user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)
             .order_by("user__username")
         )
         if not include_inactive:
-            memberships = memberships.filter(user__is_active=True)
+            memberships = [m for m in memberships if m.user.is_active]
+
+        workdays_by_user: dict[Any, int] = _calc_available_workdays_in_month(memberships, month_start) if month_start else {}
 
         payload = [
             {
@@ -219,6 +294,7 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 "slack_username": m.slack_username or "",
                 "slack_user_id": m.slack_user_id or "",
                 "slack_image_url": m.slack_image_url or "",
+                "available_work_days": workdays_by_user.get(m.user_id) if month_start else None,
             }
             for m in memberships
         ]
