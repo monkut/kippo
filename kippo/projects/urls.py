@@ -1,6 +1,7 @@
 from accounts.viewsets import OrganizationViewSet, PersonalHolidayViewSet, PublicHolidayViewSet
 from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from octocat.viewsets import ProjectGithubRepositoryViewSet
 from rest_framework.routers import DefaultRouter
 
 from . import api_views, views
@@ -51,6 +52,21 @@ weeklyeffort_detail = ProjectWeeklyEffortViewSet.as_view(
     }
 )
 
+# kippo#284 — GithubRepository nested under projects/, plus top-level read-only listing
+project_github_repository_list = ProjectGithubRepositoryViewSet.as_view(
+    {
+        "get": "list",
+        "post": "create",
+    }
+)
+
+project_github_repository_detail = ProjectGithubRepositoryViewSet.as_view(
+    {
+        "get": "retrieve",
+        "delete": "destroy",
+    }
+)
+
 # HTML Views and Legacy API
 html_and_legacy_patterns = [
     # HTML Views
@@ -94,6 +110,17 @@ api_patterns = [
     # Weekly Effort endpoints (nested under projects/) - MUST come before router
     path("projects/weeklyeffort/", weeklyeffort_list, name="projectweeklyeffort-list"),
     path("projects/weeklyeffort/<int:pk>/", weeklyeffort_detail, name="projectweeklyeffort-detail"),
+    # kippo#284 — GithubRepository endpoints (nested + top-level)
+    path(
+        "projects/<uuid:project_id>/github-repositories/",
+        project_github_repository_list,
+        name="project-github-repository-list",
+    ),
+    path(
+        "projects/<uuid:project_id>/github-repositories/<uuid:pk>/",
+        project_github_repository_detail,
+        name="project-github-repository-detail",
+    ),
     # API ViewSets
     path("", include(router.urls)),
 ]

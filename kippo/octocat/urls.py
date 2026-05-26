@@ -1,6 +1,16 @@
-from django.urls import re_path
+from django.urls import path, re_path
 
 from . import views
+from .viewsets import GithubRepositoryViewSet
+
+github_repository_list = GithubRepositoryViewSet.as_view({"get": "list"})
+github_repository_detail = GithubRepositoryViewSet.as_view({"get": "retrieve"})
+
+# REST API URLs — mounted under /api/octocat/ in root kippo/urls.py (kippo#284)
+api_patterns = [
+    path("github-repositories/", github_repository_list, name="github-repository-list"),
+    path("github-repositories/<uuid:pk>/", github_repository_detail, name="github-repository-detail"),
+]
 
 urlpatterns = [
     re_path(
