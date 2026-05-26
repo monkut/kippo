@@ -76,6 +76,32 @@ class OrganizationListTestCase(TestCase):
         self.assertEqual(org["name"], self.organization.name)
         self.assertEqual(org["github_organization_name"], self.organization.github_organization_name)
 
+    def test_retrieve_own_org_returns_200(self):
+        """`GET /api/organizations/<id>/` returns the org when the requester is a member."""
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/organizations/{self.organization.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["id"], str(self.organization.id))
+
+    def test_retrieve_other_org_returns_404(self):
+        """`GET /api/organizations/<id>/` is filtered through get_queryset, so a non-member gets
+        404 (org is filtered out). This is the cross-org leak guard for the retrieve action.
+        """
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/organizations/{self.other_organization.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+
+    def test_loner_cannot_retrieve_any_org(self):
+        """A user with zero memberships gets 404 for every existing org id."""
+        loner = KippoUser.objects.create(username="loner2", is_staff=True)
+        self.client.force_authenticate(user=loner)
+        for org_id in (self.organization.id, self.other_organization.id):
+            url = f"{settings.URL_PREFIX}/api/organizations/{org_id}/"
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND, f"leaked org {org_id}")
+
 
 class OrganizationMembersAPITestCase(TestCase):
     """`GET /api/organizations/<id>/members/` — list members of one org."""
