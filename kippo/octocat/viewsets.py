@@ -4,15 +4,21 @@ from http import HTTPStatus
 from typing import Any
 
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from projects.models import KippoProject
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .models import GithubRepository
 from .serializers import GithubRepositorySerializer
+
+
+class _ErrorDetailSerializer(serializers.Serializer):
+    """Standard DRF-style error envelope: ``{"detail": "<message>"}``."""
+
+    detail = serializers.CharField()
 
 
 def _user_org_ids(user: Any) -> set:  # noqa: ANN401
@@ -23,6 +29,11 @@ def _user_org_ids(user: Any) -> set:  # noqa: ANN401
     return set(user.organizationmembership_set.values_list("organization", flat=True))
 
 
+@extend_schema(
+    responses={
+        HTTPStatus.UNAUTHORIZED: OpenApiResponse(response=_ErrorDetailSerializer, description="Authentication required."),
+    }
+)
 class GithubRepositoryViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -45,7 +56,40 @@ class GithubRepositoryViewSet(
             queryset = queryset.filter(organization__in=_user_org_ids(user))
         return queryset
 
+    @extend_schema(
+        responses={
+            HTTPStatus.OK: GithubRepositorySerializer,
+            HTTPStatus.NOT_FOUND: OpenApiResponse(
+                response=_ErrorDetailSerializer,
+                description="Repository not found (also returned when the repository is in an org the requester does not belong to).",
+            ),
+        }
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        return super().retrieve(request, *args, **kwargs)
 
+
+_PROJECT_FORBIDDEN_RESPONSE = OpenApiResponse(
+    response=_ErrorDetailSerializer,
+    description="Project is not in any of the requester's organizations.",
+)
+_PROJECT_NOT_FOUND_RESPONSE = OpenApiResponse(
+    response=_ErrorDetailSerializer,
+    description="No KippoProject with the given project_id.",
+)
+_UNAUTHORIZED_RESPONSE = OpenApiResponse(
+    response=_ErrorDetailSerializer,
+    description="Authentication required.",
+)
+
+
+@extend_schema(
+    responses={
+        HTTPStatus.UNAUTHORIZED: _UNAUTHORIZED_RESPONSE,
+        HTTPStatus.FORBIDDEN: _PROJECT_FORBIDDEN_RESPONSE,
+        HTTPStatus.NOT_FOUND: _PROJECT_NOT_FOUND_RESPONSE,
+    }
+)
 class ProjectGithubRepositoryViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -79,7 +123,27 @@ class ProjectGithubRepositoryViewSet(
         project = self._get_project_or_403()
         return super().get_queryset().filter(project=project).order_by("name")
 
-    @extend_schema(responses={HTTPStatus.OK: GithubRepositorySerializer, HTTPStatus.CREATED: GithubRepositorySerializer})
+    @extend_schema(
+        responses={
+            HTTPStatus.OK: OpenApiResponse(
+                response=GithubRepositorySerializer,
+                description="Repository already existed and was linked (idempotent).",
+            ),
+            HTTPStatus.CREATED: OpenApiResponse(
+                response=GithubRepositorySerializer,
+                description="New repository row created and linked.",
+            ),
+            HTTPStatus.FORBIDDEN: _PROJECT_FORBIDDEN_RESPONSE,
+            HTTPStatus.NOT_FOUND: _PROJECT_NOT_FOUND_RESPONSE,
+            HTTPStatus.CONFLICT: OpenApiResponse(
+                response=_ErrorDetailSerializer,
+                description=(
+                    "A GithubRepository with the given (name, html_url, api_url) already exists in a different "
+                    "organization and cannot be reparented via the API. No mutation performed."
+                ),
+            ),
+        }
+    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
         project = self._get_project_or_403()
 
@@ -126,6 +190,16 @@ class ProjectGithubRepositoryViewSet(
         repo.save()
         return Response(self.get_serializer(repo).data, status=HTTPStatus.CREATED)
 
+    @extend_schema(
+        responses={
+            HTTPStatus.NO_CONTENT: OpenApiResponse(description="Repository unlinked from project; row retained."),
+            HTTPStatus.FORBIDDEN: _PROJECT_FORBIDDEN_RESPONSE,
+            HTTPStatus.NOT_FOUND: OpenApiResponse(
+                response=_ErrorDetailSerializer,
+                description="No such repository under this project (also when the repository exists but is linked to a different project).",
+            ),
+        }
+    )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
         # Unlink (set project = NULL) but keep the row.
         instance = self.get_object()
