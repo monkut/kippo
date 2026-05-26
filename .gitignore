@@ -77,3 +77,6 @@ EVALUATION_LLM_SERVICE.md
 EVALUATION_RECOMMENDED_MODELS_CC.md
 EVALUATION_TEST_DATA.json
 
+# Local mapping for load_monthly_assignments_from_sheet — contains org user data
+monthly_assignment_mapping*.json
+
