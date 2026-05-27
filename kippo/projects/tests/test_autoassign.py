@@ -705,47 +705,6 @@ class SkipReasonLoggingTestCase(AutoAssignTestCaseBase):
         self.assertTrue(matching, f"no log record carried skip_reason extra; got: {[r.__dict__ for r in cm.records]}")
 
 
-class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
-    """kippo#20: PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=True re-raises in the signal handler."""
-
-    def test_raises_when_flag_true(self):
-        from django.test import override_settings
-
-        self._make_assignment(percentage=50, is_confirmed=False)
-        # Re-fetch to flip is_confirmed and trigger the signal — but force the service to raise.
-        target = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month)
-
-        with (
-            patch(
-                "projects.signals.auto_create_future_assignments",
-                side_effect=RuntimeError("intentional"),
-            ),
-            override_settings(PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=True),
-            self.assertRaises(RuntimeError),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            target.is_confirmed = True
-            target.save()
-
-    def test_swallows_when_flag_false(self):
-        from django.test import override_settings
-
-        self._make_assignment(percentage=50, is_confirmed=False)
-        target = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month)
-
-        with (
-            patch(
-                "projects.signals.auto_create_future_assignments",
-                side_effect=RuntimeError("intentional"),
-            ),
-            override_settings(PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=False),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            # Must not raise.
-            target.is_confirmed = True
-            target.save()
-
-
 class EffortExhaustionBoundTestCase(AutoAssignTestCaseBase):
     """kippo#18: future-month window is bounded by min(target_month, completion_month)."""
 

@@ -9,10 +9,8 @@ Currently wires:
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -22,8 +20,6 @@ from projects.services.autoassign import auto_create_future_assignments, latest_
 
 if TYPE_CHECKING:
     from accounts.models import KippoUser
-
-logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=ProjectMonthlyAssignment)
@@ -54,24 +50,4 @@ def handle_assignment_confirmation(  # noqa: D401 — Django signal handler
         return
 
     triggered_by: KippoUser | None = instance.updated_by or instance.created_by
-
-    def handle_commit() -> None:
-        try:
-            auto_create_future_assignments(project, triggered_by)
-        except Exception:
-            # Structured log + optional re-raise behind a settings flag (kippo#20). In
-            # production (`PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=False`) we swallow
-            # so a background save failure never bubbles into the originating request; in
-            # tests (flag=True) we re-raise so bugs surface loudly.
-            logger.exception(
-                "auto_extend signal handler raised",
-                extra={
-                    "project_id": str(project.pk),
-                    "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
-                    "latest_confirmed_month": latest_confirmed.isoformat(),
-                },
-            )
-            if getattr(settings, "PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR", False):
-                raise
-
-    transaction.on_commit(handle_commit)
+    transaction.on_commit(lambda: auto_create_future_assignments(project, triggered_by))

@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/2.0/ref/settings/
 import datetime
 import logging
 import os
-import sys
 from pathlib import Path, PurePath
 
 from django.conf.locale.en import formats as en_formats
@@ -300,14 +299,6 @@ EVALUATION_SERVICE_URL = os.getenv("EVALUATION_SERVICE_URL", "")
 EVALUATION_SERVICE_API_KEY = os.getenv("EVALUATION_SERVICE_API_KEY", "")
 
 TEST = False
-
-# Re-raise errors from the ProjectMonthlyAssignment post_save signal that auto-creates
-# future-month assignment rows (see projects/signals.py + projects/services/autoassign.py,
-# kippo#16). Production must swallow because the signal runs in `transaction.on_commit`
-# AFTER the originating save commits — a raise there would surface as a 500 for the
-# operator whose save already succeeded. Tests need it on so silent bugs in the extension
-# logic fail loudly instead of just logging.
-PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR = "test" in sys.argv
 
 # internally defined users
 UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = "unassigned"  # for managing unassigned github tasks
