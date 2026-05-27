@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .definitions import SkipReason
 from .exceptions import ProjectStartDateRequiredError
 from .models import (
     KippoCustomer,
@@ -34,6 +35,7 @@ from .serializers import (
     ProjectMonthlyCostSerializer,
     ProjectWeeklyEffortSerializer,
 )
+from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
 from .services.suggest import ProjectAssignmentSuggestionManager
 
@@ -604,6 +606,54 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(month__lte=month_lte)
 
         return queryset
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="AutoExtendResponse",
+                fields={
+                    "created": ProjectMonthlyAssignmentSerializer(many=True),
+                    "skip_reason": serializers.CharField(allow_null=True),
+                },
+            ),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"auto-extend/(?P<project_id>[a-f0-9-]{36})",
+        url_name="auto-extend",
+    )
+    def auto_extend(self, request: Request, project_id: str) -> Response:
+        """Manually trigger auto-create of future-month assignments for `project_id` (kippo#19).
+
+        Body: empty.
+        Response 200: ``{"created": [...rows...], "skip_reason": null | "<enum>"}``.
+
+        Permission: organization-scoped — non-members get 403 (matches list/retrieve scoping).
+        """
+        try:
+            project = KippoProject.objects.select_related("organization").get(pk=project_id)
+        except KippoProject.DoesNotExist:
+            return Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
+
+        user = request.user
+        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
+            user_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
+            if project.organization_id not in user_org_ids:
+                return Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
+
+        triggered_by = user if user.is_authenticated else None
+        created_rows, skip_reason = auto_create_future_assignments(project, triggered_by)
+        serializer = ProjectMonthlyAssignmentSerializer(created_rows, many=True)
+        return Response(
+            {
+                "created": serializer.data,
+                "skip_reason": skip_reason.value if isinstance(skip_reason, SkipReason) else None,
+            },
+            status=HTTPStatus.OK,
+        )
 
 
 class ProjectMonthlyCostViewSet(viewsets.ModelViewSet):

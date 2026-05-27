@@ -1,11 +1,14 @@
-"""Auto-create future-month ProjectMonthlyAssignment rows on first-month full confirmation.
+"""Auto-create future-month ProjectMonthlyAssignment rows on confirmation.
 
-When every `ProjectMonthlyAssignment` row for a project's start month is confirmed,
-this service builds uncommitted (`is_confirmed=False`) rows for every subsequent
-month through `project.target_date`, scaling per-user percentages so the project's
-estimated completion lands on (or before) `target_date`.
+When any `ProjectMonthlyAssignment` row for a project becomes confirmed and the
+project has a contiguous run of fully-confirmed months from `start_month` onward,
+this service builds uncommitted (`is_confirmed=False`) rows for every *missing*
+month between `(latest_confirmed_month, target_date]`, scaling per-user
+percentages so the project's estimated completion lands on (or before)
+`target_date`.
 
-See monkut/kippo#240 decisions D1–D4 for the algorithm details.
+See kiconiaworks/kippo#17 for the trigger-relaxation + top-up semantics
+(supersedes the original "only on start_month full confirmation" trigger).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Sum
 from django.utils import timezone
 
+from projects.definitions import SkipReason
 from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import MAX_ASSIGNMENT_PERCENTAGE, ProjectMonthlyAssignment
 from projects.services.forecast import ProjectAssignmentForecastManager
@@ -37,88 +41,158 @@ SCALE_BINARY_SEARCH_ITERATIONS = 24  # D1: binary search depth — 24 halvings n
 SCALE_FACTOR_MIN = 1.0  # never scale percentages down
 
 
-def auto_create_future_assignments(project: KippoProject, triggered_by: KippoUser | None) -> list[ProjectMonthlyAssignment]:
+def auto_create_future_assignments(  # noqa: PLR0911
+    project: KippoProject, triggered_by: KippoUser | None
+) -> tuple[list[ProjectMonthlyAssignment], SkipReason | None]:
     """Create uncommitted future-month ProjectMonthlyAssignment rows for `project`.
 
-    Idempotent: returns `[]` and skips work if any future-month rows already exist
-    for the project, if the project is closed / has an actual date / has no
-    target_date / has no start_date, or if the seed shape is empty.
+    Top-up semantics (kippo#17): given a contiguous run of fully-confirmed months
+    starting at `start_month`, this only persists rows for months that are MISSING
+    inside `(latest_confirmed_month, target_month]`. Existing rows (confirmed or
+    unconfirmed) are never touched.
+
+    Returns `(created_rows, skip_reason)` (kippo#19). On success `skip_reason` is `None`
+    and `created_rows` holds the newly-persisted rows. On no-op, `created_rows` is `[]`
+    and `skip_reason` carries a structured `SkipReason` enum value the caller (REST
+    endpoint / admin action / signal log) can present to the operator.
 
     `triggered_by` is the user attributed as `created_by` / `updated_by` on the new
     rows (D2). Resolved by the signal from the trigger row's `updated_by` (falling
     back to `created_by`); may be `None` only when no provenance is recoverable.
     """
-    if not _is_eligible(project):
-        return []
+    skip_reason = _eligibility_skip_reason(project)
+    if skip_reason is not None:
+        return [], skip_reason
 
-    start_month = project.start_date.replace(day=1)
+    latest_confirmed_month = latest_contiguous_confirmed_month(project)
+    if latest_confirmed_month is None:
+        return [], SkipReason.NOT_CONFIRMED
+
+    seed_pct = _compute_seed_shape(project, latest_confirmed_month)
+    if not seed_pct:
+        return [], SkipReason.NO_SEED_SHAPE
+
     target_month = project.target_date.replace(day=1)
-    months = _future_months(start_month, target_month)
-    seed_pct = _compute_seed_shape(project, start_month)
+    # kippo#18: bound = min(target_month, month_containing(estimated_completion_date)).
+    # We forecast with the seed shape extended across the full target window so the
+    # forecast captures real effort exhaustion. Falls back to target_month when the
+    # forecast is unavailable (no allocated_hours, no future months, etc.).
+    completion_month = _estimated_completion_month(project, seed_pct, latest_confirmed_month, target_month)
+    bound_month = min(target_month, completion_month) if completion_month is not None else target_month
+    candidate_months = _future_months(latest_confirmed_month, bound_month)
+    if not candidate_months:
+        return [], SkipReason.ALREADY_COMPLETE
 
-    blocking_conditions = (
-        ProjectMonthlyAssignment.objects.filter(project=project, month__gt=start_month).exists(),
-        not seed_pct,
-        not months,
-    )
-    if any(blocking_conditions):
-        return []
+    # Top-up: only persist months that do not already have any row for this project.
+    existing_months = set(ProjectMonthlyAssignment.objects.filter(project=project, month__in=candidate_months).values_list("month", flat=True))
+    missing_months = [m for m in candidate_months if m not in existing_months]
+    if not missing_months:
+        return [], SkipReason.NO_MISSING_MONTHS
 
     try:
-        scaled_pct = _scaled_percentages(project, seed_pct, months)
+        scaled_pct = _scaled_percentages(project, seed_pct, missing_months)
     except ProjectStartDateRequiredError:
-        logger.warning("project %s: forecast raised ProjectStartDateRequiredError — skipping auto-create", project.pk)
-        return []
+        logger.info(
+            "auto_extend skipped: forecast raised ProjectStartDateRequiredError",
+            extra={
+                "project_id": str(project.pk),
+                "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
+                "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
+                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+            },
+        )
+        return [], SkipReason.FORECAST_UNAVAILABLE
     except Exception:
-        logger.exception("project %s: forecast raised unexpectedly — skipping auto-create", project.pk)
-        return []
+        logger.exception(
+            "auto_extend skipped: forecast raised unexpectedly",
+            extra={
+                "project_id": str(project.pk),
+                "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
+                "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
+                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+            },
+        )
+        return [], SkipReason.FORECAST_UNAVAILABLE
 
-    return _persist(project, scaled_pct, months, triggered_by)
+    created = _persist(project, scaled_pct, missing_months, triggered_by)
+    if not created:
+        return [], SkipReason.NO_SEED_SHAPE
+    return created, None
 
 
-def _is_eligible(project: KippoProject) -> bool:
-    if project.is_closed:
-        return False
-    if project.actual_date is not None:
-        return False
-    if project.start_date is None or project.target_date is None:
-        return False
-    start_month = project.start_date.replace(day=1)
-    return project.target_date > start_month
+def _eligibility_skip_reason(project: KippoProject) -> SkipReason | None:
+    """Map project state to a `SkipReason` (or None when eligible)."""
+    if project.is_closed or project.actual_date is not None:
+        return SkipReason.PROJECT_CLOSED
+    if project.start_date is None:
+        return SkipReason.MISSING_START_DATE
+    if project.target_date is None:
+        return SkipReason.MISSING_TARGET_DATE
+    if project.target_date <= project.start_date.replace(day=1):
+        return SkipReason.ALREADY_COMPLETE
+    return None
 
 
-def _compute_seed_shape(project: KippoProject, start_month: datetime.date) -> dict[int, int]:
-    """Per-user total percentage on the project's start month (D1 seed shape).
+def _compute_seed_shape(project: KippoProject, seed_month: datetime.date) -> dict:
+    """Per-user total percentage on `seed_month` (D1 seed shape).
 
-    Sums across rows for the same `(user, start_month)` cell — typically one row per
+    Sums across rows for the same `(user, seed_month)` cell — typically one row per
     user per month, but `Sum` guards against double-rows. Users with `percentage=0` are
     excluded so they don't carry forward as zero-rows.
     """
     rows = (
-        ProjectMonthlyAssignment.objects.filter(project=project, month=start_month, is_confirmed=True, percentage__gt=0)
+        ProjectMonthlyAssignment.objects.filter(project=project, month=seed_month, is_confirmed=True, percentage__gt=0)
         .values("user_id")
         .annotate(total=Sum("percentage"))
     )
     return {row["user_id"]: row["total"] for row in rows if row["total"]}
 
 
-def _future_months(start_month: datetime.date, target_month: datetime.date) -> list[datetime.date]:
-    """Months from start_month + 1 through target_month inclusive (D3 — generate literally,
+def _future_months(seed_month: datetime.date, target_month: datetime.date) -> list:
+    """Months from seed_month + 1 through target_month inclusive (D3 — generate literally,
     including past months when start_date is historical).
     """
-    months: list[datetime.date] = []
-    current = start_month + relativedelta(months=1)
+    months: list = []
+    current = seed_month + relativedelta(months=1)
     while current <= target_month:
         months.append(current)
         current += relativedelta(months=1)
     return months
 
 
+def _estimated_completion_month(
+    project: KippoProject,
+    seed_pct: dict,
+    latest_confirmed_month: datetime.date,
+    target_month: datetime.date,
+) -> datetime.date | None:
+    """Forecast the project's estimated completion month using the seed shape laid across
+    `(latest_confirmed_month, target_month]` (kippo#18).
+
+    Returns the month containing `estimated_completion_date` (always first-of-month), or
+    `None` when the forecast cannot compute a date (missing allocated_hours, no future
+    months in the forecast window, etc.). Callers fall back to `target_month` on `None`.
+    """
+    preview_months = _future_months(latest_confirmed_month, target_month)
+    if not preview_months or not seed_pct:
+        return None
+    try:
+        result = ProjectAssignmentForecastManager(project).compute(overlay=_overlay(seed_pct, preview_months))
+    except ProjectStartDateRequiredError:
+        return None
+    except Exception:
+        logger.exception("project %s: completion-month forecast raised unexpectedly", project.pk)
+        return None
+    if result.estimated_completion_date is None:
+        return None
+    return result.estimated_completion_date.replace(day=1)
+
+
 def _scaled_percentages(
     project: KippoProject,
-    seed_pct: dict[int, int],
-    months: list[datetime.date],
-) -> dict[int, int]:
+    seed_pct: dict,
+    months: list,
+) -> dict:
     """Return `{user_id: integer_pct}` after binary-search scaling + caps (D1).
 
     Scaling preserves the per-user *ratio* from the seed shape. The scaled value lands
@@ -165,7 +239,7 @@ def _scaled_percentages(
     return capped
 
 
-def _overlay(pct_per_user: dict[int, int], months: list[datetime.date]) -> dict[int, dict[datetime.date, int]]:
+def _overlay(pct_per_user: dict, months: list) -> dict:
     """Build the forecast overlay shape `{user_id: {month: pct}}` from a flat per-user map."""
     return {user_id: dict.fromkeys(months, pct) for user_id, pct in pct_per_user.items() if pct > 0}
 
@@ -177,7 +251,7 @@ def _within_tolerance(estimated: datetime.date | None, target: datetime.date) ->
     return (estimated - target).days <= ON_TARGET_TOLERANCE_DAYS
 
 
-def _maximum_feasible_factor(project: KippoProject, seed_pct: dict[int, int], months: list[datetime.date]) -> float:
+def _maximum_feasible_factor(project: KippoProject, seed_pct: dict, months: list) -> float:
     """Largest scale factor that keeps every user under both the org soft ceiling AND
     `MAX_ASSIGNMENT_PERCENTAGE − Σ(other org assignments)` for every month in `months`.
 
@@ -204,8 +278,8 @@ def _maximum_feasible_factor(project: KippoProject, seed_pct: dict[int, int], mo
 
 def _binary_search_factor(
     forecast_manager: ProjectAssignmentForecastManager,
-    seed_pct: dict[int, int],
-    months: list[datetime.date],
+    seed_pct: dict,
+    months: list,
     target_date: datetime.date,
     s_max: float,
 ) -> float:
@@ -232,7 +306,7 @@ def _binary_search_factor(
     return hi
 
 
-def _apply_caps(project: KippoProject, pct_per_user: dict[int, int], months: list[datetime.date]) -> dict[int, int]:
+def _apply_caps(project: KippoProject, pct_per_user: dict, months: list) -> dict:
     """Cap each user's percentage at min(soft_ceiling, MAX − other_org_load) across all months.
 
     Per #240 D1, scaling overflow is "redistributed proportionally to remaining seed members"
@@ -243,7 +317,7 @@ def _apply_caps(project: KippoProject, pct_per_user: dict[int, int], months: lis
     soft_ceiling = project.organization.project_assignment_member_soft_ceiling
     other_load = _other_org_load(project, list(pct_per_user.keys()), months)
 
-    capped: dict[int, int] = {}
+    capped: dict = {}
     for user_id, pct in pct_per_user.items():
         ceiling = soft_ceiling
         for month in months:
@@ -266,9 +340,9 @@ def _apply_caps(project: KippoProject, pct_per_user: dict[int, int], months: lis
 
 def _other_org_load(
     project: KippoProject,
-    user_ids: list[int],
-    months: list[datetime.date],
-) -> dict[int, dict[datetime.date, int]]:
+    user_ids: list,
+    months: list,
+) -> dict:
     """Sum each user's existing percentage across other projects in the same org for each month.
 
     Excludes `project` itself — auto-created rows are about *this* project's allocation,
@@ -286,7 +360,7 @@ def _other_org_load(
         .values("user_id", "month")
         .annotate(total=Sum("percentage"))
     )
-    out: dict[int, dict[datetime.date, int]] = defaultdict(dict)
+    out: dict = defaultdict(dict)
     for row in rows:
         out[row["user_id"]][row["month"]] = row["total"] or 0
     return out
@@ -294,8 +368,8 @@ def _other_org_load(
 
 def _persist(
     project: KippoProject,
-    pct_per_user: dict[int, int],
-    months: list[datetime.date],
+    pct_per_user: dict,
+    months: list,
     triggered_by: KippoUser | None,
 ) -> list[ProjectMonthlyAssignment]:
     """D4: bulk_create the future rows in a single INSERT, skipping post_save + full_clean.
@@ -303,6 +377,10 @@ def _persist(
     Drops users whose final per-user percentage clipped to 0 — persisting a 0% row would
     look like an explicit "this user is on the project at zero" signal, which is not
     what auto-create means.
+
+    After bulk_create, re-runs the per-user / per-month >100% cap warning that
+    `ProjectMonthlyAssignment.save()` would have emitted, since bulk_create bypasses
+    `save()` (kippo#20).
     """
     valid_user_ids = [user_id for user_id, pct in pct_per_user.items() if pct > 0]
     if not valid_user_ids:
@@ -327,17 +405,66 @@ def _persist(
                     updated_by=triggered_by,
                 )
             )
-    return ProjectMonthlyAssignment.objects.bulk_create(rows)
+    created = ProjectMonthlyAssignment.objects.bulk_create(rows)
+    _emit_cap_warnings(project, created)
+    return created
 
 
-def all_first_month_rows_confirmed(project: KippoProject) -> bool:
-    """Return True iff at least one row exists for the project's start month and every
-    such row has `is_confirmed=True`. Used by the post_save signal as the trigger guard.
+def _emit_cap_warnings(project: KippoProject, created_rows: list[ProjectMonthlyAssignment]) -> None:
+    """Replicate the >100% cap-warning logic from `ProjectMonthlyAssignment.save()` for the
+    bulk-created cohort (kippo#20).
+
+    Groups newly-created rows by `(user, month)`, sums each user's total org-wide percentage
+    for that month (including pre-existing rows + the new ones), and emits the warning when
+    total exceeds `MAX_ASSIGNMENT_PERCENTAGE`. Matches the format string at
+    `models.py:1043-1049` so log consumers see consistent text across save() and auto-create.
+    """
+    if not created_rows:
+        return
+    organization = project.organization
+    pairs = {(row.user_id, row.month) for row in created_rows}
+    for user_id, month in pairs:
+        total_percentage = (
+            ProjectMonthlyAssignment.objects.filter(
+                user_id=user_id,
+                project__organization=organization,
+                month=month,
+            ).aggregate(total=Sum("percentage"))["total"]
+            or 0
+        )
+        if total_percentage > MAX_ASSIGNMENT_PERCENTAGE:
+            # Resolve the user instance lazily — only needed when the warning fires.
+            user = next((row.user for row in created_rows if row.user_id == user_id), None)
+            logger.warning(
+                "User '%s' has total assignment of %d%% for organization '%s' in month %s (exceeds 100%%)",
+                user,
+                total_percentage,
+                organization,
+                month.strftime("%Y-%m"),
+            )
+
+
+def latest_contiguous_confirmed_month(project: KippoProject) -> datetime.date | None:
+    """Return the latest month for which a contiguous confirmed run exists from `start_month`.
+
+    Walks month-by-month from `project.start_date.replace(day=1)` forward, requiring at least
+    one row per month and every row in that month to have `is_confirmed=True`. The walk halts
+    at the first month with either no rows or at least one unconfirmed row, returning the
+    previous month (or None if `start_month` itself is not fully confirmed).
     """
     if project.start_date is None:
-        return False
+        return None
     start_month = project.start_date.replace(day=1)
-    rows = ProjectMonthlyAssignment.objects.filter(project=project, month=start_month)
-    if not rows.exists():
-        return False
-    return not rows.filter(is_confirmed=False).exists()
+    months_with_rows = set(ProjectMonthlyAssignment.objects.filter(project=project, month__gte=start_month).values_list("month", flat=True))
+    if not months_with_rows:
+        return None
+    unconfirmed_months = set(
+        ProjectMonthlyAssignment.objects.filter(project=project, month__gte=start_month, is_confirmed=False).values_list("month", flat=True)
+    )
+
+    latest = None
+    current = start_month
+    while current in months_with_rows and current not in unconfirmed_months:
+        latest = current
+        current = current + relativedelta(months=1)
+    return latest
