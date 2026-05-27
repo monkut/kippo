@@ -138,7 +138,10 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
 
     def test_tops_up_missing_months_around_existing_future_row(self):
         # kippo#17: a single pre-existing future row no longer aborts the run; surrounding
-        # missing months are still populated.
+        # missing months are still populated. Use ample effort so #18's forecast bound
+        # doesn't truncate the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         self._make_assignment(percentage=50, is_confirmed=True)
         self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=20, is_confirmed=False)
 
@@ -163,7 +166,10 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
     # --------------------------------------------------------------- months generated (D3)
 
     def test_creates_one_row_per_seed_user_per_future_month(self):
-        # 6 future months: start_month+1 through target_month inclusive.
+        # 6 future months: start_month+1 through target_month inclusive (with effort
+        # generous enough that the forecast doesn't cap us short of target).
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         self._make_assignment(percentage=50, is_confirmed=True)
 
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
@@ -291,6 +297,9 @@ class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
     """Signal wiring: post_save trigger + transaction.on_commit semantics."""
 
     def test_confirming_last_first_month_row_triggers_creation(self):
+        # Ample effort so kippo#18 forecast bound doesn't truncate the 6-month window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         actor = self._add_member("actor")
         # Two unconfirmed first-month rows.
         self._make_assignment(user=self.user, percentage=30, is_confirmed=False)
@@ -334,7 +343,9 @@ class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
     def test_resaving_already_confirmed_row_does_not_duplicate(self):
         # Wrap creation in captureOnCommitCallbacks so the post_save's transaction.on_commit
         # callback actually runs — TestCase rolls back at end-of-test, so on_commit normally
-        # never fires.
+        # never fires. Ample effort so kippo#18 doesn't truncate the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         with self.captureOnCommitCallbacks(execute=True):
             seed = self._make_assignment(percentage=50, is_confirmed=True)
         first_count = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count()
@@ -352,7 +363,10 @@ class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
     def test_bulk_create_does_not_recursively_fire_signal(self):
         # Seed → service is invoked → bulk_create persists 6 rows. Each persisted row
         # would trigger post_save if we used .save(); bulk_create skips that, and the
-        # idempotency guard would defend the second invocation regardless.
+        # idempotency guard would defend the second invocation regardless. Ample effort
+        # so kippo#18 doesn't truncate the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         seed = self._make_assignment(percentage=50, is_confirmed=False)
 
         signal_calls: list[int] = []
@@ -422,6 +436,9 @@ class TriggerRelaxationTestCase(AutoAssignTestCaseBase):
 
     def test_confirming_later_month_seeds_from_latest_confirmed(self):
         # Start month + 1 month, both fully confirmed → extension seed is +1 month's shape.
+        # Ample effort so kippo#18 doesn't truncate the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         self._make_assignment(percentage=30, is_confirmed=True)
         actor = self._add_member("later-actor")
         # Different shape on +1: only `actor` confirmed at 40%.
@@ -513,6 +530,9 @@ class AutoExtendRESTEndpointTestCase(AutoAssignTestCaseBase):
     def test_post_creates_rows_for_eligible_project(self):
         from rest_framework.test import APIClient
 
+        # Ample effort so kippo#18 doesn't truncate the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         OrganizationMembership.objects.get_or_create(
             user=self.github_manager,
             organization=self.organization,
@@ -579,6 +599,9 @@ class AutoExtendAdminActionTestCase(AutoAssignTestCaseBase):
             auto_extend_projectmonthlyassignment_action,
         )
 
+        # Ample effort so kippo#18 doesn't truncate the window for this assertion.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
         self._make_assignment(percentage=50, is_confirmed=True)
 
         # Mock-ish admin and request — just enough for the action.
@@ -721,3 +744,44 @@ class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
             # Must not raise.
             target.is_confirmed = True
             target.save()
+
+
+class EffortExhaustionBoundTestCase(AutoAssignTestCaseBase):
+    """kippo#18: future-month window is bounded by min(target_month, completion_month)."""
+
+    def test_completion_before_target_caps_generated_months(self):
+        # 100% seed → fast burn-down. allocated_staff_days=30 → 240 hours total.
+        # At 100% × 8h × ~22 workdays/month ≈ 176h/month → completes in ~2 months.
+        self.project.allocated_staff_days = 30
+        self.project.save()
+        self._make_assignment(percentage=100, is_confirmed=True)
+
+        created, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
+        self.assertIsNone(skip_reason)
+        # Bound at forecast completion month → significantly less than the full 6-month window.
+        self.assertLess(len(created), 6)
+        self.assertGreater(len(created), 0)
+
+    def test_completion_after_target_caps_at_target(self):
+        # Very slow seed (1%) → completion far beyond target_date → bound stays at target.
+        # allocated_staff_days needs to be large enough that 1% can't finish in the window.
+        self.project.allocated_staff_days = 1000
+        self.project.save()
+        self._make_assignment(percentage=1, is_confirmed=True)
+
+        created, _ = auto_create_future_assignments(self.project, self.github_manager)
+        # Hard cap at target_month → 6 future months even though completion is far away.
+        months = sorted({row.month for row in created})
+        self.assertEqual(len(months), 6)
+        self.assertEqual(months[-1], self.start_month + relativedelta(months=6))
+
+    def test_forecast_none_falls_back_to_target(self):
+        # No allocated_effort_hours → forecast returns None → fallback to target_month.
+        self.project.allocated_staff_days = None
+        self.project.save()
+        self._make_assignment(percentage=50, is_confirmed=True)
+
+        created, _ = auto_create_future_assignments(self.project, self.github_manager)
+        months = sorted({row.month for row in created})
+        self.assertEqual(len(months), 6)
+        self.assertEqual(months[-1], self.start_month + relativedelta(months=6))

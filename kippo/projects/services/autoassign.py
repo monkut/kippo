@@ -73,7 +73,13 @@ def auto_create_future_assignments(  # noqa: PLR0911
         return [], SkipReason.NO_SEED_SHAPE
 
     target_month = project.target_date.replace(day=1)
-    candidate_months = _future_months(latest_confirmed_month, target_month)
+    # kippo#18: bound = min(target_month, month_containing(estimated_completion_date)).
+    # We forecast with the seed shape extended across the full target window so the
+    # forecast captures real effort exhaustion. Falls back to target_month when the
+    # forecast is unavailable (no allocated_hours, no future months, etc.).
+    completion_month = _estimated_completion_month(project, seed_pct, latest_confirmed_month, target_month)
+    bound_month = min(target_month, completion_month) if completion_month is not None else target_month
+    candidate_months = _future_months(latest_confirmed_month, bound_month)
     if not candidate_months:
         return [], SkipReason.ALREADY_COMPLETE
 
@@ -152,6 +158,34 @@ def _future_months(seed_month: datetime.date, target_month: datetime.date) -> li
         months.append(current)
         current += relativedelta(months=1)
     return months
+
+
+def _estimated_completion_month(
+    project: KippoProject,
+    seed_pct: dict,
+    latest_confirmed_month: datetime.date,
+    target_month: datetime.date,
+) -> datetime.date | None:
+    """Forecast the project's estimated completion month using the seed shape laid across
+    `(latest_confirmed_month, target_month]` (kippo#18).
+
+    Returns the month containing `estimated_completion_date` (always first-of-month), or
+    `None` when the forecast cannot compute a date (missing allocated_hours, no future
+    months in the forecast window, etc.). Callers fall back to `target_month` on `None`.
+    """
+    preview_months = _future_months(latest_confirmed_month, target_month)
+    if not preview_months or not seed_pct:
+        return None
+    try:
+        result = ProjectAssignmentForecastManager(project).compute(overlay=_overlay(seed_pct, preview_months))
+    except ProjectStartDateRequiredError:
+        return None
+    except Exception:
+        logger.exception("project %s: completion-month forecast raised unexpectedly", project.pk)
+        return None
+    if result.estimated_completion_date is None:
+        return None
+    return result.estimated_completion_date.replace(day=1)
 
 
 def _scaled_percentages(
