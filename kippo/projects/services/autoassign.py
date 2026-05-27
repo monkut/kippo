@@ -24,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Sum
 from django.utils import timezone
 
+from projects.definitions import SkipReason
 from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import MAX_ASSIGNMENT_PERCENTAGE, ProjectMonthlyAssignment
 from projects.services.forecast import ProjectAssignmentForecastManager
@@ -40,7 +41,9 @@ SCALE_BINARY_SEARCH_ITERATIONS = 24  # D1: binary search depth — 24 halvings n
 SCALE_FACTOR_MIN = 1.0  # never scale percentages down
 
 
-def auto_create_future_assignments(project: KippoProject, triggered_by: KippoUser | None) -> list[ProjectMonthlyAssignment]:  # noqa: PLR0911
+def auto_create_future_assignments(  # noqa: PLR0911
+    project: KippoProject, triggered_by: KippoUser | None
+) -> tuple[list[ProjectMonthlyAssignment], SkipReason | None]:
     """Create uncommitted future-month ProjectMonthlyAssignment rows for `project`.
 
     Top-up semantics (kippo#17): given a contiguous run of fully-confirmed months
@@ -48,58 +51,64 @@ def auto_create_future_assignments(project: KippoProject, triggered_by: KippoUse
     inside `(latest_confirmed_month, target_month]`. Existing rows (confirmed or
     unconfirmed) are never touched.
 
-    Returns the list of newly-created rows. Returns `[]` and logs a structured skip
-    reason when the project is closed / missing dates / has no seed shape / has no
-    missing future months / etc.
+    Returns `(created_rows, skip_reason)` (kippo#19). On success `skip_reason` is `None`
+    and `created_rows` holds the newly-persisted rows. On no-op, `created_rows` is `[]`
+    and `skip_reason` carries a structured `SkipReason` enum value the caller (REST
+    endpoint / admin action / signal log) can present to the operator.
 
     `triggered_by` is the user attributed as `created_by` / `updated_by` on the new
     rows (D2). Resolved by the signal from the trigger row's `updated_by` (falling
     back to `created_by`); may be `None` only when no provenance is recoverable.
     """
-    if not _is_eligible(project):
-        return []
+    skip_reason = _eligibility_skip_reason(project)
+    if skip_reason is not None:
+        return [], skip_reason
 
     latest_confirmed_month = latest_contiguous_confirmed_month(project)
     if latest_confirmed_month is None:
-        return []
+        return [], SkipReason.NOT_CONFIRMED
 
     seed_pct = _compute_seed_shape(project, latest_confirmed_month)
     if not seed_pct:
-        return []
+        return [], SkipReason.NO_SEED_SHAPE
 
     target_month = project.target_date.replace(day=1)
     candidate_months = _future_months(latest_confirmed_month, target_month)
     if not candidate_months:
-        return []
+        return [], SkipReason.ALREADY_COMPLETE
 
     # Top-up: only persist months that do not already have any row for this project.
     existing_months = set(ProjectMonthlyAssignment.objects.filter(project=project, month__in=candidate_months).values_list("month", flat=True))
     missing_months = [m for m in candidate_months if m not in existing_months]
     if not missing_months:
-        return []
+        return [], SkipReason.NO_MISSING_MONTHS
 
     try:
         scaled_pct = _scaled_percentages(project, seed_pct, missing_months)
     except ProjectStartDateRequiredError:
         logger.warning("project %s: forecast raised ProjectStartDateRequiredError — skipping auto-create", project.pk)
-        return []
+        return [], SkipReason.FORECAST_UNAVAILABLE
     except Exception:
         logger.exception("project %s: forecast raised unexpectedly — skipping auto-create", project.pk)
-        return []
+        return [], SkipReason.FORECAST_UNAVAILABLE
 
-    return _persist(project, scaled_pct, missing_months, triggered_by)
+    created = _persist(project, scaled_pct, missing_months, triggered_by)
+    if not created:
+        return [], SkipReason.NO_SEED_SHAPE
+    return created, None
 
 
-def _is_eligible(project: KippoProject) -> bool:
-    """Top-level project-state check shared by all auto-extend entry points."""
-    if project.is_closed:
-        return False
-    if project.actual_date is not None:
-        return False
-    if project.start_date is None or project.target_date is None:
-        return False
-    start_month = project.start_date.replace(day=1)
-    return project.target_date > start_month
+def _eligibility_skip_reason(project: KippoProject) -> SkipReason | None:
+    """Map project state to a `SkipReason` (or None when eligible)."""
+    if project.is_closed or project.actual_date is not None:
+        return SkipReason.PROJECT_CLOSED
+    if project.start_date is None:
+        return SkipReason.MISSING_START_DATE
+    if project.target_date is None:
+        return SkipReason.MISSING_TARGET_DATE
+    if project.target_date <= project.start_date.replace(day=1):
+        return SkipReason.ALREADY_COMPLETE
+    return None
 
 
 def _compute_seed_shape(project: KippoProject, seed_month: datetime.date) -> dict:

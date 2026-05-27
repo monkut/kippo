@@ -128,3 +128,21 @@ class ValidServices(StringEnumWithChoices):
     AZURE = "AZURE"
     GCP = "GCP"
     OTHER = "OTHER"
+
+
+class SkipReason(StringEnumWithChoices):
+    """Structured reasons `auto_create_future_assignments` may skip persisting rows.
+
+    Returned alongside `created_rows` as the second element of the service tuple so the
+    REST endpoint, admin action, and signal log path can all distinguish "nothing to do"
+    from "couldn't do it" without parsing log strings (kippo#19, #20).
+    """
+
+    PROJECT_CLOSED = "project_closed"
+    MISSING_TARGET_DATE = "missing_target_date"
+    MISSING_START_DATE = "missing_start_date"
+    NO_SEED_SHAPE = "no_seed_shape"
+    ALREADY_COMPLETE = "already_complete"
+    FORECAST_UNAVAILABLE = "forecast_unavailable"
+    NOT_CONFIRMED = "not_confirmed"
+    NO_MISSING_MONTHS = "no_missing_months"

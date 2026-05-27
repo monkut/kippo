@@ -1352,11 +1352,52 @@ class ProjectColumnSetAdmin(UserCreatedBaseModelAdmin):
     inlines = [ProjectColumnInline]
 
 
+def auto_extend_projectmonthlyassignment_action(
+    modeladmin: admin.ModelAdmin,
+    request: DjangoRequest,
+    queryset: models.QuerySet,
+) -> None:
+    """Run `auto_create_future_assignments` once per distinct project in the selection (kippo#19)."""
+    from .services.autoassign import auto_create_future_assignments
+
+    distinct_projects = {row.project_id: row.project for row in queryset.select_related("project")}
+    if not distinct_projects:
+        modeladmin.message_user(request, _("No assignments selected."), level=messages.ERROR)
+        return
+
+    total_created = 0
+    for project in distinct_projects.values():
+        created_rows, skip_reason = auto_create_future_assignments(project, request.user)
+        total_created += len(created_rows)
+        if skip_reason is not None:
+            modeladmin.message_user(
+                request,
+                _("Project '%(name)s' skipped: %(reason)s") % {"name": project.name, "reason": skip_reason.value},
+                level=messages.WARNING,
+            )
+        else:
+            modeladmin.message_user(
+                request,
+                _("Project '%(name)s': created %(count)d future-month rows.") % {"name": project.name, "count": len(created_rows)},
+                level=messages.INFO,
+            )
+    if total_created:
+        modeladmin.message_user(
+            request,
+            _("Total future-month rows created: %(count)d") % {"count": total_created},
+            level=messages.SUCCESS,
+        )
+
+
+auto_extend_projectmonthlyassignment_action.short_description = _("将来月の割当を生成")  # noqa: E305
+
+
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user", "month", "percentage", "is_confirmed")
     list_filter = ("is_confirmed", "month", "project__organization")
     search_fields = ("project__name", "user__username")
+    actions = (auto_extend_projectmonthlyassignment_action,)
 
     def get_project_organization(self, obj: ProjectMonthlyAssignment):
         organization_name = obj.project.organization.name
