@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -58,9 +59,19 @@ def handle_assignment_confirmation(  # noqa: D401 — Django signal handler
         try:
             auto_create_future_assignments(project, triggered_by)
         except Exception:
-            # Defensive: a failure in auto-create must never bubble up — the originating
-            # save has already committed by the time on_commit fires, but we still don't
-            # want test runs / admin saves to surface unrelated stack traces.
-            logger.exception("auto_create_future_assignments raised for project %s", project.pk)
+            # Structured log + optional re-raise behind a settings flag (kippo#20). In
+            # production (`KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=False`) we swallow so a
+            # background save failure never bubbles into the originating request; in
+            # test settings (flag=True) we re-raise so bugs surface loudly.
+            logger.exception(
+                "auto_extend signal handler raised",
+                extra={
+                    "project_id": str(project.pk),
+                    "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
+                    "latest_confirmed_month": latest_confirmed.isoformat(),
+                },
+            )
+            if getattr(settings, "KIPPO_AUTO_EXTEND_RAISE_ON_ERROR", False):
+                raise
 
     transaction.on_commit(handle_commit)

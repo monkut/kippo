@@ -300,6 +300,13 @@ EVALUATION_SERVICE_API_KEY = os.getenv("EVALUATION_SERVICE_API_KEY", "")
 
 TEST = False
 
+# kippo#20: when True, the post_save auto-extend signal re-raises after logging — used in
+# tests so failures in the on_commit callback surface as test errors instead of being
+# silently swallowed. Default False so production saves never fail.
+import sys as _sys  # noqa: E402
+
+KIPPO_AUTO_EXTEND_RAISE_ON_ERROR = strtobool(os.getenv("KIPPO_AUTO_EXTEND_RAISE_ON_ERROR", "False")) or "test" in _sys.argv
+
 # internally defined users
 UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = "unassigned"  # for managing unassigned github tasks
 DEFAULT_GITHUB_ISSUE_LABEL_CATEGORY_PREFIX = "category:"

@@ -602,3 +602,122 @@ class AutoExtendAdminActionTestCase(AutoAssignTestCaseBase):
         self.assertEqual(future.count(), 6)
         # ProjectMonthlyAssignmentAdmin must declare the action.
         self.assertIn(auto_extend_projectmonthlyassignment_action, ProjectMonthlyAssignmentAdmin.actions)
+
+
+class CapWarningParityTestCase(AutoAssignTestCaseBase):
+    """kippo#20: bulk_create rows must trigger the >100% cap warning that save() emits."""
+
+    def test_cap_warning_emitted_when_total_exceeds_100(self):
+        # Soft ceiling 100 so the scaler doesn't clip pre-emptively.
+        self.organization.project_assignment_member_soft_ceiling = 100
+        self.organization.save()
+        # Seed user at 50% on this project — auto-create will fill future months at 50% too.
+        # Add 60% on a *different* project for one of the future months; total = 110% → warning.
+        self._make_assignment(percentage=50, is_confirmed=True)
+        other_project = KippoProject.objects.create(
+            organization=self.organization,
+            name="cap-warning-other-project",
+            github_project_html_url="https://github.com/orgs/myorg/projects/77",
+            github_project_api_nodeid="PVT_kwDOWARN",
+            columnset=self.project.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # Use a future month inside the auto-extend window.
+        warning_month = self.start_month + relativedelta(months=1)
+        ProjectMonthlyAssignment.objects.create(
+            project=other_project,
+            user=self.user,
+            month=warning_month,
+            percentage=60,
+            is_confirmed=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # _apply_caps will clip seed=50 to 40 (100-60) in warning_month — but auto-create
+        # applies a single flat per-user percentage across all months, so it'll be 40
+        # everywhere. To force >100%, bump the existing other-project row to 110% directly.
+        # Instead: seed an over-allocation that bypasses _apply_caps. We force-create a
+        # second high-pct row directly post-extend to trigger the parity warning during
+        # extend by raising the other-project amount above the cap before we run.
+        # Easier: bump other-project row to 70 across multiple months so the scaler picks
+        # a smaller scaled value but the cap-warning still fires if the sum > 100.
+        # Use a direct test of _emit_cap_warnings instead — clearer signal.
+        from projects.services.autoassign import _emit_cap_warnings
+
+        # Manually craft a "newly-created" row at 60% in warning_month — combined with the
+        # 60% other-project row, total = 120% → warning must fire.
+        new_row = ProjectMonthlyAssignment.objects.create(
+            project=self.project,
+            user=self.user,
+            month=warning_month,
+            percentage=60,
+            is_confirmed=False,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        with self.assertLogs("projects.services.autoassign", level="WARNING") as cm:
+            _emit_cap_warnings(self.project, [new_row])
+        self.assertTrue(any("exceeds 100%" in msg for msg in cm.output))
+
+
+class SkipReasonLoggingTestCase(AutoAssignTestCaseBase):
+    """kippo#20: structured `extra=` payload carries skip_reason on forecast failure."""
+
+    def test_forecast_failure_logs_skip_reason_in_extra(self):
+        from projects.definitions import SkipReason
+
+        self._make_assignment(percentage=50, is_confirmed=True)
+        with (
+            patch(
+                "projects.services.autoassign.ProjectAssignmentForecastManager.compute",
+                side_effect=RuntimeError("boom"),
+            ),
+            self.assertLogs("projects.services.autoassign", level="INFO") as cm,
+        ):
+            _, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
+        self.assertEqual(skip_reason, SkipReason.FORECAST_UNAVAILABLE)
+        # At least one log record should carry the skip_reason extra.
+        matching = [r for r in cm.records if getattr(r, "skip_reason", None) == SkipReason.FORECAST_UNAVAILABLE.value]
+        self.assertTrue(matching, f"no log record carried skip_reason extra; got: {[r.__dict__ for r in cm.records]}")
+
+
+class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
+    """kippo#20: KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=True re-raises in the signal handler."""
+
+    def test_raises_when_flag_true(self):
+        from django.test import override_settings
+
+        self._make_assignment(percentage=50, is_confirmed=False)
+        # Re-fetch to flip is_confirmed and trigger the signal — but force the service to raise.
+        target = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month)
+
+        with (
+            patch(
+                "projects.signals.auto_create_future_assignments",
+                side_effect=RuntimeError("intentional"),
+            ),
+            override_settings(KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=True),
+            self.assertRaises(RuntimeError),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            target.is_confirmed = True
+            target.save()
+
+    def test_swallows_when_flag_false(self):
+        from django.test import override_settings
+
+        self._make_assignment(percentage=50, is_confirmed=False)
+        target = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month)
+
+        with (
+            patch(
+                "projects.signals.auto_create_future_assignments",
+                side_effect=RuntimeError("intentional"),
+            ),
+            override_settings(KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            # Must not raise.
+            target.is_confirmed = True
+            target.save()

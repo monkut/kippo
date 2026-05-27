@@ -86,10 +86,26 @@ def auto_create_future_assignments(  # noqa: PLR0911
     try:
         scaled_pct = _scaled_percentages(project, seed_pct, missing_months)
     except ProjectStartDateRequiredError:
-        logger.warning("project %s: forecast raised ProjectStartDateRequiredError — skipping auto-create", project.pk)
+        logger.info(
+            "auto_extend skipped: forecast raised ProjectStartDateRequiredError",
+            extra={
+                "project_id": str(project.pk),
+                "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
+                "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
+                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+            },
+        )
         return [], SkipReason.FORECAST_UNAVAILABLE
     except Exception:
-        logger.exception("project %s: forecast raised unexpectedly — skipping auto-create", project.pk)
+        logger.exception(
+            "auto_extend skipped: forecast raised unexpectedly",
+            extra={
+                "project_id": str(project.pk),
+                "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
+                "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
+                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+            },
+        )
         return [], SkipReason.FORECAST_UNAVAILABLE
 
     created = _persist(project, scaled_pct, missing_months, triggered_by)
@@ -327,6 +343,10 @@ def _persist(
     Drops users whose final per-user percentage clipped to 0 — persisting a 0% row would
     look like an explicit "this user is on the project at zero" signal, which is not
     what auto-create means.
+
+    After bulk_create, re-runs the per-user / per-month >100% cap warning that
+    `ProjectMonthlyAssignment.save()` would have emitted, since bulk_create bypasses
+    `save()` (kippo#20).
     """
     valid_user_ids = [user_id for user_id, pct in pct_per_user.items() if pct > 0]
     if not valid_user_ids:
@@ -351,7 +371,43 @@ def _persist(
                     updated_by=triggered_by,
                 )
             )
-    return ProjectMonthlyAssignment.objects.bulk_create(rows)
+    created = ProjectMonthlyAssignment.objects.bulk_create(rows)
+    _emit_cap_warnings(project, created)
+    return created
+
+
+def _emit_cap_warnings(project: KippoProject, created_rows: list[ProjectMonthlyAssignment]) -> None:
+    """Replicate the >100% cap-warning logic from `ProjectMonthlyAssignment.save()` for the
+    bulk-created cohort (kippo#20).
+
+    Groups newly-created rows by `(user, month)`, sums each user's total org-wide percentage
+    for that month (including pre-existing rows + the new ones), and emits the warning when
+    total exceeds `MAX_ASSIGNMENT_PERCENTAGE`. Matches the format string at
+    `models.py:1043-1049` so log consumers see consistent text across save() and auto-create.
+    """
+    if not created_rows:
+        return
+    organization = project.organization
+    pairs = {(row.user_id, row.month) for row in created_rows}
+    for user_id, month in pairs:
+        total_percentage = (
+            ProjectMonthlyAssignment.objects.filter(
+                user_id=user_id,
+                project__organization=organization,
+                month=month,
+            ).aggregate(total=Sum("percentage"))["total"]
+            or 0
+        )
+        if total_percentage > MAX_ASSIGNMENT_PERCENTAGE:
+            # Resolve the user instance lazily — only needed when the warning fires.
+            user = next((row.user for row in created_rows if row.user_id == user_id), None)
+            logger.warning(
+                "User '%s' has total assignment of %d%% for organization '%s' in month %s (exceeds 100%%)",
+                user,
+                total_percentage,
+                organization,
+                month.strftime("%Y-%m"),
+            )
 
 
 def latest_contiguous_confirmed_month(project: KippoProject) -> datetime.date | None:
