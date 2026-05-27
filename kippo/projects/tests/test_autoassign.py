@@ -706,7 +706,7 @@ class SkipReasonLoggingTestCase(AutoAssignTestCaseBase):
 
 
 class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
-    """kippo#20: KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=True re-raises in the signal handler."""
+    """kippo#20: PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=True re-raises in the signal handler."""
 
     def test_raises_when_flag_true(self):
         from django.test import override_settings
@@ -720,7 +720,7 @@ class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
                 "projects.signals.auto_create_future_assignments",
                 side_effect=RuntimeError("intentional"),
             ),
-            override_settings(KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=True),
+            override_settings(PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=True),
             self.assertRaises(RuntimeError),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -738,7 +738,7 @@ class RaiseOnErrorFlagTestCase(AutoAssignTestCaseBase):
                 "projects.signals.auto_create_future_assignments",
                 side_effect=RuntimeError("intentional"),
             ),
-            override_settings(KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=False),
+            override_settings(PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=False),
             self.captureOnCommitCallbacks(execute=True),
         ):
             # Must not raise.

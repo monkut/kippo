@@ -60,9 +60,9 @@ def handle_assignment_confirmation(  # noqa: D401 — Django signal handler
             auto_create_future_assignments(project, triggered_by)
         except Exception:
             # Structured log + optional re-raise behind a settings flag (kippo#20). In
-            # production (`KIPPO_AUTO_EXTEND_RAISE_ON_ERROR=False`) we swallow so a
-            # background save failure never bubbles into the originating request; in
-            # test settings (flag=True) we re-raise so bugs surface loudly.
+            # production (`PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR=False`) we swallow
+            # so a background save failure never bubbles into the originating request; in
+            # tests (flag=True) we re-raise so bugs surface loudly.
             logger.exception(
                 "auto_extend signal handler raised",
                 extra={
@@ -71,7 +71,7 @@ def handle_assignment_confirmation(  # noqa: D401 — Django signal handler
                     "latest_confirmed_month": latest_confirmed.isoformat(),
                 },
             )
-            if getattr(settings, "KIPPO_AUTO_EXTEND_RAISE_ON_ERROR", False):
+            if getattr(settings, "PROJECT_ASSIGNMENT_AUTO_EXTEND_RAISE_ON_ERROR", False):
                 raise
 
     transaction.on_commit(handle_commit)
