@@ -18,8 +18,8 @@ from django.utils import timezone
 
 from projects.models import KippoProject, ProjectMonthlyAssignment
 from projects.services.autoassign import (
-    all_first_month_rows_confirmed,
     auto_create_future_assignments,
+    latest_contiguous_confirmed_month,
 )
 
 
@@ -136,15 +136,29 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         rows = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(rows, [])
 
-    def test_skips_when_future_rows_already_exist(self):
+    def test_tops_up_missing_months_around_existing_future_row(self):
+        # kippo#17: a single pre-existing future row no longer aborts the run; surrounding
+        # missing months are still populated.
         self._make_assignment(percentage=50, is_confirmed=True)
-        # Pre-existing future-month row → idempotency guard fires.
         self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=20, is_confirmed=False)
 
         rows = auto_create_future_assignments(self.project, self.github_manager)
+        # 5 missing months created (target window has 6 future months; one is occupied).
+        self.assertEqual(len(rows), 5)
+        created_months = {row.month for row in rows}
+        self.assertNotIn(self.start_month + relativedelta(months=2), created_months)
+        # Pre-existing row is untouched.
+        existing = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month + relativedelta(months=2))
+        self.assertEqual(existing.percentage, 20)
+        self.assertFalse(existing.is_confirmed)
+
+    def test_returns_empty_when_no_missing_months(self):
+        # All future months already populated → nothing to top-up.
+        self._make_assignment(percentage=50, is_confirmed=True)
+        for offset in range(1, 7):
+            self._make_assignment(month=self.start_month + relativedelta(months=offset), percentage=20, is_confirmed=False)
+        rows = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(rows, [])
-        # Only the seed + the pre-existing row should be present.
-        self.assertEqual(ProjectMonthlyAssignment.objects.filter(project=self.project).count(), 2)
 
     # --------------------------------------------------------------- months generated (D3)
 
@@ -326,7 +340,7 @@ class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
         first_count = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count()
         self.assertEqual(first_count, 6)
 
-        # Re-save: idempotency guard skips because future rows exist.
+        # Re-save: top-up finds no missing months → no new rows.
         with self.captureOnCommitCallbacks(execute=True):
             seed.percentage = 51
             seed.save()
@@ -365,25 +379,74 @@ class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
         )
 
 
-class AllFirstMonthRowsConfirmedTestCase(AutoAssignTestCaseBase):
-    """Smoke tests for the trigger predicate."""
+class LatestContiguousConfirmedMonthTestCase(AutoAssignTestCaseBase):
+    """Smoke tests for the trigger predicate (kippo#17)."""
 
-    def test_returns_false_when_start_date_missing(self):
+    def test_returns_none_when_start_date_missing(self):
         self.project.start_date = None
         self.project.save()
-        self.assertFalse(all_first_month_rows_confirmed(self.project))
+        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
 
-    def test_returns_false_when_no_rows_for_start_month(self):
-        self.assertFalse(all_first_month_rows_confirmed(self.project))
+    def test_returns_none_when_no_rows_for_start_month(self):
+        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
 
-    def test_returns_false_when_any_row_unconfirmed(self):
+    def test_returns_none_when_any_start_month_row_unconfirmed(self):
         self._make_assignment(percentage=30, is_confirmed=True)
         actor = self._add_member("actor3")
         self._make_assignment(user=actor, percentage=20, is_confirmed=False)
-        self.assertFalse(all_first_month_rows_confirmed(self.project))
+        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
 
-    def test_returns_true_when_every_row_confirmed(self):
+    def test_returns_start_month_when_only_start_month_confirmed(self):
         self._make_assignment(percentage=30, is_confirmed=True)
         actor = self._add_member("actor4")
         self._make_assignment(user=actor, percentage=20, is_confirmed=True)
-        self.assertTrue(all_first_month_rows_confirmed(self.project))
+        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month)
+
+    def test_returns_latest_contiguous_confirmed_month_through_run(self):
+        # Confirm start_month, +1, +2 — gap at +3 (no row), so latest = +2.
+        self._make_assignment(percentage=30, is_confirmed=True)
+        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=True)
+        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=30, is_confirmed=True)
+        # gap at +3
+        self._make_assignment(month=self.start_month + relativedelta(months=4), percentage=30, is_confirmed=True)
+        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month + relativedelta(months=2))
+
+    def test_run_halts_at_first_unconfirmed_month(self):
+        self._make_assignment(percentage=30, is_confirmed=True)
+        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=False)
+        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month)
+
+
+class TriggerRelaxationTestCase(AutoAssignTestCaseBase):
+    """kippo#17: confirming a non-start_month row triggers extension from that month."""
+
+    def test_confirming_later_month_seeds_from_latest_confirmed(self):
+        # Start month + 1 month, both fully confirmed → extension seed is +1 month's shape.
+        self._make_assignment(percentage=30, is_confirmed=True)
+        actor = self._add_member("later-actor")
+        # Different shape on +1: only `actor` confirmed at 40%.
+        self._make_assignment(user=actor, month=self.start_month + relativedelta(months=1), percentage=40, is_confirmed=True)
+
+        # latest_confirmed_month is start_month (because start_month's user is the only user and confirmed,
+        # but +1 has only `actor`'s row which is also confirmed — both months are fully confirmed).
+        latest = latest_contiguous_confirmed_month(self.project)
+        self.assertEqual(latest, self.start_month + relativedelta(months=1))
+
+        created = auto_create_future_assignments(self.project, self.github_manager)
+        # 5 months from +2 through +6 — seed shape is `actor` 40%, so only `actor` rows created.
+        self.assertEqual(len(created), 5)
+        created_users = {row.user_id for row in created}
+        self.assertEqual(created_users, {actor.id})
+
+    def test_signal_path_confirming_later_month_creates_future_rows(self):
+        # End-to-end signal test: confirming a +1 row triggers auto-create.
+        self._make_assignment(percentage=30, is_confirmed=True)
+        later_row = self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=False)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            later_row.is_confirmed = True
+            later_row.save()
+
+        future = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month + relativedelta(months=1))
+        # 5 months created (start_month+2 through start_month+6).
+        self.assertEqual(future.count(), 5)
