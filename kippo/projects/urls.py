@@ -67,6 +67,13 @@ project_github_repository_detail = ProjectGithubRepositoryViewSet.as_view(
     }
 )
 
+# kippo#19 — manual auto-extend nested under projects/, matching the issue spec.
+project_monthly_assignment_auto_extend = ProjectMonthlyAssignmentViewSet.as_view(
+    {
+        "post": "auto_extend",
+    }
+)
+
 # HTML Views and Legacy API
 html_and_legacy_patterns = [
     # HTML Views
@@ -120,6 +127,12 @@ api_patterns = [
         "projects/<uuid:project_id>/github-repositories/<uuid:pk>/",
         project_github_repository_detail,
         name="project-github-repository-detail",
+    ),
+    # kippo#19 — manual auto-extend (nested under projects/)
+    path(
+        "projects/<uuid:project_id>/monthly-assignments/auto-extend/",
+        project_monthly_assignment_auto_extend,
+        name="project-monthly-assignment-auto-extend",
     ),
     # API ViewSets
     path("", include(router.urls)),
