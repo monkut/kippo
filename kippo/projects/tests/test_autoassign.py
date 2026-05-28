@@ -522,10 +522,10 @@ class AutoExtendSkipReasonTestCase(AutoAssignTestCaseBase):
 
 
 class AutoExtendRESTEndpointTestCase(AutoAssignTestCaseBase):
-    """kippo#19: REST endpoint at POST /api/.../monthly-assignments/auto-extend/<project_id>/."""
+    """kippo#19: REST endpoint at POST /api/projects/<project_id>/monthly-assignments/auto-extend/."""
 
     def _url(self, project_id: str) -> str:
-        return f"/api/monthly-assignments/auto-extend/{project_id}/"
+        return f"/api/projects/{project_id}/monthly-assignments/auto-extend/"
 
     def test_post_creates_rows_for_eligible_project(self):
         from rest_framework.test import APIClient

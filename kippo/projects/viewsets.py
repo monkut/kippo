@@ -619,12 +619,6 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
             ),
         },
     )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path=r"auto-extend/(?P<project_id>[a-f0-9-]{36})",
-        url_name="auto-extend",
-    )
     def auto_extend(self, request: Request, project_id: str) -> Response:
         """Manually trigger auto-create of future-month assignments for `project_id` (kippo#19).
 
