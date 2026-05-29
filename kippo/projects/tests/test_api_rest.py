@@ -2,16 +2,17 @@
 
 import datetime
 from http import HTTPStatus
+from unittest import mock
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
-from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ..models import KippoCustomer, KippoProject, ProjectWeeklyEffort
+from ..models import KippoCustomer, KippoProject, ProjectColumnSet, ProjectWeeklyEffort
 
 
 class JWTAuthenticationTestCase(TestCase):
@@ -1118,3 +1119,104 @@ class KippoCustomerViewSetTestCase(TestCase):
         customer_ids = [result["id"] for result in data["results"]]
         self.assertIn(str(inactive.id), customer_ids)
         self.assertNotIn(str(self.customer.id), customer_ids)
+
+
+class ProjectColumnsetDefaultTestCase(TestCase):
+    """`columnset` is optional on create — it resolves from the organization's default columnset.
+
+    Resolution order (KippoOrganization.get_default_columnset): explicit `default_columnset` ->
+    first org-specific columnset -> first global (org-null) columnset.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.global_columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.client = APIClient()
+        self.url = f"{settings.URL_PREFIX}/api/projects/"
+
+    def test_get_default_columnset_prefers_explicit_default(self):
+        ProjectColumnSet.objects.create(name="org-specific cs", organization=self.organization)
+        explicit = ProjectColumnSet.objects.create(name="explicit default cs", organization=self.organization)
+        self.organization.default_columnset = explicit
+        self.organization.save()
+        self.assertEqual(self.organization.get_default_columnset(), explicit)
+
+    def test_get_default_columnset_prefers_org_specific_over_global(self):
+        org_columnset = ProjectColumnSet.objects.create(name="org-specific cs", organization=self.organization)
+        self.assertEqual(self.organization.get_default_columnset(), org_columnset)
+
+    def test_get_default_columnset_falls_back_to_global(self):
+        self.assertEqual(self.organization.get_default_columnset(), self.global_columnset)
+
+    def test_create_project_without_columnset_applies_org_default(self):
+        explicit = ProjectColumnSet.objects.create(name="explicit default cs", organization=self.organization)
+        self.organization.default_columnset = explicit
+        self.organization.save()
+        self.client.force_authenticate(user=self.user)
+        data = {"name": "Default Columnset Project", "organization": str(self.organization.id)}
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        created = KippoProject.objects.get(name="Default Columnset Project")
+        self.assertEqual(created.columnset_id, explicit.id)
+
+    def test_create_project_without_columnset_falls_back_to_global(self):
+        self.client.force_authenticate(user=self.user)
+        data = {"name": "Fallback Columnset Project", "organization": str(self.organization.id)}
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        created = KippoProject.objects.get(name="Fallback Columnset Project")
+        self.assertEqual(created.columnset_id, self.global_columnset.id)
+
+    def test_create_project_with_cross_org_columnset_rejected(self):
+        other_org = KippoOrganization.objects.create(
+            name="cross-org-columnset-org",
+            github_organization_name="cross-org-columnset-org",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        other_columnset = ProjectColumnSet.objects.create(name="other org cs", organization=other_org)
+        self.client.force_authenticate(user=self.user)
+        data = {
+            "name": "Cross Org Columnset Project",
+            "organization": str(self.organization.id),
+            "columnset": str(other_columnset.id),
+        }
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("columnset", response.json())
+
+    def test_create_project_without_columnset_and_no_default_returns_400(self):
+        self.client.force_authenticate(user=self.user)
+        data = {"name": "Unresolvable Columnset Project", "organization": str(self.organization.id)}
+        with mock.patch.object(KippoOrganization, "get_default_columnset", return_value=None):
+            response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("columnset", response.json())
+
+    def test_patch_organization_rejects_now_cross_org_existing_columnset(self):
+        """Re-parenting to an org the existing org-specific columnset doesn't belong to is rejected."""
+        # Project starts in self.organization with an org-specific columnset.
+        org_columnset = ProjectColumnSet.objects.create(name="org-a cs", organization=self.organization)
+        project = KippoProject.objects.create(
+            name="Reparented Project",
+            organization=self.organization,
+            columnset=org_columnset,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        # A second org the user also belongs to.
+        other_org = KippoOrganization.objects.create(
+            name="reparent-target-org",
+            github_organization_name="reparent-target-org",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        OrganizationMembership.objects.create(user=self.user, organization=other_org, is_developer=True, created_by=self.user, updated_by=self.user)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.patch(f"{self.url}{project.id}/", {"organization": str(other_org.id)}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("columnset", response.json())

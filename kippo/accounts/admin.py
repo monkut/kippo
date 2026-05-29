@@ -12,7 +12,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Q, QuerySet
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import NoReverseMatch, reverse
@@ -24,7 +24,7 @@ from ghorgs.exceptions import GithubGraphQLError
 from octocat.functions import get_organization_projects_v2
 from octocat.models import GithubAccessToken
 from projects.functions import collect_existing_github_projects
-from projects.models import CollectIssuesAction
+from projects.models import CollectIssuesAction, ProjectColumnSet
 from social_django.models import Association, Nonce, UserSocialAuth
 from tasks.periodic.tasks import collect_github_project_issues
 
@@ -198,6 +198,13 @@ class KippoOrganizationAdminForm(forms.ModelForm):
             initial=current_value,
             help_text=help_text,
         )
+
+        # default_columnset: scope choices to this org's columnsets (+ shared/global org-null ones)
+        if "default_columnset" in self.fields:
+            if instance and instance.pk:
+                self.fields["default_columnset"].queryset = ProjectColumnSet.objects.filter(Q(organization=instance) | Q(organization__isnull=True))
+            else:
+                self.fields["default_columnset"].queryset = ProjectColumnSet.objects.filter(organization__isnull=True)
 
 
 @admin.register(KippoOrganization)
