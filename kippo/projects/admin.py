@@ -1032,15 +1032,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and user_initial_organization and len(user_organizations) == 1:
             form.base_fields["organization"].widget = forms.HiddenInput()
 
-        # columnset: required FK. Default to the first available on /add/ and hide from non-superusers
-        # — columnset selection is an admin concern, not a per-project staff decision.
-        if "columnset" in form.base_fields:
-            if obj is None:
-                first_columnset = ProjectColumnSet.objects.first()
-                if first_columnset:
-                    form.base_fields["columnset"].initial = first_columnset
-            if not request.user.is_superuser:
-                form.base_fields["columnset"].widget = forms.HiddenInput()
+        self._apply_columnset_field(form, request, user_initial_organization, obj)
 
         # remove add/change/delete buttons from all ForeignKey fields
         for fieldname in form.base_fields:
@@ -1072,6 +1064,38 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         else:
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
+
+    @staticmethod
+    def _apply_columnset_field(
+        form: Form,
+        request: DjangoRequest,
+        user_initial_organization: KippoOrganization | None,
+        obj: KippoProject | None,
+    ) -> None:
+        """Set up the columnset field on the project form.
+
+        Scope choices to the org's columnsets (+ shared/global) and default to the organization's
+        resolved default on /add/. Hidden from non-superusers — columnset selection is an admin
+        concern, not a per-project staff decision.
+        """
+        if "columnset" not in form.base_fields:
+            return
+        if user_initial_organization is not None:
+            form.base_fields["columnset"].queryset = ProjectColumnSet.objects.filter(
+                models.Q(organization=user_initial_organization) | models.Q(organization__isnull=True)
+            )
+            if obj is None:
+                default_columnset = user_initial_organization.get_default_columnset()
+                if default_columnset:
+                    form.base_fields["columnset"].initial = default_columnset
+        elif obj is None:
+            # No session org (e.g. a superuser without a membership): keep the legacy
+            # global-first prefill so the required field isn't left blank.
+            first_columnset = ProjectColumnSet.objects.first()
+            if first_columnset:
+                form.base_fields["columnset"].initial = first_columnset
+        if not request.user.is_superuser:
+            form.base_fields["columnset"].widget = forms.HiddenInput()
 
     @staticmethod
     def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:

@@ -5,6 +5,7 @@ import string
 import uuid
 from collections import Counter
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from commons.definitions import SATURDAY, SUNDAY
 from commons.models import TimestampedModel, UserCreatedBaseModel
@@ -21,6 +22,9 @@ from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 from accounts.definitions import AttendanceRecordCategory
+
+if TYPE_CHECKING:
+    from projects.models import ProjectColumnSet
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +136,15 @@ class KippoOrganization(UserCreatedBaseModel):
             "headroom for non-project work. 1-100; the absolute hard cap remains 100%."
         ),
     )
+    default_columnset = models.ForeignKey(
+        "projects.ProjectColumnSet",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="+",
+        help_text=_("Default ProjectColumnSet applied to new projects created for this organization"),
+    )
 
     @property
     def email_domains(self) -> QuerySet:
@@ -178,6 +191,21 @@ class KippoOrganization(UserCreatedBaseModel):
     def get_unassigned_kippouser(self):
         membership = OrganizationMembership.objects.get(organization=self, user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)
         return membership.user
+
+    def get_default_columnset(self) -> "ProjectColumnSet | None":
+        """Resolve the ProjectColumnSet to apply to new projects for this organization.
+
+        Preference order: explicit `default_columnset` -> first org-specific columnset ->
+        first global (organization-null) columnset. Returns None when none is available.
+        """
+        from projects.models import ProjectColumnSet
+
+        if self.default_columnset_id:
+            return self.default_columnset
+        columnset = ProjectColumnSet.objects.filter(organization=self).first()
+        if not columnset:
+            columnset = ProjectColumnSet.objects.filter(organization__isnull=True).first()
+        return columnset
 
     def clean(self):
         if self.google_forms_project_survey_url and not self.google_forms_project_survey_url.endswith("viewform"):

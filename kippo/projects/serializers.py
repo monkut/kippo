@@ -13,6 +13,7 @@ from .models import (
     KippoProject,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
+    ProjectColumnSet,
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
@@ -192,6 +193,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     survey_users = serializers.SerializerMethodField()
     github_repositories = serializers.SerializerMethodField()
     docbase_tag = CommaSeparatedField(max_length=255, allow_blank=True, required=False)
+    columnset = serializers.PrimaryKeyRelatedField(
+        queryset=ProjectColumnSet.objects.all(),
+        required=False,
+        help_text="ProjectColumnSet for this project. Defaults to the organization's default columnset when omitted.",
+    )
 
     class Meta:
         model = KippoProject
@@ -254,6 +260,34 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "created_datetime",
             "updated_datetime",
         ]
+
+    def validate(self, attrs: dict) -> dict:
+        """Resolve/validate `columnset` against the project's organization.
+
+        - explicit columnset must be organization-specific (same org) or global (org-null)
+        - on create without a columnset, apply `organization.get_default_columnset()`
+        """
+        attrs = super().validate(attrs)
+        organization = attrs.get("organization") or getattr(self.instance, "organization", None)
+        columnset = attrs.get("columnset")
+        # Re-parenting (organization changes) without a new columnset must re-check the
+        # project's *existing* columnset against the new org — otherwise a stale cross-org
+        # columnset silently persists.
+        if columnset is None and self.instance is not None and "organization" in attrs:
+            columnset = self.instance.columnset
+        if columnset is not None:
+            if organization is not None and columnset.organization_id not in (None, organization.id):
+                raise serializers.ValidationError(
+                    {"columnset": "Selected columnset must belong to the project's organization (or be a shared/global columnset)."}
+                )
+        elif self.instance is None:
+            columnset = organization.get_default_columnset() if organization is not None else None
+            if columnset is None:
+                raise serializers.ValidationError(
+                    {"columnset": "No columnset provided and no default columnset is configured for this organization."}
+                )
+            attrs["columnset"] = columnset
+        return attrs
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_allocated_effort_hours(self, obj: KippoProject) -> float | None:
