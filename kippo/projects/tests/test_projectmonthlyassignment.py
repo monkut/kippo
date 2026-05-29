@@ -16,6 +16,7 @@ from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from projects.models import KippoProject, ProjectMonthlyAssignment
@@ -269,7 +270,8 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.UNAUTHORIZED)
 
     def test_list_org_scoped_for_regular_user(self):
-        response = self.client.get(self.list_url)
+        # Broad range so the current-month (JST) default doesn't scope this org-scoping check.
+        response = self.client.get(self.list_url, {"month_gte": "2026-01-01"})
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ids = {row["id"] for row in response.json()["results"]}
         self.assertIn(self.assignment_apr.id, ids)
@@ -280,20 +282,21 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         superuser = KippoUser.objects.create(username="forecast-super", is_superuser=True, is_staff=True)
         admin_client = APIClient()
         admin_client.force_authenticate(user=superuser)
-        response = admin_client.get(self.list_url)
+        response = admin_client.get(self.list_url, {"month_gte": "2026-01-01"})
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ids = {row["id"] for row in response.json()["results"]}
         self.assertIn(self.assignment_apr.id, ids)
         self.assertIn(self.other_assignment.id, ids)
 
     def test_filter_by_project(self):
-        response = self.client.get(self.list_url, {"project": str(self.project.id)})
+        # Broad range so the fixed-date fixtures aren't scoped out by the current-month default.
+        response = self.client.get(self.list_url, {"project": str(self.project.id), "month_gte": "2026-01-01"})
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ids = {row["id"] for row in response.json()["results"]}
         self.assertEqual(ids, {self.assignment_apr.id, self.assignment_may.id})
 
     def test_filter_by_user(self):
-        response = self.client.get(self.list_url, {"user": str(self.user.id)})
+        response = self.client.get(self.list_url, {"user": str(self.user.id), "month_gte": "2026-01-01"})
         self.assertEqual(response.status_code, HTTPStatus.OK)
         results = response.json()["results"]
         self.assertGreater(len(results), 0)
@@ -314,6 +317,52 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         ids = {row["id"] for row in response.json()["results"]}
         self.assertEqual(ids, {self.assignment_apr.id})
+
+    def test_list_defaults_to_current_jst_month_when_no_month_param(self):
+        """No month/month_gte/month_lte → only the current-month (JST) rows are returned."""
+        current_month = timezone.localdate().replace(day=1)
+        past_month = (current_month - datetime.timedelta(days=1)).replace(day=1)
+        # Separate project so these don't collide with setUp's (project,user,month) rows.
+        project = KippoProject.objects.create(
+            name="current-month-default-project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            start_date=past_month,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        current = ProjectMonthlyAssignment.objects.create(
+            project=project,
+            user=self.user,
+            month=current_month,
+            percentage=10,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        past = ProjectMonthlyAssignment.objects.create(
+            project=project,
+            user=self.user,
+            month=past_month,
+            percentage=20,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        rows = response.json()["results"]
+        ids = {row["id"] for row in rows}
+        self.assertIn(current.id, ids)
+        self.assertNotIn(past.id, ids)
+        # Every returned row is the current JST month.
+        self.assertTrue(all(row["month"] == current_month.isoformat() for row in rows))
+
+    def test_explicit_month_range_not_overridden_by_current_month_default(self):
+        """A month_gte alone keeps range semantics (the current-month default must not kick in)."""
+        response = self.client.get(self.list_url, {"month_gte": "2026-04-01"})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        ids = {row["id"] for row in response.json()["results"]}
+        self.assertEqual(ids, {self.assignment_apr.id, self.assignment_may.id})
 
     def test_create_persists_new_assignment(self):
         new_month = datetime.date(2026, 6, 1)
