@@ -3,6 +3,7 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -511,7 +512,8 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
     **Filtering:**
     - project: Filter by project UUID
     - user: Filter by user ID
-    - month: Filter by exact month (YYYY-MM-DD format, day should be 01)
+    - month: Filter by exact month (YYYY-MM-DD format, day should be 01). Defaults to the
+      current month (JST) when none of month/month_gte/month_lte is supplied.
     - month_gte: Filter by month >= date (YYYY-MM-DD format)
     - month_lte: Filter by month <= date (YYYY-MM-DD format)
 
@@ -545,7 +547,9 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
             ),
             OpenApiParameter(
                 name="month",
-                description="Filter by exact month (YYYY-MM-DD format)",
+                description=(
+                    "Filter by exact month (YYYY-MM-DD format). When omitted (and no month_gte/month_lte), defaults to the current month in JST."
+                ),
                 required=False,
                 type=str,
             ),
@@ -590,18 +594,24 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
         if user_id:
             queryset = queryset.filter(user__id=user_id)
 
-        # Filter by month parameter (exact match)
         month = self.request.query_params.get("month", None)
+        month_gte = self.request.query_params.get("month_gte", None)
+        month_lte = self.request.query_params.get("month_lte", None)
+
+        # On the list view with no month filter at all → default to the current month (JST).
+        # Detail actions (retrieve/update/destroy) must reach a row in any month by pk, so the
+        # default is list-only. Explicit range filters (month_gte/month_lte) are left as-is.
+        # `timezone.localdate()` resolves in settings.TIME_ZONE ("Asia/Tokyo").
+        if self.action == "list" and not any((month, month_gte, month_lte)):
+            month = timezone.localdate().replace(day=1)
+
+        # Filter by month parameter (exact match)
         if month:
             queryset = queryset.filter(month=month)
-
         # Filter by month_gte parameter
-        month_gte = self.request.query_params.get("month_gte", None)
         if month_gte:
             queryset = queryset.filter(month__gte=month_gte)
-
         # Filter by month_lte parameter
-        month_lte = self.request.query_params.get("month_lte", None)
         if month_lte:
             queryset = queryset.filter(month__lte=month_lte)
 
