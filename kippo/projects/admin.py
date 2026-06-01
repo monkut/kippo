@@ -167,15 +167,25 @@ class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsSt
         return qs
 
     def get_formset(self, request: HttpRequest, obj: ProjectWeeklyEffort | None = None, **kwargs):
-        """Added to filter the user selection list so that only user's belonging to the project's organization will be listed"""
+        """Filter the user selection list and restrict who an entry may be created for.
+
+        Superusers may add effort for any member of the project's organization. Non-superusers
+        may only add their own effort: the queryset is scoped to just the requesting user, so the
+        field's normal ModelChoiceField validation rejects a tampered submission server-side.
+        """
         formset = super().get_formset(request, obj, **kwargs)
         if obj:  # parent model
-            # get users belonging to the organization this project belongs to
             formset.form.base_fields["user"].initial = request.user
-            related_organization_user_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user__id", flat=True)
-            formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by(
-                "last_name", "username"
-            )
+            if request.user.is_superuser:
+                # get users belonging to the organization this project belongs to
+                related_organization_user_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list(
+                    "user__id", flat=True
+                )
+                formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=related_organization_user_ids).order_by(
+                    "last_name", "username"
+                )
+            else:
+                formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id=request.user.id)
 
         return formset
 
@@ -1554,12 +1564,21 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         download_waiter_url = f"{settings.URL_PREFIX}/projects/download/?filename={urlencoded_key}"
         return HttpResponseRedirect(redirect_to=download_waiter_url)
 
+    def save_model(self, request: DjangoRequest, obj: ProjectWeeklyEffort, form: Form, change: bool):
+        """Force the entry's user to the requesting user unless they are a superuser.
+
+        Guards against a tampered submission setting a different `user`; the get_form widget below
+        only hides the field in the UI for non-superusers.
+        """
+        if not request.user.is_superuser:
+            obj.user = request.user
+        super().save_model(request, obj, form, change)
+
     def get_form(self, request: DjangoRequest, obj: ProjectWeeklyEffort | None = None, **kwargs):
         """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         form.base_fields["user"].initial = request.user.id
-        form.base_fields["user"].widget = forms.HiddenInput()
         try:
             user_initial_organization, user_organizations = get_user_session_organization(request)
             user_memberships = request.user.memberships.all()
@@ -1572,6 +1591,14 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                 "OrganizationMembership not defined for user! Must belong to an Organization to create a project",
                 level=messages.ERROR,
             )
+        if request.user.is_superuser:
+            # Superusers may log effort for any user belonging to an organization they are a member of.
+            member_user_ids = OrganizationMembership.objects.filter(organization__in=user_memberships).values_list("user__id", flat=True)
+            form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=member_user_ids).order_by("last_name", "username")
+        else:
+            # Non-superusers may only log their own effort, so the user field is hidden and forced
+            # to the requesting user (see save_model).
+            form.base_fields["user"].widget = forms.HiddenInput()
         user_projects = KippoProject.objects.filter(organization__in=user_memberships)
         form.base_fields["project"].initial = user_projects.first()
         form.base_fields["project"].queryset = user_projects

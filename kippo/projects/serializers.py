@@ -472,6 +472,10 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
         allow_null=True,
         default=serializers.CurrentUserDefault(),
     )
+    # Effort cannot be negative and cannot exceed the hours in a week (7 * 24).
+    # The interactive UI/Slack flows already block negatives; this guards the
+    # direct-API and admin paths that previously accepted them.
+    hours = serializers.IntegerField(min_value=0, max_value=7 * 24)
 
     class Meta:
         model = ProjectWeeklyEffort

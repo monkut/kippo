@@ -1053,7 +1053,10 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
     week_start = models.DateField(default=previous_week_startdate, help_text="Effort Week Start (MONDAY)")
     project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_project")
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_user")
-    hours = models.SmallIntegerField(help_text=_("Actual effort in hours performed on the project for the given 'week start'"))
+    hours = models.SmallIntegerField(
+        validators=(MinValueValidator(0), MaxValueValidator(7 * 24)),
+        help_text=_("Actual effort in hours performed on the project for the given 'week start' (0-168)"),
+    )
 
     class Meta:
         verbose_name = _("プロジェクト週間稼働量")

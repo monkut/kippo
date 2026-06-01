@@ -115,16 +115,19 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
     def test_projectweeklyeffort_inlineadmin(self):
         assert KippoUser.objects.all().count() > self.organization_users.count()
 
-        # modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        inline = ProjectWeeklyEffortAdminInline(parent_model=KippoProject, admin_site=self.site)
+
+        # non-superuser: scoped to themselves only (may only log their own effort)
         orguser_request = MockRequest()
         orguser_request.user = self.organization_usera
-        inline = ProjectWeeklyEffortAdminInline(parent_model=KippoProject, admin_site=self.site)
         formset = inline.get_formset(request=orguser_request, obj=self.project1)
-        # check project form users
-        # -- compare user ids
-        expected = set(self.organization_users)
         actual = set(u.id for u in formset.form.base_fields["user"].queryset)
-        self.assertEqual(actual, expected)
+        self.assertEqual(actual, {self.organization_usera.id})
+
+        # superuser: any member of the project's organization
+        formset = inline.get_formset(request=self.super_user_request, obj=self.project1)
+        actual = set(u.id for u in formset.form.base_fields["user"].queryset)
+        self.assertEqual(actual, set(self.organization_users))
 
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):
