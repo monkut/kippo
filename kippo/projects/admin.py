@@ -1579,10 +1579,6 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         form.base_fields["user"].initial = request.user.id
-        # Non-superusers may only log their own effort, so the user field is hidden and forced
-        # to the requesting user (see save_model). Superusers may pick any user.
-        if not request.user.is_superuser:
-            form.base_fields["user"].widget = forms.HiddenInput()
         try:
             user_initial_organization, user_organizations = get_user_session_organization(request)
             user_memberships = request.user.memberships.all()
@@ -1595,6 +1591,14 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                 "OrganizationMembership not defined for user! Must belong to an Organization to create a project",
                 level=messages.ERROR,
             )
+        if request.user.is_superuser:
+            # Superusers may log effort for any user belonging to an organization they are a member of.
+            member_user_ids = OrganizationMembership.objects.filter(organization__in=user_memberships).values_list("user__id", flat=True)
+            form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=member_user_ids).order_by("last_name", "username")
+        else:
+            # Non-superusers may only log their own effort, so the user field is hidden and forced
+            # to the requesting user (see save_model).
+            form.base_fields["user"].widget = forms.HiddenInput()
         user_projects = KippoProject.objects.filter(organization__in=user_memberships)
         form.base_fields["project"].initial = user_projects.first()
         form.base_fields["project"].queryset = user_projects

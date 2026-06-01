@@ -93,12 +93,42 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(user_ids, [self.staffuser_with_org.id])
 
     def test_inline_user_queryset_all_org_members_for_superuser(self):
-        """Superusers may add ProjectWeeklyEffort for any member of the project's organization."""
+        """Superusers may add ProjectWeeklyEffort only for members of the project's organization."""
         inline = ProjectWeeklyEffortAdminInline(KippoProject, admin.site)
         formset = inline.get_formset(self.super_user_request, obj=self.project1)
         user_ids = set(formset.form.base_fields["user"].queryset.values_list("id", flat=True))
         self.assertIn(self.staffuser_with_org.id, user_ids)
         self.assertIn(self.staffuser_with_org2.id, user_ids)
+        # a user belonging only to another organization is excluded (scoped to the project's org)
+        self.assertNotIn(self.otherstaffuser_with_org.id, user_ids)
+
+    def test_standalone_admin_superuser_user_scoped_to_member_organizations(self):
+        """Standalone admin: a superuser may only pick users in organizations they belong to."""
+        superuser_member = KippoUser.objects.create(username="superuser_member_org", is_superuser=True, is_staff=True)
+        OrganizationMembership.objects.create(
+            user=superuser_member,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+            is_developer=True,
+        )
+        request = MockRequest()
+        request.user = superuser_member
+        request.session = {}
+        form_class = ProjectWeeklyEffortAdmin(ProjectWeeklyEffort, admin.site).get_form(request)
+        user_ids = set(form_class.base_fields["user"].queryset.values_list("id", flat=True))
+        self.assertIn(self.staffuser_with_org.id, user_ids)
+        self.assertIn(self.staffuser_with_org2.id, user_ids)
+        # otherstaffuser_with_org belongs only to other_organization -> excluded
+        self.assertNotIn(self.otherstaffuser_with_org.id, user_ids)
+
+    def test_standalone_admin_user_field_hidden_for_non_superuser(self):
+        """Standalone admin: the user field is hidden for non-superusers (forced to self in save_model)."""
+        request = MockRequest()
+        request.user = self.staffuser_with_org
+        request.session = {}
+        form_class = ProjectWeeklyEffortAdmin(ProjectWeeklyEffort, admin.site).get_form(request)
+        self.assertEqual(form_class.base_fields["user"].widget.input_type, "hidden")
 
     def test_standalone_admin_forces_user_to_self_for_non_superuser(self):
         """save_model forces the entry's user to the requester for non-superusers (tamper guard)."""
