@@ -1,15 +1,18 @@
+import datetime
 from http import HTTPStatus
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.definitions import MONDAY
 from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
 from commons.tests.utils import MockRequest, reset_buckets
+from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils import timezone
 
-from projects.models import ProjectWeeklyEffort
+from projects.admin import ProjectWeeklyEffortAdmin, ProjectWeeklyEffortAdminInline
+from projects.models import KippoProject, ProjectWeeklyEffort
 
 
 class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
@@ -76,6 +79,42 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
         # zero is valid (consistent with the UI's `hours >= 0` create filter)
         zero = ProjectWeeklyEffort(week_start=monday, project=self.project1, user=self.staffuser_with_org, hours=0)
         zero.full_clean()  # should not raise
+
+    def _future_monday(self, weeks_ahead: int = 2) -> datetime.date:
+        """A Monday outside the setUp-created (3 months ago .. today) range to avoid unique_together clashes."""
+        future = timezone.now() + timezone.timedelta(weeks=weeks_ahead)
+        return (future - timezone.timedelta(days=future.weekday())).date()
+
+    def test_inline_user_queryset_scoped_to_self_for_non_superuser(self):
+        """Non-superusers can only add ProjectWeeklyEffort for themselves via the project inline."""
+        inline = ProjectWeeklyEffortAdminInline(KippoProject, admin.site)
+        formset = inline.get_formset(self.staffuser_with_org1_request, obj=self.project1)
+        user_ids = list(formset.form.base_fields["user"].queryset.values_list("id", flat=True))
+        self.assertEqual(user_ids, [self.staffuser_with_org.id])
+
+    def test_inline_user_queryset_all_org_members_for_superuser(self):
+        """Superusers may add ProjectWeeklyEffort for any member of the project's organization."""
+        inline = ProjectWeeklyEffortAdminInline(KippoProject, admin.site)
+        formset = inline.get_formset(self.super_user_request, obj=self.project1)
+        user_ids = set(formset.form.base_fields["user"].queryset.values_list("id", flat=True))
+        self.assertIn(self.staffuser_with_org.id, user_ids)
+        self.assertIn(self.staffuser_with_org2.id, user_ids)
+
+    def test_standalone_admin_forces_user_to_self_for_non_superuser(self):
+        """save_model forces the entry's user to the requester for non-superusers (tamper guard)."""
+        model_admin = ProjectWeeklyEffortAdmin(ProjectWeeklyEffort, admin.site)
+        obj = ProjectWeeklyEffort(week_start=self._future_monday(2), project=self.project1, user=self.staffuser_with_org2, hours=5)
+        model_admin.save_model(self.staffuser_with_org1_request, obj, form=None, change=False)
+        obj.refresh_from_db()
+        self.assertEqual(obj.user, self.staffuser_with_org)
+
+    def test_standalone_admin_superuser_may_set_other_user(self):
+        """Superusers may create effort on behalf of another user."""
+        model_admin = ProjectWeeklyEffortAdmin(ProjectWeeklyEffort, admin.site)
+        obj = ProjectWeeklyEffort(week_start=self._future_monday(3), project=self.project1, user=self.staffuser_with_org2, hours=6)
+        model_admin.save_model(self.super_user_request, obj, form=None, change=False)
+        obj.refresh_from_db()
+        self.assertEqual(obj.user, self.staffuser_with_org2)
 
     def test_download_action(self):
         data = {
