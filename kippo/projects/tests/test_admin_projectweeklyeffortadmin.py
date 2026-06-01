@@ -5,6 +5,7 @@ from commons.definitions import MONDAY
 from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
 from commons.tests.utils import MockRequest, reset_buckets
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils import timezone
 
@@ -51,6 +52,30 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
 
         self.staffuser_with_org2_request = MockRequest()
         self.staffuser_with_org2_request.user = self.staffuser_with_org2
+
+    def test_hours_validators_reject_negative_and_over_max(self):
+        """Model validators (enforced by the admin ModelForm via full_clean) reject out-of-range hours.
+
+        The admin add form is the only interactive create surface that previously accepted a
+        negative `hours` (the UI and Slack flows already block it). full_clean() exercises the
+        same MinValue/MaxValue validators the admin form runs.
+        """
+        today = timezone.now()
+        monday = today - timezone.timedelta(days=today.weekday())
+
+        negative = ProjectWeeklyEffort(week_start=monday, project=self.project1, user=self.staffuser_with_org, hours=-1)
+        with self.assertRaises(ValidationError) as ctx:
+            negative.full_clean()
+        self.assertIn("hours", ctx.exception.message_dict)
+
+        over_max = ProjectWeeklyEffort(week_start=monday, project=self.project1, user=self.staffuser_with_org, hours=169)
+        with self.assertRaises(ValidationError) as ctx:
+            over_max.full_clean()
+        self.assertIn("hours", ctx.exception.message_dict)
+
+        # zero is valid (consistent with the UI's `hours >= 0` create filter)
+        zero = ProjectWeeklyEffort(week_start=monday, project=self.project1, user=self.staffuser_with_org, hours=0)
+        zero.full_clean()  # should not raise
 
     def test_download_action(self):
         data = {

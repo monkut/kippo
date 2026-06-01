@@ -413,6 +413,37 @@ class ProjectWeeklyEffortViewSetTestCase(TestCase):
         self.assertIn("previous", data)
         self.assertIn("results", data)
 
+    def test_create_negative_hours_rejected(self):
+        """Negative hours must be rejected by the API (guards the direct-API path)."""
+        url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/"
+        data = {"project": str(self.project.id), "week_start": "2024-02-01", "hours": -1}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("hours", response.json())
+
+    def test_create_hours_over_weekly_max_rejected(self):
+        """Hours greater than the hours in a week (7 * 24) must be rejected."""
+        url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/"
+        data = {"project": str(self.project.id), "week_start": "2024-02-01", "hours": 169}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("hours", response.json())
+
+    def test_update_to_negative_hours_rejected(self):
+        """Patching an existing entry to negative hours must be rejected."""
+        url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/{self.effort1.id}/"
+        response = self.client.patch(url, {"hours": -1}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.effort1.refresh_from_db()
+        self.assertEqual(self.effort1.hours, 40)
+
+    def test_create_zero_hours_allowed(self):
+        """Zero hours is permitted (consistent with the UI's `hours >= 0` create filter)."""
+        url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/"
+        data = {"project": str(self.project.id), "week_start": "2024-02-01", "hours": 0}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+
 
 class OpenAPISchemaTestCase(TestCase):
     """Test cases for OpenAPI schema generation."""
