@@ -1315,16 +1315,18 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if "organization" not in form.base_fields:
             return form
         try:
-            user_initial_organization, _user_organizations = get_user_session_organization(request)
+            user_initial_organization, user_organizations = get_user_session_organization(request)
         except ValueError:
-            user_initial_organization = None
+            user_initial_organization, user_organizations = None, []
         if not request.user.is_superuser:
             form.base_fields["organization"].queryset = request.user.memberships.all()
         if user_initial_organization:
             form.base_fields["organization"].initial = user_initial_organization
-            # Hide — derived from the user's session organization. Multi-org users still get
-            # the session value; to create a customer in a different org, switch the session org first.
-            form.base_fields["organization"].widget = forms.HiddenInput()
+            # Hide the field only for single-org users (there's nothing to choose). Multi-org
+            # users keep it visible — initialized to the session org — so they can pick which
+            # organization the customer belongs to.
+            if len(user_organizations) == 1:
+                form.base_fields["organization"].widget = forms.HiddenInput()
         return form
 
 

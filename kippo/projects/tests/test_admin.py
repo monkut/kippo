@@ -1439,7 +1439,9 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
 
 
 class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
-    """KippoCustomerAdmin auto-sets the organization from the user's session and hides the field."""
+    """KippoCustomerAdmin initializes the organization from the user's session, and hides the
+    field only for single-org users (multi-org users keep it visible to choose the org).
+    """
 
     fixtures = DEFAULT_FIXTURES
 
@@ -1462,3 +1464,18 @@ class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase)
         request = self._make_request(self.superuser_no_org)
         form_class = modeladmin.get_form(request)
         self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
+
+    def test_get_form_keeps_organization_field_visible_for_multi_org_user(self):
+        # Add the staff user to a second org so they belong to two organizations.
+        OrganizationMembership.objects.create(
+            user=self.staffuser_with_org,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._make_request(self.staffuser_with_org, organization_id=str(self.organization.id))
+        form_class = modeladmin.get_form(request)
+        # Multi-org → field stays visible, still initialized to the session org.
+        self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
+        self.assertEqual(form_class.base_fields["organization"].initial, self.organization)
