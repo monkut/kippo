@@ -7,7 +7,12 @@ from django.db.models import Sum
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .definitions import SURVEY_EFFORT_THRESHOLD_PERCENTAGE, ProjectProgressStatus, ProjectRoles
+from .definitions import (
+    FULL_CONFIDENCE_PERCENTAGE,
+    SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
+    ProjectProgressStatus,
+    ProjectRoles,
+)
 from .models import (
     KippoCustomer,
     KippoProject,
@@ -584,6 +589,29 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
         if membership:
             return membership.slack_image_url or None
         return None
+
+    def validate(self, attrs: dict) -> dict:
+        """Reject *confirming* an assignment whose project confidence (確度) is not 100%.
+
+        Only the unconfirmed → confirmed transition is gated (returns a 400 so the UI can
+        surface the reason). Unconfirming, and editing a row that is already confirmed
+        (e.g. its percentage), are always allowed regardless of confidence.
+        """
+        attrs = super().validate(attrs)
+        was_confirmed = bool(getattr(self.instance, "is_confirmed", False))
+        will_be_confirmed = attrs.get("is_confirmed", was_confirmed)
+        if will_be_confirmed and not was_confirmed:
+            project = attrs.get("project") or getattr(self.instance, "project", None)
+            if project is not None and project.confidence != FULL_CONFIDENCE_PERCENTAGE:
+                raise serializers.ValidationError(
+                    {
+                        "is_confirmed": (
+                            "Assignment can only be confirmed when the project confidence (確度) is 100%. "
+                            f"Project '{project.name}' is at {project.confidence}%."
+                        )
+                    }
+                )
+        return attrs
 
 
 class ProjectMonthlyCostSerializer(serializers.ModelSerializer):

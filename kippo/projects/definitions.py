@@ -16,6 +16,10 @@ if TYPE_CHECKING:
 # Minimum effort percentage required for a user to be included in survey tracking
 SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
 
+# A project's confidence (確度) must be at this percentage before its monthly
+# assignments can be confirmed (is_confirmed=True).
+FULL_CONFIDENCE_PERCENTAGE = 100
+
 KIPPOPROJECT_CATEGORY_CHOICES = (
     ("new-proposal", _("新規提案")),
     ("maintenance", _("保守")),
