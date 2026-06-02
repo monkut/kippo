@@ -63,8 +63,10 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
         negative `hours` (the UI and Slack flows already block it). full_clean() exercises the
         same MinValue/MaxValue validators the admin form runs.
         """
-        today = timezone.now()
-        monday = today - timezone.timedelta(days=today.weekday())
+        # Use a Monday outside the setUp-populated (3 months ago .. today) range so the
+        # `zero.full_clean()` unique check below doesn't clash with a setUp-created
+        # (week_start, project, user) row — matches the sibling tests' `_future_monday()`.
+        monday = self._future_monday()
 
         negative = ProjectWeeklyEffort(week_start=monday, project=self.project1, user=self.staffuser_with_org, hours=-1)
         with self.assertRaises(ValidationError) as ctx:
