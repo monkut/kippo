@@ -1437,6 +1437,30 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn(mine.name, content)
         self.assertNotIn(theirs.name, content)
 
+    def test_changelist_active_project_count_excludes_closed_and_inactive(self):
+        # Two active projects (is_closed=False, display_as_active=True by default).
+        self._make_customer_project("acme-a1", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        self._make_customer_project("acme-a2", self.customer, date(2026, 7, 1), date(2026, 7, 1))
+        # Closed → not active → excluded.
+        closed = self._make_customer_project("acme-closed", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        closed.is_closed = True
+        closed.save()
+        # display_as_active=False → excluded.
+        inactive = self._make_customer_project("acme-inactive", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        inactive.display_as_active = False
+        inactive.save()
+        # Active project for a different customer must not inflate this customer's count.
+        self._make_customer_project("globex-active", self.other_customer, date(2026, 6, 1), date(2026, 6, 1))
+
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        qs = modeladmin.get_queryset(request)
+        customer = qs.get(pk=self.customer.pk)
+        self.assertEqual(customer.active_project_count, 2)
+        self.assertEqual(modeladmin.get_active_project_count(customer), 2)
+        self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
+
 
 class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin auto-sets the organization from the user's session and hides the field."""

@@ -19,7 +19,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Case, JSONField, Model, Value, When
+from django.db.models import Case, Count, JSONField, Model, Q, Value, When
 from django.forms import BaseFormSet, Form
 from django.forms.models import BaseInlineFormSet
 from django.http import (
@@ -1296,7 +1296,7 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("name", "organization", "email", "display_as_active", "updated_datetime")
+    list_display = ("name", "organization", "email", "get_active_project_count", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
     list_filter = ("organization", "display_as_active")
     search_fields = ("name", "email")
@@ -1305,10 +1305,27 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     inlines = (KippoProjectReadOnlyInline,)
 
     def get_queryset(self, request: DjangoRequest):
-        qs = super().get_queryset(request)
+        # Annotate the count of each customer's active (open + display_as_active) projects so
+        # the list column is one query and sortable. distinct=True guards against row fan-out
+        # from the (non-superuser) organization join below.
+        qs = (
+            super()
+            .get_queryset(request)
+            .annotate(
+                active_project_count=Count(
+                    "projects",
+                    filter=Q(projects__is_closed=False, projects__display_as_active=True),
+                    distinct=True,
+                )
+            )
+        )
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations).order_by("organization").distinct()
+
+    @admin.display(description=_("アクティブプロジェクト数"), ordering="active_project_count")
+    def get_active_project_count(self, obj: KippoCustomer) -> int:
+        return obj.active_project_count
 
     def get_form(self, request: DjangoRequest, obj: KippoCustomer | None = None, **kwargs) -> Form:
         form = super().get_form(request, obj, **kwargs)
