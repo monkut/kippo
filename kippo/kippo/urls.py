@@ -6,6 +6,7 @@ The `pathpatterns` list routes URLs to views. For more information please see:
 """
 
 from commons.views import SPAView
+from customers.urls import api_patterns as customers_api_patterns
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path, re_path
@@ -26,6 +27,7 @@ urlpatterns = [
     path("octocat/", include("octocat.urls")),
     path("admin/", admin.site.urls),
     path("api/", include(api_patterns)),
+    path("api/", include(customers_api_patterns)),
     path("api/requirements/", include(requirements_api_patterns)),
     path("api/feedback/", include(feedback_api_patterns)),
     path("api/octocat/", include(octocat_api_patterns)),
