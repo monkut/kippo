@@ -15,8 +15,10 @@ from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
 from customers.models import KippoCustomer
 from django import forms
+from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.http import HttpResponse
+from django.test import SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -827,6 +829,22 @@ class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBa
         results = response.context["cl"].queryset
         self.assertIn(self.acme_project, results)
         self.assertNotIn(self.other_project, results)
+
+
+class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):
+    """顧客 (customer) is selected via a searchable autocomplete on the project admins."""
+
+    def test_project_admins_declare_customer_autocomplete(self):
+        self.assertIn("customer", KippoProjectAdmin.autocomplete_fields)
+        # ActiveKippoProjectAdmin inherits the base configuration.
+        self.assertIn("customer", ActiveKippoProjectAdmin.autocomplete_fields)
+
+    def test_autocomplete_config_passes_admin_system_checks(self):
+        # admin.E039/E040 are raised here if KippoCustomer is not registered or its admin lacks
+        # search_fields — i.e. the prerequisites that make the customer autocomplete actually work.
+        errors = KippoProjectAdmin(KippoProject, admin.site).check()
+        autocomplete_errors = [e for e in errors if e.id in {"admin.E038", "admin.E039", "admin.E040"}]
+        self.assertEqual(autocomplete_errors, [])
 
 
 class ClosedProjectReadonlyTestCase(KippoProjectAdminFixtureTestCaseBase):

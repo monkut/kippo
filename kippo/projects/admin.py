@@ -724,6 +724,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display_links = ("id", "name")
     list_select_related = ("customer",)
     search_fields = ("id", "name", "phase", "category", "problem_definition", "customer__name")
+    # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
+    # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
+    autocomplete_fields = ("customer",)
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
         create_github_organizational_project_action,
