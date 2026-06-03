@@ -723,7 +723,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     list_display_links = ("id", "name")
     list_select_related = ("customer",)
-    search_fields = ("id", "name", "phase", "category", "problem_definition")
+    search_fields = ("id", "name", "phase", "category", "problem_definition", "customer__name")
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
         create_github_organizational_project_action,

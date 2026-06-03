@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from customers.models import KippoCustomer
 from django import forms
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.http import HttpResponse
@@ -801,6 +802,31 @@ class ActiveKippoProjectChangeViewTestCase(KippoProjectAdminFixtureTestCaseBase)
         for _label, opts in ActiveKippoProjectAdmin.fieldsets:
             overlap = [f for f in opts["fields"] if f in excluded]
             self.assertFalse(overlap, f"fieldset references excluded fields: {overlap}")
+
+
+class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """KippoProjectAdmin changelist search matches on the related customer's name."""
+
+    def setUp(self):
+        super().setUp()
+        self.changelist_url = reverse("admin:projects_kippoproject_changelist")
+        self.acme = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme Corporation",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.acme_project = self.make_project("alpha-delivery")
+        self.acme_project.customer = self.acme
+        self.acme_project.save()
+        self.other_project = self.make_project("beta-delivery")  # no customer
+
+    def test_search_by_customer_name_returns_only_matching_project(self):
+        response = self.client.get(self.changelist_url, {"q": "Acme"})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        results = response.context["cl"].queryset
+        self.assertIn(self.acme_project, results)
+        self.assertNotIn(self.other_project, results)
 
 
 class ClosedProjectReadonlyTestCase(KippoProjectAdminFixtureTestCaseBase):
