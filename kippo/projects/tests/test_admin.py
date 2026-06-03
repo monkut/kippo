@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from customers.models import KippoCustomer
 from django import forms
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.http import HttpResponse
@@ -21,17 +22,15 @@ from django.utils import timezone
 
 from projects.admin import (
     ActiveKippoProjectAdmin,
-    KippoCustomerAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
-    KippoProjectReadOnlyInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.models import ActiveKippoProject, KippoCustomer, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
+from projects.models import ActiveKippoProject, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
 
 
 class MockRequest:
@@ -805,6 +804,31 @@ class ActiveKippoProjectChangeViewTestCase(KippoProjectAdminFixtureTestCaseBase)
             self.assertFalse(overlap, f"fieldset references excluded fields: {overlap}")
 
 
+class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """KippoProjectAdmin changelist search matches on the related customer's name."""
+
+    def setUp(self):
+        super().setUp()
+        self.changelist_url = reverse("admin:projects_kippoproject_changelist")
+        self.acme = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme Corporation",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.acme_project = self.make_project("alpha-delivery")
+        self.acme_project.customer = self.acme
+        self.acme_project.save()
+        self.other_project = self.make_project("beta-delivery")  # no customer
+
+    def test_search_by_customer_name_returns_only_matching_project(self):
+        response = self.client.get(self.changelist_url, {"q": "Acme"})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        results = response.context["cl"].queryset
+        self.assertIn(self.acme_project, results)
+        self.assertNotIn(self.other_project, results)
+
+
 class ClosedProjectReadonlyTestCase(KippoProjectAdminFixtureTestCaseBase):
     def setUp(self):
         super().setUp()
@@ -1335,130 +1359,3 @@ def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProj
                 else:
                     data[f"{prefix}-{i}-{name}"] = str(value)
     return data
-
-
-class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBase):
-    fixtures = DEFAULT_FIXTURES
-
-    def setUp(self):
-        super().setUp()
-        # Customers in the user's org and another org
-        self.customer_in_org = KippoCustomer.objects.create(
-            organization=self.organization,
-            name="Acme",
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        self.customer_in_other_org = KippoCustomer.objects.create(
-            organization=self.other_organization,
-            name="Globex",
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-
-    def test_superuser_sees_all_customers(self):
-        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        qs = modeladmin.get_queryset(self.super_user_request)
-        ids = set(qs.values_list("id", flat=True))
-        self.assertIn(self.customer_in_org.id, ids)
-        self.assertIn(self.customer_in_other_org.id, ids)
-
-    def test_staffuser_only_sees_own_org_customers(self):
-        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        qs = modeladmin.get_queryset(self.staff_user_request)
-        ids = set(qs.values_list("id", flat=True))
-        self.assertIn(self.customer_in_org.id, ids)
-        self.assertNotIn(self.customer_in_other_org.id, ids)
-
-
-class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """KippoCustomerAdmin shows a read-only inline listing the customer's related projects."""
-
-    def setUp(self):
-        super().setUp()
-        self.customer = KippoCustomer.objects.create(
-            organization=self.organization,
-            name="Acme",
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        self.other_customer = KippoCustomer.objects.create(
-            organization=self.organization,
-            name="Globex",
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-
-    def _make_customer_project(self, name: str, customer: KippoCustomer, target_date: date, billing_date: date) -> KippoProject:
-        return KippoProject.objects.create(
-            organization=self.organization,
-            name=name,
-            category="poc",
-            columnset=self.columnset,
-            customer=customer,
-            target_date=target_date,
-            billing_date=billing_date,
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-
-    def test_inline_registered_and_read_only(self):
-        self.assertIn(KippoProjectReadOnlyInline, KippoCustomerAdmin.inlines)
-        inline = KippoProjectReadOnlyInline(KippoCustomer, self.site)
-        self.assertFalse(inline.has_add_permission(self.staff_user_request))
-        self.assertFalse(inline.can_delete)
-        # every displayed field is read-only
-        self.assertEqual(set(inline.fields), set(inline.readonly_fields))
-        for fieldname in ("get_project_link", "start_date", "target_date", "billing_date"):
-            self.assertIn(fieldname, inline.fields)
-
-    def test_change_view_lists_related_project_with_admin_link_and_billing_date(self):
-        project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1), date(2026, 6, 15))
-        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        content = response.content.decode()
-        self.assertIn(project.name, content)
-        self.assertIn(project.get_admin_url(), content)
-        self.assertIn("2026-06-15", content)  # billing_date rendered
-
-    def test_change_view_orders_projects_by_target_date_ascending(self):
-        later = self._make_customer_project("acme-later", self.customer, date(2026, 9, 1), date(2026, 9, 1))
-        earlier = self._make_customer_project("acme-earlier", self.customer, date(2026, 3, 1), date(2026, 3, 1))
-        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
-        content = self.client.get(url).content.decode()
-        self.assertLess(content.index(earlier.name), content.index(later.name))
-
-    def test_change_view_excludes_other_customers_projects(self):
-        mine = self._make_customer_project("acme-mine", self.customer, date(2026, 6, 1), date(2026, 6, 1))
-        theirs = self._make_customer_project("globex-theirs", self.other_customer, date(2026, 6, 1), date(2026, 6, 1))
-        url = reverse("admin:projects_kippocustomer_change", args=[self.customer.id])
-        content = self.client.get(url).content.decode()
-        self.assertIn(mine.name, content)
-        self.assertNotIn(theirs.name, content)
-
-
-class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
-    """KippoCustomerAdmin auto-sets the organization from the user's session and hides the field."""
-
-    fixtures = DEFAULT_FIXTURES
-
-    @staticmethod
-    def _make_request(user: KippoUser, *, organization_id: str | None = None) -> MagicMock:
-        request = MagicMock()
-        request.user = user
-        request.session = {"organization_id": organization_id} if organization_id else {}
-        return request
-
-    def test_get_form_hides_organization_field_and_initializes_to_session_org(self):
-        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        request = self._make_request(self.staffuser_with_org, organization_id=str(self.organization.id))
-        form_class = modeladmin.get_form(request)
-        self.assertIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
-        self.assertEqual(form_class.base_fields["organization"].initial, self.organization)
-
-    def test_get_form_does_not_hide_field_for_user_without_membership(self):
-        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        request = self._make_request(self.superuser_no_org)
-        form_class = modeladmin.get_form(request)
-        self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)

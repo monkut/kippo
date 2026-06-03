@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "accounts",  # must be listed AFTER social_django and django.contrib.auth
     "projects",
+    "customers",  # KippoCustomer (moved out of projects); admin imports projects.KippoProject
     "tasks",
     "octocat",
     "requirements",

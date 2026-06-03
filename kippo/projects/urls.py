@@ -14,7 +14,6 @@ from .views import (
     WeeklyEffortMissingWeeksView,
 )
 from .viewsets import (
-    KippoCustomerViewSet,
     KippoProjectUserStatisfactionResultViewSet,
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
@@ -26,7 +25,6 @@ from .viewsets import (
 # REST Framework router for API viewsets
 router = DefaultRouter()
 router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
-router.register(r"customers", KippoCustomerViewSet, basename="kippocustomer")
 router.register(r"assignment-rates", ProjectAssignmentRateViewSet, basename="projectassignmentrate")
 router.register(r"monthly-assignments", ProjectMonthlyAssignmentViewSet, basename="projectmonthlyassignment")
 router.register(r"monthly-costs", ProjectMonthlyCostViewSet, basename="projectmonthlycost")
