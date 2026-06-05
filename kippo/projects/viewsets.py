@@ -80,6 +80,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 required=False,
                 type=bool,
             ),
+            OpenApiParameter(
+                name="category",
+                description="Filter by category (exact match on the KippoProject.category value, e.g. 'PAO')",
+                required=False,
+                type=str,
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
@@ -109,6 +115,11 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(display_as_active=is_active_bool)
             if is_active_bool:
                 queryset = queryset.filter(is_closed=False)
+
+        # Filter by category (exact match on KippoProject.category)
+        category = self.request.query_params.get("category", None)
+        if category is not None:
+            queryset = queryset.filter(category=category)
 
         return queryset
 
