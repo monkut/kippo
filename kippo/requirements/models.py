@@ -81,6 +81,22 @@ class ProjectProblemDefinition(EvaluationResetMixin, TimestampedModel):
         return f"{self.display_id}: {self.title}"
 
 
+class ProjectProblemDefinitionComment(UserCreatedBaseModel):
+    """Comments on problem definitions with nested reply support."""
+
+    requirement = models.ForeignKey(ProjectProblemDefinition, on_delete=models.CASCADE)
+    parent_comment = models.ForeignKey("self", null=True, blank=True, default=None, on_delete=models.CASCADE)
+    comment = models.TextField()
+    is_resolved = models.BooleanField(default=False, help_text=_("is_resolved is only relevant for top-level comments"))
+
+    class Meta:
+        verbose_name = _("Problem Definition Comment")
+        verbose_name_plural = _("Problem Definition Comments")
+
+    def __str__(self) -> str:
+        return f"Comment on {self.requirement.display_id}"
+
+
 class ProjectAssumption(EvaluationResetMixin, TimestampedModel):
     """(前提条件と制約事項) Assumptions & Constraints for a project."""
 

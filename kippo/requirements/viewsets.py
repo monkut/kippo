@@ -31,6 +31,7 @@ from .models import (
     ProjectBusinessRequirementComment,
     ProjectBusinessRequirementEstimate,
     ProjectProblemDefinition,
+    ProjectProblemDefinitionComment,
     ProjectTechnicalRequirement,
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementComment,
@@ -49,6 +50,7 @@ from .serializers import (
     ProjectBusinessRequirementEstimateSerializer,
     ProjectBusinessRequirementListSerializer,
     ProjectBusinessRequirementSerializer,
+    ProjectProblemDefinitionCommentSerializer,
     ProjectProblemDefinitionSerializer,
     ProjectTechnicalRequirementCategorySerializer,
     ProjectTechnicalRequirementCommentSerializer,
@@ -511,6 +513,80 @@ class ProjectTechnicalRequirementViewSet(OrganizationFilterMixin, viewsets.Model
         element._skip_evaluation_reset = True  # type: ignore[attr-defined]
         element.save(update_fields=["evaluation_state", "updated_datetime"])
         return Response(TechnicalRequirementEvaluationSerializer(evaluation).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="top_level_only",
+                description="Return only top-level comments (no replies)",
+                required=False,
+                type=bool,
+            ),
+        ]
+    )
+)
+class ProjectProblemDefinitionCommentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
+    """
+    ViewSet for ProjectProblemDefinitionComment model.
+
+    Nested under: /problem-definitions/{problem_definition_pk}/comments/
+
+    Comments on problem definitions with nested reply support.
+
+    **Organization Scoping:**
+    - Regular users can only access comments for projects in their organizations
+    - Superusers can access all comments
+
+    **Filtering:**
+    - top_level_only: Return only top-level comments (true/false)
+
+    **Actions:**
+    - toggle_resolved: Toggle the is_resolved status for a top-level comment
+    """
+
+    queryset = ProjectProblemDefinitionComment.objects.all()
+    serializer_class = ProjectProblemDefinitionCommentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = queryset.filter(requirement_id=self.kwargs["problem_definition_pk"])
+        top_level_only = self.request.query_params.get("top_level_only")
+        if top_level_only == "true":
+            queryset = queryset.filter(parent_comment__isnull=True)
+        return queryset
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        serializer.save(
+            requirement_id=self.kwargs["problem_definition_pk"],
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
+        serializer.save(updated_by=self.request.user)
+
+    @extend_schema(
+        description="Toggle the is_resolved status for a top-level comment.",
+        responses={200: ProjectProblemDefinitionCommentSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def toggle_resolved(self, request: Request, pk: int | None = None, **kwargs) -> Response:
+        """Toggle the is_resolved status for a top-level comment."""
+        comment = self.get_object()
+        if comment.parent_comment is not None:
+            return Response(
+                {"error": "Only top-level comments can be resolved"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        comment.is_resolved = not comment.is_resolved
+        comment.updated_by = request.user
+        comment.save()
+        serializer = self.get_serializer(comment)
+        return Response(serializer.data)
 
 
 @extend_schema_view(
