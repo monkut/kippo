@@ -14,6 +14,7 @@ from .models import (
     ProjectBusinessRequirementComment,
     ProjectBusinessRequirementEstimate,
     ProjectProblemDefinition,
+    ProjectProblemDefinitionComment,
     ProjectTechnicalRequirement,
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementComment,
@@ -60,6 +61,39 @@ class ProjectAssumptionSerializer(serializers.ModelSerializer):
             "updated_datetime",
         ]
         read_only_fields = ["evaluation_state", "created_datetime", "updated_datetime"]
+
+
+class ProjectProblemDefinitionCommentSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+    replies = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectProblemDefinitionComment
+        fields = [
+            "id",
+            "requirement",
+            "parent_comment",
+            "comment",
+            "is_resolved",
+            "created_by",
+            "created_by_name",
+            "updated_by",
+            "created_datetime",
+            "updated_datetime",
+            "replies",
+        ]
+        read_only_fields = [
+            "requirement",
+            "created_by",
+            "updated_by",
+            "created_datetime",
+            "updated_datetime",
+        ]
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_replies(self, obj: ProjectProblemDefinitionComment) -> list[dict]:
+        replies = ProjectProblemDefinitionComment.objects.filter(parent_comment=obj)
+        return ProjectProblemDefinitionCommentSerializer(replies, many=True).data
 
 
 class ProjectBusinessRequirementCategorySerializer(serializers.ModelSerializer):

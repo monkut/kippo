@@ -10,6 +10,7 @@ from .viewsets import (
     ProjectBusinessRequirementCommentViewSet,
     ProjectBusinessRequirementEstimateViewSet,
     ProjectBusinessRequirementViewSet,
+    ProjectProblemDefinitionCommentViewSet,
     ProjectProblemDefinitionViewSet,
     ProjectTechnicalRequirementCategoryViewSet,
     ProjectTechnicalRequirementCommentViewSet,
@@ -37,6 +38,7 @@ router.register(r"technical-requirements", ProjectTechnicalRequirementViewSet, b
 
 # Nested under problem-definitions
 pd_router = routers.NestedDefaultRouter(router, r"problem-definitions", lookup="problem_definition")
+pd_router.register(r"comments", ProjectProblemDefinitionCommentViewSet, basename="problem-definition-comment")
 pd_router.register(r"evaluations", ProblemDefinitionEvaluationViewSet, basename="problem-definition-evaluation")
 
 # Nested under assumptions

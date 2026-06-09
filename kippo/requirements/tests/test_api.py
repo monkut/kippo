@@ -23,6 +23,7 @@ from ..models import (
     ProjectBusinessRequirementComment,
     ProjectBusinessRequirementEstimate,
     ProjectProblemDefinition,
+    ProjectProblemDefinitionComment,
     ProjectTechnicalRequirement,
     ProjectTechnicalRequirementCategory,
     ProjectTechnicalRequirementGithubIssue,
@@ -86,6 +87,13 @@ class RequirementsAPIEndpointsTestCase(TestCase):
     def test_technical_requirements_endpoint(self):
         """Test /api/requirements/technical-requirements/ endpoint is accessible."""
         url = f"{API_PREFIX}/technical-requirements/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_problem_definition_comments_endpoint(self):
+        """Test nested comments endpoint under problem-definitions is accessible."""
+        problem = ProjectProblemDefinition.objects.create(project=self.project, title="Problem")
+        url = f"{API_PREFIX}/problem-definitions/{problem.id}/comments/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
@@ -438,6 +446,87 @@ class TechnicalRequirementViewSetTestCase(TestCase):
 
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
         self.assertEqual(ProjectTechnicalRequirement.objects.count(), 2)
+
+
+class ProblemDefinitionCommentViewSetTestCase(TestCase):
+    """Test cases for ProjectProblemDefinitionComment REST API viewset."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        """Set up test data."""
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.problem = ProjectProblemDefinition.objects.create(
+            project=self.project,
+            title="Test Problem",
+        )
+
+        self.comment = ProjectProblemDefinitionComment.objects.create(
+            requirement=self.problem,
+            comment="Test comment",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_list_comments(self):
+        """Test listing problem definition comments."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/comments/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+
+    def test_create_comment(self):
+        """Test creating a comment via nested endpoint."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/comments/"
+        data = {
+            "comment": "New comment",
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, HTTPStatus.CREATED)
+        self.assertEqual(ProjectProblemDefinitionComment.objects.count(), 2)
+        new_comment = ProjectProblemDefinitionComment.objects.latest("created_datetime")
+        self.assertEqual(new_comment.requirement_id, self.problem.id)
+
+    def test_toggle_resolved(self):
+        """Test toggling the resolved status of a comment."""
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/comments/{self.comment.id}/toggle_resolved/"
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.comment.refresh_from_db()
+        self.assertTrue(self.comment.is_resolved)
+
+        # Toggle back
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.comment.refresh_from_db()
+        self.assertFalse(self.comment.is_resolved)
+
+    def test_comments_scoped_to_requirement(self):
+        """Test that nested endpoint only returns comments for the parent problem definition."""
+        other_problem = ProjectProblemDefinition.objects.create(project=self.project, title="Other Problem")
+        ProjectProblemDefinitionComment.objects.create(
+            requirement=other_problem,
+            comment="Other comment",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        url = f"{API_PREFIX}/problem-definitions/{self.problem.id}/comments/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
 
 
 class BusinessRequirementCommentViewSetTestCase(TestCase):
