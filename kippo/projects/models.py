@@ -247,12 +247,6 @@ class KippoProject(UserCreatedBaseModel):
         verbose_name=_("確度"),
         help_text=_("0-100, auto-derived from phase (read-only)"),
     )
-    phase_remarks = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("備考"),
-        help_text=_("Free-text remarks about the project phase/status"),
-    )
     category = models.ForeignKey(
         "projects.KippoProjectOrganizationCategory",
         on_delete=models.PROTECT,

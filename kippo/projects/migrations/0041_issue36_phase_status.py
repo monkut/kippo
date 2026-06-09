@@ -1,4 +1,4 @@
-# kippo#36 (T09): redefine phase as the project status, derive confidence from phase, add 備考.
+# kippo#36 (T09): redefine phase as the project status and derive confidence from phase.
 
 import django.core.validators
 from django.db import migrations, models
@@ -40,11 +40,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='kippoproject',
-            name='phase_remarks',
-            field=models.TextField(blank=True, default='', help_text='Free-text remarks about the project phase/status', verbose_name='備考'),
-        ),
         migrations.AlterField(
             model_name='kippoproject',
             name='confidence',

@@ -714,8 +714,3 @@ class KippoProjectPhaseStatusTestCase(TestCase):
     def test_only_contract_and_completed_reach_full_confidence(self):
         full = {phase for phase, conf in PHASE_CONFIDENCE.items() if conf == FULL_CONFIDENCE_PERCENTAGE}
         self.assertEqual(full, {"under-contract", "completed"})
-
-    def test_phase_remarks_field(self):
-        field = KippoProject._meta.get_field("phase_remarks")
-        self.assertTrue(field.blank)
-        self.assertEqual(field.default, "")
