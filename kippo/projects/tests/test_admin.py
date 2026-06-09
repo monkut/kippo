@@ -32,7 +32,19 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.models import ActiveKippoProject, KippoMilestone, KippoProject, KippoProjectStatus, ProjectColumnSet
+from projects.models import (
+    ActiveKippoProject,
+    KippoMilestone,
+    KippoProject,
+    KippoProjectOrganizationCategory,
+    KippoProjectStatus,
+    ProjectColumnSet,
+)
+
+
+def _global_category(key: str) -> KippoProjectOrganizationCategory:
+    """Fetch a seeded global (organization=null) project category by key, for KippoProject.category FK in tests."""
+    return KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key=key)
 
 
 class MockRequest:
@@ -62,7 +74,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -78,7 +90,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
             name="project2",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -143,7 +155,7 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -159,7 +171,7 @@ class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBa
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
             name="project2",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -201,7 +213,7 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -217,7 +229,7 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
             name="project2",
-            category="testing",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -261,7 +273,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="poc",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -270,7 +282,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.project2 = KippoProject.objects.create(
             organization=self.organization,
             name="project2",
-            category="poc",
+            category=_global_category("other"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -374,7 +386,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIn("/admin/projects/kippoproject/add/", response["Location"])
         parsed = urlparse(response["Location"])
         params = parse_qs(parsed.query)
-        self.assertEqual(params.get("category"), ["upsell-improvement"])
+        self.assertEqual(params.get("category"), [str(_global_category("upsell-improvement").pk)])
         self.assertEqual(params.get("parent_project"), [str(self.project1.id)])
         # close-action upsell redirect must include the parent's organization and the upsell marker
         # so the add form can derive the org server-side and detect the entry point.
@@ -386,7 +398,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(self.project1.display_as_active)
         self.assertFalse(self.project1.display_in_project_report)
         # category on the closing project is unchanged
-        self.assertEqual(self.project1.category, "poc")
+        self.assertEqual(self.project1.category.key, "other")
 
     def test_upsell_redirect_prefills_new_project_fields(self):
         # populate source-project fields that should propagate to the upsell child
@@ -508,7 +520,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         child = KippoProject.objects.create(
             organization=self.organization,
             name="upsell-child",
-            category="upsell-improvement",
+            category=_global_category("upsell-improvement"),
             columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
             parent_project=self.project1,
             start_date=self.current_date,
@@ -538,7 +550,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         other_org_project = KippoProject.objects.create(
             organization=self.other_organization,
             name="other-org-project",
-            category="poc",
+            category=_global_category("other"),
             columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -559,7 +571,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         other_org_project = KippoProject.objects.create(
             organization=self.other_organization,
             name="other-org-project-superuser-view",
-            category="poc",
+            category=_global_category("other"),
             columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -620,7 +632,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "name": "project1 Phase 2",
                 "phase": "lead-evaluation",
                 "confidence": "80",
-                "category": "upsell-improvement",
+                "category": str(_global_category("upsell-improvement").pk),
                 "columnset": str(self.project1.columnset_id),
                 "start_date": self.current_date.isoformat(),
             },
@@ -644,7 +656,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "name": "tampered-project",
                 "phase": "lead-evaluation",
                 "confidence": "80",
-                "category": "upsell-improvement",
+                "category": str(_global_category("upsell-improvement").pk),
                 "columnset": str(self.project1.columnset_id),
                 "start_date": self.current_date.isoformat(),
             },
@@ -663,7 +675,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.parent = KippoProject.objects.create(
             organization=self.organization,
             name="parent-project",
-            category="poc",
+            category=_global_category("other"),
             columnset=self.columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -671,12 +683,13 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         )
 
     def _form_data(self, *, category: str, parent_project_id: str | None = None) -> dict:
+        # category is a FK ModelChoiceField — submit the category's PK, resolved from its key.
         data = {
             "organization": str(self.organization.id),
             "name": "manual-new-project",
             "phase": "lead-evaluation",
             "confidence": "80",
-            "category": category,
+            "category": str(_global_category(category).pk),
             "columnset": str(self.columnset.pk),
             "start_date": self.current_date.isoformat(),
         }
@@ -696,7 +709,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_non_upsell_category_does_not_require_parent_project(self):
-        form = KippoProjectAdminForm(data=self._form_data(category="poc"))
+        form = KippoProjectAdminForm(data=self._form_data(category="other"))
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_change_form_with_upsell_category_uses_persisted_parent_when_field_omitted(self):
@@ -705,7 +718,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         existing_upsell = KippoProject.objects.create(
             organization=self.organization,
             name="existing-upsell",
-            category="upsell-improvement",
+            category=_global_category("upsell-improvement"),
             columnset=self.columnset,
             parent_project=self.parent,
             start_date=self.current_date,
@@ -723,7 +736,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         cross_org_parent = KippoProject.objects.create(
             organization=self.other_organization,
             name="cross-org-parent",
-            category="poc",
+            category=_global_category("other"),
             columnset=self.columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -772,7 +785,7 @@ class KippoProjectAdminFixtureTestCaseBase(IsStaffModelAdminTestCaseBase):
         project = KippoProject.objects.create(
             organization=self.organization,
             name=name,
-            category="poc",
+            category=_global_category("other"),
             columnset=self.columnset,
             start_date=self.current_date,
             created_by=self.github_manager,

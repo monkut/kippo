@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from accounts.models import KippoUser, OrganizationMembership
-from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, default_project_category
 from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
@@ -40,7 +40,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdminTestCase(IsStaffModelAdminT
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="testing",
+            category=default_project_category(),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -56,7 +56,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdminTestCase(IsStaffModelAdminT
             organization=self.organization,
             name="anon_project-name",
             phase="anon-project",
-            category="testing",
+            category=default_project_category(),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -66,7 +66,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdminTestCase(IsStaffModelAdminT
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
             name="project2",
-            category="testing",
+            category=default_project_category(),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,

@@ -9,11 +9,13 @@ from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
 from projects.definitions import (
+    DEFAULT_PROJECT_CATEGORY_VALUE,
     KIPPOPROJECT_CATEGORY_CHOICES,
+    NON_PROJECT_CATEGORY_VALUE,
     UPSELL_CATEGORY_VALUES,
     VALID_KIPPOPROJECT_CATEGORY_VALUES,
 )
-from projects.models import KippoMilestone, KippoProject
+from projects.models import KippoMilestone, KippoProject, KippoProjectOrganizationCategory
 
 
 class KippoProjectMethodsTestCase(TestCase):
@@ -613,19 +615,25 @@ class KippoMilestoneMethodsTestCase(TestCase):
 class KippoProjectCategoryChoicesTestCase(TestCase):
     fixtures = DEFAULT_FIXTURES
 
-    def test_category_field_choices_match_module_constant(self):
-        choices = KippoProject._meta.get_field("category").choices
-        self.assertEqual(tuple(choices), KIPPOPROJECT_CATEGORY_CHOICES)
+    def test_global_default_categories_seeded(self):
+        for key, _label in KIPPOPROJECT_CATEGORY_CHOICES:
+            self.assertTrue(
+                KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=key).exists(),
+                msg=f"global default category not seeded: {key}",
+            )
 
-    def test_category_field_default_is_new_proposal(self):
-        default = KippoProject._meta.get_field("category").default
-        self.assertEqual(default, settings.DEFAULT_KIPPOPROJECT_CATEGORY)
-        self.assertEqual(default, "new-proposal")
-        self.assertIn(default, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+    def test_category_field_is_fk_defaulting_to_other(self):
+        field = KippoProject._meta.get_field("category")
+        self.assertTrue(field.is_relation)
+        self.assertEqual(field.related_model, KippoProjectOrganizationCategory)
+        other = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key=DEFAULT_PROJECT_CATEGORY_VALUE)
+        self.assertEqual(field.default(), other.pk)
+        self.assertEqual(settings.DEFAULT_KIPPOPROJECT_CATEGORY, DEFAULT_PROJECT_CATEGORY_VALUE)
 
-    def test_upsell_category_values_subset_of_choices(self):
+    def test_upsell_category_values_present_as_global_categories(self):
         for value in UPSELL_CATEGORY_VALUES:
             self.assertIn(value, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+            self.assertTrue(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=value).exists())
 
     def test_close_comment_field_defaults(self):
         field = KippoProject._meta.get_field("close_comment")
@@ -637,3 +645,33 @@ class KippoProjectCategoryChoicesTestCase(TestCase):
         self.assertTrue(field.null)
         self.assertTrue(field.blank)
         self.assertEqual(field.related_model, KippoProject)
+
+
+class KippoProjectOrganizationCategoryTestCase(TestCase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+    def test_get_for_organization_includes_globals_and_org_specific(self):
+        KippoProjectOrganizationCategory.objects.create(
+            organization=self.organization, key="org-special", label="Org Special", sort_order=5, created_by=self.user, updated_by=self.user
+        )
+        keys = set(KippoProjectOrganizationCategory.get_for_organization(self.organization).values_list("key", flat=True))
+        self.assertIn("org-special", keys)
+        self.assertIn(DEFAULT_PROJECT_CATEGORY_VALUE, keys)
+        self.assertIn(NON_PROJECT_CATEGORY_VALUE, keys)
+
+    def test_get_for_organization_excludes_inactive(self):
+        KippoProjectOrganizationCategory.objects.create(
+            organization=self.organization, key="hidden", label="Hidden", is_active=False, created_by=self.user, updated_by=self.user
+        )
+        keys = set(KippoProjectOrganizationCategory.get_for_organization(self.organization).values_list("key", flat=True))
+        self.assertNotIn("hidden", keys)
+
+    def test_new_project_defaults_to_other_category(self):
+        # setup_basic_project creates projects without an explicit category — they take the model default.
+        self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)

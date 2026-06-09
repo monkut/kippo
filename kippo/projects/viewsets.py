@@ -116,10 +116,10 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
             if is_active_bool:
                 queryset = queryset.filter(is_closed=False)
 
-        # Filter by category (exact match on KippoProject.category)
+        # Filter by category (exact match on the KippoProject.category key)
         category = self.request.query_params.get("category", None)
         if category is not None:
-            queryset = queryset.filter(category=category)
+            queryset = queryset.filter(category__key=category)
 
         return queryset
 

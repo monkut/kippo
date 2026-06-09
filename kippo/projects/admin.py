@@ -57,6 +57,7 @@ from .models import (
     CollectIssuesAction,
     KippoMilestone,
     KippoProject,
+    KippoProjectOrganizationCategory,
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
@@ -495,8 +496,12 @@ def _start_of_next_month(today: datetime.date) -> datetime.date:
 
 def _build_upsell_prefill_params(project: KippoProject, selected_category: str) -> dict[str, str]:
     today = timezone.now().date()
+    # category is now a FK — the add-form prefill needs the global category's PK, not its key string.
+    upsell_category_pk = (
+        KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=selected_category).values_list("pk", flat=True).first()
+    )
     params = {
-        "category": selected_category,
+        "category": str(upsell_category_pk) if upsell_category_pk else "",
         "parent_project": str(project.id),
         "organization": str(project.organization_id),
         "_upsell_source": "close",
@@ -662,7 +667,7 @@ class KippoProjectAdminForm(forms.ModelForm):
         # parent_project is readonly on the change form, so it won't appear in cleaned_data there
         # — fall back to the persisted instance value so existing upsell projects keep validating.
         parent_project = submitted_parent_project or getattr(self.instance, "parent_project", None)
-        if category in UPSELL_CATEGORY_VALUES and not parent_project:
+        if getattr(category, "key", None) in UPSELL_CATEGORY_VALUES and not parent_project:
             self.add_error(
                 "parent_project",
                 _("Parent Project is required when an upsell category is selected."),
@@ -692,6 +697,14 @@ def _format_estimated_completion(result: "ForecastResult") -> str:
     return f"{date.isoformat()} ({-delta} days ahead of target)"
 
 
+@admin.register(KippoProjectOrganizationCategory)
+class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    list_display = ("key", "label", "organization", "sort_order", "is_active")
+    list_filter = ("is_active", "organization")
+    search_fields = ("key", "label", "organization__name")
+    ordering = ("organization", "sort_order", "key")
+
+
 @admin.register(KippoProject)
 class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     form = KippoProjectAdminForm
@@ -708,7 +721,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "get_customer_name",
         "name",
         "phase",
-        "category",
+        "get_category_label",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
@@ -722,8 +735,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "updated_datetime",
     )
     list_display_links = ("id", "name")
-    list_select_related = ("customer",)
-    search_fields = ("id", "name", "phase", "category", "problem_definition", "customer__name")
+    list_select_related = ("customer", "category")
+    search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
@@ -856,6 +869,16 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
+
+    @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
+    def get_category_label(self, obj: KippoProject) -> str:
+        return obj.category.label if obj.category_id else ""
+
+    def formfield_for_foreignkey(self, db_field: models.Field, request: DjangoRequest, **kwargs):
+        # Limit the category select to active categories (global defaults + any organization's custom categories).
+        if db_field.name == "category":
+            kwargs["queryset"] = KippoProjectOrganizationCategory.objects.filter(is_active=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description=_("confidence"), ordering="confidence")
     def get_confidence_display(self, obj: KippoProject):

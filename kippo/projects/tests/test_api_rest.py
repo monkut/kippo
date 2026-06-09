@@ -12,7 +12,7 @@ from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ..models import KippoProject, ProjectColumnSet, ProjectWeeklyEffort
+from ..models import KippoProject, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
 
 
 class JWTAuthenticationTestCase(TestCase):
@@ -188,21 +188,23 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertNotIn(str(self.project.id), inactive_ids)
 
     def test_filter_by_category(self):
-        """Test filtering projects by the category query parameter (exact match)."""
-        self.project.category = "PAO"
+        """Test filtering projects by the category query parameter (exact match on the category key)."""
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        ai_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="ai-development")
+        self.project.category = si_category
         self.project.save()
 
         other_category_project = KippoProject.objects.create(
-            name="New Proposal Project",
+            name="AI Development Project",
             organization=self.organization,
             columnset=self.project.columnset,
-            category="new-proposal",
+            category=ai_category,
             created_by=self.user,
             updated_by=self.user,
         )
 
-        # Filter to PAO — only the PAO project should be returned.
-        url = f"{settings.URL_PREFIX}/api/projects/?category=PAO"
+        # Filter to si — only the si project should be returned.
+        url = f"{settings.URL_PREFIX}/api/projects/?category=si"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         category_ids = [result["id"] for result in response.json()["results"]]

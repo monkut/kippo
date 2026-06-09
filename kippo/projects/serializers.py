@@ -15,6 +15,7 @@ from .definitions import (
 )
 from .models import (
     KippoProject,
+    KippoProjectOrganizationCategory,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
     ProjectColumnSet,
@@ -155,6 +156,14 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     project_manager_username = serializers.CharField(source="project_manager.username", read_only=True, allow_null=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True)
+    # category is a FK to KippoProjectOrganizationCategory; expose it as the category key string for
+    # API backward-compatibility. Writes resolve against the global default categories (kippo#30 / T08, T20).
+    category = serializers.SlugRelatedField(
+        slug_field="key",
+        queryset=KippoProjectOrganizationCategory.objects.filter(organization__isnull=True),
+        required=False,
+        help_text="Project category key (e.g. 'ai-development', 'other', 'non-project').",
+    )
     allocated_effort_hours = serializers.SerializerMethodField()
     assignment_rates = serializers.SerializerMethodField()
     has_requirements = serializers.SerializerMethodField()
