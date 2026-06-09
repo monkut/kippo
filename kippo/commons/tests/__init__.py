@@ -2,7 +2,7 @@ from accounts.models import EmailDomain, KippoOrganization, KippoUser, Organizat
 from django.test import TestCase
 from django.utils import timezone
 from octocat.models import GithubAccessToken, GithubRepository
-from projects.models import KippoProject, ProjectColumnSet
+from projects.models import KippoProject, KippoProjectOrganizationCategory, ProjectColumnSet
 from tasks.models import KippoTask
 
 from ..admin import KippoAdminSite
@@ -11,6 +11,14 @@ from ..admin import KippoAdminSite
 DEFAULT_FIXTURES = ["required_bot_users", "default_columnset", "default_labelset", "default_kippoprojectorganizationcategory"]
 
 DEFAULT_COLUMNSET_PK = "414e69c8-8ea3-4c9c-8129-6f5aac108fa2"
+
+
+def default_project_category() -> KippoProjectOrganizationCategory:
+    """The global (organization=null) 'other' KippoProjectOrganizationCategory, for KippoProject.category FK in tests.
+
+    Requires DEFAULT_FIXTURES (or the seeding migration) so the global defaults exist.
+    """
+    return KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="other")
 
 
 def setup_basic_project(

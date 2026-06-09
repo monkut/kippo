@@ -3,7 +3,7 @@ from http import HTTPStatus
 from unittest.mock import MagicMock
 
 from accounts.models import KippoUser, OrganizationMembership
-from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, default_project_category
 from django import forms
 from django.urls import reverse
 from projects.models import KippoProject
@@ -71,7 +71,7 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         return KippoProject.objects.create(
             organization=self.organization,
             name=name,
-            category="poc",
+            category=default_project_category(),
             columnset=self.columnset,
             customer=customer,
             target_date=target_date,

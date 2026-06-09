@@ -4,7 +4,7 @@ from pathlib import Path
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.admin import KippoAdminSite
-from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup_basic_project
+from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, default_project_category, setup_basic_project
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.db.models import Q
 from django.test import Client, TestCase
@@ -51,7 +51,7 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
         self.project1 = KippoProject.objects.create(
             organization=self.organization,
             name="project1",
-            category="testing",
+            category=default_project_category(),
             columnset=default_columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
@@ -64,7 +64,7 @@ class IsStaffOrganizationAdminTestCase(IsStaffModelAdminTestCaseBase):
         self.project2 = KippoProject.objects.create(
             organization=self.other_organization,
             name="project2",
-            category="testing",
+            category=default_project_category(),
             columnset=default_columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
