@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import reversion
-from accounts.models import KippoUser, OrganizationMembership, PublicHoliday
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.fields import CommaSeparatedCharField
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
@@ -23,7 +23,7 @@ from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
 from .definitions import (
-    KIPPOPROJECT_CATEGORY_CHOICES,
+    DEFAULT_PROJECT_CATEGORY_VALUE,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
     ProjectProgressStatus,
     ProjectRoles,
@@ -157,6 +157,58 @@ VALID_PROJECT_PHASES = (
 )
 
 
+class KippoProjectOrganizationCategory(UserCreatedBaseModel):
+    """Selectable KippoProject.category value.
+
+    A row with ``organization=None`` is a global default (seeded from
+    ``DEFAULT_KIPPOPROJECT_CATEGORIES``); a row with an organization is that
+    organization's custom category. ``KippoProject.category`` is a FK here so the
+    available categories can optionally be made dynamic per organization (kippo#30 / T08, T20).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        "accounts.KippoOrganization",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="project_categories",
+        verbose_name=_("組織"),
+        help_text=_("Organization this category belongs to; leave empty for a global default category"),
+    )
+    key = models.CharField(max_length=KIPPOPROJECT_CATEGORY_MAX_LENGTH, verbose_name=_("キー"))
+    label = models.CharField(max_length=128, verbose_name=_("ラベル"))
+    sort_order = models.PositiveSmallIntegerField(default=0, verbose_name=_("表示順"))
+    is_active = models.BooleanField(default=True, verbose_name=_("有効"))
+
+    class Meta:
+        verbose_name = _("プロジェクトカテゴリ")
+        verbose_name_plural = _("プロジェクトカテゴリ")
+        ordering = ("sort_order", "key")
+        constraints = (
+            models.UniqueConstraint(fields=("organization", "key"), name="uniq_org_category_key"),
+            models.UniqueConstraint(fields=("key",), condition=models.Q(organization__isnull=True), name="uniq_global_category_key"),
+        )
+
+    def __str__(self) -> str:
+        scope = self.organization.name if self.organization_id else "global"
+        return f"{self.__class__.__name__}({scope}:{self.key})"
+
+    @classmethod
+    def get_for_organization(cls, organization: KippoOrganization | None) -> QuerySet:
+        """Active categories available to an organization: its own rows plus the global defaults."""
+        return cls.objects.filter(is_active=True).filter(models.Q(organization=organization) | models.Q(organization__isnull=True))
+
+
+def get_default_project_category():
+    """PK of the global (organization=null) fallback category, for KippoProject.category's default."""
+    return (
+        KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=DEFAULT_PROJECT_CATEGORY_VALUE)
+        .values_list("pk", flat=True)
+        .first()
+    )
+
+
 @reversion.register()
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -176,10 +228,11 @@ class KippoProject(UserCreatedBaseModel):
         verbose_name=_("確度"),
         help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
     )
-    category = models.CharField(
-        max_length=KIPPOPROJECT_CATEGORY_MAX_LENGTH,
-        choices=KIPPOPROJECT_CATEGORY_CHOICES,
-        default=settings.DEFAULT_KIPPOPROJECT_CATEGORY,
+    category = models.ForeignKey(
+        "projects.KippoProjectOrganizationCategory",
+        on_delete=models.PROTECT,
+        related_name="projects",
+        default=get_default_project_category,
         verbose_name=_("カテゴリ"),
     )
     slack_channel_name = models.CharField(
