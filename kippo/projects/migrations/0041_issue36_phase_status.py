@@ -12,7 +12,7 @@ PHASE_REMAP = {
     "anon-project": "under-contract",
 }
 PHASE_CONFIDENCE = {
-    "keep-in-touch": 5,
+    "keep-in-touch": 0,
     "proposing-low": 30,
     "proposing-mid": 80,
     "proposing-high": 90,

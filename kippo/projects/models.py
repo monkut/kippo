@@ -164,7 +164,7 @@ VALID_PROJECT_PHASES = (
 )
 # phase -> confidence (確度). under-contract/completed == 100 keep the monthly-assignment confirm gate working.
 PHASE_CONFIDENCE = {
-    "keep-in-touch": 5,
+    "keep-in-touch": 0,  # KIT = "keep in touch": proposal did not succeed
     "proposing-low": 30,
     "proposing-mid": 80,
     "proposing-high": 90,
