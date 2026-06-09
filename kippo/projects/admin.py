@@ -740,6 +740,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
+    # confidence is derived from phase (editable=False) — shown read-only in the form
+    readonly_fields = ("confidence",)
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
         create_github_organizational_project_action,
@@ -1280,16 +1282,16 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         return tuple(excluded)
 
     def get_queryset(self, request: DjangoRequest):
-        """Custom ordering: anon-projects first, then by confidence (desc), target_date (asc), name (asc)."""
+        """Custom ordering: non-projects first, then by confidence (desc), target_date (asc), name (asc)."""
         qs = super().get_queryset(request)
         # Order by:
-        # 1. anon-project phase first (is_anon_project=0 comes before is_anon_project=1)
+        # 1. non-project (category=="non-project") first (is_anon_project=0 comes before 1)
         # 2. confidence descending (nulls last)
         # 3. target_date ascending (nulls last)
         # 4. name ascending
         qs = qs.annotate(
             is_anon_project=Case(
-                When(phase="anon-project", then=Value(0)),
+                When(category__key="non-project", then=Value(0)),
                 default=Value(1),
             )
         ).order_by("is_anon_project", "-confidence", "target_date", "name")
@@ -1728,7 +1730,9 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         if "project" in form.base_fields:
             user_organizations = request.user.organizations
             open_projects = (
-                KippoProject.objects.filter(is_closed=False, organization__in=user_organizations).exclude(phase="anon-project").order_by("name")
+                KippoProject.objects.filter(is_closed=False, organization__in=user_organizations)
+                .exclude(category__key="non-project")
+                .order_by("name")
             )
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
@@ -1842,7 +1846,9 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
 
         if "project" in form.base_fields:
             user_organizations = request.user.organizations
-            open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, phase="anon-project").order_by("name")
+            open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, category__key="non-project").order_by(
+                "name"
+            )
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
             form.base_fields["project"].label_from_instance = get_project_display_name
