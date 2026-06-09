@@ -8,7 +8,7 @@ from tasks.models import KippoTask
 from ..admin import KippoAdminSite
 
 
-DEFAULT_FIXTURES = ["required_bot_users", "default_columnset", "default_labelset"]
+DEFAULT_FIXTURES = ["required_bot_users", "default_columnset", "default_labelset", "default_kippoprojectorganizationcategory"]
 
 DEFAULT_COLUMNSET_PK = "414e69c8-8ea3-4c9c-8129-6f5aac108fa2"
 
