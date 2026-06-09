@@ -24,15 +24,14 @@ class ProjectSlackManagerTestCase(IsStaffModelAdminTestCaseBase):
         project_end_date = timezone.now() - timezone.timedelta(days=7)
         self.project1 = created_objects["KippoProject"]
         # update project end date to 1 week ago
-        contract_complete_confidence = 100
-        self.project1.confidence = contract_complete_confidence
+        self.project1.phase = "under-contract"
         self.project1.target_date = project_end_date
         self.project1.is_closed = False
         self.project1.save()
 
         self.project2 = created_objects["KippoProject2"]
         # update project end date to 1 week ago
-        self.project2.confidence = contract_complete_confidence
+        self.project2.phase = "under-contract"
         self.project2.target_date = project_end_date
         self.project2.is_closed = False
         self.project2.save()

@@ -148,13 +148,31 @@ class ProjectColumn(models.Model):
             raise ValidationError("(Invalid Configuration) Both is_active and is_done set to True!")
 
 
-DEFAULT_PROJECT_PHASE = "lead-evaluation"
+# Project pipeline status (kippo#36 / T09). The field is still named `phase` (verbose_name フェーズ); the
+# values are the sales/delivery status. `confidence` is derived from `phase` via PHASE_CONFIDENCE (no longer
+# user-editable). The old anon-project value is retired — non-projects are identified by category=="non-project".
+DEFAULT_PROJECT_PHASE = "proposing-low"
 VALID_PROJECT_PHASES = (
-    ("anon-project", "Non-Project"),
-    ("lead-evaluation", "Lead Evaluation"),
-    ("project-proposal", "Project Proposal Preparation"),
-    ("project-development", "Project Development"),
+    ("keep-in-touch", "KIT"),
+    ("proposing-low", _("提案(低)")),
+    ("proposing-mid", _("提案(中)")),
+    ("proposing-high", _("提案(高)")),
+    ("verbal-order", _("口頭受注")),
+    ("under-contract", _("契約稼働中")),
+    ("completed", _("完了")),
+    ("lost", _("失注")),
 )
+# phase -> confidence (確度). under-contract/completed == 100 keep the monthly-assignment confirm gate working.
+PHASE_CONFIDENCE = {
+    "keep-in-touch": 5,
+    "proposing-low": 30,
+    "proposing-mid": 80,
+    "proposing-high": 90,
+    "verbal-order": 99,
+    "under-contract": 100,
+    "completed": 100,
+    "lost": 0,
+}
 
 
 class KippoProjectOrganizationCategory(UserCreatedBaseModel):
@@ -223,10 +241,17 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("State or phase of the project"),
     )
     confidence = models.PositiveSmallIntegerField(
-        default=80,
+        default=PHASE_CONFIDENCE[DEFAULT_PROJECT_PHASE],
+        editable=False,
         validators=(MaxValueValidator(100), MinValueValidator(0)),
         verbose_name=_("確度"),
-        help_text=_("0-100, Confidence level of the project proceeding to the next phase"),
+        help_text=_("0-100, auto-derived from phase (read-only)"),
+    )
+    phase_remarks = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("備考"),
+        help_text=_("Free-text remarks about the project phase/status"),
     )
     category = models.ForeignKey(
         "projects.KippoProjectOrganizationCategory",
@@ -664,6 +689,10 @@ class KippoProject(UserCreatedBaseModel):
 
         if not self.billing_date and self.target_date:
             self.billing_date = self.target_date
+
+        # confidence (確度) is derived from phase — never user-set (kippo#36 / T09)
+        self.confidence = PHASE_CONFIDENCE.get(self.phase, self.confidence)
+
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)

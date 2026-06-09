@@ -10,12 +10,20 @@ from tasks.models import KippoTask, KippoTaskStatus
 
 from projects.definitions import (
     DEFAULT_PROJECT_CATEGORY_VALUE,
+    FULL_CONFIDENCE_PERCENTAGE,
     KIPPOPROJECT_CATEGORY_CHOICES,
     NON_PROJECT_CATEGORY_VALUE,
     UPSELL_CATEGORY_VALUES,
     VALID_KIPPOPROJECT_CATEGORY_VALUES,
 )
-from projects.models import KippoMilestone, KippoProject, KippoProjectOrganizationCategory
+from projects.models import (
+    DEFAULT_PROJECT_PHASE,
+    PHASE_CONFIDENCE,
+    VALID_PROJECT_PHASES,
+    KippoMilestone,
+    KippoProject,
+    KippoProjectOrganizationCategory,
+)
 
 
 class KippoProjectMethodsTestCase(TestCase):
@@ -675,3 +683,39 @@ class KippoProjectOrganizationCategoryTestCase(TestCase):
     def test_new_project_defaults_to_other_category(self):
         # setup_basic_project creates projects without an explicit category — they take the model default.
         self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)
+
+
+class KippoProjectPhaseStatusTestCase(TestCase):
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        self.project = setup_basic_project()["KippoProject"]
+
+    def test_phase_choices_are_the_status_values(self):
+        choices = dict(KippoProject._meta.get_field("phase").choices)
+        self.assertEqual(set(choices), set(dict(VALID_PROJECT_PHASES)))
+        self.assertIn("under-contract", choices)
+        self.assertIn("non-project", [c.key for c in KippoProjectOrganizationCategory.objects.all()])  # anon relocated to category
+        self.assertNotIn("anon-project", choices)
+
+    def test_default_phase_and_derived_confidence(self):
+        self.assertEqual(self.project.phase, DEFAULT_PROJECT_PHASE)
+        self.assertEqual(self.project.confidence, PHASE_CONFIDENCE[DEFAULT_PROJECT_PHASE])
+        self.assertFalse(KippoProject._meta.get_field("confidence").editable)
+
+    def test_confidence_is_derived_from_phase_on_save(self):
+        for phase, expected in PHASE_CONFIDENCE.items():
+            self.project.phase = phase
+            self.project.confidence = 0  # any user-set value must be overwritten
+            self.project.save()
+            self.project.refresh_from_db()
+            self.assertEqual(self.project.confidence, expected, msg=f"{phase} -> {expected}")
+
+    def test_only_contract_and_completed_reach_full_confidence(self):
+        full = {phase for phase, conf in PHASE_CONFIDENCE.items() if conf == FULL_CONFIDENCE_PERCENTAGE}
+        self.assertEqual(full, {"under-contract", "completed"})
+
+    def test_phase_remarks_field(self):
+        field = KippoProject._meta.get_field("phase_remarks")
+        self.assertTrue(field.blank)
+        self.assertEqual(field.default, "")

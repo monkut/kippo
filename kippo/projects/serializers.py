@@ -228,6 +228,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "organization_name",
             "customer_name",
             "project_manager_username",
+            "confidence",  # derived from phase (kippo#36 / T09)
             "closed_datetime",
             "allocated_effort_hours",
             "assignment_rates",

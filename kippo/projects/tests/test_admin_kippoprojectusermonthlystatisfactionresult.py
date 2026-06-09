@@ -55,8 +55,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdminTestCase(IsStaffModelAdminT
         self.anon_project = KippoProject.objects.create(
             organization=self.organization,
             name="anon_project-name",
-            phase="anon-project",
-            category=default_project_category(),
+            category=default_project_category("non-project"),
             columnset=columnset,
             start_date=self.current_date,
             created_by=self.github_manager,
