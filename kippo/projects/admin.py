@@ -787,8 +787,6 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "billing_method",
                     "billing_date",
                     "monthly_amount",
-                    "contract_start_date",
-                    "contract_end_date",
                 ),
             },
         ),

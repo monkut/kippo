@@ -2,7 +2,6 @@ import datetime
 from decimal import Decimal
 
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
-from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from projects.models import (
@@ -31,31 +30,15 @@ class BillingFieldsTestCase(TestCase):
     def test_billing_fields_persist(self):
         self.project.billing_method = BILLING_METHOD_MONTHLY
         self.project.monthly_amount = Decimal("500000")
-        self.project.contract_start_date = datetime.date(2026, 1, 1)
-        self.project.contract_end_date = datetime.date(2026, 6, 30)
         self.project.save()
         self.project.refresh_from_db()
         self.assertEqual(self.project.billing_method, BILLING_METHOD_MONTHLY)
         self.assertEqual(self.project.monthly_amount, Decimal("500000"))
-        self.assertEqual(self.project.contract_start_date, datetime.date(2026, 1, 1))
-        self.assertEqual(self.project.contract_end_date, datetime.date(2026, 6, 30))
 
     def test_monthly_amount_is_integer_jpy(self):
         # decimal_places=0 — JPY has no minor units
         self.assertEqual(KippoProject._meta.get_field("monthly_amount").decimal_places, 0)
         self.assertEqual(KippoProject._meta.get_field("monthly_amount").max_digits, 12)
-
-    def test_clean_rejects_contract_start_after_end(self):
-        self.project.contract_start_date = datetime.date(2026, 6, 1)
-        self.project.contract_end_date = datetime.date(2026, 1, 1)
-        with self.assertRaises(ValidationError):
-            self.project.clean()
-
-    def test_clean_allows_single_month_contract(self):
-        self.project.contract_start_date = datetime.date(2026, 3, 1)
-        self.project.contract_end_date = datetime.date(2026, 3, 31)
-        # should not raise
-        self.project.clean()
 
 
 class BillingDateConsistencyTestCase(TestCase):
@@ -92,10 +75,11 @@ class MonthlyRevenueEntriesTestCase(TestCase):
         self.project: KippoProject = created["KippoProject"]
 
     def _make_monthly(self, start: datetime.date, end: datetime.date, amount: str = "300000") -> None:
+        # monthly accrual uses the project period (start_date/target_date)
         self.project.billing_method = BILLING_METHOD_MONTHLY
         self.project.monthly_amount = Decimal(amount)
-        self.project.contract_start_date = start
-        self.project.contract_end_date = end
+        self.project.start_date = start
+        self.project.target_date = end
         self.project.save()
 
     def test_multi_month_contract_accrues_each_month(self):
@@ -156,16 +140,16 @@ class MonthlyRevenueEntriesTestCase(TestCase):
         # delivery projects must NOT accrue monthly revenue (no double counting)
         self.project.billing_method = BILLING_METHOD_DELIVERY
         self.project.monthly_amount = Decimal("300000")
-        self.project.contract_start_date = datetime.date(2026, 1, 1)
-        self.project.contract_end_date = datetime.date(2026, 6, 30)
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
         self.project.save()
         self.assertEqual(self.project.monthly_revenue_entries(), [])
 
     def test_monthly_without_required_fields_yields_nothing(self):
         self.project.billing_method = BILLING_METHOD_MONTHLY
         self.project.monthly_amount = None
-        self.project.contract_start_date = None
-        self.project.contract_end_date = None
+        self.project.start_date = None
+        self.project.target_date = None
         self.project.save()
         self.assertEqual(self.project.monthly_revenue_entries(), [])
 

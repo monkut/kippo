@@ -15,6 +15,11 @@ def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime
     return start_date, end_date
 
 
+def first_of_month(reference: datetime.date) -> datetime.date:
+    """Return the first day of the month containing `reference`."""
+    return reference.replace(day=1)
+
+
 def first_of_next_month(reference: datetime.date) -> datetime.date:
     """Return the first day of the month after the month of `reference`."""
     year, month = reference.year, reference.month
