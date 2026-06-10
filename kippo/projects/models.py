@@ -418,43 +418,61 @@ class KippoProject(UserCreatedBaseModel):
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
 
-    def monthly_revenue_entries(
-        self,
-        window_start: datetime.date | None = None,
-        window_end: datetime.date | None = None,
-    ) -> list[tuple[datetime.date, "Decimal"]]:
-        """Recurring monthly revenue for a monthly-billing project (kippo#31 / T12).
+    def generate_monthly_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
+        """Populate the billing ledger from the monthly template fields (kippo#31 / T12).
 
-        Returns one ``(month_first_day, monthly_amount)`` entry per calendar month that the
-        project period [start_date, target_date] overlaps, optionally clamped to the requested
-        window [window_start, window_end] (inclusive, by month).
+        Creates one ``KippoProjectBillingEntry`` (dated the first of the month, amount=monthly_amount)
+        per calendar month that the project period [start_date, target_date] overlaps. A month is
+        included if any part of it falls within the period; the full monthly_amount accrues for each
+        such month (no proration — adjust the individual entry afterwards if proration is needed).
 
-        Returns an empty list when:
-        - billing_method is not 'monthly' (delivery projects use the single-point billing_date model;
-          they are intentionally excluded here so revenue is never double-counted), or
-        - monthly_amount / start_date / target_date are not all set.
+        Idempotent: months that already have an entry (including manually adjusted ones) are left
+        untouched. Returns only the newly created entries.
 
-        A month is included if any part of it falls within the project period; the full
-        monthly_amount accrues for each such month (no proration).
+        No-op (returns []) when billing_method is not 'monthly' or when
+        monthly_amount / start_date / target_date are not all set.
         """
         if self.billing_method != BILLING_METHOD_MONTHLY:
             return []
         if self.monthly_amount is None or not self.start_date or not self.target_date:
             return []
 
-        start = first_of_month(self.start_date)
+        existing_dates = set(self.billing_entries.values_list("billing_date", flat=True))
+        missing_entries = []
+        current = first_of_month(self.start_date)
         end = first_of_month(self.target_date)
-        if window_start:
-            start = max(start, first_of_month(window_start))
-        if window_end:
-            end = min(end, first_of_month(window_end))
-
-        entries: list[tuple[datetime.date, Decimal]] = []
-        current = start
         while current <= end:
-            entries.append((current, self.monthly_amount))
+            if current not in existing_dates:
+                missing_entries.append(
+                    KippoProjectBillingEntry(
+                        project=self,
+                        billing_date=current,
+                        amount=self.monthly_amount,
+                        created_by=created_by,
+                        updated_by=created_by,
+                    )
+                )
             current = first_of_next_month(current)
-        return entries
+        return KippoProjectBillingEntry.objects.bulk_create(missing_entries)
+
+    def revenue_entries(
+        self,
+        window_start: datetime.date | None = None,
+        window_end: datetime.date | None = None,
+    ) -> list[tuple[datetime.date, "Decimal"]]:
+        """Revenue from the billing ledger as ``(billing_date, amount)`` tuples (kippo#31 / T12).
+
+        The ledger is the single source of truth for project revenue regardless of billing_method
+        (delivery projects record their single billing, monthly projects their generated months),
+        so there is no double counting. The optional window is clamped by month (an entry is
+        included if its month overlaps [window_start, window_end]).
+        """
+        entries = self.billing_entries.all()
+        if window_start:
+            entries = entries.filter(billing_date__gte=first_of_month(window_start))
+        if window_end:
+            entries = entries.filter(billing_date__lt=first_of_next_month(window_end))
+        return [(entry.billing_date, entry.amount) for entry in entries]
 
     def developers(self):
         from tasks.models import KippoTask
@@ -789,6 +807,45 @@ class ActiveKippoProject(KippoProject):
         proxy = True
         verbose_name = _("プロジェクト(実行中)")
         verbose_name_plural = verbose_name
+
+
+class KippoProjectBillingEntry(UserCreatedBaseModel):
+    """A single billing/revenue entry in a project's billing ledger (kippo#31 / T11, T12).
+
+    The ledger is the single source of truth for project revenue:
+
+    - delivery (納品) projects: one entry on the project's billing date.
+    - monthly (月額) projects: one entry per calendar month over the project period, generated
+      from ``KippoProject.monthly_amount`` via ``generate_monthly_billing_entries()``. Individual
+      months can then be adjusted (price revision, proration) without touching the template.
+    """
+
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="billing_entries")
+    billing_date = models.DateField(
+        _("請求日"),
+        help_text=_("Date the entry is billed/recognized. Monthly-generated entries use the first day of the month."),
+    )
+    amount = models.DecimalField(
+        _("金額"),
+        max_digits=12,
+        decimal_places=0,
+        help_text=_("Billed amount (JPY)."),
+    )
+    note = models.CharField(
+        _("備考"),
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        verbose_name = _("請求エントリ")
+        verbose_name_plural = verbose_name
+        ordering = ("billing_date",)
+        constraints = (models.UniqueConstraint(fields=("project", "billing_date"), name="unique_billingentry_project_billing_date"),)
+
+    def __str__(self) -> str:
+        return f"KippoProjectBillingEntry({self.project.name} {self.billing_date} ¥{self.amount})"
 
 
 class KippoProjectStatus(UserCreatedBaseModel):

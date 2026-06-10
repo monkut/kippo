@@ -57,6 +57,7 @@ from .models import (
     CollectIssuesAction,
     KippoMilestone,
     KippoProject,
+    KippoProjectBillingEntry,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
@@ -108,6 +109,13 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
     model = ProjectMonthlyAssignment
     extra = 0
     fields = ("user", "month", "percentage", "is_confirmed")
+    classes = ["collapse"]
+
+
+class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectBillingEntry
+    extra = 0
+    fields = ("billing_date", "amount", "note")
     classes = ["collapse"]
 
 
@@ -752,6 +760,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         add_calendar_links_to_slack_channels_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
+        "generate_monthly_billing_entries",
     ]
     exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
     fieldsets = [
@@ -829,6 +838,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
+        KippoProjectBillingEntryInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
@@ -964,6 +974,26 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return None
 
     export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
+
+    @admin.action(description=_("月次請求エントリを生成 (月額プロジェクト)"))
+    def generate_monthly_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+        created_count = 0
+        skipped_names = []
+        for project in queryset:
+            created_entries = project.generate_monthly_billing_entries(created_by=request.user)
+            if created_entries:
+                created_count += len(created_entries)
+            else:
+                skipped_names.append(project.name)
+        if created_count:
+            self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
+        if skipped_names:
+            self.message_user(
+                request,
+                _("No entries created for: %s (not monthly, missing monthly_amount/start_date/target_date, or already generated)")
+                % ", ".join(skipped_names),
+                level=messages.WARNING,
+            )
 
     @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
