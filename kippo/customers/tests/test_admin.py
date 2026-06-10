@@ -138,6 +138,46 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
 
 
+class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
+    """KippoCustomerAdmin shows the 反社チェック (compliance verified) state as a boolean column."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Compliance Co",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_compliance_column_in_list_display(self):
+        self.assertIn("get_compliance_verified", KippoCustomerAdmin.list_display)
+
+    def test_compliance_display_method_is_boolean(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        self.assertTrue(modeladmin.get_compliance_verified.boolean)
+
+    def test_compliance_display_false_when_unverified(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        # Auto-created compliance_check is unverified.
+        self.assertFalse(modeladmin.get_compliance_verified(self.customer))
+
+    def test_compliance_display_true_when_verified(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        check = self.customer.compliance_check
+        check.verified = True
+        check.save()
+        refreshed = KippoCustomer.objects.get(pk=self.customer.pk)
+        self.assertTrue(modeladmin.get_compliance_verified(refreshed))
+
+    def test_queryset_selects_related_compliance_check(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.super_user_request)
+        self.assertIn("compliance_check", qs.query.select_related)
+
+
 class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin initializes the organization from the user's session, and hides the
     field only for single-org users (multi-org users keep it visible to choose the org).
