@@ -5,7 +5,6 @@ from collections import Counter
 from typing import Any
 from urllib.parse import quote, urlencode
 
-import reversion
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.fields import CommaSeparatedCharField
 from commons.models import TimestampedModel, UserCreatedBaseModel
@@ -227,7 +226,6 @@ def get_default_project_category():
     )
 
 
-@reversion.register()
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, verbose_name=_("組織"))
@@ -730,7 +728,6 @@ class KippoProjectStatus(UserCreatedBaseModel):
         return f"ProjectStatus({self.project.name} {self.created_datetime})"
 
 
-@reversion.register()
 class KippoMilestone(UserCreatedBaseModel):
     """Provides milestone definition and mapping to a Github Repository Milestone"""
 
