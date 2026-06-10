@@ -40,7 +40,6 @@ class KippoCustomer(UserCreatedBaseModel):
         return self.name
 
 
-@reversion.register()
 class KippoCustomerComplianceCheck(UserCreatedBaseModel):
     """反社チェック (anti-social/compliance check) state for a KippoCustomer.
 
