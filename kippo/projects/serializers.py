@@ -156,6 +156,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     project_manager_username = serializers.CharField(source="project_manager.username", read_only=True, allow_null=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True)
+    # Human-readable project status label for `phase` (kippo#37 / T10). `phase` stays the editable key.
+    phase_display = serializers.CharField(source="get_phase_display", read_only=True)
     # category is a FK to KippoProjectOrganizationCategory; expose it as the category key string for
     # API backward-compatibility. Writes resolve against the global default categories (kippo#30 / T08, T20).
     category = serializers.SlugRelatedField(
@@ -191,6 +193,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "slug",
             "columnset",
             "phase",
+            "phase_display",
             "confidence",
             "category",
             "slack_channel_name",
@@ -228,6 +231,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "organization_name",
             "customer_name",
             "project_manager_username",
+            "phase_display",  # human-readable status label (kippo#37 / T10)
             "confidence",  # derived from phase (kippo#36 / T09)
             "closed_datetime",
             "allocated_effort_hours",

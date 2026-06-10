@@ -142,6 +142,8 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["organization_name"], self.organization.name)
         self.assertEqual(data["allocated_staff_days"], 60)
         self.assertEqual(data["allocated_effort_hours"], 60 * settings.DAY_WORKHOURS)
+        # phase_display exposes the human-readable status label for the phase key (kippo#37 / T10)
+        self.assertEqual(data["phase_display"], self.project.get_phase_display())
 
     def test_filter_by_is_active(self):
         """Test filtering projects by is_active parameter.
