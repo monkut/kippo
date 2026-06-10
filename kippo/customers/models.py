@@ -38,3 +38,30 @@ class KippoCustomer(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+@reversion.register()
+class KippoCustomerComplianceCheck(UserCreatedBaseModel):
+    """反社チェック (anti-social/compliance check) state for a KippoCustomer.
+
+    Auto-created (one per customer) by a post_save signal with created_by/updated_by
+    null and verified=False. The customer is considered verified once `verified` is True.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.OneToOneField(
+        "customers.KippoCustomer",
+        on_delete=models.CASCADE,
+        related_name="compliance_check",
+        verbose_name=_("顧客"),
+    )
+    verified = models.BooleanField(default=False, verbose_name=_("反社チェック済み"))
+    verified_datetime = models.DateTimeField(null=True, blank=True, verbose_name=_("反社チェック日時"))
+    notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
+
+    class Meta:
+        verbose_name = _("反社チェック")
+        verbose_name_plural = _("反社チェック")
+
+    def __str__(self) -> str:
+        return f"{self.customer.name} (verified={self.verified})"

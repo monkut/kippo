@@ -39,7 +39,7 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("name", "organization", "email", "get_active_project_count", "display_as_active", "updated_datetime")
+    list_display = ("name", "organization", "email", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
     list_filter = ("organization", "display_as_active")
     search_fields = ("name", "email")
@@ -54,6 +54,9 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         qs = (
             super()
             .get_queryset(request)
+            # select_related the OneToOne compliance_check so the 反社チェック column does not
+            # issue one extra query per row in the changelist.
+            .select_related("compliance_check")
             .annotate(
                 active_project_count=Count(
                     "projects",
@@ -69,6 +72,12 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     @admin.display(description=_("アクティブプロジェクト数"), ordering="active_project_count")
     def get_active_project_count(self, obj: KippoCustomer) -> int:
         return obj.active_project_count
+
+    @admin.display(boolean=True, description=_("反社チェック"))
+    def get_compliance_verified(self, obj: KippoCustomer) -> bool:
+        # The compliance_check is auto-created via signal; guard against its absence anyway.
+        compliance_check = getattr(obj, "compliance_check", None)
+        return bool(compliance_check and compliance_check.verified)
 
     def get_form(self, request: DjangoRequest, obj: KippoCustomer | None = None, **kwargs) -> Form:
         form = super().get_form(request, obj, **kwargs)
