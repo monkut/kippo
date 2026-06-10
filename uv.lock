@@ -287,18 +287,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-reversion"
-version = "5.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/aa/d7e9d98b23041b24d2b35cefcbbfa51e6e557e8e58c1c1bddabdb0baf13f/django_reversion-5.1.0.tar.gz", hash = "sha256:3309821e5b6fceedcce6b6975f1a9c7fab6ae7c7d0e1276a90e345946fa0dcb8", size = 73178, upload-time = "2024-08-09T21:30:29.613Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/84/898fec51294e6764ab5fdde5db079ca89d528cef039c05447ca41d6f4c74/django_reversion-5.1.0-py3-none-any.whl", hash = "sha256:084d4f117d9e2b4e8dfdfaad83ebb34410a03eed6071c96089e6811fdea82ad3", size = 84857, upload-time = "2024-08-09T21:30:27.761Z" },
-]
-
-[[package]]
 name = "djangorestframework"
 version = "3.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -518,7 +506,6 @@ dependencies = [
     { name = "django-admin-rangefilter" },
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
-    { name = "django-reversion" },
     { name = "djangorestframework" },
     { name = "djangorestframework-simplejwt" },
     { name = "drf-nested-routers" },
@@ -550,7 +537,6 @@ requires-dist = [
     { name = "django-admin-rangefilter" },
     { name = "django-bootstrap4" },
     { name = "django-cors-headers" },
-    { name = "django-reversion" },
     { name = "djangorestframework", specifier = ">=3.16.1" },
     { name = "djangorestframework-simplejwt", specifier = ">=5.5.1" },
     { name = "drf-nested-routers", specifier = ">=0.95.0" },

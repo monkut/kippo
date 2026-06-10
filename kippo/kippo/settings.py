@@ -56,7 +56,6 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 INSTALLED_APPS = [
     "social_django",
-    "reversion",
     "bootstrap4",
     "commons",  # must be *before* "'common.apps.KippoAdminConfig',  # 'django.contrib.admin'," in order to override admin template!
     "commons.admin.KippoAdminConfig",  # 'django.contrib.admin',
