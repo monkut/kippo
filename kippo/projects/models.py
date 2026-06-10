@@ -2,7 +2,7 @@ import datetime
 import logging
 import uuid
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
 
 import reversion
@@ -33,6 +33,9 @@ from .definitions import (
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
 
+if TYPE_CHECKING:
+    from decimal import Decimal
+
 logger = logging.getLogger(__name__)
 
 UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
@@ -44,6 +47,11 @@ MAX_ASSIGNMENT_PERCENTAGE = 100
 def get_target_date_default() -> datetime.date:
     # TODO: update to take into account configured holidays
     return (timezone.now() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)).date()
+
+
+def _first_of_month(value: datetime.date) -> datetime.date:
+    """Return the first day of the month containing ``value`` (kippo#31 / T12)."""
+    return value.replace(day=1)
 
 
 def category_prefixes_default():
@@ -173,6 +181,18 @@ PHASE_CONFIDENCE = {
     "completed": 100,
     "lost": 0,
 }
+
+# Billing method (請求方法) — kippo#31 / T11,T12.
+# "delivery" (納品): revenue billed once at billing_date (the existing single-point model).
+# "monthly" (月額): revenue accrues every month within [contract_start_date, contract_end_date].
+BILLING_METHOD_DELIVERY = "delivery"
+BILLING_METHOD_MONTHLY = "monthly"
+VALID_BILLING_METHODS = (
+    (BILLING_METHOD_DELIVERY, _("納品")),
+    (BILLING_METHOD_MONTHLY, _("月額")),
+)
+# Default to delivery so existing projects keep their single-point billing semantics on migration.
+DEFAULT_BILLING_METHOD = BILLING_METHOD_DELIVERY
 
 
 class KippoProjectOrganizationCategory(UserCreatedBaseModel):
@@ -350,6 +370,33 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("Date the project is billed. Defaults to the target date when left blank."),
     )
+    billing_method = models.CharField(
+        _("請求方法"),
+        max_length=20,
+        choices=VALID_BILLING_METHODS,
+        default=DEFAULT_BILLING_METHOD,
+        help_text=_("Billing method: 'delivery' (納品, billed once) or 'monthly' (月額, recurring per month)."),
+    )
+    monthly_amount = models.DecimalField(
+        _("月額金額"),
+        max_digits=12,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text=_("Monthly billed amount (JPY). Only meaningful when billing_method is 'monthly'."),
+    )
+    contract_start_date = models.DateField(
+        _("契約期間開始"),
+        null=True,
+        blank=True,
+        help_text=_("First day of the contract period. Required for monthly-billing revenue accrual."),
+    )
+    contract_end_date = models.DateField(
+        _("契約期間終了"),
+        null=True,
+        blank=True,
+        help_text=_("Last day of the contract period. Required for monthly-billing revenue accrual."),
+    )
     document_folder_url = models.URLField(
         _("ドキュメント保管URL"),
         blank=True,
@@ -386,6 +433,46 @@ class KippoProject(UserCreatedBaseModel):
             raise ValidationError(_("Given date is in the future"))
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
+        if self.contract_start_date and self.contract_end_date and self.contract_start_date > self.contract_end_date:
+            raise ValidationError(_("contract_start_date must not be after contract_end_date"))
+
+    def monthly_revenue_entries(
+        self,
+        window_start: datetime.date | None = None,
+        window_end: datetime.date | None = None,
+    ) -> list[tuple[datetime.date, "Decimal"]]:
+        """Recurring monthly revenue for a monthly-billing project (kippo#31 / T12).
+
+        Returns one ``(month_first_day, monthly_amount)`` entry per calendar month that the
+        contract period [contract_start_date, contract_end_date] overlaps, optionally clamped
+        to the requested window [window_start, window_end] (inclusive, by month).
+
+        Returns an empty list when:
+        - billing_method is not 'monthly' (delivery projects use the single-point billing_date model;
+          they are intentionally excluded here so revenue is never double-counted), or
+        - monthly_amount / contract_start_date / contract_end_date are not all set.
+
+        A month is included if any part of it falls within the contract period; the full
+        monthly_amount accrues for each such month (no proration).
+        """
+        if self.billing_method != BILLING_METHOD_MONTHLY:
+            return []
+        if self.monthly_amount is None or not self.contract_start_date or not self.contract_end_date:
+            return []
+
+        start = _first_of_month(self.contract_start_date)
+        end = _first_of_month(self.contract_end_date)
+        if window_start:
+            start = max(start, _first_of_month(window_start))
+        if window_end:
+            end = min(end, _first_of_month(window_end))
+
+        entries: list[tuple[datetime.date, Decimal]] = []
+        current = start
+        while current <= end:
+            entries.append((current, self.monthly_amount))
+            current = _first_of_month(current + datetime.timedelta(days=32))
+        return entries
 
     def developers(self):
         from tasks.models import KippoTask
