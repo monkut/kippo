@@ -15,6 +15,24 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from ..models import KippoProject, KippoProjectContract, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
 
 
+def _registration_fields(organization: KippoOrganization, project_manager: KippoUser) -> dict:
+    """Required-at-registration project fields for POST /api/projects/ (kippo#40 / T19)."""
+    from customers.models import KippoCustomer
+
+    customer = KippoCustomer.objects.create(
+        organization=organization,
+        name="reg-test-customer",
+        created_by=project_manager,
+        updated_by=project_manager,
+    )
+    return {
+        "customer": str(customer.id),
+        "project_manager": project_manager.id,
+        "start_date": "2026-01-01",
+        "target_date": "2026-03-31",
+    }
+
+
 class JWTAuthenticationTestCase(TestCase):
     """Test cases for JWT authentication endpoints."""
 
@@ -741,6 +759,7 @@ class PermissionsTestCase(TestCase):
             "name": "Org Member Project",
             "organization": str(self.organization.id),
             "columnset": self.project.columnset.id,
+            **_registration_fields(self.organization, self.user),
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
@@ -788,9 +807,35 @@ class PermissionsTestCase(TestCase):
             "name": "Superuser Project",
             "organization": str(self.organization.id),
             "columnset": self.project.columnset.id,
+            **_registration_fields(self.organization, self.superuser),
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
+
+    def test_create_missing_required_registration_fields_rejected(self):
+        """Registration requires customer/PM/start_date/target_date (kippo#40 / T19)."""
+        self.client.force_authenticate(user=self.superuser)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Incomplete Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        for field in ("customer", "project_manager", "start_date", "target_date"):
+            self.assertIn(field, response.json())
+
+    def test_edit_existing_project_not_blocked_by_registration_requirements(self):
+        """The required-field validation is create-only; editing a contract-less / customer-less
+        project must still succeed (kippo#40 / T19).
+        """
+        self.client.force_authenticate(user=self.superuser)
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        # self.project (from setup_basic_project) has no customer/PM; a PATCH must not be blocked
+        response = self.client.patch(url, {"name": "Renamed Project"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["name"], "Renamed Project")
 
     def test_superuser_can_create_project_in_any_org(self):
         """Superusers retain unrestricted create across orgs (kippo#284)."""
@@ -806,6 +851,7 @@ class PermissionsTestCase(TestCase):
             "name": "Superuser Cross-Org Project",
             "organization": str(other_org.id),
             "columnset": self.project.columnset.id,
+            **_registration_fields(other_org, self.superuser),
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
@@ -1154,7 +1200,7 @@ class ProjectColumnsetDefaultTestCase(TestCase):
         self.organization.default_columnset = explicit
         self.organization.save()
         self.client.force_authenticate(user=self.user)
-        data = {"name": "Default Columnset Project", "organization": str(self.organization.id)}
+        data = {"name": "Default Columnset Project", "organization": str(self.organization.id), **_registration_fields(self.organization, self.user)}
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
         created = KippoProject.objects.get(name="Default Columnset Project")
@@ -1162,7 +1208,7 @@ class ProjectColumnsetDefaultTestCase(TestCase):
 
     def test_create_project_without_columnset_falls_back_to_global(self):
         self.client.force_authenticate(user=self.user)
-        data = {"name": "Fallback Columnset Project", "organization": str(self.organization.id)}
+        data = {"name": "Fallback Columnset Project", "organization": str(self.organization.id), **_registration_fields(self.organization, self.user)}
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
         created = KippoProject.objects.get(name="Fallback Columnset Project")

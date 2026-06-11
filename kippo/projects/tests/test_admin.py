@@ -721,6 +721,12 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
     def test_upsell_form_with_derived_organization_is_valid_and_saves_parent(self):
         # the upsell prefill always sets organization = parent_project.organization, so the form
         # validator's parent-org invariant is satisfied by construction. Save and verify the result.
+        customer = KippoCustomer.objects.create(
+            organization=self.project1.organization,
+            name="upsell-form-customer",
+            created_by=self.superuser_no_org,
+            updated_by=self.superuser_no_org,
+        )
         form = KippoProjectAdminForm(
             data={
                 "organization": str(self.project1.organization_id),
@@ -730,7 +736,11 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "confidence": "80",
                 "category": str(_global_category("upsell-improvement").pk),
                 "columnset": str(self.project1.columnset_id),
+                # required at registration (kippo#40 / T19)
+                "customer": str(customer.id),
+                "project_manager": str(self.superuser_no_org.id),
                 "start_date": self.current_date.isoformat(),
+                "target_date": self.current_date.isoformat(),
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
@@ -768,6 +778,12 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         super().setUp()
         self.columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
         self.current_date = timezone.now().date()
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="adminform-customer",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
         self.parent = KippoProject.objects.create(
             organization=self.organization,
             name="parent-project",
@@ -780,6 +796,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
 
     def _form_data(self, *, category: str, parent_project_id: str | None = None) -> dict:
         # category is a FK ModelChoiceField — submit the category's PK, resolved from its key.
+        # customer / project_manager / target_date are required at registration (kippo#40 / T19).
         data = {
             "organization": str(self.organization.id),
             "name": "manual-new-project",
@@ -787,7 +804,10 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             "confidence": "80",
             "category": str(_global_category(category).pk),
             "columnset": str(self.columnset.pk),
+            "customer": str(self.customer.id),
+            "project_manager": str(self.github_manager.id),
             "start_date": self.current_date.isoformat(),
+            "target_date": self.current_date.isoformat(),
         }
         if parent_project_id:
             data["parent_project"] = parent_project_id
@@ -807,6 +827,38 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
     def test_non_upsell_category_does_not_require_parent_project(self):
         form = KippoProjectAdminForm(data=self._form_data(category="other"))
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_registration_requires_customer_pm_and_dates(self):
+        # add-form missing the required registration fields is invalid (kippo#40 / T19)
+        data = self._form_data(category="other")
+        for field in ("customer", "project_manager", "start_date", "target_date"):
+            del data[field]
+        form = KippoProjectAdminForm(data=data)
+        self.assertFalse(form.is_valid())
+        for field in ("customer", "project_manager", "start_date", "target_date"):
+            self.assertIn(field, form.errors)
+
+    def test_edit_existing_project_not_blocked_by_registration_requirements(self):
+        # editing an existing customer-less / PM-less project must still validate (create-only rule)
+        existing = KippoProject.objects.create(
+            organization=self.organization,
+            name="pre-existing-minimal",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        data = self._form_data(category="other")
+        for field in ("customer", "project_manager", "start_date", "target_date"):
+            del data[field]
+        form = KippoProjectAdminForm(instance=existing, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_contract_inline_required_on_add_optional_on_change(self):
+        # 請求方法 required at registration via the contract inline (kippo#40 / T19)
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        self.assertEqual(inline.get_min_num(request=self.super_user_request, obj=None), 1)
+        self.assertEqual(inline.get_min_num(request=self.super_user_request, obj=self.parent), 0)
 
     def test_change_form_with_upsell_category_uses_persisted_parent_when_field_omitted(self):
         # change form: parent_project is readonly so it isn't submitted in POST data;

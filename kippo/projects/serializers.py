@@ -295,6 +295,17 @@ class KippoProjectSerializer(serializers.ModelSerializer):
                     {"columnset": "No columnset provided and no default columnset is configured for this organization."}
                 )
             attrs["columnset"] = columnset
+
+        # Required-field validation at project registration (kippo#40 / T19). Create-only — edits of
+        # existing rows (and existing data) are unaffected. category/phase always carry model defaults,
+        # so the enforced gaps are the genuinely-optional fields. 請求方法 (billing method) lives on
+        # KippoProjectContract since kippo#31; the API cannot attach a contract at project-create
+        # (no nested write), so that requirement is enforced on the admin registration form instead.
+        if self.instance is None:
+            required_at_registration = ("customer", "project_manager", "start_date", "target_date")
+            missing = {field: "This field is required at project registration." for field in required_at_registration if not attrs.get(field)}
+            if missing:
+                raise serializers.ValidationError(missing)
         return attrs
 
     @extend_schema_field(serializers.FloatField(allow_null=True))

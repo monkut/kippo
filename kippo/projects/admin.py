@@ -119,6 +119,11 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     fields = ("billing_type", "amount", "start_date", "end_date", "note")
     classes = ["collapse"]
 
+    def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        # 請求方法 is required at project registration (kippo#40 / T19): require ≥1 contract on /add/.
+        # Editing an existing project is unaffected (existing contract-less projects still save).
+        return 1 if obj is None else 0
+
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         """Pre-fill the new contract row's period with the project's dates so the admin user
         sees the defaults before saving (the model still backfills them on save if cleared).
@@ -689,12 +694,23 @@ add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calen
 
 
 class KippoProjectAdminForm(forms.ModelForm):
+    # Required at project registration (kippo#40 / T19) — enforced create-only so existing rows/edits
+    # are unaffected. category/phase always carry model defaults; 請求方法 is enforced via the required
+    # contract inline (see KippoProjectContractInline.get_min_num).
+    REQUIRED_AT_REGISTRATION = ("customer", "project_manager", "start_date", "target_date")
+
     class Meta:
         model = KippoProject
         exclude = ()  # noqa: DJ006 (admin form inherits field config from ModelAdmin)
 
     def clean(self):
         cleaned_data = super().clean()
+        # KippoProject.id is a UUID with a default, so .pk is set even before save — use _state.adding
+        # to detect a genuine registration (add) vs an edit of an existing row.
+        if self.instance._state.adding:
+            for field in self.REQUIRED_AT_REGISTRATION:
+                if not cleaned_data.get(field):
+                    self.add_error(field, _("This field is required at project registration."))
         category = cleaned_data.get("category")
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
