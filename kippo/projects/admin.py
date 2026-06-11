@@ -754,7 +754,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "id",
         "get_customer_name",
         "name",
-        "get_introduction_display",
+        "get_problem_definition_display",
         "phase",
         "get_category_label",
         "get_confidence_display",
@@ -771,7 +771,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     list_display_links = ("id", "name")
     list_select_related = ("customer", "category")
-    search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "introduction", "customer__name")
+    search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
@@ -797,7 +797,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             {
                 "fields": (
                     "name",
-                    "introduction",
+                    "problem_definition",
                     "confidence",
                     "project_manager",
                     "meeting_calendar_url_field",
@@ -842,7 +842,6 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "github_project_html_url",
                     "github_project_api_nodeid",
                     "docbase_tag",
-                    "problem_definition",
                 ),
             },
         ),
@@ -919,11 +918,11 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
 
-    @admin.display(description=_("紹介文"))
-    def get_introduction_display(self, obj: KippoProject) -> str:
-        # truncated project introduction for the changelist (kippo#29 / T07)
+    @admin.display(description=_("プロジェクト課題定義"))
+    def get_problem_definition_display(self, obj: KippoProject) -> str:
+        # truncated problem definition shown as the project intro in the changelist (kippo#29 / T07)
         limit = 60
-        text = obj.introduction or ""
+        text = obj.problem_definition or ""
         return f"{text[:limit]}…" if len(text) > limit else text
 
     @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
@@ -1340,7 +1339,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "id",
         "get_customer_name",
         "name",
-        "get_introduction_display",
+        "get_problem_definition_display",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",

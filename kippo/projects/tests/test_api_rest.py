@@ -174,22 +174,17 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["total_revenue"], "0")
         self.assertEqual(data["contract_amount"], "0")
 
-    def test_introduction_is_writable_and_exposed(self):
-        """Project introduction (紹介文) is a writable field shown in list/detail (kippo#29 / T07)."""
+    def test_problem_definition_shown_in_list_and_detail(self):
+        """problem_definition (reused as the project intro) is writable and shown in list/detail (kippo#29 / T07)."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
-        patch = self.client.patch(url, {"introduction": "AI-driven demand forecasting for retail."}, format="json")
+        patch = self.client.patch(url, {"problem_definition": "AI-driven demand forecasting for retail."}, format="json")
         self.assertEqual(patch.status_code, HTTPStatus.OK)
-        self.assertEqual(patch.json()["introduction"], "AI-driven demand forecasting for retail.")
+        self.assertEqual(patch.json()["problem_definition"], "AI-driven demand forecasting for retail.")
         # surfaced in detail and list
-        self.assertEqual(self.client.get(url).json()["introduction"], "AI-driven demand forecasting for retail.")
+        self.assertEqual(self.client.get(url).json()["problem_definition"], "AI-driven demand forecasting for retail.")
         list_data = self.client.get(f"{settings.URL_PREFIX}/api/projects/").json()
         project_row = next(r for r in list_data["results"] if r["id"] == str(self.project.id))
-        self.assertEqual(project_row["introduction"], "AI-driven demand forecasting for retail.")
-
-    def test_introduction_defaults_blank(self):
-        """Introduction defaults to an empty string (kippo#29 / T07)."""
-        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
-        self.assertEqual(self.client.get(url).json()["introduction"], "")
+        self.assertEqual(project_row["problem_definition"], "AI-driven demand forecasting for retail.")
 
     def test_customer_link_and_contract_folder_url(self):
         """Project create/edit can set the customer; the contract-folder URL (customer.document_url)
