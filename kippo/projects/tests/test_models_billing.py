@@ -369,3 +369,83 @@ class RevenueEntriesTestCase(TestCase):
         contract.delete()
         self.assertEqual(self.project.billing_entries.count(), 2)
         self.assertTrue(all(entry.contract is None for entry in self.project.billing_entries.all()))
+
+
+class DerivedRevenueFiguresTestCase(TestCase):
+    """契約金額 / トータル売上 derived from contracts + ledger (kippo#32 / T13)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+
+    def test_delivery_contract_value_is_amount(self):
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        self.assertEqual(contract.contract_value, Decimal("2000000"))
+
+    def test_monthly_contract_value_is_amount_times_months(self):
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 1, 15),
+            end_date=datetime.date(2026, 4, 10),
+        )
+        # Jan, Feb, Mar, Apr = 4 months
+        self.assertEqual(contract.contract_value, Decimal("1200000"))
+
+    def test_contract_amount_sums_all_contracts(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 3, 31),
+        )
+        # 2,000,000 (delivery) + 300,000 × 3 (monthly) = 2,900,000
+        self.assertEqual(self.project.contract_amount, Decimal("2900000"))
+
+    def test_contract_amount_is_zero_without_contracts(self):
+        self.assertEqual(self.project.contract_amount, Decimal(0))
+
+    def test_total_revenue_sums_billing_ledger(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("250000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 4, 30),
+        ).generate_billing_entries()
+        # 4 month-end entries × 250,000
+        self.assertEqual(self.project.total_revenue, Decimal("1000000"))
+
+    def test_total_revenue_is_zero_without_entries(self):
+        self.assertEqual(self.project.total_revenue, Decimal(0))
+
+    def test_total_revenue_reflects_manual_adjustment(self):
+        # total_revenue tracks the ledger, so an adjusted entry changes the total but not contract_amount
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 3, 31),
+        )
+        contract.generate_billing_entries()
+        entry = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
+        entry.amount = Decimal("150000")  # prorated month
+        entry.save()
+        self.assertEqual(self.project.total_revenue, Decimal("750000"))  # 300k + 150k + 300k
+        self.assertEqual(self.project.contract_amount, Decimal("900000"))  # unchanged: 300k × 3

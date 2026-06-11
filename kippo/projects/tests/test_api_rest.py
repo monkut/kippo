@@ -12,7 +12,7 @@ from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ..models import KippoProject, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
+from ..models import KippoProject, KippoProjectContract, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
 
 
 class JWTAuthenticationTestCase(TestCase):
@@ -144,6 +144,35 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["allocated_effort_hours"], 60 * settings.DAY_WORKHOURS)
         # phase_display exposes the human-readable status label for the phase key (kippo#37 / T10)
         self.assertEqual(data["phase_display"], self.project.get_phase_display())
+
+    def test_retrieve_project_exposes_derived_revenue_figures(self):
+        """total_revenue (ledger) + contract_amount (contracts) are read-only derived fields (kippo#32 / T13)."""
+        from decimal import Decimal
+
+        # monthly contract over the project period (2024-01-01 .. 2024-03-31) -> 3 month-end entries
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="monthly",
+            amount=Decimal("300000"),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        ).generate_billing_entries(created_by=self.github_manager)
+
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        data = self.client.get(url).json()
+        # contract_amount = 300,000 × 3 months; total_revenue = ledger sum (same here)
+        self.assertEqual(data["contract_amount"], "900000")
+        self.assertEqual(data["total_revenue"], "900000")
+
+    def test_derived_revenue_figures_are_read_only(self):
+        """Writes to total_revenue / contract_amount are ignored (read-only)."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"total_revenue": "999", "contract_amount": "888"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        # no contracts/entries -> derived values stay 0, not the posted values
+        self.assertEqual(data["total_revenue"], "0")
+        self.assertEqual(data["contract_amount"], "0")
 
     def test_filter_by_is_active(self):
         """Test filtering projects by is_active parameter.

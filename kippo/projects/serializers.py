@@ -166,6 +166,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Project category key (e.g. 'ai-development', 'other', 'non-project').",
     )
+    # Derived revenue figures (kippo#32 / T13). Read-only — sourced from the contract + billing
+    # ledger (kippo#31), so they never drift from the underlying records.
+    total_revenue = serializers.DecimalField(max_digits=12, decimal_places=0, read_only=True)
+    contract_amount = serializers.DecimalField(max_digits=12, decimal_places=0, read_only=True)
     allocated_effort_hours = serializers.SerializerMethodField()
     assignment_rates = serializers.SerializerMethodField()
     has_requirements = serializers.SerializerMethodField()
@@ -213,6 +217,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "target_date",
             "actual_date",
             "billing_date",
+            "total_revenue",
+            "contract_amount",
             "document_folder_url",
             "docbase_tag",
             "problem_definition",
@@ -234,6 +240,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "project_manager_username",
             "phase_display",  # human-readable status label (kippo#37 / T10)
             "confidence",  # derived from phase (kippo#36 / T09)
+            "total_revenue",  # ledger-derived (kippo#32 / T13)
+            "contract_amount",  # contract-derived (kippo#32 / T13)
             "closed_datetime",
             "allocated_effort_hours",
             "assignment_rates",
