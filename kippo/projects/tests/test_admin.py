@@ -188,6 +188,45 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         self.assertEqual(contract.start_date, date(2026, 3, 15))
         self.assertEqual(contract.end_date, date(2026, 5, 15))
 
+    def test_contract_inline_extra_form_prefilled_with_project_period(self):
+        # the blank "add contract" row shows the project's dates as initial values
+        self.project1.start_date = date(2026, 2, 1)
+        self.project1.target_date = date(2026, 8, 31)
+        self.project1.save()
+
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=self.project1)
+        formset = formset_class(instance=self.project1)
+        extra_form = formset.extra_forms[0]
+        self.assertEqual(extra_form.initial.get("start_date"), date(2026, 2, 1))
+        self.assertEqual(extra_form.initial.get("end_date"), date(2026, 8, 31))
+
+    def test_contract_inline_untouched_prefilled_row_creates_no_contract(self):
+        # submitting the pre-filled row without entering an amount must not create a contract
+        self.project1.start_date = date(2026, 2, 1)
+        self.project1.target_date = date(2026, 8, 31)
+        self.project1.save()
+
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=self.project1)
+        prefix = "contracts"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+            # period echoes the pre-filled initial; billing_type echoes its default; amount left blank
+            f"{prefix}-0-billing_type": "delivery",
+            f"{prefix}-0-amount": "",
+            f"{prefix}-0-start_date": "2026-02-01",
+            f"{prefix}-0-end_date": "2026-08-31",
+            f"{prefix}-0-note": "",
+        }
+        formset = formset_class(data=data, instance=self.project1, prefix=prefix)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertEqual(self.project1.contracts.count(), 0)
+
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):
     fixtures = DEFAULT_FIXTURES

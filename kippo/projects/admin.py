@@ -115,9 +115,26 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
 
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoProjectContract
-    extra = 0
+    extra = 1
     fields = ("billing_type", "amount", "start_date", "end_date", "note")
     classes = ["collapse"]
+
+    def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        """Pre-fill the new contract row's period with the project's dates so the admin user
+        sees the defaults before saving (the model still backfills them on save if cleared).
+        An untouched pre-filled row is skipped by the formset, so it never creates a contract.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj is None or not (obj.start_date or obj.target_date):
+            return formset
+        period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}]
+
+        class PeriodPrefilledFormSet(formset):
+            def __init__(self, *args, **inner_kwargs) -> None:
+                inner_kwargs.setdefault("initial", period_initial)
+                super().__init__(*args, **inner_kwargs)
+
+        return PeriodPrefilledFormSet
 
 
 class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
