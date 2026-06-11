@@ -169,6 +169,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Project category key (e.g. 'ai-development', 'other', 'non-project').",
     )
+    # Human-readable category label for the list/detail view (kippo#39 / T14); `category` stays the key.
+    category_label = serializers.CharField(source="category.label", read_only=True, allow_null=True)
+    # 請求方法 — distinct billing types across the project's contracts (kippo#39 / T14). Read-only;
+    # the billing method moved to KippoProjectContract in kippo#31.
+    billing_types = serializers.ListField(child=serializers.CharField(), read_only=True)
     # Derived revenue figures (kippo#32 / T13). Read-only — sourced from the contract + billing
     # ledger (kippo#31), so they never drift from the underlying records.
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=0, read_only=True)
@@ -204,6 +209,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "phase_display",
             "confidence",
             "category",
+            "category_label",
+            "billing_types",
             "slack_channel_name",
             "slack_notification_channel_name",
             "project_manager",
@@ -245,6 +252,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "customer_document_url",  # linked customer's contract-folder URL (kippo#34 / T04)
             "phase_display",  # human-readable status label (kippo#37 / T10)
             "confidence",  # derived from phase (kippo#36 / T09)
+            "category_label",  # human-readable category label (kippo#39 / T14)
+            "billing_types",  # distinct contract billing types (kippo#39 / T14)
             "total_revenue",  # ledger-derived (kippo#32 / T13)
             "contract_amount",  # contract-derived (kippo#32 / T13)
             "closed_datetime",
