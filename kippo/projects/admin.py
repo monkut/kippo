@@ -116,7 +116,7 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoProjectContract
     extra = 0
-    fields = ("billing_type", "amount", "start_date", "end_date", "billing_date", "note")
+    fields = ("billing_type", "amount", "start_date", "end_date", "note")
     classes = ["collapse"]
 
 

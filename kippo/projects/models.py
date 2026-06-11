@@ -763,7 +763,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         max_length=20,
         choices=VALID_BILLING_TYPES,
         default=DEFAULT_BILLING_TYPE,
-        help_text=_("'delivery' (納品, amount billed once at billing_date) or 'monthly' (月額, amount accrues per month)."),
+        help_text=_("'delivery' (納品, amount billed once at the project billing_date) or 'monthly' (月額, amount accrues per month)."),
     )
     amount = models.DecimalField(
         _("金額"),
@@ -775,19 +775,13 @@ class KippoProjectContract(UserCreatedBaseModel):
         _("契約開始日"),
         null=True,
         blank=True,
-        help_text=_("Contract period start. Defaults to the project start_date when left blank."),
+        help_text=_("Contract period start. Auto-populated from the project start_date when left blank."),
     )
     end_date = models.DateField(
         _("契約終了日"),
         null=True,
         blank=True,
-        help_text=_("Contract period end. Defaults to the project target_date when left blank."),
-    )
-    billing_date = models.DateField(
-        _("請求日"),
-        null=True,
-        blank=True,
-        help_text=_("'delivery' only: date the contract amount is billed. Defaults to the project billing_date when left blank."),
+        help_text=_("Contract period end. Auto-populated from the project target_date when left blank."),
     )
     note = models.CharField(
         _("備考"),
@@ -805,24 +799,26 @@ class KippoProjectContract(UserCreatedBaseModel):
         return f"KippoProjectContract({self.project.name} {self.billing_type} ¥{self.amount})"
 
     def clean(self):
-        start, end = self.period
-        if start and end and start > end:
+        if self.start_date and self.end_date and self.start_date > self.end_date:
             raise ValidationError(_("Contract start_date is after end_date"))
 
-    @property
-    def period(self) -> tuple[datetime.date | None, datetime.date | None]:
-        """Effective contract period, falling back to the project period."""
-        return (self.start_date or self.project.start_date, self.end_date or self.project.target_date)
+    def save(self, *args, **kwargs):
+        # auto-populate the contract period from the project when left blank
+        if not self.start_date:
+            self.start_date = self.project.start_date
+        if not self.end_date:
+            self.end_date = self.project.target_date
+        super().save(*args, **kwargs)
 
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).
 
         - monthly: one entry (dated the first of the month, amount=``amount``) per calendar
-          month the contract period overlaps. A month is included if any part of it falls
-          within the period; the full amount accrues for each such month (no proration —
-          adjust the individual entry afterwards if proration is needed).
-        - delivery: one entry of ``amount`` at ``billing_date`` (falling back to the
-          project's billing_date, which itself defaults to the project target_date).
+          month the contract period [start_date, end_date] overlaps. A month is included if
+          any part of it falls within the period; the full amount accrues for each such month
+          (no proration — adjust the individual entry afterwards if proration is needed).
+        - delivery: one entry of ``amount`` at the project's billing_date (which itself
+          defaults to the project target_date).
 
         Idempotent: dates that already have an entry (including manually adjusted ones) are
         left untouched. Returns only the newly created entries. Returns [] when the dates
@@ -832,17 +828,16 @@ class KippoProjectContract(UserCreatedBaseModel):
         missing_entries = []
 
         if self.billing_type == BILLING_TYPE_MONTHLY:
-            period_start, period_end = self.period
-            if not period_start or not period_end:
+            if not self.start_date or not self.end_date:
                 return []
-            current = first_of_month(period_start)
-            end = first_of_month(period_end)
+            current = first_of_month(self.start_date)
+            end = first_of_month(self.end_date)
             while current <= end:
                 if current not in existing_dates:
                     missing_entries.append(self._build_entry(current, created_by))
                 current = first_of_next_month(current)
         else:  # delivery
-            delivery_date = self.billing_date or self.project.billing_date
+            delivery_date = self.project.billing_date
             if not delivery_date:
                 return []
             if delivery_date not in existing_dates:

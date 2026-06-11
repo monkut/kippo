@@ -40,7 +40,7 @@ class ContractFieldsTestCase(TestCase):
         self.assertNotIn("billing_method", kippoproject_fieldnames)
         self.assertNotIn("monthly_amount", kippoproject_fieldnames)
 
-    def test_period_falls_back_to_project_period(self):
+    def test_blank_period_auto_populated_from_project_on_save(self):
         self.project.start_date = datetime.date(2026, 1, 1)
         self.project.target_date = datetime.date(2026, 6, 30)
         self.project.save()
@@ -49,9 +49,11 @@ class ContractFieldsTestCase(TestCase):
             billing_type=BILLING_TYPE_MONTHLY,
             amount=Decimal("300000"),
         )
-        self.assertEqual(contract.period, (datetime.date(2026, 1, 1), datetime.date(2026, 6, 30)))
+        contract.refresh_from_db()
+        self.assertEqual(contract.start_date, datetime.date(2026, 1, 1))
+        self.assertEqual(contract.end_date, datetime.date(2026, 6, 30))
 
-    def test_explicit_contract_period_overrides_project_period(self):
+    def test_explicit_contract_period_preserved_on_save(self):
         self.project.start_date = datetime.date(2026, 1, 1)
         self.project.target_date = datetime.date(2026, 12, 31)
         self.project.save()
@@ -62,7 +64,9 @@ class ContractFieldsTestCase(TestCase):
             start_date=datetime.date(2026, 3, 1),
             end_date=datetime.date(2026, 5, 31),
         )
-        self.assertEqual(contract.period, (datetime.date(2026, 3, 1), datetime.date(2026, 5, 31)))
+        contract.refresh_from_db()
+        self.assertEqual(contract.start_date, datetime.date(2026, 3, 1))
+        self.assertEqual(contract.end_date, datetime.date(2026, 5, 31))
 
     def test_clean_rejects_inverted_period(self):
         contract = KippoProjectContract(
@@ -174,7 +178,7 @@ class MonthlyContractGenerationTestCase(TestCase):
             ],
         )
 
-    def test_period_falls_back_to_project_period(self):
+    def test_auto_populated_period_generates_from_project_dates(self):
         self.project.start_date = datetime.date(2026, 1, 1)
         self.project.target_date = datetime.date(2026, 3, 31)
         self.project.save()
@@ -242,12 +246,13 @@ class DeliveryContractGenerationTestCase(TestCase):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
 
-    def test_delivery_generates_single_entry_at_contract_billing_date(self):
+    def test_delivery_generates_single_entry_at_project_billing_date(self):
+        self.project.billing_date = datetime.date(2026, 9, 30)
+        self.project.save()
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
             amount=Decimal("2000000"),
-            billing_date=datetime.date(2026, 9, 30),
         )
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 1)
@@ -255,7 +260,7 @@ class DeliveryContractGenerationTestCase(TestCase):
         self.assertEqual(created[0].amount, Decimal("2000000"))
         self.assertEqual(created[0].contract, contract)
 
-    def test_delivery_falls_back_to_project_billing_date(self):
+    def test_delivery_uses_project_billing_date_target_date_default(self):
         # project.billing_date defaults to target_date on save
         self.project.billing_date = None
         self.project.target_date = datetime.date(2026, 9, 30)
@@ -270,11 +275,12 @@ class DeliveryContractGenerationTestCase(TestCase):
         self.assertEqual(created[0].billing_date, datetime.date(2026, 9, 30))
 
     def test_delivery_generation_is_idempotent(self):
+        self.project.billing_date = datetime.date(2026, 9, 30)
+        self.project.save()
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
             amount=Decimal("2000000"),
-            billing_date=datetime.date(2026, 9, 30),
         )
         self.assertEqual(len(contract.generate_billing_entries()), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
