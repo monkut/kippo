@@ -156,6 +156,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     project_manager_username = serializers.CharField(source="project_manager.username", read_only=True, allow_null=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True)
+    # 契約書フォルダURL (kippo#34 / T04): the linked customer's document_url, shown read-only on the
+    # project (edited via the customer). Lets the project create/edit form display the contract folder.
+    customer_document_url = serializers.URLField(source="customer.document_url", read_only=True, allow_null=True)
     # Human-readable project status label for `phase` (kippo#37 / T10). `phase` stays the editable key.
     phase_display = serializers.CharField(source="get_phase_display", read_only=True)
     # category is a FK to KippoProjectOrganizationCategory; expose it as the category key string for
@@ -193,6 +196,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "organization_name",
             "customer",
             "customer_name",
+            "customer_document_url",
             "name",
             "slug",
             "columnset",
@@ -238,6 +242,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "organization_name",
             "customer_name",
             "project_manager_username",
+            "customer_document_url",  # linked customer's contract-folder URL (kippo#34 / T04)
             "phase_display",  # human-readable status label (kippo#37 / T10)
             "confidence",  # derived from phase (kippo#36 / T09)
             "total_revenue",  # ledger-derived (kippo#32 / T13)

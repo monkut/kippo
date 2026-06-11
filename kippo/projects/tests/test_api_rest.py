@@ -174,6 +174,56 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["total_revenue"], "0")
         self.assertEqual(data["contract_amount"], "0")
 
+    def test_customer_link_and_contract_folder_url(self):
+        """Project create/edit can set the customer; the contract-folder URL (customer.document_url)
+        is exposed read-only on the project (kippo#34 / T04).
+        """
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Acme Co",
+            document_url="https://drive.example.com/acme/contracts",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        # link the customer via the project edit API
+        patch = self.client.patch(url, {"customer": str(customer.id)}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.OK)
+        data = patch.json()
+        self.assertEqual(data["customer"], str(customer.id))
+        self.assertEqual(data["customer_name"], "Acme Co")
+        # contract-folder URL surfaces from the linked customer
+        self.assertEqual(data["customer_document_url"], "https://drive.example.com/acme/contracts")
+
+    def test_customer_document_url_null_without_customer(self):
+        """customer_document_url is null when the project has no customer (kippo#34 / T04)."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        data = self.client.get(url).json()
+        self.assertIsNone(data["customer_document_url"])
+
+    def test_contract_folder_url_is_read_only_on_project(self):
+        """Writing customer_document_url through the project is ignored — edit via the customer (kippo#34 / T04)."""
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Beta Co",
+            document_url="https://drive.example.com/beta",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.project.customer = customer
+        self.project.save()
+
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"customer_document_url": "https://evil.example.com"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        customer.refresh_from_db()
+        self.assertEqual(customer.document_url, "https://drive.example.com/beta")  # unchanged
+
     def test_filter_by_is_active(self):
         """Test filtering projects by is_active parameter.
 
