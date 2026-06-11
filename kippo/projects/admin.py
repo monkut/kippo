@@ -57,6 +57,8 @@ from .models import (
     CollectIssuesAction,
     KippoMilestone,
     KippoProject,
+    KippoProjectBillingEntry,
+    KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
@@ -108,6 +110,38 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
     model = ProjectMonthlyAssignment
     extra = 0
     fields = ("user", "month", "percentage", "is_confirmed")
+    classes = ["collapse"]
+
+
+class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectContract
+    extra = 1
+    fields = ("billing_type", "amount", "start_date", "end_date", "note")
+    classes = ["collapse"]
+
+    def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        """Pre-fill the new contract row's period with the project's dates so the admin user
+        sees the defaults before saving (the model still backfills them on save if cleared).
+        An untouched pre-filled row is skipped by the formset, so it never creates a contract.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj is None or not (obj.start_date or obj.target_date):
+            return formset
+        period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}]
+
+        class PeriodPrefilledFormSet(formset):
+            def __init__(self, *args, **inner_kwargs) -> None:
+                inner_kwargs.setdefault("initial", period_initial)
+                super().__init__(*args, **inner_kwargs)
+
+        return PeriodPrefilledFormSet
+
+
+class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectBillingEntry
+    extra = 0
+    fields = ("billing_date", "amount", "contract", "note")
+    readonly_fields = ("contract",)
     classes = ["collapse"]
 
 
@@ -752,6 +786,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         add_calendar_links_to_slack_channels_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
+        "generate_billing_entries",
     ]
     exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
     fieldsets = [
@@ -777,6 +812,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "allocated_staff_days",
                     "estimated_completion_date",
                 ),
+            },
+        ),
+        (
+            _("Billing"),
+            {
+                "classes": ("collapse",),
+                "fields": ("billing_date",),
             },
         ),
         (
@@ -818,6 +860,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
+        KippoProjectContractInline,
+        KippoProjectBillingEntryInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
@@ -953,6 +997,26 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return None
 
     export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
+
+    @admin.action(description=_("契約から請求エントリを生成"))
+    def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+        created_count = 0
+        skipped_names = []
+        for project in queryset:
+            project_created_count = 0
+            for contract in project.contracts.all():
+                project_created_count += len(contract.generate_billing_entries(created_by=request.user))
+            created_count += project_created_count
+            if not project_created_count:
+                skipped_names.append(project.name)
+        if created_count:
+            self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
+        if skipped_names:
+            self.message_user(
+                request,
+                _("No entries created for: %s (no contract, contract dates unresolved, or already generated)") % ", ".join(skipped_names),
+                level=messages.WARNING,
+            )
 
     @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
