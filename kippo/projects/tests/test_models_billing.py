@@ -141,16 +141,17 @@ class MonthlyContractGenerationTestCase(TestCase):
             end_date=end,
         )
 
-    def test_multi_month_contract_generates_entry_per_month(self):
+    def test_multi_month_contract_generates_month_end_entry_per_month(self):
         contract = self._make_contract(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10))
         created = contract.generate_billing_entries(created_by=self.user)
+        # each accrual month is billed at month-end (月末)
         self.assertEqual(
             [entry.billing_date for entry in created],
             [
-                datetime.date(2026, 1, 1),
-                datetime.date(2026, 2, 1),
-                datetime.date(2026, 3, 1),
-                datetime.date(2026, 4, 1),
+                datetime.date(2026, 1, 31),
+                datetime.date(2026, 2, 28),
+                datetime.date(2026, 3, 31),
+                datetime.date(2026, 4, 30),
             ],
         )
         self.assertTrue(all(entry.amount == Decimal("300000") for entry in created))
@@ -162,7 +163,7 @@ class MonthlyContractGenerationTestCase(TestCase):
         contract = self._make_contract(datetime.date(2026, 3, 1), datetime.date(2026, 3, 31))
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 1)
-        self.assertEqual(created[0].billing_date, datetime.date(2026, 3, 1))
+        self.assertEqual(created[0].billing_date, datetime.date(2026, 3, 31))
         self.assertEqual(created[0].amount, Decimal("300000"))
 
     def test_contract_spanning_year_boundary(self):
@@ -171,10 +172,10 @@ class MonthlyContractGenerationTestCase(TestCase):
         self.assertEqual(
             [entry.billing_date for entry in created],
             [
-                datetime.date(2025, 11, 1),
-                datetime.date(2025, 12, 1),
-                datetime.date(2026, 1, 1),
-                datetime.date(2026, 2, 1),
+                datetime.date(2025, 11, 30),
+                datetime.date(2025, 12, 31),
+                datetime.date(2026, 1, 31),
+                datetime.date(2026, 2, 28),
             ],
         )
 
@@ -202,7 +203,7 @@ class MonthlyContractGenerationTestCase(TestCase):
         # a manually adjusted month (price revision / proration) must survive regeneration
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
         contract.generate_billing_entries()
-        adjusted = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 1))
+        adjusted = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
         adjusted.amount = Decimal("150000")  # prorated month
         adjusted.save()
 
@@ -210,7 +211,7 @@ class MonthlyContractGenerationTestCase(TestCase):
         contract.save()
         created = contract.generate_billing_entries()
         # only the newly added month is created; the adjusted month is untouched
-        self.assertEqual([entry.billing_date for entry in created], [datetime.date(2026, 4, 1)])
+        self.assertEqual([entry.billing_date for entry in created], [datetime.date(2026, 4, 30)])
         adjusted.refresh_from_db()
         self.assertEqual(adjusted.amount, Decimal("150000"))
 
@@ -232,13 +233,13 @@ class MonthlyContractGenerationTestCase(TestCase):
         with self.assertRaises(IntegrityError):
             KippoProjectBillingEntry.objects.create(
                 project=self.project,
-                billing_date=datetime.date(2026, 1, 1),
+                billing_date=datetime.date(2026, 1, 31),
                 amount=Decimal("100"),
             )
 
 
 class DeliveryContractGenerationTestCase(TestCase):
-    """Ledger generation from delivery contracts — single entry at the billing date."""
+    """Ledger generation from delivery contracts — single entry at the contract end_date."""
 
     fixtures = DEFAULT_FIXTURES
 
@@ -246,13 +247,12 @@ class DeliveryContractGenerationTestCase(TestCase):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
 
-    def test_delivery_generates_single_entry_at_project_billing_date(self):
-        self.project.billing_date = datetime.date(2026, 9, 30)
-        self.project.save()
+    def test_delivery_generates_single_entry_at_contract_end_date(self):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
             amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
         )
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 1)
@@ -260,9 +260,8 @@ class DeliveryContractGenerationTestCase(TestCase):
         self.assertEqual(created[0].amount, Decimal("2000000"))
         self.assertEqual(created[0].contract, contract)
 
-    def test_delivery_uses_project_billing_date_target_date_default(self):
-        # project.billing_date defaults to target_date on save
-        self.project.billing_date = None
+    def test_delivery_end_date_auto_populates_from_project_target_date(self):
+        # blank contract end_date is filled from project.target_date on save, then used as the bill date
         self.project.target_date = datetime.date(2026, 9, 30)
         self.project.save()
         contract = KippoProjectContract.objects.create(
@@ -275,12 +274,11 @@ class DeliveryContractGenerationTestCase(TestCase):
         self.assertEqual(created[0].billing_date, datetime.date(2026, 9, 30))
 
     def test_delivery_generation_is_idempotent(self):
-        self.project.billing_date = datetime.date(2026, 9, 30)
-        self.project.save()
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
             amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
         )
         self.assertEqual(len(contract.generate_billing_entries()), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
@@ -311,10 +309,10 @@ class RevenueEntriesTestCase(TestCase):
         self.assertEqual(
             entries,
             [
-                (datetime.date(2026, 1, 1), Decimal("300000")),
-                (datetime.date(2026, 2, 1), Decimal("300000")),
-                (datetime.date(2026, 3, 1), Decimal("300000")),
-                (datetime.date(2026, 4, 1), Decimal("300000")),
+                (datetime.date(2026, 1, 31), Decimal("300000")),
+                (datetime.date(2026, 2, 28), Decimal("300000")),
+                (datetime.date(2026, 3, 31), Decimal("300000")),
+                (datetime.date(2026, 4, 30), Decimal("300000")),
             ],
         )
 
@@ -329,7 +327,7 @@ class RevenueEntriesTestCase(TestCase):
         ]
         self.assertEqual(
             months,
-            [datetime.date(2026, 3, 1), datetime.date(2026, 4, 1), datetime.date(2026, 5, 1)],
+            [datetime.date(2026, 3, 31), datetime.date(2026, 4, 30), datetime.date(2026, 5, 31)],
         )
 
     def test_window_outside_contract_yields_nothing(self):

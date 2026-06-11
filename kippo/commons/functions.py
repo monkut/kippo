@@ -26,3 +26,9 @@ def first_of_next_month(reference: datetime.date) -> datetime.date:
     if month == DECEMBER:
         return datetime.date(year + 1, 1, 1)
     return datetime.date(year, month + 1, 1)
+
+
+def last_of_month(reference: datetime.date) -> datetime.date:
+    """Return the last day of the month containing `reference`."""
+    _, last_day = monthrange(reference.year, reference.month)
+    return reference.replace(day=last_day)

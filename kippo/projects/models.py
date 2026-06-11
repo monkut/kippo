@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 import reversion
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.fields import CommaSeparatedCharField
-from commons.functions import first_of_month, first_of_next_month
+from commons.functions import first_of_month, first_of_next_month, last_of_month
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -763,7 +763,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         max_length=20,
         choices=VALID_BILLING_TYPES,
         default=DEFAULT_BILLING_TYPE,
-        help_text=_("'delivery' (納品, amount billed once at the project billing_date) or 'monthly' (月額, amount accrues per month)."),
+        help_text=_("'delivery' (納品, amount billed once at the contract end_date) or 'monthly' (月額, amount accrues month-end per month)."),
     )
     amount = models.DecimalField(
         _("金額"),
@@ -813,12 +813,13 @@ class KippoProjectContract(UserCreatedBaseModel):
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).
 
-        - monthly: one entry (dated the first of the month, amount=``amount``) per calendar
-          month the contract period [start_date, end_date] overlaps. A month is included if
-          any part of it falls within the period; the full amount accrues for each such month
-          (no proration — adjust the individual entry afterwards if proration is needed).
-        - delivery: one entry of ``amount`` at the project's billing_date (which itself
-          defaults to the project target_date).
+        - monthly: one entry (dated the last day of the month, amount=``amount``) per calendar
+          month the contract period [start_date, end_date] overlaps — Japanese month-end (月末)
+          billing. A month is included if any part of it falls within the period; the full
+          amount accrues for each such month (no proration — adjust the individual entry
+          afterwards if proration is needed).
+        - delivery: one entry of ``amount`` at the contract ``end_date`` (which itself
+          auto-populates from the project target_date).
 
         Idempotent: dates that already have an entry (including manually adjusted ones) are
         left untouched. Returns only the newly created entries. Returns [] when the dates
@@ -833,11 +834,12 @@ class KippoProjectContract(UserCreatedBaseModel):
             current = first_of_month(self.start_date)
             end = first_of_month(self.end_date)
             while current <= end:
-                if current not in existing_dates:
-                    missing_entries.append(self._build_entry(current, created_by))
+                entry_date = last_of_month(current)
+                if entry_date not in existing_dates:
+                    missing_entries.append(self._build_entry(entry_date, created_by))
                 current = first_of_next_month(current)
         else:  # delivery
-            delivery_date = self.project.billing_date
+            delivery_date = self.end_date
             if not delivery_date:
                 return []
             if delivery_date not in existing_dates:
@@ -876,7 +878,7 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
     )
     billing_date = models.DateField(
         _("請求日"),
-        help_text=_("Date the entry is billed/recognized. Monthly-generated entries use the first day of the month."),
+        help_text=_("Date the entry is billed/recognized. Monthly-generated entries use the month-end (月末) date."),
     )
     amount = models.DecimalField(
         _("金額"),
