@@ -754,6 +754,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "id",
         "get_customer_name",
         "name",
+        "get_problem_definition_display",
         "phase",
         "get_category_label",
         "get_confidence_display",
@@ -796,6 +797,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             {
                 "fields": (
                     "name",
+                    "problem_definition",
                     "confidence",
                     "project_manager",
                     "meeting_calendar_url_field",
@@ -840,7 +842,6 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "github_project_html_url",
                     "github_project_api_nodeid",
                     "docbase_tag",
-                    "problem_definition",
                 ),
             },
         ),
@@ -916,6 +917,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
+
+    @admin.display(description=_("プロジェクト課題定義"))
+    def get_problem_definition_display(self, obj: KippoProject) -> str:
+        # truncated problem definition shown as the project intro in the changelist (kippo#29 / T07)
+        limit = 60
+        text = obj.problem_definition or ""
+        return f"{text[:limit]}…" if len(text) > limit else text
 
     @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
     def get_category_label(self, obj: KippoProject) -> str:
@@ -1331,6 +1339,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "id",
         "get_customer_name",
         "name",
+        "get_problem_definition_display",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
