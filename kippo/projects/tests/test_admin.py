@@ -27,6 +27,7 @@ from projects.admin import (
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
+    KippoProjectContractInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
@@ -36,6 +37,7 @@ from projects.models import (
     ActiveKippoProject,
     KippoMilestone,
     KippoProject,
+    KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
     ProjectColumnSet,
@@ -141,6 +143,50 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         formset = inline.get_formset(request=self.super_user_request, obj=self.project1)
         actual = set(u.id for u in formset.form.base_fields["user"].queryset)
         self.assertEqual(actual, set(self.organization_users))
+
+    def _save_contract_inline(self, project: KippoProject, form_data: dict) -> KippoProjectContract:
+        """Drive the contract inline formset the way the admin does, returning the saved contract."""
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=project)
+        prefix = "contracts"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+        }
+        data.update({f"{prefix}-0-{field}": value for field, value in form_data.items()})
+        formset = formset_class(data=data, instance=project, prefix=prefix)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        return project.contracts.get()
+
+    def test_contract_inline_autopopulates_period_from_project(self):
+        # the contract inline leaves start/end blank -> KippoProjectContract.save() fills them
+        # from the project (start_date / target_date), so the admin user need not retype them.
+        self.project1.start_date = date(2026, 2, 1)
+        self.project1.target_date = date(2026, 8, 31)
+        self.project1.save()
+
+        contract = self._save_contract_inline(
+            self.project1,
+            {"billing_type": "monthly", "amount": "300000", "start_date": "", "end_date": "", "note": ""},
+        )
+        self.assertEqual(contract.start_date, date(2026, 2, 1))
+        self.assertEqual(contract.end_date, date(2026, 8, 31))
+
+    def test_contract_inline_preserves_explicit_period(self):
+        # an explicitly entered period is not overwritten by the project defaults
+        self.project1.start_date = date(2026, 2, 1)
+        self.project1.target_date = date(2026, 8, 31)
+        self.project1.save()
+
+        contract = self._save_contract_inline(
+            self.project1,
+            {"billing_type": "monthly", "amount": "300000", "start_date": "2026-03-15", "end_date": "2026-05-15", "note": ""},
+        )
+        self.assertEqual(contract.start_date, date(2026, 3, 15))
+        self.assertEqual(contract.end_date, date(2026, 5, 15))
 
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):
