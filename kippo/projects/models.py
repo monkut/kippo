@@ -178,17 +178,16 @@ PHASE_CONFIDENCE = {
     "lost": 0,
 }
 
-# Billing method (請求方法) — kippo#31 / T11,T12.
-# "delivery" (納品): revenue billed once at billing_date (the existing single-point model).
-# "monthly" (月額): revenue accrues every month within the project period [start_date, target_date].
-BILLING_METHOD_DELIVERY = "delivery"
-BILLING_METHOD_MONTHLY = "monthly"
-VALID_BILLING_METHODS = (
-    (BILLING_METHOD_DELIVERY, _("納品")),
-    (BILLING_METHOD_MONTHLY, _("月額")),
+# Contract billing type (請求方法) — kippo#31 / T11,T12.
+# "delivery" (納品): the contract amount is billed once at the contract's billing_date.
+# "monthly" (月額): the contract amount accrues every month within the contract period.
+BILLING_TYPE_DELIVERY = "delivery"
+BILLING_TYPE_MONTHLY = "monthly"
+VALID_BILLING_TYPES = (
+    (BILLING_TYPE_DELIVERY, _("納品")),
+    (BILLING_TYPE_MONTHLY, _("月額")),
 )
-# Default to delivery so existing projects keep their single-point billing semantics on migration.
-DEFAULT_BILLING_METHOD = BILLING_METHOD_DELIVERY
+DEFAULT_BILLING_TYPE = BILLING_TYPE_DELIVERY
 
 
 class KippoProjectOrganizationCategory(UserCreatedBaseModel):
@@ -366,21 +365,6 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("Date the project is billed. Defaults to the target date when left blank."),
     )
-    billing_method = models.CharField(
-        _("請求方法"),
-        max_length=20,
-        choices=VALID_BILLING_METHODS,
-        default=DEFAULT_BILLING_METHOD,
-        help_text=_("Billing method: 'delivery' (納品, billed once) or 'monthly' (月額, recurring per month)."),
-    )
-    monthly_amount = models.DecimalField(
-        _("月額金額"),
-        max_digits=12,
-        decimal_places=0,
-        null=True,
-        blank=True,
-        help_text=_("Monthly billed amount (JPY). Only meaningful when billing_method is 'monthly'."),
-    )
     document_folder_url = models.URLField(
         _("ドキュメント保管URL"),
         blank=True,
@@ -418,43 +402,6 @@ class KippoProject(UserCreatedBaseModel):
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
 
-    def generate_monthly_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
-        """Populate the billing ledger from the monthly template fields (kippo#31 / T12).
-
-        Creates one ``KippoProjectBillingEntry`` (dated the first of the month, amount=monthly_amount)
-        per calendar month that the project period [start_date, target_date] overlaps. A month is
-        included if any part of it falls within the period; the full monthly_amount accrues for each
-        such month (no proration — adjust the individual entry afterwards if proration is needed).
-
-        Idempotent: months that already have an entry (including manually adjusted ones) are left
-        untouched. Returns only the newly created entries.
-
-        No-op (returns []) when billing_method is not 'monthly' or when
-        monthly_amount / start_date / target_date are not all set.
-        """
-        if self.billing_method != BILLING_METHOD_MONTHLY:
-            return []
-        if self.monthly_amount is None or not self.start_date or not self.target_date:
-            return []
-
-        existing_dates = set(self.billing_entries.values_list("billing_date", flat=True))
-        missing_entries = []
-        current = first_of_month(self.start_date)
-        end = first_of_month(self.target_date)
-        while current <= end:
-            if current not in existing_dates:
-                missing_entries.append(
-                    KippoProjectBillingEntry(
-                        project=self,
-                        billing_date=current,
-                        amount=self.monthly_amount,
-                        created_by=created_by,
-                        updated_by=created_by,
-                    )
-                )
-            current = first_of_next_month(current)
-        return KippoProjectBillingEntry.objects.bulk_create(missing_entries)
-
     def revenue_entries(
         self,
         window_start: datetime.date | None = None,
@@ -462,10 +409,10 @@ class KippoProject(UserCreatedBaseModel):
     ) -> list[tuple[datetime.date, "Decimal"]]:
         """Revenue from the billing ledger as ``(billing_date, amount)`` tuples (kippo#31 / T12).
 
-        The ledger is the single source of truth for project revenue regardless of billing_method
-        (delivery projects record their single billing, monthly projects their generated months),
-        so there is no double counting. The optional window is clamped by month (an entry is
-        included if its month overlaps [window_start, window_end]).
+        The ledger is the single source of truth for project revenue regardless of contract
+        billing type (delivery contracts record their single billing, monthly contracts their
+        generated months), so there is no double counting. The optional window is clamped by
+        month (an entry is included if its month overlaps [window_start, window_end]).
         """
         entries = self.billing_entries.all()
         if window_start:
@@ -809,18 +756,137 @@ class ActiveKippoProject(KippoProject):
         verbose_name_plural = verbose_name
 
 
+class KippoProjectContract(UserCreatedBaseModel):
+    """The agreed billing terms for a project (kippo#31 / T11) — *how* the project is billed.
+
+    Terms live here rather than on ``KippoProject`` so a delivery project never carries a
+    meaningless monthly field, and renewals/amendments are additional rows instead of
+    overwrites. Billing *events* live in the ``KippoProjectBillingEntry`` ledger, generated
+    from these terms via ``generate_billing_entries()``.
+    """
+
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="contracts")
+    billing_type = models.CharField(
+        _("請求方法"),
+        max_length=20,
+        choices=VALID_BILLING_TYPES,
+        default=DEFAULT_BILLING_TYPE,
+        help_text=_("'delivery' (納品, amount billed once at billing_date) or 'monthly' (月額, amount accrues per month)."),
+    )
+    amount = models.DecimalField(
+        _("金額"),
+        max_digits=12,
+        decimal_places=0,
+        help_text=_("JPY. Contract total for 'delivery'; per-month amount for 'monthly'."),
+    )
+    start_date = models.DateField(
+        _("契約開始日"),
+        null=True,
+        blank=True,
+        help_text=_("Contract period start. Defaults to the project start_date when left blank."),
+    )
+    end_date = models.DateField(
+        _("契約終了日"),
+        null=True,
+        blank=True,
+        help_text=_("Contract period end. Defaults to the project target_date when left blank."),
+    )
+    billing_date = models.DateField(
+        _("請求日"),
+        null=True,
+        blank=True,
+        help_text=_("'delivery' only: date the contract amount is billed. Defaults to the project billing_date when left blank."),
+    )
+    note = models.CharField(
+        _("備考"),
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        verbose_name = _("契約")
+        verbose_name_plural = verbose_name
+        ordering = ("created_datetime",)
+
+    def __str__(self) -> str:
+        return f"KippoProjectContract({self.project.name} {self.billing_type} ¥{self.amount})"
+
+    def clean(self):
+        start, end = self.period
+        if start and end and start > end:
+            raise ValidationError(_("Contract start_date is after end_date"))
+
+    @property
+    def period(self) -> tuple[datetime.date | None, datetime.date | None]:
+        """Effective contract period, falling back to the project period."""
+        return (self.start_date or self.project.start_date, self.end_date or self.project.target_date)
+
+    def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
+        """Populate the project's billing ledger from these terms (kippo#31 / T12).
+
+        - monthly: one entry (dated the first of the month, amount=``amount``) per calendar
+          month the contract period overlaps. A month is included if any part of it falls
+          within the period; the full amount accrues for each such month (no proration —
+          adjust the individual entry afterwards if proration is needed).
+        - delivery: one entry of ``amount`` at ``billing_date`` (falling back to the
+          project's billing_date, which itself defaults to the project target_date).
+
+        Idempotent: dates that already have an entry (including manually adjusted ones) are
+        left untouched. Returns only the newly created entries. Returns [] when the dates
+        needed for the billing_type are not resolvable.
+        """
+        existing_dates = set(self.project.billing_entries.values_list("billing_date", flat=True))
+        missing_entries = []
+
+        if self.billing_type == BILLING_TYPE_MONTHLY:
+            period_start, period_end = self.period
+            if not period_start or not period_end:
+                return []
+            current = first_of_month(period_start)
+            end = first_of_month(period_end)
+            while current <= end:
+                if current not in existing_dates:
+                    missing_entries.append(self._build_entry(current, created_by))
+                current = first_of_next_month(current)
+        else:  # delivery
+            delivery_date = self.billing_date or self.project.billing_date
+            if not delivery_date:
+                return []
+            if delivery_date not in existing_dates:
+                missing_entries.append(self._build_entry(delivery_date, created_by))
+
+        return KippoProjectBillingEntry.objects.bulk_create(missing_entries)
+
+    def _build_entry(self, billing_date: datetime.date, created_by: KippoUser | None) -> "KippoProjectBillingEntry":
+        return KippoProjectBillingEntry(
+            project=self.project,
+            contract=self,
+            billing_date=billing_date,
+            amount=self.amount,
+            created_by=created_by,
+            updated_by=created_by,
+        )
+
+
 class KippoProjectBillingEntry(UserCreatedBaseModel):
     """A single billing/revenue entry in a project's billing ledger (kippo#31 / T11, T12).
 
-    The ledger is the single source of truth for project revenue:
-
-    - delivery (納品) projects: one entry on the project's billing date.
-    - monthly (月額) projects: one entry per calendar month over the project period, generated
-      from ``KippoProject.monthly_amount`` via ``generate_monthly_billing_entries()``. Individual
-      months can then be adjusted (price revision, proration) without touching the template.
+    The ledger is the single source of truth for project revenue. Entries are generated from
+    the project's ``KippoProjectContract`` terms (one entry for a delivery contract, one per
+    month for a monthly contract) and individual entries can then be adjusted (price revision,
+    proration) or added manually without touching the contract.
     """
 
     project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="billing_entries")
+    contract = models.ForeignKey(
+        KippoProjectContract,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="billing_entries",
+        help_text=_("Contract the entry was generated from (blank for manually added entries)."),
+    )
     billing_date = models.DateField(
         _("請求日"),
         help_text=_("Date the entry is billed/recognized. Monthly-generated entries use the first day of the month."),

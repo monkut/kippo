@@ -213,8 +213,6 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "target_date",
             "actual_date",
             "billing_date",
-            "billing_method",
-            "monthly_amount",
             "document_folder_url",
             "docbase_tag",
             "problem_definition",

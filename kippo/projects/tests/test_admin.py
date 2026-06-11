@@ -635,7 +635,6 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "category": str(_global_category("upsell-improvement").pk),
                 "columnset": str(self.project1.columnset_id),
                 "start_date": self.current_date.isoformat(),
-                "billing_method": "delivery",
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
@@ -693,7 +692,6 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             "category": str(_global_category(category).pk),
             "columnset": str(self.columnset.pk),
             "start_date": self.current_date.isoformat(),
-            "billing_method": "delivery",
         }
         if parent_project_id:
             data["parent_project"] = parent_project_id

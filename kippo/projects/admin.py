@@ -58,6 +58,7 @@ from .models import (
     KippoMilestone,
     KippoProject,
     KippoProjectBillingEntry,
+    KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
@@ -112,10 +113,18 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
     classes = ["collapse"]
 
 
+class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+    model = KippoProjectContract
+    extra = 0
+    fields = ("billing_type", "amount", "start_date", "end_date", "billing_date", "note")
+    classes = ["collapse"]
+
+
 class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "note")
+    fields = ("billing_date", "amount", "contract", "note")
+    readonly_fields = ("contract",)
     classes = ["collapse"]
 
 
@@ -760,7 +769,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         add_calendar_links_to_slack_channels_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
-        "generate_monthly_billing_entries",
+        "generate_billing_entries",
     ]
     exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
     fieldsets = [
@@ -792,11 +801,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             _("Billing"),
             {
                 "classes": ("collapse",),
-                "fields": (
-                    "billing_method",
-                    "billing_date",
-                    "monthly_amount",
-                ),
+                "fields": ("billing_date",),
             },
         ),
         (
@@ -838,6 +843,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
+        KippoProjectContractInline,
         KippoProjectBillingEntryInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
@@ -975,23 +981,23 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     export_kippoprojectstatus_comments_csv.description = _("Download Project Comments CSV")
 
-    @admin.action(description=_("月次請求エントリを生成 (月額プロジェクト)"))
-    def generate_monthly_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+    @admin.action(description=_("契約から請求エントリを生成"))
+    def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
         created_count = 0
         skipped_names = []
         for project in queryset:
-            created_entries = project.generate_monthly_billing_entries(created_by=request.user)
-            if created_entries:
-                created_count += len(created_entries)
-            else:
+            project_created_count = 0
+            for contract in project.contracts.all():
+                project_created_count += len(contract.generate_billing_entries(created_by=request.user))
+            created_count += project_created_count
+            if not project_created_count:
                 skipped_names.append(project.name)
         if created_count:
             self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
         if skipped_names:
             self.message_user(
                 request,
-                _("No entries created for: %s (not monthly, missing monthly_amount/start_date/target_date, or already generated)")
-                % ", ".join(skipped_names),
+                _("No entries created for: %s (no contract, contract dates unresolved, or already generated)") % ", ".join(skipped_names),
                 level=messages.WARNING,
             )
 
