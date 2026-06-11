@@ -174,6 +174,36 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["total_revenue"], "0")
         self.assertEqual(data["contract_amount"], "0")
 
+    def test_list_exposes_category_label_and_billing_types(self):
+        """List/detail expose category_label + distinct contract billing_types (kippo#39 / T14)."""
+        from decimal import Decimal
+
+        # two contracts on the project: one monthly, one delivery -> distinct billing_types
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="monthly",
+            amount=Decimal("300000"),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            amount=Decimal("1000000"),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        list_data = self.client.get(f"{settings.URL_PREFIX}/api/projects/").json()
+        row = next(r for r in list_data["results"] if r["id"] == str(self.project.id))
+        self.assertEqual(row["category_label"], self.project.category.label)
+        self.assertEqual(row["billing_types"], ["delivery", "monthly"])  # sorted distinct
+
+    def test_billing_types_empty_without_contracts(self):
+        """billing_types is an empty list when the project has no contracts (kippo#39 / T14)."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        self.assertEqual(self.client.get(url).json()["billing_types"], [])
+
     def test_problem_definition_shown_in_list_and_detail(self):
         """problem_definition (reused as the project intro) is writable and shown in list/detail (kippo#29 / T07)."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"

@@ -423,6 +423,15 @@ class KippoProject(UserCreatedBaseModel):
         """契約金額 (kippo#32 / T13): total contracted value across the project's contracts."""
         return sum((contract.contract_value for contract in self.contracts.all()), Decimal(0))
 
+    @property
+    def billing_types(self) -> list[str]:
+        """請求方法 (kippo#39 / T14): distinct billing types across the project's contracts.
+
+        After kippo#31 the billing method lives on KippoProjectContract; a project may have
+        several contracts (e.g. renewals), so the list view shows the distinct set.
+        """
+        return sorted({contract.billing_type for contract in self.contracts.all()})
+
     def developers(self):
         from tasks.models import KippoTask
 
