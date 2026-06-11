@@ -754,6 +754,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "id",
         "get_customer_name",
         "name",
+        "get_introduction_display",
         "phase",
         "get_category_label",
         "get_confidence_display",
@@ -770,7 +771,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     )
     list_display_links = ("id", "name")
     list_select_related = ("customer", "category")
-    search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
+    search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "introduction", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
@@ -796,6 +797,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             {
                 "fields": (
                     "name",
+                    "introduction",
                     "confidence",
                     "project_manager",
                     "meeting_calendar_url_field",
@@ -916,6 +918,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
+
+    @admin.display(description=_("紹介文"))
+    def get_introduction_display(self, obj: KippoProject) -> str:
+        # truncated project introduction for the changelist (kippo#29 / T07)
+        limit = 60
+        text = obj.introduction or ""
+        return f"{text[:limit]}…" if len(text) > limit else text
 
     @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
     def get_category_label(self, obj: KippoProject) -> str:
@@ -1331,6 +1340,7 @@ class ActiveKippoProjectAdmin(KippoProjectAdmin):
         "id",
         "get_customer_name",
         "name",
+        "get_introduction_display",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",

@@ -226,6 +226,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "document_folder_url",
             "docbase_tag",
             "problem_definition",
+            "introduction",
             "survey_issued",
             "assignment_rates",
             "has_requirements",

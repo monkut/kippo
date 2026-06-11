@@ -188,6 +188,17 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         self.assertEqual(contract.start_date, date(2026, 3, 15))
         self.assertEqual(contract.end_date, date(2026, 5, 15))
 
+    def test_introduction_display_truncates_long_text(self):
+        # changelist column shows a truncated introduction (kippo#29 / T07)
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.project1.introduction = "x" * 100
+        self.assertEqual(modeladmin.get_introduction_display(self.project1), "x" * 60 + "…")
+
+    def test_introduction_display_short_text_untruncated(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.project1.introduction = "short intro"
+        self.assertEqual(modeladmin.get_introduction_display(self.project1), "short intro")
+
     def test_contract_inline_extra_form_prefilled_with_project_period(self):
         # the blank "add contract" row shows the project's dates as initial values
         self.project1.start_date = date(2026, 2, 1)

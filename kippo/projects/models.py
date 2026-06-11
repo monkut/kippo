@@ -372,6 +372,12 @@ class KippoProject(UserCreatedBaseModel):
         default="",
         help_text=_("Define the problem that the project is set out to solve."),
     )
+    introduction = models.TextField(
+        _("プロジェクト紹介文"),
+        blank=True,
+        default="",
+        help_text=_("Short introduction/description of the project, shown in the project list and detail (kippo#29 / T07)."),
+    )
     survey_issued = models.BooleanField(default=False, verbose_name=_("アンケート発行済み"), help_text=_("Update when survey is issued!"))
     survey_issued_datetime = models.DateTimeField(
         null=True,
