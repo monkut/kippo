@@ -2,7 +2,8 @@ import datetime
 import logging
 import uuid
 from collections import Counter
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import Any
 from urllib.parse import quote, urlencode
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
@@ -35,9 +36,6 @@ from .definitions import (
 )
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
-
-if TYPE_CHECKING:
-    from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +408,20 @@ class KippoProject(UserCreatedBaseModel):
         if window_end:
             entries = entries.filter(billing_date__lt=first_of_next_month(window_end))
         return [(entry.billing_date, entry.amount) for entry in entries]
+
+    @property
+    def total_revenue(self) -> Decimal:
+        """トータル売上 (kippo#32 / T13): realized/accrued revenue — the billing-ledger total.
+
+        Derived from the ledger (the single source of truth established in kippo#31), so it
+        never drifts from the per-entry billing records.
+        """
+        return sum((amount for _, amount in self.revenue_entries()), Decimal(0))
+
+    @property
+    def contract_amount(self) -> Decimal:
+        """契約金額 (kippo#32 / T13): total contracted value across the project's contracts."""
+        return sum((contract.contract_value for contract in self.contracts.all()), Decimal(0))
 
     def developers(self):
         from tasks.models import KippoTask
@@ -807,6 +819,30 @@ class KippoProjectContract(UserCreatedBaseModel):
         if not self.end_date:
             self.end_date = self.project.target_date
         super().save(*args, **kwargs)
+
+    def _month_count(self) -> int:
+        """Number of calendar months the contract period [start_date, end_date] spans.
+
+        Matches the month set generate_billing_entries() bills for a monthly contract.
+        """
+        if not self.start_date or not self.end_date:
+            return 0
+        count = 0
+        current = first_of_month(self.start_date)
+        end = first_of_month(self.end_date)
+        while current <= end:
+            count += 1
+            current = first_of_next_month(current)
+        return count
+
+    @property
+    def contract_value(self) -> Decimal:
+        """Total contracted value (kippo#32 / T13): the full ``amount`` for a delivery
+        contract, or ``amount`` × number of billed months for a monthly contract.
+        """
+        if self.billing_type == BILLING_TYPE_MONTHLY:
+            return self.amount * self._month_count()
+        return self.amount
 
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).

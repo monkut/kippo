@@ -774,8 +774,9 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
-    # confidence is derived from phase (editable=False) — shown read-only in the form
-    readonly_fields = ("confidence",)
+    # confidence is derived from phase (editable=False); the revenue figures are derived from
+    # the contract + billing ledger (kippo#32 / T13) — all shown read-only in the form
+    readonly_fields = ("confidence", "get_contract_amount_display", "get_total_revenue_display")
     ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
     actions = [
         create_github_organizational_project_action,
@@ -818,7 +819,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             _("Billing"),
             {
                 "classes": ("collapse",),
-                "fields": ("billing_date",),
+                "fields": ("billing_date", "get_contract_amount_display", "get_total_revenue_display"),
             },
         ),
         (
@@ -1017,6 +1018,20 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 _("No entries created for: %s (no contract, contract dates unresolved, or already generated)") % ", ".join(skipped_names),
                 level=messages.WARNING,
             )
+
+    @admin.display(description=_("契約金額"))
+    def get_contract_amount_display(self, obj: KippoProject | None = None) -> str:
+        # derived from the project's contracts (kippo#32 / T13)
+        if obj is None or not obj.pk:
+            return "-"
+        return f"¥{obj.contract_amount:,.0f}"
+
+    @admin.display(description=_("トータル売上"))
+    def get_total_revenue_display(self, obj: KippoProject | None = None) -> str:
+        # derived from the billing ledger (kippo#32 / T13)
+        if obj is None or not obj.pk:
+            return "-"
+        return f"¥{obj.total_revenue:,.0f}"
 
     @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
