@@ -46,6 +46,17 @@ UPSELL_CATEGORY_VALUES = ("upsell-improvement", "upsell-new-proposal", "upsell-n
 KIPPOPROJECT_CATEGORY_MAX_LENGTH = 32
 VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_CATEGORY_CHOICES)
 
+# KippoProjectContract billing type (請求方法) — kippo#31 / T11,T12.
+# "delivery" (納品): the contract amount is billed once at the contract's billing_date.
+# "monthly" (月額): the contract amount accrues every month within the contract period.
+BILLING_TYPE_DELIVERY = "delivery"
+BILLING_TYPE_MONTHLY = "monthly"
+VALID_BILLING_TYPES = (
+    (BILLING_TYPE_DELIVERY, _("納品")),
+    (BILLING_TYPE_MONTHLY, _("月額")),
+)
+DEFAULT_BILLING_TYPE = BILLING_TYPE_DELIVERY
+
 
 class ProjectRoles(StringEnumWithChoices):
     """Roles for project assignment rates."""

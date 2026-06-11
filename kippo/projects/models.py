@@ -24,8 +24,11 @@ from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
 from .definitions import (
+    BILLING_TYPE_MONTHLY,
+    DEFAULT_BILLING_TYPE,
     DEFAULT_PROJECT_CATEGORY_VALUE,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+    VALID_BILLING_TYPES,
     ProjectProgressStatus,
     ProjectRoles,
     ValidCurrencies,
@@ -177,17 +180,6 @@ PHASE_CONFIDENCE = {
     "completed": 100,
     "lost": 0,
 }
-
-# Contract billing type (請求方法) — kippo#31 / T11,T12.
-# "delivery" (納品): the contract amount is billed once at the contract's billing_date.
-# "monthly" (月額): the contract amount accrues every month within the contract period.
-BILLING_TYPE_DELIVERY = "delivery"
-BILLING_TYPE_MONTHLY = "monthly"
-VALID_BILLING_TYPES = (
-    (BILLING_TYPE_DELIVERY, _("納品")),
-    (BILLING_TYPE_MONTHLY, _("月額")),
-)
-DEFAULT_BILLING_TYPE = BILLING_TYPE_DELIVERY
 
 
 class KippoProjectOrganizationCategory(UserCreatedBaseModel):

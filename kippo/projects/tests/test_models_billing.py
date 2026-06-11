@@ -6,10 +6,8 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
+from projects.definitions import BILLING_TYPE_DELIVERY, BILLING_TYPE_MONTHLY, DEFAULT_BILLING_TYPE
 from projects.models import (
-    BILLING_TYPE_DELIVERY,
-    BILLING_TYPE_MONTHLY,
-    DEFAULT_BILLING_TYPE,
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
