@@ -1,18 +1,22 @@
+import datetime
 from typing import TYPE_CHECKING
 
 from accounts.models import KippoUser
 from commons.fields import CommaSeparatedField
 from django.conf import settings
 from django.db.models import Sum
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import (
     FULL_CONFIDENCE_PERCENTAGE,
     SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
+    WEEKLY_EFFORT_CLOSED_MESSAGE,
     ProjectProgressStatus,
     ProjectRoles,
 )
+from .functions import previous_week_startdate
 from .models import (
     KippoProject,
     KippoProjectOrganizationCategory,
@@ -22,6 +26,8 @@ from .models import (
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
+    ProjectWeeklyEffortUnlock,
+    is_weeklyeffort_closed,
 )
 
 if TYPE_CHECKING:
@@ -512,6 +518,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
     # The interactive UI/Slack flows already block negatives; this guards the
     # direct-API and admin paths that previously accepted them.
     hours = serializers.IntegerField(min_value=0, max_value=7 * 24)
+    is_closed = serializers.SerializerMethodField()
 
     class Meta:
         model = ProjectWeeklyEffort
@@ -524,6 +531,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "user_username",
             "user_display_name",
             "hours",
+            "is_closed",
             "created_datetime",
             "updated_datetime",
         ]
@@ -532,9 +540,48 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "project_name",
             "user_username",
             "user_display_name",
+            "is_closed",
             "created_datetime",
             "updated_datetime",
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_closed(self, obj: ProjectWeeklyEffort) -> bool:
+        """週間稼働の締め判定 (T17): 締め日時を過ぎていて有効なアンロックが無い場合 True (編集不可)。"""
+        now = timezone.now()
+        if now < obj.close_datetime:
+            return False
+        return (obj.project.organization_id, obj.user_id, obj.week_start) not in self._active_unlock_keys(now)
+
+    def _active_unlock_keys(self, now: datetime.datetime) -> set:
+        # one query per serialization (instead of one EXISTS per closed row in list responses)
+        if not hasattr(self, "_unlock_keys_cache"):
+            self._unlock_keys_cache = set(
+                ProjectWeeklyEffortUnlock.objects.filter(expires_datetime__gt=now).values_list("organization_id", "user_id", "week_start")
+            )
+        return self._unlock_keys_cache
+
+    def validate(self, attrs: dict) -> dict:
+        """Reject create/update of weekly effort whose week is closed (T17), unless an
+        admin unlock is active for the (organization, user, week_start) (T18).
+        Superusers bypass the check.
+        """
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if request_user is not None and request_user.is_superuser:
+            return attrs
+
+        # an existing (locked) entry may not be modified
+        if self.instance and self.instance.is_closed():
+            raise serializers.ValidationError({"week_start": WEEKLY_EFFORT_CLOSED_MESSAGE}, code="weekly_effort_closed")
+
+        # the target (new) values may not land in a closed week
+        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        week_start = attrs.get("week_start") or (self.instance.week_start if self.instance else previous_week_startdate())
+        effort_user = attrs.get("user") or (self.instance.user if self.instance else request_user)
+        if project and effort_user and is_weeklyeffort_closed(project.organization, effort_user, week_start):
+            raise serializers.ValidationError({"week_start": WEEKLY_EFFORT_CLOSED_MESSAGE}, code="weekly_effort_closed")
+        return attrs
 
     @extend_schema_field(serializers.CharField())
     def get_user_display_name(self, obj: ProjectWeeklyEffort) -> str:

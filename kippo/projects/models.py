@@ -27,8 +27,10 @@ from .definitions import (
     BILLING_TYPE_MONTHLY,
     DEFAULT_BILLING_TYPE,
     DEFAULT_PROJECT_CATEGORY_VALUE,
+    DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
     VALID_BILLING_TYPES,
+    WEEKLY_EFFORT_CLOSE_OFFSET_DAYS,
     ProjectProgressStatus,
     ProjectRoles,
     ValidCurrencies,
@@ -1345,6 +1347,20 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
                 )
 
 
+def get_weeklyeffort_close_datetime(organization: KippoOrganization, week_start: datetime.date) -> datetime.datetime:
+    """週間稼働の締め日時: week_start (月曜) の翌週月曜 + 組織の weekly_project_time_deadline (T17)"""
+    close_date = week_start + datetime.timedelta(days=WEEKLY_EFFORT_CLOSE_OFFSET_DAYS)
+    return datetime.datetime.combine(close_date, organization.weekly_project_time_deadline, tzinfo=settings.JST)
+
+
+def is_weeklyeffort_closed(organization: KippoOrganization, user: KippoUser, week_start: datetime.date, now: datetime.datetime | None = None) -> bool:
+    """締め判定: 締め日時を過ぎていて、有効なアンロックが無ければ編集不可 (T17/T18)"""
+    now = now or timezone.now()
+    if now < get_weeklyeffort_close_datetime(organization, week_start):
+        return False
+    return not ProjectWeeklyEffortUnlock.has_active_unlock(organization=organization, user=user, week_start=week_start, now=now)
+
+
 class ProjectWeeklyEffort(UserCreatedBaseModel):
     week_start = models.DateField(default=previous_week_startdate, help_text="Effort Week Start (MONDAY)")
     project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_project")
@@ -1358,6 +1374,41 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
         verbose_name = _("プロジェクト週間稼働量")
         verbose_name_plural = verbose_name
         unique_together = ("week_start", "project", "user")
+
+    @property
+    def close_datetime(self) -> datetime.datetime:
+        return get_weeklyeffort_close_datetime(self.project.organization, self.week_start)
+
+    def is_closed(self, now: datetime.datetime | None = None) -> bool:
+        return is_weeklyeffort_closed(self.project.organization, self.user, self.week_start, now=now)
+
+
+def default_unlock_expires_datetime() -> datetime.datetime:
+    return timezone.now() + datetime.timedelta(days=DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS)
+
+
+class ProjectWeeklyEffortUnlock(UserCreatedBaseModel):
+    """Adminによる週間稼働アンロック: 特定の週/ユーザの締め後編集を期限付きで許可する (T18)"""
+
+    organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, related_name="projectweeklyeffortunlock_organization")
+    user = models.ForeignKey("accounts.KippoUser", on_delete=models.CASCADE, related_name="projectweeklyeffortunlock_user")
+    week_start = models.DateField(help_text=_("Unlocked Effort Week Start (MONDAY)"))
+    expires_datetime = models.DateTimeField(default=default_unlock_expires_datetime, help_text=_("アンロックの有効期限 (この日時まで編集可能)"))
+
+    class Meta:
+        verbose_name = _("プロジェクト週間稼働アンロック")
+        verbose_name_plural = verbose_name
+        unique_together = ("organization", "user", "week_start")
+
+    @classmethod
+    def has_active_unlock(
+        cls, organization: KippoOrganization, user: KippoUser, week_start: datetime.date, now: datetime.datetime | None = None
+    ) -> bool:
+        now = now or timezone.now()
+        return cls.objects.filter(organization=organization, user=user, week_start=week_start, expires_datetime__gt=now).exists()
+
+    def __str__(self) -> str:
+        return f"{self.user.username} {self.week_start} (expires={self.expires_datetime.isoformat()})"
 
 
 class CollectIssuesAction(UserCreatedBaseModel):

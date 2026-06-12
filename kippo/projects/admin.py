@@ -41,7 +41,7 @@ from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import UPSELL_CATEGORY_VALUES, ProjectProgressStatus
+from .definitions import UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -69,6 +69,8 @@ from .models import (
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
+    ProjectWeeklyEffortUnlock,
+    is_weeklyeffort_closed,
 )
 
 if TYPE_CHECKING:
@@ -196,10 +198,32 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInli
         return qs
 
 
+class ProjectWeeklyEffortInlineFormSet(BaseInlineFormSet):
+    """Blocks non-superusers from adding effort for a closed week (kippo#33 / T17).
+
+    `request_user` is set per-request by ProjectWeeklyEffortAdminInline.get_formset.
+    """
+
+    request_user = None
+
+    def clean(self):
+        super().clean()
+        if self.request_user is None or self.request_user.is_superuser:
+            return
+        for form in self.forms:
+            if not form.has_changed() or not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                continue
+            week_start = form.cleaned_data.get("week_start")
+            effort_user = form.cleaned_data.get("user")
+            if week_start and effort_user and is_weeklyeffort_closed(self.instance.organization, effort_user, week_start):
+                form.add_error("week_start", WEEKLY_EFFORT_CLOSED_MESSAGE)
+
+
 class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectWeeklyEffort
     extra = 1
     fields = ("week_start", "user", "hours")
+    formset = ProjectWeeklyEffortInlineFormSet
 
     def get_queryset(self, request: DjangoRequest):
         # clear the queryset so that no EDITABLE entries are displayed
@@ -214,6 +238,7 @@ class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsSt
         field's normal ModelChoiceField validation rejects a tampered submission server-side.
         """
         formset = super().get_formset(request, obj, **kwargs)
+        formset.request_user = request.user
         if obj:  # parent model
             formset.form.base_fields["user"].initial = request.user
             if request.user.is_superuser:
@@ -1574,8 +1599,33 @@ class CollectIssuesActionAdmin(UserCreatedBaseModelAdmin):
     )
 
 
+class ProjectWeeklyEffortAdminForm(forms.ModelForm):
+    """Blocks non-superusers from creating/moving effort into a closed week (kippo#33 / T17).
+
+    `request_user` is set per-request by ProjectWeeklyEffortAdmin.get_form.
+    """
+
+    request_user = None
+
+    class Meta:
+        model = ProjectWeeklyEffort
+        fields = "__all__"  # noqa: DJ007
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.request_user is None or self.request_user.is_superuser:
+            return cleaned
+        project = cleaned.get("project")
+        week_start = cleaned.get("week_start")
+        effort_user = cleaned.get("user")
+        if project and week_start and effort_user and is_weeklyeffort_closed(project.organization, effort_user, week_start):
+            raise ValidationError(WEEKLY_EFFORT_CLOSED_MESSAGE, code="weekly_effort_closed")
+        return cleaned
+
+
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    form = ProjectWeeklyEffortAdminForm
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
     ordering = ("project", "-week_start", "user")
     search_fields = (
@@ -1583,6 +1633,16 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         "user__last_name",
     )
     actions = ("download_csv", "download_monthly_csv")
+
+    def has_change_permission(self, request: DjangoRequest, obj: ProjectWeeklyEffort | None = None) -> bool:
+        if obj and not request.user.is_superuser and obj.is_closed():
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request: DjangoRequest, obj: ProjectWeeklyEffort | None = None) -> bool:
+        if obj and not request.user.is_superuser and obj.is_closed():
+            return False
+        return super().has_delete_permission(request, obj)
 
     def get_list_filter(self, request: DjangoRequest) -> list:
         current_month_start, current_month_end = get_current_month_date_range()
@@ -1652,6 +1712,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         """Set defaults based on request user"""
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
+        form.request_user = request.user  # consumed by ProjectWeeklyEffortAdminForm.clean (kippo#33 / T17)
         form.base_fields["user"].initial = request.user.id
         try:
             user_initial_organization, user_organizations = get_user_session_organization(request)
@@ -1783,6 +1844,19 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         elif isinstance(original_response, HttpResponseRedirect):
             return original_response
         return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", extra_context)
+
+
+@admin.register(ProjectWeeklyEffortUnlock)
+class ProjectWeeklyEffortUnlockAdmin(UserCreatedBaseModelAdmin):
+    """Adminによる週間稼働アンロック管理 (kippo#33 / T18).
+
+    AllowIsStaffAdminMixin is deliberately NOT applied: staff could otherwise unlock their own
+    closed weeks. Default Django model permissions apply (superusers, or staff explicitly granted).
+    """
+
+    list_display = ("organization", "user", "week_start", "expires_datetime", "created_by", "created_datetime")
+    ordering = ("-week_start", "user")
+    search_fields = ("user__username", "user__last_name")
 
 
 @admin.register(KippoProjectUserStatisfactionResult)

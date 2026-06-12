@@ -303,7 +303,7 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
 
     serializer_class = ProjectWeeklyEffortSerializer
     permission_classes = [IsSuperuserOrReadUpdateCreateOwn]
-    queryset = ProjectWeeklyEffort.objects.all().select_related("project", "user").order_by("-week_start")
+    queryset = ProjectWeeklyEffort.objects.all().select_related("project__organization", "user").order_by("-week_start")
 
     def perform_create(self, serializer: ProjectWeeklyEffortSerializer) -> None:
         """Auto-set the user to the current authenticated user if not provided."""

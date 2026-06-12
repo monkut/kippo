@@ -20,6 +20,16 @@ SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
 # assignments can be confirmed (is_confirmed=True).
 FULL_CONFIDENCE_PERCENTAGE = 100
 
+# ProjectWeeklyEffort for week_start (MONDAY) closes the FOLLOWING Monday at the
+# organization's weekly_project_time_deadline — the same window the weekly report uses (kippo#33 / T17).
+WEEKLY_EFFORT_CLOSE_OFFSET_DAYS = 7
+
+# Default validity period of an admin-issued ProjectWeeklyEffortUnlock (kippo#33 / T18).
+DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS = 7
+
+# Shown by both the REST API and Django admin when a closed week is edited without an unlock.
+WEEKLY_EFFORT_CLOSED_MESSAGE = _("締め日時を過ぎているため編集できません。Adminによるアンロックが必要です。")
+
 # Default (global, organization=null) project categories seeded as KippoProjectOrganizationCategory rows.
 # (key, label, sort_order). KippoProject.category is a FK to KippoProjectOrganizationCategory; these are the
 # org-agnostic defaults an organization inherits until it defines its own categories (kippo#30 / T08, T20).
