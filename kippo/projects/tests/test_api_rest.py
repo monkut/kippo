@@ -638,7 +638,7 @@ class ProjectWeeklyEffortViewSetTestCase(TestCase):
         self.effort1.refresh_from_db()
         self.assertEqual(self.effort1.hours, 40)
 
-    @freeze_time("2024-02-05")  # within the editable window for week 2024-02-01 (monthly close: 2024-03-04 12:05 JST)
+    @freeze_time("2024-02-05")  # within the editable window for week 2024-02-01 (monthly close: 2024-03-11 12:05 JST)
     def test_create_zero_hours_allowed(self):
         """Zero hours is permitted (consistent with the UI's `hours >= 0` create filter)."""
         url = f"{settings.URL_PREFIX}/api/projects/weeklyeffort/"
@@ -948,7 +948,7 @@ class PermissionsTestCase(TestCase):
         foreign_project.refresh_from_db()
         self.assertEqual(foreign_project.name, "Foreign Project")
 
-    @freeze_time("2024-02-05")  # within the editable window for week 2024-02-01 (monthly close: 2024-03-04 12:05 JST)
+    @freeze_time("2024-02-05")  # within the editable window for week 2024-02-01 (monthly close: 2024-03-11 12:05 JST)
     def test_regular_user_can_create_own_weekly_effort(self):
         """Test that regular authenticated users can create their own weekly effort."""
         self.client.force_authenticate(user=self.user)
@@ -1006,7 +1006,7 @@ class PermissionsTestCase(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
 
-    @freeze_time("2024-01-04")  # within the editable window for week 2024-01-01 (monthly close: 2024-02-05 12:05 JST)
+    @freeze_time("2024-01-04")  # within the editable window for week 2024-01-01 (monthly close: 2024-02-12 12:05 JST)
     def test_regular_user_can_update_weekly_effort(self):
         """Test that regular authenticated users can update weekly effort."""
         self.client.force_authenticate(user=self.user)

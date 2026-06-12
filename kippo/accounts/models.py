@@ -85,7 +85,8 @@ class KippoOrganization(UserCreatedBaseModel):
     )
     weekly_effort_close_offset_days = models.PositiveSmallIntegerField(
         default=7,
-        help_text=_("週間稼働の締めまでの日数: 月内最後の有効入力日 (最終月曜) からこの日数の経過で当月分の編集を締める (kippo#33 / T17)"),
+        validators=(MinValueValidator(7),),  # entry starts the week AFTER the target week; users get at least 1 week to enter
+        help_text=_("週間稼働の締めまでの日数: 月内最終週の入力開始日 (最終月曜+7日) からこの日数の経過で当月分の編集を締める (kippo#33 / T17)"),
     )
     slack_api_token = models.CharField(
         max_length=60,

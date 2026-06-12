@@ -1349,12 +1349,14 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
 def get_weeklyeffort_close_datetime(organization: KippoOrganization, week_start: datetime.date) -> datetime.datetime:
     """週間稼働の締め日時 (T17): 締めは月単位 — week_start が属する月の全エントリが同時に締まる。
 
-    締め日 = その月の最終の有効入力日 (月内最後の月曜) + 組織の weekly_effort_close_offset_days 日、
-    時刻は組織の weekly_project_time_deadline。
+    エントリの入力は対象週の翌週から始まるため、月内最終週 (最後の月曜開始) の入力開始日は
+    「最終月曜 + 7日」。締め日はそこから組織の weekly_effort_close_offset_days 日後
+    (最低7日 = 入力期間1週間を保証)、時刻は組織の weekly_project_time_deadline。
     """
     month_last_day = last_of_month(week_start)
     month_last_monday = month_last_day - datetime.timedelta(days=month_last_day.weekday())  # weekday(): Monday == 0
-    close_date = month_last_monday + datetime.timedelta(days=organization.weekly_effort_close_offset_days)
+    month_last_entry_start = month_last_monday + datetime.timedelta(days=7)  # entry for the final week begins the following Monday
+    close_date = month_last_entry_start + datetime.timedelta(days=organization.weekly_effort_close_offset_days)
     return datetime.datetime.combine(close_date, organization.weekly_project_time_deadline, tzinfo=settings.JST)
 
 
