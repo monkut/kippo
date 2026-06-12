@@ -217,6 +217,34 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(row["category_label"], self.project.category.label)
         self.assertEqual(row["billing_types"], ["delivery", "monthly"])  # sorted distinct
 
+    def test_monthly_billing_schedule_exposed_for_per_month_rows(self):
+        """Monthly projects expose a per-month schedule for the list's per-month rows (kippo#39 / T15)."""
+        from decimal import Decimal
+
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="monthly",
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 3, 31),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        schedule = self.client.get(url).json()["monthly_billing_schedule"]
+        self.assertEqual(
+            schedule,
+            [
+                {"month": "2026-01-31", "amount": "300000"},
+                {"month": "2026-02-28", "amount": "300000"},
+                {"month": "2026-03-31", "amount": "300000"},
+            ],
+        )
+
+    def test_monthly_billing_schedule_empty_without_monthly_contract(self):
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        self.assertEqual(self.client.get(url).json()["monthly_billing_schedule"], [])
+
     def test_billing_types_empty_without_contracts(self):
         """billing_types is an empty list when the project has no contracts (kippo#39 / T14)."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
