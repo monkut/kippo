@@ -24,10 +24,13 @@ from projects.models import (
 
 WEEKLYEFFORT_LIST_URL = "/api/projects/weeklyeffort/"
 
-WEEK_START = datetime.date(2024, 4, 1)  # MONDAY
-# org weekly_project_time_deadline default is 12:05 JST -> close is the FOLLOWING Monday
-BEFORE_CLOSE = "2024-04-08 03:04:00"  # 12:04 JST
-AFTER_CLOSE = "2024-04-08 03:06:00"  # 12:06 JST
+# The close is MONTHLY: all entries with week_start in April 2024 close together at
+# (last Monday of April = 2024-04-29) + 7 days = 2024-05-06, at the org
+# weekly_project_time_deadline (12:05 JST default).
+WEEK_START = datetime.date(2024, 4, 1)  # MONDAY, first week of the month
+MONTH_LAST_WEEK_START = datetime.date(2024, 4, 29)  # MONDAY, last valid entry date of the month
+BEFORE_CLOSE = "2024-05-06 03:04:00"  # 12:04 JST
+AFTER_CLOSE = "2024-05-06 03:06:00"  # 12:06 JST
 
 
 class WeeklyEffortCloseTestCaseBase(TestCase):
@@ -67,12 +70,23 @@ class WeeklyEffortCloseTestCaseBase(TestCase):
 
 
 class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
-    def test_close_datetime__is_following_monday_at_org_deadline(self):
-        expected = datetime.datetime(2024, 4, 8, 12, 5, tzinfo=settings.JST)
+    def test_close_datetime__is_month_last_monday_plus_offset_at_org_deadline(self):
+        expected = datetime.datetime(2024, 5, 6, 12, 5, tzinfo=settings.JST)
         self.assertEqual(get_weeklyeffort_close_datetime(self.organization, WEEK_START), expected)
 
         effort = self._create_effort()
         self.assertEqual(effort.close_datetime, expected)
+
+    def test_close_datetime__same_for_all_weeks_of_the_month(self):
+        """Every week_start within a month closes at the same datetime."""
+        expected = datetime.datetime(2024, 5, 6, 12, 5, tzinfo=settings.JST)
+        week_start = WEEK_START
+        while week_start <= MONTH_LAST_WEEK_START:
+            self.assertEqual(get_weeklyeffort_close_datetime(self.organization, week_start), expected, week_start)
+            week_start += datetime.timedelta(days=7)
+        # the next month's first week closes a month later
+        may_close = get_weeklyeffort_close_datetime(self.organization, datetime.date(2024, 5, 6))
+        self.assertEqual(may_close, datetime.datetime(2024, 6, 3, 12, 5, tzinfo=settings.JST))
 
     @freeze_time(BEFORE_CLOSE)
     def test_is_closed__false_before_deadline(self):
@@ -85,13 +99,13 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
     @freeze_time(AFTER_CLOSE)
     def test_is_closed__false_with_active_unlock(self):
         effort = self._create_effort()
-        self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 9, 12, 0, tzinfo=settings.JST))
+        self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 7, 12, 0, tzinfo=settings.JST))
         self.assertFalse(effort.is_closed())
 
     @freeze_time(AFTER_CLOSE)
     def test_is_closed__true_with_expired_unlock(self):
         effort = self._create_effort()
-        self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 8, 12, 5, 30, tzinfo=settings.JST))
+        self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 6, 12, 5, 30, tzinfo=settings.JST))
         self.assertTrue(effort.is_closed())  # frozen 12:06 JST > expiry 12:05:30 JST
 
     @freeze_time(AFTER_CLOSE)
@@ -101,7 +115,7 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
             organization=self.organization,
             user=self.superuser,
             week_start=WEEK_START,
-            expires_datetime=datetime.datetime(2024, 4, 9, 12, 0, tzinfo=settings.JST),
+            expires_datetime=datetime.datetime(2024, 5, 7, 12, 0, tzinfo=settings.JST),
             created_by=self.superuser,
             updated_by=self.superuser,
         )
@@ -109,8 +123,9 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
 
     @freeze_time(AFTER_CLOSE)
     def test_is_weeklyeffort_closed__unlock_for_other_week_does_not_apply(self):
-        other_week = WEEK_START - datetime.timedelta(days=7)
-        self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 9, 12, 0, tzinfo=settings.JST))
+        # same month (same close datetime), different week_start than the unlock
+        other_week = WEEK_START + datetime.timedelta(days=7)
+        self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 7, 12, 0, tzinfo=settings.JST))
         self.assertTrue(is_weeklyeffort_closed(self.organization, self.user, other_week))
 
 
@@ -136,13 +151,13 @@ class WeeklyEffortCloseApiTestCase(WeeklyEffortCloseTestCaseBase):
 
     @freeze_time(AFTER_CLOSE)
     def test_create__allowed_after_close_with_active_unlock(self):
-        self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 9, 12, 0, tzinfo=settings.JST))
+        self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 7, 12, 0, tzinfo=settings.JST))
         response = self._post_effort()
         self.assertEqual(response.status_code, 201, response.content)
 
     @freeze_time(AFTER_CLOSE)
     def test_create__blocked_after_close_with_expired_unlock(self):
-        self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 8, 12, 5, 30, tzinfo=settings.JST))
+        self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 6, 12, 5, 30, tzinfo=settings.JST))
         response = self._post_effort()
         self.assertEqual(response.status_code, 400, response.content)
 
@@ -175,7 +190,7 @@ class WeeklyEffortCloseApiTestCase(WeeklyEffortCloseTestCaseBase):
         with freeze_time(BEFORE_CLOSE):
             effort = self._create_effort()
         with freeze_time(AFTER_CLOSE):
-            self._create_unlock(expires_datetime=datetime.datetime(2024, 4, 9, 12, 0, tzinfo=settings.JST))
+            self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 7, 12, 0, tzinfo=settings.JST))
             response = self.client.patch(f"{WEEKLYEFFORT_LIST_URL}{effort.pk}/", {"hours": 10}, format="json")
         self.assertEqual(response.status_code, 200, response.content)
 

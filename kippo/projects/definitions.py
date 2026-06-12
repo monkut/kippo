@@ -20,8 +20,9 @@ SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
 # assignments can be confirmed (is_confirmed=True).
 FULL_CONFIDENCE_PERCENTAGE = 100
 
-# ProjectWeeklyEffort for week_start (MONDAY) closes the FOLLOWING Monday at the
-# organization's weekly_project_time_deadline — the same window the weekly report uses (kippo#33 / T17).
+# The close is monthly: ALL ProjectWeeklyEffort entries whose week_start falls in a month close
+# together, this many days after the month's last valid entry date (its last Monday), at the
+# organization's weekly_project_time_deadline (kippo#33 / T17, per PR #312 review).
 WEEKLY_EFFORT_CLOSE_OFFSET_DAYS = 7
 
 # Default validity period of an admin-issued ProjectWeeklyEffortUnlock (kippo#33 / T18).
