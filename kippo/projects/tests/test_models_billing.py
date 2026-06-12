@@ -420,6 +420,67 @@ class DerivedRevenueFiguresTestCase(TestCase):
     def test_contract_amount_is_zero_without_contracts(self):
         self.assertEqual(self.project.contract_amount, Decimal(0))
 
+    def test_monthly_schedule_is_month_end_per_month(self):
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 1, 15),
+            end_date=datetime.date(2026, 3, 10),
+        )
+        self.assertEqual(
+            contract.monthly_schedule(),
+            [
+                (datetime.date(2026, 1, 31), Decimal("300000")),
+                (datetime.date(2026, 2, 28), Decimal("300000")),
+                (datetime.date(2026, 3, 31), Decimal("300000")),
+            ],
+        )
+
+    def test_delivery_contract_has_empty_monthly_schedule(self):
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        self.assertEqual(contract.monthly_schedule(), [])
+
+    def test_project_monthly_billing_schedule_aggregates_sorted(self):
+        # two monthly contracts (e.g. renewal) merge into one sorted schedule
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("300000"),
+            start_date=datetime.date(2026, 3, 1),
+            end_date=datetime.date(2026, 4, 30),
+        )
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            amount=Decimal("250000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 2, 28),
+        )
+        self.assertEqual(
+            self.project.monthly_billing_schedule,
+            [
+                (datetime.date(2026, 1, 31), Decimal("250000")),
+                (datetime.date(2026, 2, 28), Decimal("250000")),
+                (datetime.date(2026, 3, 31), Decimal("300000")),
+                (datetime.date(2026, 4, 30), Decimal("300000")),
+            ],
+        )
+
+    def test_project_monthly_billing_schedule_empty_for_delivery_only(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            amount=Decimal("2000000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        self.assertEqual(self.project.monthly_billing_schedule, [])
+
     def test_total_revenue_sums_billing_ledger(self):
         KippoProjectContract.objects.create(
             project=self.project,

@@ -432,6 +432,19 @@ class KippoProject(UserCreatedBaseModel):
         """
         return sorted({contract.billing_type for contract in self.contracts.all()})
 
+    @property
+    def monthly_billing_schedule(self) -> list[tuple[datetime.date, Decimal]]:
+        """Planned per-month billing schedule across the project's monthly contracts (kippo#39 / T15).
+
+        Sorted ``(month_end_date, amount)`` entries — lets the UI render one row per month for
+        monthly-billing projects (月額は契約期間内毎月表示). Empty when the project has no
+        monthly contracts.
+        """
+        schedule: list[tuple[datetime.date, Decimal]] = []
+        for contract in self.contracts.all():
+            schedule.extend(contract.monthly_schedule())
+        return sorted(schedule)
+
     def developers(self):
         from tasks.models import KippoTask
 
@@ -852,6 +865,24 @@ class KippoProjectContract(UserCreatedBaseModel):
         if self.billing_type == BILLING_TYPE_MONTHLY:
             return self.amount * self._month_count()
         return self.amount
+
+    def monthly_schedule(self) -> list[tuple[datetime.date, Decimal]]:
+        """Planned per-month billing schedule for a monthly contract (kippo#39 / T15).
+
+        One ``(month_end_date, amount)`` entry per calendar month in the contract period,
+        matching the month-end dates generate_billing_entries() bills. Empty for delivery
+        contracts and when the period is unresolved. This is the *planned* schedule derived
+        from the contract terms (so it is available before any ledger entries are generated).
+        """
+        if self.billing_type != BILLING_TYPE_MONTHLY or not self.start_date or not self.end_date:
+            return []
+        schedule = []
+        current = first_of_month(self.start_date)
+        end = first_of_month(self.end_date)
+        while current <= end:
+            schedule.append((last_of_month(current), self.amount))
+            current = first_of_next_month(current)
+        return schedule
 
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).

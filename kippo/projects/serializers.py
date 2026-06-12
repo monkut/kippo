@@ -36,6 +36,13 @@ class ProjectAssignmentRateInlineSerializer(serializers.Serializer):
     is_default = serializers.BooleanField()
 
 
+class MonthlyBillingScheduleEntrySerializer(serializers.Serializer):
+    """One planned monthly billing row (kippo#39 / T15): month-end date + amount."""
+
+    month = serializers.DateField(help_text="Month-end (月末) billing date.")
+    amount = serializers.DecimalField(max_digits=12, decimal_places=0, help_text="Billed amount for the month (JPY).")
+
+
 class ProjectProgressStatusInlineSerializer(serializers.Serializer):
     """Inline serializer for project progress status in OpenAPI schema."""
 
@@ -174,6 +181,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     # 請求方法 — distinct billing types across the project's contracts (kippo#39 / T14). Read-only;
     # the billing method moved to KippoProjectContract in kippo#31.
     billing_types = serializers.ListField(child=serializers.CharField(), read_only=True)
+    # Planned per-month billing schedule for monthly-billing projects (kippo#39 / T15) — lets the
+    # list render one row per month (月額は契約期間内毎月表示). Empty for non-monthly projects.
+    monthly_billing_schedule = serializers.SerializerMethodField()
     # Derived revenue figures (kippo#32 / T13). Read-only — sourced from the contract + billing
     # ledger (kippo#31), so they never drift from the underlying records.
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=0, read_only=True)
@@ -211,6 +221,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "category",
             "category_label",
             "billing_types",
+            "monthly_billing_schedule",
             "slack_channel_name",
             "slack_notification_channel_name",
             "project_manager",
@@ -254,6 +265,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "confidence",  # derived from phase (kippo#36 / T09)
             "category_label",  # human-readable category label (kippo#39 / T14)
             "billing_types",  # distinct contract billing types (kippo#39 / T14)
+            "monthly_billing_schedule",  # planned per-month schedule (kippo#39 / T15)
             "total_revenue",  # ledger-derived (kippo#32 / T13)
             "contract_amount",  # contract-derived (kippo#32 / T13)
             "closed_datetime",
@@ -318,6 +330,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     @extend_schema_field(GithubRepositoryInlineSerializer(many=True))
     def get_github_repositories(self, obj: KippoProject) -> list[dict]:
         return [{"repository_url": repo.html_url} for repo in obj.github_repositories.all()]
+
+    @extend_schema_field(MonthlyBillingScheduleEntrySerializer(many=True))
+    def get_monthly_billing_schedule(self, obj: KippoProject) -> list[dict]:
+        # str(amount) to match the string rendering of the model's DecimalField revenue fields
+        return [{"month": month.isoformat(), "amount": str(amount)} for month, amount in obj.monthly_billing_schedule]
 
     @extend_schema_field(ProjectAssignmentRateInlineSerializer(many=True))
     def get_assignment_rates(self, obj: KippoProject) -> list[dict]:
