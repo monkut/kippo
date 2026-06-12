@@ -77,6 +77,13 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
         effort = self._create_effort()
         self.assertEqual(effort.close_datetime, expected)
 
+    def test_close_datetime__offset_configurable_per_organization(self):
+        """The post-month offset comes from KippoOrganization.weekly_effort_close_offset_days."""
+        self.organization.weekly_effort_close_offset_days = 3
+        self.organization.save()
+        expected = datetime.datetime(2024, 5, 2, 12, 5, tzinfo=settings.JST)  # last Monday 4/29 + 3 days
+        self.assertEqual(get_weeklyeffort_close_datetime(self.organization, WEEK_START), expected)
+
     def test_close_datetime__same_for_all_weeks_of_the_month(self):
         """Every week_start within a month closes at the same datetime."""
         expected = datetime.datetime(2024, 5, 6, 12, 5, tzinfo=settings.JST)

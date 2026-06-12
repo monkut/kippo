@@ -83,6 +83,10 @@ class KippoOrganization(UserCreatedBaseModel):
     weekly_project_time_deadline = models.TimeField(
         default=datetime.time(12, 5), help_text=_("Cutoff deadline defining the latest time status will be included in the weekly report")
     )
+    weekly_effort_close_offset_days = models.PositiveSmallIntegerField(
+        default=7,
+        help_text=_("週間稼働の締めまでの日数: 月内最後の有効入力日 (最終月曜) からこの日数の経過で当月分の編集を締める (kippo#33 / T17)"),
+    )
     slack_api_token = models.CharField(
         max_length=60,
         blank=True,
