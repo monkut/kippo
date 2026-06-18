@@ -236,6 +236,39 @@ class WeeklyEffortCloseApiTestCase(WeeklyEffortCloseTestCaseBase):
             response = self.client.get(WEEKLYEFFORT_LIST_URL)
             self.assertTrue(response.json()["results"][0]["is_closed"])
 
+    @freeze_time(AFTER_CLOSE)
+    def test_is_closed__model_and_serializer_agree(self):
+        """The per-row model path (is_closed) and the batched serializer path (is_closed field)
+        must agree across pending / active / expired unlocks — the dedup guard against drift (#5).
+        """
+        effort = self._create_effort()
+
+        def serializer_is_closed() -> bool:
+            return self.client.get(WEEKLYEFFORT_LIST_URL).json()["results"][0]["is_closed"]
+
+        # pending (unapproved) unlock — must NOT unlock in either path
+        unlock = ProjectWeeklyEffortUnlock.objects.create(
+            organization=self.organization,
+            user=self.user,
+            week_start=WEEK_START,
+            reason="pending request",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.assertTrue(effort.is_closed())
+        self.assertEqual(effort.is_closed(), serializer_is_closed())
+
+        # approve with a future relock deadline — both paths now open
+        unlock.approve(approved_by=self.superuser, expires_datetime=datetime.datetime(2024, 5, 14, 12, 0, tzinfo=settings.JST))
+        self.assertFalse(effort.is_closed())
+        self.assertEqual(effort.is_closed(), serializer_is_closed())
+
+        # past relock deadline — both paths closed again
+        unlock.expires_datetime = datetime.datetime(2024, 5, 13, 12, 5, 30, tzinfo=settings.JST)
+        unlock.save()
+        self.assertTrue(effort.is_closed())
+        self.assertEqual(effort.is_closed(), serializer_is_closed())
+
 
 class WeeklyEffortUnlockRequestApiTestCase(WeeklyEffortCloseTestCaseBase):
     """Unlock request → admin approval flow (kippo#33 / #1 + #2)."""

@@ -1424,13 +1424,27 @@ class ProjectWeeklyEffortUnlock(UserCreatedBaseModel):
         self.save()
 
     @classmethod
+    def _active_unlock_filter(cls, now: datetime.datetime | None = None) -> "models.QuerySet[ProjectWeeklyEffortUnlock]":
+        """承認済み (approved_datetime) かつ再ロック期限前 (expires_datetime) のアンロックの単一定義 (kippo#33 / #5).
+
+        単件判定 (has_active_unlock) と一覧用バッチ取得 (active_unlock_keys) が同じ述語を共有し、ロジックの二重化を防ぐ。
+        """
+        now = now or timezone.now()
+        return cls.objects.filter(approved_datetime__isnull=False, expires_datetime__gt=now)
+
+    @classmethod
     def has_active_unlock(
         cls, organization: KippoOrganization, user: KippoUser, week_start: datetime.date, now: datetime.datetime | None = None
     ) -> bool:
-        now = now or timezone.now()
-        return cls.objects.filter(
-            organization=organization, user=user, week_start=week_start, approved_datetime__isnull=False, expires_datetime__gt=now
-        ).exists()
+        return cls._active_unlock_filter(now).filter(organization=organization, user=user, week_start=week_start).exists()
+
+    @classmethod
+    def active_unlock_keys(cls, now: datetime.datetime | None = None) -> set[tuple]:
+        """現在有効なアンロックの (organization_id, user_id, week_start) キー集合を1クエリで返す。
+
+        一覧シリアライザで締め判定を行号ごとの EXISTS ではなくバッチ化するために使う (kippo#33 / #5)。
+        """
+        return set(cls._active_unlock_filter(now).values_list("organization_id", "user_id", "week_start"))
 
     def __str__(self) -> str:
         status = f"expires={self.expires_datetime.isoformat()}" if self.is_active() else ("pending" if not self.is_approved else "expired")

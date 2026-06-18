@@ -553,13 +553,10 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
         return (obj.project.organization_id, obj.user_id, obj.week_start) not in self._active_unlock_keys(now)
 
     def _active_unlock_keys(self, now: datetime.datetime) -> set:
-        # one query per serialization (instead of one EXISTS per closed row in list responses)
+        # one query per serialization (instead of one EXISTS per closed row in list responses);
+        # the active-unlock predicate is defined once on the model (kippo#33 / #5).
         if not hasattr(self, "_unlock_keys_cache"):
-            self._unlock_keys_cache = set(
-                ProjectWeeklyEffortUnlock.objects.filter(approved_datetime__isnull=False, expires_datetime__gt=now).values_list(
-                    "organization_id", "user_id", "week_start"
-                )
-            )
+            self._unlock_keys_cache = ProjectWeeklyEffortUnlock.active_unlock_keys(now)
         return self._unlock_keys_cache
 
     def validate(self, attrs: dict) -> dict:

@@ -195,6 +195,31 @@ class ProjectStatusSubCommandTestCase(IsStaffModelAdminTestCaseBase):
         project_weekly_effort_count = ProjectWeeklyEffort.objects.filter(project=self.project).count()
         self.assertEqual(project_weekly_effort_count, expected_weekly_effort_count)
 
+    @mock.patch("accounts.models.KippoOrganization.is_weeklyeffort_closed", return_value=True)
+    @mock.patch("projects.slackcommand.subcommands.projecteffort.WebhookClient.send", return_value=webhook_response_factory())
+    def test_closed_week_rejected(self, *_):
+        """The Slack write path must honor the weekly-effort close (kippo#33 / #4):
+        when the target week is closed, no ProjectWeeklyEffort is created.
+        """
+        self.project.slack_channel_name = self.project_slack_channel_name
+        self.project.is_closed = False
+        self.project.save()
+
+        valid_subcommand_text = f"{ProjectEffortSubCommand.DISPLAY_COMMAND_NAME} 10"
+        command = SlackCommand(
+            organization=self.organization,
+            user=self.staffuser_with_org,
+            sub_command=ProjectEffortSubCommand.DISPLAY_COMMAND_NAME,
+            text=valid_subcommand_text,
+            response_url="https://example.com/response_url",
+            payload={"channel_name": self.project_slack_channel_name},
+        )
+        command.save()
+
+        blocks, web_response, webhook_response = ProjectEffortSubCommand.handle(command)
+        self.assertTrue(blocks)  # user is informed the week is closed
+        self.assertEqual(ProjectWeeklyEffort.objects.filter(project=self.project).count(), 0)  # nothing written
+
     def test_subcommand_registered(self):
         """Confirm that the subcommand is registered."""
         available_subcommands = get_all_subcommands()
