@@ -38,6 +38,8 @@ FALLBACK_PHASE = "proposing-low"
 
 
 def load_default_categories(apps, schema_editor):
+    # Load the global (organization=null) defaults from the fixture file (migration-safe: uses the
+    # historical model, not call_command, so a future model change can't break replay).
     Category = apps.get_model("projects", "KippoProjectOrganizationCategory")  # noqa: N806
     entries = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
     for entry in entries:
