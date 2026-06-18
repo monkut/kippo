@@ -649,6 +649,21 @@ class ProjectWeeklyEffortUnlockSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
         return organization
 
+    def validate(self, attrs: dict) -> dict:
+        """Reject a duplicate request for the same (organization, user, week_start) with a 400
+        instead of letting the unique_together constraint raise an IntegrityError (500). `user`
+        is read-only (set to the requester in the viewset), so DRF cannot derive this validator.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not self.instance and user is not None:
+            exists = ProjectWeeklyEffortUnlock.objects.filter(
+                organization=attrs.get("organization"), user=user, week_start=attrs.get("week_start")
+            ).exists()
+            if exists:
+                raise serializers.ValidationError({"week_start": "この週のアンロックは既に申請済みです。"}, code="unlock_exists")
+        return attrs
+
 
 class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
     """Serializer for ProjectMonthlyAssignment model."""

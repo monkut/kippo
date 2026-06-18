@@ -370,6 +370,30 @@ class WeeklyEffortUnlockRequestApiTestCase(WeeklyEffortCloseTestCaseBase):
         unlock = ProjectWeeklyEffortUnlock.objects.get(pk=unlock_id)
         self.assertEqual(unlock.expires_datetime, relock)
 
+    def test_request__duplicate_returns_400_not_500(self):
+        # second request for the same (org, user, week) must 400, not raise an IntegrityError 500
+        self.assertEqual(self._request_unlock().status_code, 201)
+        response = self._request_unlock()
+        self.assertEqual(response.status_code, 400, response.content)
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__naive_expires_datetime_assumed_jst(self):
+        # a tz-naive expires_datetime must not 500 (aware/naive compare); it is assumed JST
+        unlock_id = self._request_unlock().json()["id"]
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {"expires_datetime": "2024-05-20T12:00:00"}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["is_active"])
+        unlock = ProjectWeeklyEffortUnlock.objects.get(pk=unlock_id)
+        self.assertEqual(unlock.expires_datetime, datetime.datetime(2024, 5, 20, 12, 0, tzinfo=settings.JST))
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__past_relock_deadline_rejected(self):
+        unlock_id = self._request_unlock().json()["id"]
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {"expires_datetime": "2024-05-01T12:00:00+09:00"}, format="json")
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_list__org_scoped_for_non_superuser(self):
         # a user from another org cannot see this org's unlock requests
         self._request_unlock()

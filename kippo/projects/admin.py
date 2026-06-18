@@ -214,7 +214,11 @@ class ProjectWeeklyEffortInlineFormSet(BaseInlineFormSet):
                 continue
             week_start = form.cleaned_data.get("week_start")
             effort_user = form.cleaned_data.get("user")
-            if week_start and effort_user and self.instance.organization.is_weeklyeffort_closed(effort_user, week_start):
+            # guard organization_id: on the project add-form self.instance is unsaved and accessing
+            # .organization directly would raise RelatedObjectDoesNotExist
+            if not (week_start and effort_user and self.instance.organization_id):
+                continue
+            if self.instance.organization.is_weeklyeffort_closed(effort_user, week_start):
                 form.add_error("week_start", WEEKLY_EFFORT_CLOSED_MESSAGE)
 
 

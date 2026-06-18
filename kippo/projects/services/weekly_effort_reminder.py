@@ -81,7 +81,7 @@ class WeeklyEffortCloseReminderManager:
     def _mention(membership: OrganizationMembership) -> str:
         if membership.slack_user_id:
             return f"<@{membership.slack_user_id}>"
-        return membership.user.display_name
+        return membership.user.display_name.strip()  # display_name has a leading space
 
     def build_blocks(
         self,

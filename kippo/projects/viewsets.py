@@ -3,6 +3,7 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
+from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
@@ -459,6 +460,12 @@ class ProjectWeeklyEffortUnlockViewSet(viewsets.ModelViewSet):
             parsed_expires = parse_datetime(raw_expires)
             if parsed_expires is None:
                 return Response({"expires_datetime": "ISO8601形式の日時を指定してください。"}, status=HTTPStatus.BAD_REQUEST)
+            # a tz-naive datetime would later break aware/naive comparisons in is_active(); assume JST per convention
+            if timezone.is_naive(parsed_expires):
+                parsed_expires = parsed_expires.replace(tzinfo=settings.JST)
+            # a past relock deadline would approve an already-expired (inactive) unlock — reject it
+            if parsed_expires <= timezone.now():
+                return Response({"expires_datetime": "再ロック期限は未来の日時を指定してください。"}, status=HTTPStatus.BAD_REQUEST)
         unlock.approve(approved_by=request.user, expires_datetime=parsed_expires)
         return Response(self.get_serializer(unlock).data, status=HTTPStatus.OK)
 
