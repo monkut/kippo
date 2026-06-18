@@ -20,7 +20,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Case, JSONField, Model, Value, When
+from django.db.models import Case, JSONField, Model, QuerySet, Value, When
 from django.forms import BaseFormSet, Form
 from django.forms.models import BaseInlineFormSet
 from django.http import (
@@ -1847,15 +1847,66 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
 @admin.register(ProjectWeeklyEffortUnlock)
 class ProjectWeeklyEffortUnlockAdmin(UserCreatedBaseModelAdmin):
-    """Adminによる週間稼働アンロック管理 (kippo#33 / T18).
+    """週間稼働アンロックの管理・承認 (kippo#33 / T18).
 
     AllowIsStaffAdminMixin is deliberately NOT applied: staff could otherwise unlock their own
     closed weeks. Default Django model permissions apply (superusers, or staff explicitly granted).
+    REST API 経由の申請はここで承認する。adminが直接作成したアンロックは作成時に自動承認される
+    (ただし superuser を除き自分自身のためのものは保留のまま — 自分の週を勝手に開けられない原則)。
     """
 
-    list_display = ("organization", "user", "week_start", "expires_datetime", "created_by", "created_datetime")
+    list_display = (
+        "organization",
+        "user",
+        "week_start",
+        "get_reason_short",
+        "is_active",
+        "approved_by",
+        "approved_datetime",
+        "expires_datetime",
+        "created_by",
+    )
+    list_filter = ("organization", "approved_datetime")
     ordering = ("-week_start", "user")
-    search_fields = ("user__username", "user__last_name")
+    search_fields = ("user__username", "user__last_name", "reason")
+    actions = ("approve_selected",)
+
+    REASON_PREVIEW_CHARS = 40
+
+    @admin.display(description=_("理由"))
+    def get_reason_short(self, obj: ProjectWeeklyEffortUnlock) -> str:
+        if not obj.reason:
+            return "-"
+        limit = self.REASON_PREVIEW_CHARS
+        return f"{obj.reason[:limit]}…" if len(obj.reason) > limit else obj.reason
+
+    @admin.display(boolean=True, description=_("有効"))
+    def is_active(self, obj: ProjectWeeklyEffortUnlock) -> bool:
+        return obj.is_active()
+
+    def save_model(self, request: HttpRequest, obj: ProjectWeeklyEffortUnlock, form: Form, change: bool) -> None:
+        creating = getattr(obj, "pk", None) is None
+        super().save_model(request, obj, form, change)  # sets created_by/updated_by and saves
+        # adminが申請フローを経ず直接作成したアンロックは即承認する (他ユーザ向けのみ; superuserは自分向けも可)
+        if creating and not obj.is_approved and (request.user.is_superuser or obj.user_id != request.user.pk):
+            obj.approve(approved_by=request.user, expires_datetime=obj.expires_datetime)
+
+    @admin.action(description=_("選択したアンロック申請を承認する"))
+    def approve_selected(self, request: HttpRequest, queryset: "QuerySet[ProjectWeeklyEffortUnlock]") -> None:
+        approved = 0
+        skipped_self = 0
+        for unlock in queryset:
+            if unlock.is_approved:
+                continue
+            if unlock.created_by_id == request.user.pk and not request.user.is_superuser:
+                skipped_self += 1
+                continue
+            unlock.approve(approved_by=request.user, expires_datetime=unlock.expires_datetime)
+            approved += 1
+        if approved:
+            self.message_user(request, f"{approved}件のアンロックを承認しました。", messages.SUCCESS)
+        if skipped_self:
+            self.message_user(request, f"{skipped_self}件は自分の申請のため承認をスキップしました。", messages.WARNING)
 
 
 @admin.register(KippoProjectUserStatisfactionResult)

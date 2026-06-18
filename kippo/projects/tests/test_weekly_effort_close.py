@@ -3,7 +3,7 @@
 import datetime
 from typing import TYPE_CHECKING
 
-from accounts.models import KippoUser
+from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
@@ -63,9 +63,12 @@ class WeeklyEffortCloseTestCaseBase(TestCase):
             organization=self.organization,
             user=self.user,
             week_start=WEEK_START,
+            reason="test unlock",
+            approved_by=self.superuser,
+            approved_datetime=datetime.datetime(2024, 5, 1, tzinfo=settings.JST),
             expires_datetime=expires_datetime,
-            created_by=self.superuser,
-            updated_by=self.superuser,
+            created_by=self.user,
+            updated_by=self.user,
         )
 
 
@@ -134,6 +137,9 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
             organization=self.organization,
             user=self.superuser,
             week_start=WEEK_START,
+            reason="test unlock",
+            approved_by=self.superuser,
+            approved_datetime=datetime.datetime(2024, 5, 1, tzinfo=settings.JST),
             expires_datetime=datetime.datetime(2024, 5, 14, 12, 0, tzinfo=settings.JST),
             created_by=self.superuser,
             updated_by=self.superuser,
@@ -229,6 +235,113 @@ class WeeklyEffortCloseApiTestCase(WeeklyEffortCloseTestCaseBase):
         with freeze_time(AFTER_CLOSE):
             response = self.client.get(WEEKLYEFFORT_LIST_URL)
             self.assertTrue(response.json()["results"][0]["is_closed"])
+
+
+class WeeklyEffortUnlockRequestApiTestCase(WeeklyEffortCloseTestCaseBase):
+    """Unlock request → admin approval flow (kippo#33 / #1 + #2)."""
+
+    UNLOCK_URL = "/api/weekly-effort-unlocks/"
+
+    def setUp(self):
+        super().setUp()
+        # org admin (project manager) who is NOT the requester
+        self.org_admin = KippoUser(username="orgadmin")
+        self.org_admin.save()
+        OrganizationMembership.objects.create(
+            user=self.org_admin,
+            organization=self.organization,
+            is_project_manager=True,
+            created_by=self.org_admin,
+            updated_by=self.org_admin,
+        )
+
+    def _request_unlock(self, week_start: datetime.date = WEEK_START) -> "Response":
+        return self.client.post(
+            self.UNLOCK_URL,
+            {"organization": str(self.organization.pk), "week_start": week_start.isoformat(), "reason": "遅延入力のため"},
+            format="json",
+        )
+
+    def test_request__creates_pending_unlock(self):
+        response = self._request_unlock()
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(str(body["user"]), str(self.user.pk))  # requester fixed to self
+        self.assertIsNone(body["approved_datetime"])
+        self.assertIsNone(body["expires_datetime"])
+        self.assertFalse(body["is_active"])
+
+    def test_request__reason_required(self):
+        response = self.client.post(
+            self.UNLOCK_URL,
+            {"organization": str(self.organization.pk), "week_start": WEEK_START.isoformat(), "reason": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("reason", response.json())
+
+    @freeze_time(AFTER_CLOSE)
+    def test_pending_request_does_not_unlock_the_week(self):
+        self._request_unlock()  # pending, not approved
+        # the closed week is still closed for editing
+        self.assertTrue(self.organization.is_weeklyeffort_closed(self.user, WEEK_START))
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__by_superuser_activates_unlock(self):
+        unlock_id = self._request_unlock().json()["id"]
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertIsNotNone(body["approved_datetime"])
+        self.assertTrue(body["is_active"])
+        self.assertFalse(self.organization.is_weeklyeffort_closed(self.user, WEEK_START))
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__by_org_project_manager(self):
+        unlock_id = self._request_unlock().json()["id"]
+        self.client.force_authenticate(user=self.org_admin)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["is_active"])
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__by_non_admin_forbidden(self):
+        unlock_id = self._request_unlock().json()["id"]
+        other = KippoUser(username="plainmember")
+        other.save()
+        OrganizationMembership.objects.create(user=other, organization=self.organization, is_developer=True, created_by=other, updated_by=other)
+        self.client.force_authenticate(user=other)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {}, format="json")
+        self.assertEqual(response.status_code, 403, response.content)
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__self_request_forbidden_for_non_superuser(self):
+        # org_admin requests their own unlock, then tries to approve it → blocked
+        self.client.force_authenticate(user=self.org_admin)
+        unlock_id = self._request_unlock().json()["id"]
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {}, format="json")
+        self.assertEqual(response.status_code, 403, response.content)
+
+    @freeze_time(AFTER_CLOSE)
+    def test_approve__honors_explicit_relock_deadline(self):
+        unlock_id = self._request_unlock().json()["id"]
+        self.client.force_authenticate(user=self.superuser)
+        relock = datetime.datetime(2024, 5, 20, 12, 0, tzinfo=settings.JST)
+        response = self.client.post(f"{self.UNLOCK_URL}{unlock_id}/approve/", {"expires_datetime": relock.isoformat()}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        unlock = ProjectWeeklyEffortUnlock.objects.get(pk=unlock_id)
+        self.assertEqual(unlock.expires_datetime, relock)
+
+    def test_list__org_scoped_for_non_superuser(self):
+        # a user from another org cannot see this org's unlock requests
+        self._request_unlock()
+        other_org_user = KippoUser(username="otherorguser")
+        other_org_user.save()
+        self.client.force_authenticate(user=other_org_user)
+        response = self.client.get(self.UNLOCK_URL)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["count"], 0)
 
 
 class WeeklyEffortCloseAdminTestCase(WeeklyEffortCloseTestCaseBase):
