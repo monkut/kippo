@@ -27,7 +27,6 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
-    is_weeklyeffort_closed,
 )
 
 if TYPE_CHECKING:
@@ -579,7 +578,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
         project = attrs.get("project") or (self.instance.project if self.instance else None)
         week_start = attrs.get("week_start") or (self.instance.week_start if self.instance else previous_week_startdate())
         effort_user = attrs.get("user") or (self.instance.user if self.instance else request_user)
-        if project and effort_user and is_weeklyeffort_closed(project.organization, effort_user, week_start):
+        if project and effort_user and project.organization.is_weeklyeffort_closed(effort_user, week_start):
             raise serializers.ValidationError({"week_start": WEEKLY_EFFORT_CLOSED_MESSAGE}, code="weekly_effort_closed")
         return attrs
 

@@ -18,8 +18,6 @@ from projects.admin import ProjectWeeklyEffortAdmin
 from projects.models import (
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
-    get_weeklyeffort_close_datetime,
-    is_weeklyeffort_closed,
 )
 
 WEEKLYEFFORT_LIST_URL = "/api/projects/weeklyeffort/"
@@ -75,7 +73,7 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
     def test_close_datetime__is_month_last_entry_start_plus_offset_at_org_deadline(self):
         # last Monday 4/29 -> entry starts 5/6 -> + offset 7 days = 5/13
         expected = datetime.datetime(2024, 5, 13, 12, 5, tzinfo=settings.JST)
-        self.assertEqual(get_weeklyeffort_close_datetime(self.organization, WEEK_START), expected)
+        self.assertEqual(self.organization.get_weeklyeffort_close_datetime(WEEK_START), expected)
 
         effort = self._create_effort()
         self.assertEqual(effort.close_datetime, expected)
@@ -88,7 +86,7 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
         self.organization.full_clean(exclude=None)  # min-7 validator accepts 14
         self.organization.save()
         expected = datetime.datetime(2024, 5, 20, 12, 5, tzinfo=settings.JST)  # entry start 5/6 + 14 days
-        self.assertEqual(get_weeklyeffort_close_datetime(self.organization, WEEK_START), expected)
+        self.assertEqual(self.organization.get_weeklyeffort_close_datetime(WEEK_START), expected)
 
     def test_close_offset_days__minimum_one_week_enforced(self):
         """Offsets under 7 days would give users less than a week to enter the final week."""
@@ -103,10 +101,10 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
         expected = datetime.datetime(2024, 5, 13, 12, 5, tzinfo=settings.JST)
         week_start = WEEK_START
         while week_start <= MONTH_LAST_WEEK_START:
-            self.assertEqual(get_weeklyeffort_close_datetime(self.organization, week_start), expected, week_start)
+            self.assertEqual(self.organization.get_weeklyeffort_close_datetime(week_start), expected, week_start)
             week_start += datetime.timedelta(days=7)
         # the next month's first week closes a month later (May: last Monday 5/27 -> entry start 6/3 -> close 6/10)
-        may_close = get_weeklyeffort_close_datetime(self.organization, datetime.date(2024, 5, 6))
+        may_close = self.organization.get_weeklyeffort_close_datetime(datetime.date(2024, 5, 6))
         self.assertEqual(may_close, datetime.datetime(2024, 6, 10, 12, 5, tzinfo=settings.JST))
 
     @freeze_time(BEFORE_CLOSE)
@@ -147,7 +145,7 @@ class WeeklyEffortCloseModelTestCase(WeeklyEffortCloseTestCaseBase):
         # same month (same close datetime), different week_start than the unlock
         other_week = WEEK_START + datetime.timedelta(days=7)
         self._create_unlock(expires_datetime=datetime.datetime(2024, 5, 14, 12, 0, tzinfo=settings.JST))
-        self.assertTrue(is_weeklyeffort_closed(self.organization, self.user, other_week))
+        self.assertTrue(self.organization.is_weeklyeffort_closed(self.user, other_week))
 
 
 class WeeklyEffortCloseApiTestCase(WeeklyEffortCloseTestCaseBase):

@@ -1346,28 +1346,6 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
                 )
 
 
-def get_weeklyeffort_close_datetime(organization: KippoOrganization, week_start: datetime.date) -> datetime.datetime:
-    """週間稼働の締め日時 (T17): 締めは月単位 — week_start が属する月の全エントリが同時に締まる。
-
-    エントリの入力は対象週の翌週から始まるため、月内最終週 (最後の月曜開始) の入力開始日は
-    「最終月曜 + 7日」。締め日はそこから組織の weekly_effort_close_offset_days 日後
-    (最低7日 = 入力期間1週間を保証)、時刻は組織の weekly_project_time_deadline。
-    """
-    month_last_day = last_of_month(week_start)
-    month_last_monday = month_last_day - datetime.timedelta(days=month_last_day.weekday())  # weekday(): Monday == 0
-    month_last_entry_start = month_last_monday + datetime.timedelta(days=7)  # entry for the final week begins the following Monday
-    close_date = month_last_entry_start + datetime.timedelta(days=organization.weekly_effort_close_offset_days)
-    return datetime.datetime.combine(close_date, organization.weekly_project_time_deadline, tzinfo=settings.JST)
-
-
-def is_weeklyeffort_closed(organization: KippoOrganization, user: KippoUser, week_start: datetime.date, now: datetime.datetime | None = None) -> bool:
-    """締め判定: 締め日時を過ぎていて、有効なアンロックが無ければ編集不可 (T17/T18)"""
-    now = now or timezone.now()
-    if now < get_weeklyeffort_close_datetime(organization, week_start):
-        return False
-    return not ProjectWeeklyEffortUnlock.has_active_unlock(organization=organization, user=user, week_start=week_start, now=now)
-
-
 class ProjectWeeklyEffort(UserCreatedBaseModel):
     week_start = models.DateField(default=previous_week_startdate, help_text="Effort Week Start (MONDAY)")
     project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_project")
@@ -1384,10 +1362,10 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
 
     @property
     def close_datetime(self) -> datetime.datetime:
-        return get_weeklyeffort_close_datetime(self.project.organization, self.week_start)
+        return self.project.organization.get_weeklyeffort_close_datetime(self.week_start)
 
     def is_closed(self, now: datetime.datetime | None = None) -> bool:
-        return is_weeklyeffort_closed(self.project.organization, self.user, self.week_start, now=now)
+        return self.project.organization.is_weeklyeffort_closed(self.user, self.week_start, now=now)
 
 
 def default_unlock_expires_datetime() -> datetime.datetime:

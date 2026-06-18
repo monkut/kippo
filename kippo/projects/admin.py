@@ -70,7 +70,6 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
-    is_weeklyeffort_closed,
 )
 
 if TYPE_CHECKING:
@@ -215,7 +214,7 @@ class ProjectWeeklyEffortInlineFormSet(BaseInlineFormSet):
                 continue
             week_start = form.cleaned_data.get("week_start")
             effort_user = form.cleaned_data.get("user")
-            if week_start and effort_user and is_weeklyeffort_closed(self.instance.organization, effort_user, week_start):
+            if week_start and effort_user and self.instance.organization.is_weeklyeffort_closed(effort_user, week_start):
                 form.add_error("week_start", WEEKLY_EFFORT_CLOSED_MESSAGE)
 
 
@@ -1618,7 +1617,7 @@ class ProjectWeeklyEffortAdminForm(forms.ModelForm):
         project = cleaned.get("project")
         week_start = cleaned.get("week_start")
         effort_user = cleaned.get("user")
-        if project and week_start and effort_user and is_weeklyeffort_closed(project.organization, effort_user, week_start):
+        if project and week_start and effort_user and project.organization.is_weeklyeffort_closed(effort_user, week_start):
             raise ValidationError(WEEKLY_EFFORT_CLOSED_MESSAGE, code="weekly_effort_closed")
         return cleaned
 
