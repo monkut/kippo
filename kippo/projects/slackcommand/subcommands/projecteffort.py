@@ -8,6 +8,7 @@ from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookClient, WebhookResponse
 
+from ...definitions import WEEKLY_EFFORT_CLOSED_MESSAGE
 from ...functions import previous_week_startdate
 from ...models import ActiveKippoProject, ProjectWeeklyEffort
 
@@ -91,7 +92,22 @@ class ProjectEffortSubCommand(SubCommandBase):
                         project=related_project, user=command.user, week_start=week_start_date
                     ).first()
                     display_week_start_date = week_start_date.strftime("%-m月%-d日")
-                    if not existing_effort:
+                    if related_project.organization.is_weeklyeffort_closed(command.user, week_start_date):
+                        # 締め後の週は Slack 経由でも編集不可 (T17/T18): シリアライザを経由しない直接保存パスを塞ぐ
+                        logger.warning(
+                            f"ProjectWeeklyEffort week is closed for project '{related_project.name}', "
+                            f"user '{command.user.username}', week_start '{week_start_date}' — rejecting Slack write"
+                        )
+                        command_response_blocks = [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": (f"> {text_without_subcommand}\n({display_week_start_date}週) {WEEKLY_EFFORT_CLOSED_MESSAGE}"),
+                                },
+                            }
+                        ]
+                    elif not existing_effort:
                         # create new ProjectWeeklyEffort)
                         logger.info(
                             f"{command.organization.name} linked project('{related_project.name}') found, and hours({hours}) detected, "

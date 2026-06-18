@@ -3,7 +3,9 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
+from django.conf import settings
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -21,6 +23,7 @@ from .models import (
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
+    ProjectWeeklyEffortUnlock,
 )
 from .permissions import IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
@@ -32,6 +35,7 @@ from .serializers import (
     ProjectMonthlyAssignmentSerializer,
     ProjectMonthlyCostSerializer,
     ProjectWeeklyEffortSerializer,
+    ProjectWeeklyEffortUnlockSerializer,
 )
 from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
@@ -303,7 +307,7 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
 
     serializer_class = ProjectWeeklyEffortSerializer
     permission_classes = [IsSuperuserOrReadUpdateCreateOwn]
-    queryset = ProjectWeeklyEffort.objects.all().select_related("project", "user").order_by("-week_start")
+    queryset = ProjectWeeklyEffort.objects.all().select_related("project__organization", "user").order_by("-week_start")
 
     def perform_create(self, serializer: ProjectWeeklyEffortSerializer) -> None:
         """Auto-set the user to the current authenticated user if not provided."""
@@ -394,6 +398,76 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(week_start__lte=week_start_lte)
 
         return queryset
+
+
+class ProjectWeeklyEffortUnlockViewSet(viewsets.ModelViewSet):
+    """週間稼働アンロックの申請・承認 API (kippo#33 / T18).
+
+    - **Create (POST)**: 認証ユーザが自分の締め後の週のアンロックを `organization` + `week_start` + `reason` で申請する
+      (承認待ち。`user` は申請者本人に固定)。
+    - **approve (POST, detail)**: 組織admin (superuser または当該組織の `is_project_manager`) が承認し、
+      再ロック期限 `expires_datetime` を設定する。承認されるとその期限まで当該週が編集可能になり、期限経過で自動再ロック。
+    - 自分のアンロック申請は自分で承認できない (staff が自分の週を勝手に開けられない原則を踏襲。superuser は除く)。
+
+    アンロックは申請ログでもあるため更新・削除は不可 (GET/POST のみ)。組織スコープ: 非superuserは所属組織の申請のみ閲覧可。
+    """
+
+    serializer_class = ProjectWeeklyEffortUnlockSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = ProjectWeeklyEffortUnlock.objects.all().select_related("organization", "user", "approved_by").order_by("-week_start")
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if not user.is_superuser:
+            org_ids = list(user.organizationmembership_set.values_list("organization_id", flat=True))
+            queryset = queryset.filter(organization_id__in=org_ids)
+        organization_id = self.request.query_params.get("organization", None)
+        if organization_id:
+            queryset = queryset.filter(organization_id=organization_id)
+        return queryset
+
+    def perform_create(self, serializer: ProjectWeeklyEffortUnlockSerializer) -> None:
+        """申請者を現在のユーザに固定する (承認待ち状態で作成)。"""
+        serializer.save(user=self.request.user, created_by=self.request.user, updated_by=self.request.user)
+
+    @staticmethod
+    def _is_org_admin(user: KippoUser, organization: Any) -> bool:  # noqa: ANN401
+        if user.is_superuser:
+            return True
+        return user.organizationmembership_set.filter(organization=organization, is_project_manager=True).exists()
+
+    @extend_schema(
+        request=inline_serializer(
+            name="ProjectWeeklyEffortUnlockApproveRequest",
+            fields={"expires_datetime": serializers.DateTimeField(required=False, help_text="再ロック期限 (省略時はデフォルト7日後)")},
+        ),
+        responses={200: ProjectWeeklyEffortUnlockSerializer},
+        description="アンロック申請を承認し、再ロック期限を設定する (組織admin限定)。",
+    )
+    @action(detail=True, methods=["post"])
+    def approve(self, request: Request, pk: int | None = None) -> Response:
+        """組織adminによる承認。"""
+        unlock = self.get_object()
+        if not self._is_org_admin(request.user, unlock.organization):
+            return Response({"detail": "組織adminのみアンロックを承認できます。"}, status=HTTPStatus.FORBIDDEN)
+        if unlock.created_by_id == request.user.pk and not request.user.is_superuser:
+            return Response({"detail": "自分のアンロック申請は承認できません。"}, status=HTTPStatus.FORBIDDEN)
+        parsed_expires = None
+        raw_expires = request.data.get("expires_datetime")
+        if raw_expires:
+            parsed_expires = parse_datetime(raw_expires)
+            if parsed_expires is None:
+                return Response({"expires_datetime": "ISO8601形式の日時を指定してください。"}, status=HTTPStatus.BAD_REQUEST)
+            # a tz-naive datetime would later break aware/naive comparisons in is_active(); assume JST per convention
+            if timezone.is_naive(parsed_expires):
+                parsed_expires = parsed_expires.replace(tzinfo=settings.JST)
+            # a past relock deadline would approve an already-expired (inactive) unlock — reject it
+            if parsed_expires <= timezone.now():
+                return Response({"expires_datetime": "再ロック期限は未来の日時を指定してください。"}, status=HTTPStatus.BAD_REQUEST)
+        unlock.approve(approved_by=request.user, expires_datetime=parsed_expires)
+        return Response(self.get_serializer(unlock).data, status=HTTPStatus.OK)
 
 
 class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):

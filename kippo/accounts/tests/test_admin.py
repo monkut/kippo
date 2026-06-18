@@ -185,6 +185,7 @@ class KippoOrganizationAdminFormTestCase(IsStaffModelAdminTestCaseBase):
                     "day_workhours": self.organization.day_workhours,
                     "default_task_display_state": self.organization.default_task_display_state,
                     "weekly_project_time_deadline": self.organization.weekly_project_time_deadline,
+                    "weekly_effort_close_offset_days": self.organization.weekly_effort_close_offset_days,
                     "slack_command_name": self.organization.slack_command_name,
                     "fiscalyear_start_month": self.organization.fiscalyear_start_month,
                     "project_assignment_member_soft_ceiling": self.organization.project_assignment_member_soft_ceiling,

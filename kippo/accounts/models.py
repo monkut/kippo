@@ -8,6 +8,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from commons.definitions import SATURDAY, SUNDAY
+from commons.functions import last_of_month
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -82,6 +83,11 @@ class KippoOrganization(UserCreatedBaseModel):
     github_webhook_secret = models.CharField(max_length=20, default=generate_random_secret, editable=False, help_text=_("Github Webhook Secret"))
     weekly_project_time_deadline = models.TimeField(
         default=datetime.time(12, 5), help_text=_("Cutoff deadline defining the latest time status will be included in the weekly report")
+    )
+    weekly_effort_close_offset_days = models.PositiveSmallIntegerField(
+        default=settings.DEFAULT_WEEKLYEFFORT_CLOSE_OFFSET_DAYS,
+        validators=(MinValueValidator(7),),  # entry starts the week AFTER the target week; users get at least 1 week to enter
+        help_text=_("週間稼働の締めまでの日数: 月内最終週の入力開始日 (最終月曜+7日) からこの日数の経過で当月分の編集を締める (kippo#33 / T17)"),
     )
     slack_api_token = models.CharField(
         max_length=60,
@@ -231,6 +237,28 @@ class KippoOrganization(UserCreatedBaseModel):
             current += timezone.timedelta(days=1)
         next_fiscal_year = current.replace(day=1)
         return next_fiscal_year
+
+    def get_weeklyeffort_close_datetime(self, week_start: datetime.date) -> datetime.datetime:
+        """週間稼働の締め日時 (T17): 締めは月単位 — week_start が属する月の全エントリが同時に締まる。
+
+        エントリの入力は対象週の翌週から始まるため、月内最終週 (最後の月曜開始) の入力開始日は
+        「最終月曜 + 7日」。締め日はそこから組織の weekly_effort_close_offset_days 日後
+        (最低7日 = 入力期間1週間を保証)、時刻は組織の weekly_project_time_deadline。
+        """
+        month_last_day = last_of_month(week_start)
+        month_last_monday = month_last_day - datetime.timedelta(days=month_last_day.weekday())  # weekday(): Monday == 0
+        month_last_entry_start = month_last_monday + datetime.timedelta(days=7)  # entry for the final week begins the following Monday
+        close_date = month_last_entry_start + datetime.timedelta(days=self.weekly_effort_close_offset_days)
+        return datetime.datetime.combine(close_date, self.weekly_project_time_deadline, tzinfo=settings.JST)
+
+    def is_weeklyeffort_closed(self, user: "KippoUser", week_start: datetime.date, now: datetime.datetime | None = None) -> bool:
+        """締め判定: 締め日時を過ぎていて、有効なアンロックが無ければ編集不可 (T17/T18)"""
+        from projects.models import ProjectWeeklyEffortUnlock
+
+        now = now or timezone.now()
+        if now < self.get_weeklyeffort_close_datetime(week_start):
+            return False
+        return not ProjectWeeklyEffortUnlock.has_active_unlock(organization=self, user=user, week_start=week_start, now=now)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name}-{self.github_organization_name})"

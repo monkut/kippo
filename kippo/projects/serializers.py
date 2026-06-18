@@ -1,18 +1,22 @@
+import datetime
 from typing import TYPE_CHECKING
 
-from accounts.models import KippoUser
+from accounts.models import KippoOrganization, KippoUser
 from commons.fields import CommaSeparatedField
 from django.conf import settings
 from django.db.models import Sum
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import (
     FULL_CONFIDENCE_PERCENTAGE,
     SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
+    WEEKLY_EFFORT_CLOSED_MESSAGE,
     ProjectProgressStatus,
     ProjectRoles,
 )
+from .functions import previous_week_startdate
 from .models import (
     KippoProject,
     KippoProjectOrganizationCategory,
@@ -22,6 +26,7 @@ from .models import (
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
+    ProjectWeeklyEffortUnlock,
 )
 
 if TYPE_CHECKING:
@@ -512,6 +517,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
     # The interactive UI/Slack flows already block negatives; this guards the
     # direct-API and admin paths that previously accepted them.
     hours = serializers.IntegerField(min_value=0, max_value=7 * 24)
+    is_closed = serializers.SerializerMethodField()
 
     class Meta:
         model = ProjectWeeklyEffort
@@ -524,6 +530,7 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "user_username",
             "user_display_name",
             "hours",
+            "is_closed",
             "created_datetime",
             "updated_datetime",
         ]
@@ -532,9 +539,47 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
             "project_name",
             "user_username",
             "user_display_name",
+            "is_closed",
             "created_datetime",
             "updated_datetime",
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_closed(self, obj: ProjectWeeklyEffort) -> bool:
+        """週間稼働の締め判定 (T17): 締め日時を過ぎていて有効なアンロックが無い場合 True (編集不可)。"""
+        now = timezone.now()
+        if now < obj.close_datetime:
+            return False
+        return (obj.project.organization_id, obj.user_id, obj.week_start) not in self._active_unlock_keys(now)
+
+    def _active_unlock_keys(self, now: datetime.datetime) -> set:
+        # one query per serialization (instead of one EXISTS per closed row in list responses);
+        # the active-unlock predicate is defined once on the model (kippo#33 / #5).
+        if not hasattr(self, "_unlock_keys_cache"):
+            self._unlock_keys_cache = ProjectWeeklyEffortUnlock.active_unlock_keys(now)
+        return self._unlock_keys_cache
+
+    def validate(self, attrs: dict) -> dict:
+        """Reject create/update of weekly effort whose week is closed (T17), unless an
+        admin unlock is active for the (organization, user, week_start) (T18).
+        Superusers bypass the check.
+        """
+        request = self.context.get("request")
+        request_user = getattr(request, "user", None)
+        if request_user is not None and request_user.is_superuser:
+            return attrs
+
+        # an existing (locked) entry may not be modified
+        if self.instance and self.instance.is_closed():
+            raise serializers.ValidationError({"week_start": WEEKLY_EFFORT_CLOSED_MESSAGE}, code="weekly_effort_closed")
+
+        # the target (new) values may not land in a closed week
+        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        week_start = attrs.get("week_start") or (self.instance.week_start if self.instance else previous_week_startdate())
+        effort_user = attrs.get("user") or (self.instance.user if self.instance else request_user)
+        if project and effort_user and project.organization.is_weeklyeffort_closed(effort_user, week_start):
+            raise serializers.ValidationError({"week_start": WEEKLY_EFFORT_CLOSED_MESSAGE}, code="weekly_effort_closed")
+        return attrs
 
     @extend_schema_field(serializers.CharField())
     def get_user_display_name(self, obj: ProjectWeeklyEffort) -> str:
@@ -543,6 +588,81 @@ class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
         if hasattr(user, "get_display_name"):
             return user.get_display_name()
         return f"{user.first_name} {user.last_name}".strip() or user.username
+
+
+class ProjectWeeklyEffortUnlockSerializer(serializers.ModelSerializer):
+    """週間稼働アンロックの申請/承認シリアライザ (kippo#33 / T18).
+
+    Create = 申請: ユーザは `organization` + `week_start` + `reason` を送信する。`user` は申請者本人に固定され、
+    承認関連フィールドは read-only。承認は viewset の `approve` アクション (組織admin限定) で行う。
+    """
+
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    approved_by_username = serializers.CharField(source="approved_by.username", read_only=True, allow_null=True)
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectWeeklyEffortUnlock
+        fields = [
+            "id",
+            "organization",
+            "user",
+            "user_username",
+            "week_start",
+            "reason",
+            "approved_by",
+            "approved_by_username",
+            "approved_datetime",
+            "expires_datetime",
+            "is_active",
+            "created_by",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "user_username",
+            "approved_by",
+            "approved_by_username",
+            "approved_datetime",
+            "expires_datetime",
+            "is_active",
+            "created_by",
+            "created_datetime",
+            "updated_datetime",
+        ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_active(self, obj: ProjectWeeklyEffortUnlock) -> bool:
+        """承認済みかつ再ロック期限前なら True (現在編集可能)。"""
+        return obj.is_active()
+
+    def validate_organization(self, organization: KippoOrganization) -> KippoOrganization:
+        """申請者は所属する組織のアンロックのみ申請できる (superuser を除く)。"""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and not user.is_superuser:
+            member_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
+            if organization.pk not in member_org_ids:
+                raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
+        return organization
+
+    def validate(self, attrs: dict) -> dict:
+        """Reject a duplicate request for the same (organization, user, week_start) with a 400
+        instead of letting the unique_together constraint raise an IntegrityError (500). `user`
+        is read-only (set to the requester in the viewset), so DRF cannot derive this validator.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not self.instance and user is not None:
+            exists = ProjectWeeklyEffortUnlock.objects.filter(
+                organization=attrs.get("organization"), user=user, week_start=attrs.get("week_start")
+            ).exists()
+            if exists:
+                raise serializers.ValidationError({"week_start": "この週のアンロックは既に申請済みです。"}, code="unlock_exists")
+        return attrs
 
 
 class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):

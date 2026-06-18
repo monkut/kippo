@@ -20,6 +20,13 @@ SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
 # assignments can be confirmed (is_confirmed=True).
 FULL_CONFIDENCE_PERCENTAGE = 100
 
+# The weekly-effort close offset (days after the month's last entry-start date, i.e. the Monday
+# following its last Monday) is configurable per organization:
+# KippoOrganization.weekly_effort_close_offset_days (min 7 — users get at least 1 week to enter).
+
+# Shown by both the REST API and Django admin when a closed week is edited without an unlock.
+WEEKLY_EFFORT_CLOSED_MESSAGE = _("締め日時を過ぎているため編集できません。Adminによるアンロックが必要です。")
+
 # Default (global, organization=null) project categories seeded as KippoProjectOrganizationCategory rows.
 # (key, label, sort_order). KippoProject.category is a FK to KippoProjectOrganizationCategory; these are the
 # org-agnostic defaults an organization inherits until it defines its own categories (kippo#30 / T08, T20).

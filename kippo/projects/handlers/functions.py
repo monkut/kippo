@@ -29,6 +29,26 @@ def run_weeklyprojectstatus(event: dict | None, context: dict | None) -> list:  
     return all_status_groups
 
 
+def run_weeklyeffort_close_reminder(event: dict | None, context: dict | None) -> list:  # noqa: ARG001
+    """週間稼働の締め24時間前に、未入力メンバを @メンションして組織のSlackチャンネルへ通知する (kippo#33 / #3).
+
+    日次のスケジュールジョブ。締めが前方24時間ウィンドウに入る組織のみ通知する。
+    """
+    from accounts.models import KippoOrganization
+
+    from projects.services.weekly_effort_reminder import WeeklyEffortCloseReminderManager
+
+    organizations = KippoOrganization.objects.exclude(slack_api_token="").exclude(slack_channel_name="")
+    logger.info(f"run_weeklyeffort_close_reminder: checking {len(organizations)} organization(s) for upcoming close")
+    posted = []
+    for organization in organizations:
+        blocks = WeeklyEffortCloseReminderManager(organization=organization).post()
+        if blocks:
+            logger.info(f"posted weekly-effort close reminder for ({organization.name})")
+            posted.append({"organization": organization.name, "blocks": blocks})
+    return posted
+
+
 def run_project_cost_reports(event: dict | None, context: dict | None) -> list:  # noqa: ARG001
     """Check KippoProject.enable_cost_report value, if true, prepare 'slack' cost report and post to registered channel."""
     from ..reports.functions import send_project_cost_report
