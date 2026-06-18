@@ -1,7 +1,9 @@
 """Tests for the weekly-effort close/unlock behavior (kippo#33 / T17, T18)."""
 
 import datetime
+import json
 from typing import TYPE_CHECKING
+from unittest import mock
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
@@ -13,6 +15,8 @@ from rest_framework.test import APIClient
 if TYPE_CHECKING:
     from django.http import HttpRequest
     from rest_framework.response import Response
+
+    from projects.services.weekly_effort_reminder import WeeklyEffortCloseReminderManager
 
 from projects.admin import ProjectWeeklyEffortAdmin
 from projects.models import (
@@ -408,3 +412,73 @@ class WeeklyEffortCloseAdminTestCase(WeeklyEffortCloseTestCaseBase):
         effort = self._create_effort()
         model_admin = self._admin()
         self.assertTrue(model_admin.has_change_permission(self._request(self.user), effort))
+
+
+class WeeklyEffortCloseReminderTestCase(WeeklyEffortCloseTestCaseBase):
+    """24h pre-close Slack reminder (kippo#33 / #3)."""
+
+    # 13:00 JST on 2024-05-12 = ~23h before the April-2024 close (2024-05-13 12:05 JST)
+    WITHIN_WINDOW = "2024-05-12 04:00:00"
+    OUTSIDE_WINDOW = "2024-05-01 04:00:00"  # 12 days before the close
+
+    def setUp(self):
+        super().setUp()
+        self.organization.slack_api_token = "xoxb-test-token"  # noqa: S105
+        self.organization.slack_channel_name = "#kippo"
+        self.organization.save()
+        self.membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self.membership.slack_user_id = "U12345678"
+        self.membership.save()
+
+    def _manager(self) -> "WeeklyEffortCloseReminderManager":
+        from projects.services.weekly_effort_reminder import WeeklyEffortCloseReminderManager
+
+        with mock.patch("projects.services.weekly_effort_reminder.WebClient") as mock_client_cls:
+            manager = WeeklyEffortCloseReminderManager(self.organization)
+            manager._mock_client = mock_client_cls.return_value
+        return manager
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_upcoming_close__within_window(self):
+        upcoming = self._manager().get_upcoming_close()
+        self.assertIsNotNone(upcoming)
+        close_dt, month_first = upcoming
+        self.assertEqual(month_first, datetime.date(2024, 4, 1))
+        self.assertEqual(close_dt, datetime.datetime(2024, 5, 13, 12, 5, tzinfo=settings.JST))
+
+    @freeze_time(OUTSIDE_WINDOW)
+    def test_get_upcoming_close__outside_window(self):
+        self.assertIsNone(self._manager().get_upcoming_close())
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__lists_per_week_gaps(self):
+        manager = self._manager()
+        # self.user (developer) has no effort -> all 5 April Mondays missing
+        missing_map = {m.user_id: weeks for m, weeks in manager.get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertIn(self.user.pk, missing_map)
+        self.assertEqual(
+            missing_map[self.user.pk],
+            [datetime.date(2024, 4, d) for d in (1, 8, 15, 22, 29)],
+        )
+        # logging one week removes it from the gaps
+        self._create_effort(week_start=datetime.date(2024, 4, 8))
+        missing_map = {m.user_id: weeks for m, weeks in manager.get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertNotIn(datetime.date(2024, 4, 8), missing_map[self.user.pk])
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_post__mentions_missing_member_in_org_channel(self):
+        manager = self._manager()
+        blocks = manager.post()
+        self.assertIsNotNone(blocks)
+        manager._mock_client.chat_postMessage.assert_called_once()
+        _, kwargs = manager._mock_client.chat_postMessage.call_args
+        self.assertEqual(kwargs["channel"], "#kippo")
+        text = json.dumps(blocks, ensure_ascii=False)
+        self.assertIn("<@U12345678>", text)  # @-mention via slack_user_id
+        self.assertIn("4月1日週", text)  # per-week gap listed
+
+    @freeze_time(OUTSIDE_WINDOW)
+    def test_post__no_post_outside_window(self):
+        manager = self._manager()
+        self.assertIsNone(manager.post())
+        manager._mock_client.chat_postMessage.assert_not_called()
