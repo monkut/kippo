@@ -1368,10 +1368,6 @@ class ProjectWeeklyEffort(UserCreatedBaseModel):
         return self.project.organization.is_weeklyeffort_closed(self.user, self.week_start, now=now)
 
 
-def default_unlock_expires_datetime() -> datetime.datetime:
-    return timezone.now() + datetime.timedelta(days=DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS)
-
-
 class ProjectWeeklyEffortUnlock(UserCreatedBaseModel):
     """週間稼働アンロック: 特定の週/ユーザの締め後編集を期限付きで許可する (T18).
 
