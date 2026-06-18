@@ -85,7 +85,7 @@ class KippoOrganization(UserCreatedBaseModel):
         default=datetime.time(12, 5), help_text=_("Cutoff deadline defining the latest time status will be included in the weekly report")
     )
     weekly_effort_close_offset_days = models.PositiveSmallIntegerField(
-        default=7,
+        default=settings.DEFAULT_WEEKLYEFFORT_CLOSE_OFFSET_DAYS,
         validators=(MinValueValidator(7),),  # entry starts the week AFTER the target week; users get at least 1 week to enter
         help_text=_("週間稼働の締めまでの日数: 月内最終週の入力開始日 (最終月曜+7日) からこの日数の経過で当月分の編集を締める (kippo#33 / T17)"),
     )
