@@ -27,7 +27,6 @@ from .definitions import (
     BILLING_TYPE_MONTHLY,
     DEFAULT_BILLING_TYPE,
     DEFAULT_PROJECT_CATEGORY_VALUE,
-    DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
     VALID_BILLING_TYPES,
     ProjectProgressStatus,
@@ -1416,7 +1415,7 @@ class ProjectWeeklyEffortUnlock(UserCreatedBaseModel):
         now = now or timezone.now()
         self.approved_by = approved_by
         self.approved_datetime = now
-        self.expires_datetime = expires_datetime or (now + datetime.timedelta(days=DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS))
+        self.expires_datetime = expires_datetime or (now + datetime.timedelta(days=settings.DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS))
         self.save()
 
     @classmethod

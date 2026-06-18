@@ -24,9 +24,6 @@ FULL_CONFIDENCE_PERCENTAGE = 100
 # following its last Monday) is configurable per organization:
 # KippoOrganization.weekly_effort_close_offset_days (min 7 — users get at least 1 week to enter).
 
-# Default validity period of an admin-issued ProjectWeeklyEffortUnlock (kippo#33 / T18).
-DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS = 7
-
 # Shown by both the REST API and Django admin when a closed week is edited without an unlock.
 WEEKLY_EFFORT_CLOSED_MESSAGE = _("締め日時を過ぎているため編集できません。Adminによるアンロックが必要です。")
 

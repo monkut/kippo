@@ -322,6 +322,9 @@ WEBHOOK_DELETE_DAYS = int(os.getenv("WEBHOOK_DELETE_DAYS", DEFAULT_WEBHOOK_DELET
 # Used as the KippoOrganization.weekly_effort_close_offset_days field default; minimum 7 enforced on the model.
 DEFAULT_WEEKLYEFFORT_CLOSE_OFFSET_DAYS = int(os.getenv("DEFAULT_WEEKLYEFFORT_CLOSE_OFFSET_DAYS", "7"))
 
+# Default validity period (days) of an admin-approved ProjectWeeklyEffortUnlock before auto-relock (kippo#33 / T18).
+DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS = int(os.getenv("DEFAULT_WEEKLY_EFFORT_UNLOCK_DAYS", "7"))
+
 PROJECTID_MAPPING_JSON_S3URI = os.getenv("PROJECTID_MAPPING_JSON_S3URI", None)
 
 # AWS/BOTO3 Configuration
