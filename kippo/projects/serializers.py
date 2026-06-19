@@ -173,6 +173,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     customer_document_url = serializers.URLField(source="customer.document_url", read_only=True, allow_null=True)
     # Human-readable project status label for `phase` (kippo#37 / T10). `phase` stays the editable key.
     phase_display = serializers.CharField(source="get_phase_display", read_only=True)
+    # confidence (確度) defaults to the phase-derived value but is directly settable here for manual
+    # override (the model field is editable=False, so it is declared explicitly to make it writable).
+    # A set value is preserved by KippoProject.save() until phase changes; changing phase in the same
+    # update re-derives confidence from the new phase and ignores any confidence sent (kippo#36 / T09).
+    confidence = serializers.IntegerField(min_value=0, max_value=100, required=False)
     # category is a FK to KippoProjectOrganizationCategory; expose it as the category key string for
     # API backward-compatibility. Writes resolve against the global default categories (kippo#30 / T08, T20).
     category = serializers.SlugRelatedField(
@@ -267,7 +272,6 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "project_manager_username",
             "customer_document_url",  # linked customer's contract-folder URL (kippo#34 / T04)
             "phase_display",  # human-readable status label (kippo#37 / T10)
-            "confidence",  # derived from phase (kippo#36 / T09)
             "category_label",  # human-readable category label (kippo#39 / T14)
             "billing_types",  # distinct contract billing types (kippo#39 / T14)
             "monthly_billing_schedule",  # planned per-month schedule (kippo#39 / T15)
