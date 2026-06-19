@@ -13,7 +13,7 @@ from freezegun import freeze_time
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ..models import KippoProject, KippoProjectContract, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
+from ..models import PHASE_CONFIDENCE, KippoProject, KippoProjectContract, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
 
 
 def _registration_fields(organization: KippoOrganization, project_manager: KippoUser) -> dict:
@@ -192,6 +192,35 @@ class KippoProjectViewSetTestCase(TestCase):
         # no contracts/entries -> derived values stay 0, not the posted values
         self.assertEqual(data["total_revenue"], "0")
         self.assertEqual(data["contract_amount"], "0")
+
+    def test_confidence_is_writable_via_api(self):
+        """Confidence can be set directly for manual override; a phase-unchanged update persists it."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        original_phase = self.project.phase
+        response = self.client.patch(url, {"confidence": 55}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["confidence"], 55)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.confidence, 55)  # set value sticks (save() does not re-derive)
+        self.assertEqual(self.project.phase, original_phase)  # phase untouched
+
+    def test_confidence_out_of_range_rejected(self):
+        """Confidence is validated to 0-100."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"confidence": 150}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+
+    def test_confidence_follows_phase_when_both_changed(self):
+        """When an update also changes phase, confidence is re-derived from the new phase and any
+        sent confidence is ignored (documented last-writer behavior).
+        """
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"phase": "under-contract", "confidence": 42}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["confidence"], PHASE_CONFIDENCE["under-contract"])  # 100, not 42
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.confidence, PHASE_CONFIDENCE["under-contract"])
+        self.assertEqual(self.project.phase, "under-contract")
 
     def test_list_exposes_category_label_and_billing_types(self):
         """List/detail expose category_label + distinct contract billing_types (kippo#39 / T14)."""
