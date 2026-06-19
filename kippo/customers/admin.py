@@ -29,8 +29,13 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     verbose_name_plural = _("プロジェクト")
     fields = ("get_project_link", "start_date", "target_date", "billing_date")
     readonly_fields = ("get_project_link", "start_date", "target_date", "billing_date")
+    # Wraps the default tabular inline and appends a "プロジェクトを追加" link that redirects to the
+    # ActiveKippoProject add form (project creation is rich — GitHub project, columnset, etc. — so
+    # it is never created inline). Scoped to this inline only; the global tabular template is
+    # untouched. The link's href (add_project_url) is built in KippoCustomerAdmin.change_view.
+    template = "admin/customers/edit_inline/kippoproject_add_redirect.html"
 
-    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No inline add row
         return False
 
     def get_queryset(self, request: DjangoRequest):
