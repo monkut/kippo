@@ -752,9 +752,12 @@ class KippoProject(UserCreatedBaseModel):
         # confidence (確度) tracks phase, but is re-derived ONLY when phase changes (or on create).
         # An existing or manually-set confidence is otherwise preserved (kippo#36 / T09). The
         # migration that introduced phase set the initial values; ordinary edits leave them alone.
-        if self._state.adding or self.phase != getattr(self, "_confidence_synced_phase", None):
+        # A partial save (update_fields) that does not write phase must NOT touch confidence either,
+        # or the DB would hold a new confidence against the old phase.
+        update_fields = kwargs.get("update_fields")
+        phase_persisted = update_fields is None or "phase" in update_fields
+        if self._state.adding or (phase_persisted and self.phase != getattr(self, "_confidence_synced_phase", None)):
             self.confidence = PHASE_CONFIDENCE.get(self.phase, self.confidence)
-            update_fields = kwargs.get("update_fields")
             if update_fields is not None and "confidence" not in update_fields:
                 kwargs["update_fields"] = [*update_fields, "confidence"]
 
@@ -770,8 +773,10 @@ class KippoProject(UserCreatedBaseModel):
         self.slack_notification_channel_name = _normalize_slack_channel_name(self.slack_notification_channel_name)
 
         super().save(*args, **kwargs)
-        # Keep the snapshot current so a later phase edit on this same instance is detected.
-        self._confidence_synced_phase = self.phase
+        # Refresh the snapshot only when phase was actually written, so a partial save that skipped
+        # phase doesn't poison the comparison for the next full save.
+        if phase_persisted:
+            self._confidence_synced_phase = self.phase
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"

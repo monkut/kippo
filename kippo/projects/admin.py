@@ -836,8 +836,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # confidence is derived from phase (editable=False); the revenue figures are derived from
     # the contract + billing ledger (kippo#32 / T13) — all shown read-only in the form
     readonly_fields = ("confidence", "get_contract_amount_display", "get_total_revenue_display")
-    # Changelist ordering lives in get_ordering() (it references the is_anon_project annotation
-    # added in get_queryset, which the `ordering` attribute can't name without failing admin checks).
+    # Changelist ordering lives in get_ordering() (a Case() expression), not the `ordering`
+    # attribute — see the note there for why the attribute can't express it.
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,

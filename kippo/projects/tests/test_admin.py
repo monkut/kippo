@@ -1104,6 +1104,17 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
         list_request.user = self.superuser_no_org
         self.assertTrue(modeladmin.has_delete_permission(list_request))
 
+    def test_changelist_renders_for_non_superuser_org_member(self):
+        # The non-superuser get_queryset branch (org filter + .distinct()) combines with the Case()
+        # expression in get_ordering(). The fixture base logs in a superuser, which skips that
+        # branch entirely — so drive the staff path explicitly to cover the DISTINCT + Case render.
+        self.make_project("non-su-visible")
+        self.client.force_login(self.staffuser_with_org)
+        for model_path in ("projects_kippoproject", "projects_activekippoproject"):
+            with self.subTest(model=model_path):
+                response = self.client.get(reverse(f"admin:{model_path}_changelist"))
+                self.assertEqual(response.status_code, HTTPStatus.OK)
+
     def test_changelist_orders_non_project_category_first(self):
         # Regression guard: non-project-first ordering was previously dead (the order_by in
         # get_queryset was overridden by the `ordering` attribute). Names are chosen so the
