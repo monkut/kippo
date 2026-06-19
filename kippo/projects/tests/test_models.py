@@ -703,13 +703,33 @@ class KippoProjectPhaseStatusTestCase(TestCase):
         self.assertEqual(self.project.confidence, PHASE_CONFIDENCE[DEFAULT_PROJECT_PHASE])
         self.assertFalse(KippoProject._meta.get_field("confidence").editable)
 
-    def test_confidence_is_derived_from_phase_on_save(self):
+    def test_confidence_is_rederived_when_phase_changes_on_save(self):
         for phase, expected in PHASE_CONFIDENCE.items():
-            self.project.phase = phase
-            self.project.confidence = 0  # any user-set value must be overwritten
+            self.project.phase = phase  # phase changes each iteration → confidence re-derived
+            self.project.confidence = 0  # a user-set value is overwritten only because phase changed
             self.project.save()
             self.project.refresh_from_db()
             self.assertEqual(self.project.confidence, expected, msg=f"{phase} -> {expected}")
+
+    def test_confidence_preserved_when_phase_unchanged(self):
+        # An existing / manually-set confidence survives an edit that does not touch phase.
+        KippoProject.objects.filter(pk=self.project.pk).update(confidence=55)
+        reloaded = KippoProject.objects.get(pk=self.project.pk)  # from_db snapshots the persisted phase
+        self.assertEqual(reloaded.confidence, 55)
+        reloaded.problem_definition = "edited, phase untouched"
+        reloaded.save()
+        reloaded.refresh_from_db()
+        self.assertEqual(reloaded.confidence, 55)
+        self.assertEqual(reloaded.phase, DEFAULT_PROJECT_PHASE)
+
+    def test_confidence_rederived_only_when_phase_actually_changes(self):
+        # Same instance, manual confidence, then a phase change → confidence re-derived from phase.
+        KippoProject.objects.filter(pk=self.project.pk).update(confidence=55)
+        reloaded = KippoProject.objects.get(pk=self.project.pk)
+        reloaded.phase = "under-contract"
+        reloaded.save()
+        reloaded.refresh_from_db()
+        self.assertEqual(reloaded.confidence, PHASE_CONFIDENCE["under-contract"])
 
     def test_only_contract_and_completed_reach_full_confidence(self):
         full = {phase for phase, conf in PHASE_CONFIDENCE.items() if conf == FULL_CONFIDENCE_PERCENTAGE}

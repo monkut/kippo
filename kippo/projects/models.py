@@ -730,6 +730,13 @@ class KippoProject(UserCreatedBaseModel):
         )
         return description
 
+    @classmethod
+    def from_db(cls, db: str, field_names: list[str], values: list[Any]) -> "KippoProject":
+        # Snapshot the persisted phase so save() can re-derive confidence only when phase changes.
+        instance = super().from_db(db, field_names, values)
+        instance._confidence_synced_phase = instance.phase
+        return instance
+
     def save(self, *args, **kwargs):
         if self.survey_issued and not self.survey_issued_datetime:
             self.survey_issued_datetime = timezone.now()
@@ -742,8 +749,14 @@ class KippoProject(UserCreatedBaseModel):
         if not self.billing_date and self.target_date:
             self.billing_date = self.target_date
 
-        # confidence (確度) is derived from phase — never user-set (kippo#36 / T09)
-        self.confidence = PHASE_CONFIDENCE.get(self.phase, self.confidence)
+        # confidence (確度) tracks phase, but is re-derived ONLY when phase changes (or on create).
+        # An existing or manually-set confidence is otherwise preserved (kippo#36 / T09). The
+        # migration that introduced phase set the initial values; ordinary edits leave them alone.
+        if self._state.adding or self.phase != getattr(self, "_confidence_synced_phase", None):
+            self.confidence = PHASE_CONFIDENCE.get(self.phase, self.confidence)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None and "confidence" not in update_fields:
+                kwargs["update_fields"] = [*update_fields, "confidence"]
 
         if self._state.adding:  # created
             # perform initial creation tasks
@@ -757,6 +770,8 @@ class KippoProject(UserCreatedBaseModel):
         self.slack_notification_channel_name = _normalize_slack_channel_name(self.slack_notification_channel_name)
 
         super().save(*args, **kwargs)
+        # Keep the snapshot current so a later phase edit on this same instance is detected.
+        self._confidence_synced_phase = self.phase
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
