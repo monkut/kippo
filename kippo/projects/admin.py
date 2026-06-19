@@ -83,6 +83,11 @@ CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 # "プロジェクトを追加" button) so the save redirects back to where they came from.
 RETURN_TO_PARAM = "_return_to"
 
+# Closure/survey fields, only meaningful once a project is closed. Named once so the all-projects
+# admin (hides them on /add/) and the active admin (hides them always — active ⇒ never closed)
+# stay in sync instead of repeating the literal tuple.
+PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
+
 logger = logging.getLogger(__name__)
 
 
@@ -800,13 +805,13 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     )
+    # Shared by both project admins (the active admin is a subclass) so 「プロジェクト」 and
+    # 「プロジェクト(実行中)」 look the same; the only real difference is the queryset.
     list_display = (
         "id",
         "get_customer_name",
         "name",
         "get_problem_definition_display",
-        "phase",
-        "get_category_label",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
@@ -815,9 +820,6 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "get_kippoprojectuserstatisfactionresult_usernames",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
-        "display_as_active",
-        "get_updated_by_display",
-        "updated_datetime",
     )
     list_display_links = ("id", "name")
     list_select_related = ("customer", "category")
@@ -828,7 +830,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # confidence is derived from phase (editable=False); the revenue figures are derived from
     # the contract + billing ledger (kippo#32 / T13) — all shown read-only in the form
     readonly_fields = ("confidence", "get_contract_amount_display", "get_total_revenue_display")
-    ordering = ("organization", "-display_as_active", "-confidence", "phase", "name")
+    # Changelist ordering lives in get_ordering() (it references the is_anon_project annotation
+    # added in get_queryset, which the `ordering` attribute can't name without failing admin checks).
     actions = [
         create_github_organizational_project_action,
         create_github_repository_milestones_action,
@@ -929,6 +932,12 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # - if not can't add new projects
         return request.user.memberships.exists()
 
+    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
+        # Remove the delete button from the change page (bulk delete from the changelist stays).
+        if "/change/" in request.path:
+            return False
+        return super().has_delete_permission(request, obj)
+
     def get_inlines(self, request: DjangoRequest, obj: KippoProject | None = None):
         inlines = list(super().get_inlines(request, obj))
         if obj is None:
@@ -939,7 +948,7 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         excluded = list(super().get_exclude(request, obj) or ())
         if obj is None:
             # MTG calendar links + survey/close fields are only meaningful once a project exists
-            for fieldname in ("close_comment", "survey_issued", "meeting_calendar_url_field", "meeting_description_tag_field"):
+            for fieldname in (*PROJECT_CLOSURE_FIELDS, "meeting_calendar_url_field", "meeting_description_tag_field"):
                 if fieldname not in excluded:
                     excluded.append(fieldname)
         if not request.user.is_superuser and "github_project_api_nodeid" not in excluded:
@@ -1421,64 +1430,43 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+    def get_ordering(self, request: DjangoRequest):
+        # non-project category first, then confidence desc, target_date asc, name. A self-contained
+        # Case expression (not an annotation name) so order_by() resolves it on any queryset —
+        # ModelAdmin.get_queryset() applies get_ordering() on the raw manager qs (before any
+        # annotate()), and the ChangeList applies it again after get_queryset(). Defining it here
+        # (not via the `ordering` attribute) is what makes the changelist actually honor it.
+        # KippoProject.name is unique, so this is already a deterministic total ordering.
+        return [
+            Case(When(category__key="non-project", then=Value(0)), default=Value(1)),
+            "-confidence",
+            "target_date",
+            "name",
+        ]
+
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(organization__in=request.user.organizations).order_by("organization").distinct()
+        return qs.filter(organization__in=request.user.organizations).distinct()
 
 
 @admin.register(ActiveKippoProject)
 class ActiveKippoProjectAdmin(KippoProjectAdmin):
-    list_display = (
-        "id",
-        "get_customer_name",
-        "name",
-        "get_problem_definition_display",
-        "get_confidence_display",
-        "get_projectstatus_display",
-        "get_latest_kippoprojectstatus_comment",
-        "start_date",
-        "target_date",
-        "get_kippoprojectuserstatisfactionresult_usernames",
-        "get_projectsurvey_display_url",
-        "show_github_project_html_url",
-    )
-    # Override parent ordering to match UI: confidence desc, target_date asc, name asc
-    ordering = ("-confidence", "target_date", "name")
-
-    def has_delete_permission(self, request: DjangoRequest, obj: Model | None = None):
-        """Remove delete button from details/change page"""
-        if "/change/" in request.path:
-            return False
-        return super().has_delete_permission(request, obj)
+    # Identical to KippoProjectAdmin except the queryset: the ActiveKippoProjectManager (proxy
+    # default manager) restricts it to open + display_as_active projects. The only form difference
+    # is below — closure fields never apply to an active project.
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: list[str] = list(super().get_exclude(request, obj) or ())
         # Active projects are never closed (filtered by ActiveKippoProjectManager); hide closure fields
-        for field in ("close_comment", "survey_issued"):
+        for field in PROJECT_CLOSURE_FIELDS:
             if field not in excluded:
                 excluded.append(field)
         # parent_project is only relevant on add (manual upsell creation); hide on change
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)
-
-    def get_queryset(self, request: DjangoRequest):
-        """Custom ordering: non-projects first, then by confidence (desc), target_date (asc), name (asc)."""
-        qs = super().get_queryset(request)
-        # Order by:
-        # 1. non-project (category=="non-project") first (is_anon_project=0 comes before 1)
-        # 2. confidence descending (nulls last)
-        # 3. target_date ascending (nulls last)
-        # 4. name ascending
-        qs = qs.annotate(
-            is_anon_project=Case(
-                When(category__key="non-project", then=Value(0)),
-                default=Value(1),
-            )
-        ).order_by("is_anon_project", "-confidence", "target_date", "name")
-        return qs
 
 
 @admin.register(KippoMilestone)

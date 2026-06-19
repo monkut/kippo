@@ -1064,6 +1064,54 @@ class KippoProjectAdminReturnToTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertIs(self.modeladmin._redirect_back_after_save(request, original), original)
 
 
+class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """After the refactor, 「プロジェクト」 and 「プロジェクト(実行中)」 look near-identical: the active admin
+    inherits list_display, ordering and the change-page delete lock. The only differences are the
+    queryset (active-only, via the proxy manager) and the always-hidden closure fields.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.request = self.factory.get("/")
+        self.request.user = self.superuser_no_org
+
+    def test_active_admin_does_not_override_presentation(self):
+        # parity comes from inheritance — these are no longer redefined on the active admin
+        for attr in ("list_display", "ordering", "has_delete_permission", "get_ordering", "get_queryset"):
+            self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited, not overridden")
+        self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectAdmin.list_display)
+
+    def test_change_page_hides_delete_button_but_changelist_keeps_it(self):
+        project = self.make_project("delete-lock")
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        change_request = self.factory.get(reverse("admin:projects_kippoproject_change", args=[project.id]))
+        change_request.user = self.superuser_no_org
+        self.assertFalse(modeladmin.has_delete_permission(change_request, project))
+        list_request = self.factory.get(reverse("admin:projects_kippoproject_changelist"))
+        list_request.user = self.superuser_no_org
+        self.assertTrue(modeladmin.has_delete_permission(list_request))
+
+    def test_changelist_orders_non_project_category_first(self):
+        # Regression guard: non-project-first ordering was previously dead (the order_by in
+        # get_queryset was overridden by the `ordering` attribute). Names are chosen so the
+        # non-project sorts LATER by name — proving the category ordering dominates the name tiebreak.
+        real = self.make_project("aaa-real-delivery")  # category "other"
+        anon = KippoProject.objects.create(
+            organization=self.organization,
+            name="zzz-anon-bucket",
+            category=_global_category("non-project"),
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        response = self.client.get(reverse("admin:projects_kippoproject_changelist"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        names = [p.name for p in response.context["cl"].result_list]
+        self.assertLess(names.index(anon.name), names.index(real.name))
+
+
 class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):
     """顧客 (customer) is selected via a searchable autocomplete on the project admins."""
 
