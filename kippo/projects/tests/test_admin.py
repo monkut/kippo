@@ -1297,18 +1297,158 @@ class KippoProjectAdminInlinesTestCase(KippoProjectAdminFixtureTestCaseBase):
         for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
             self.assertIn(cls, inlines, f"{cls.__name__} should be present on ActiveKippoProject change")
 
-    def test_add_view_keeps_assignment_rate_and_repository_inlines(self):
+    def test_add_view_keeps_assignment_rate_inline_and_hides_repository(self):
         from projects.admin import GithubRepositoryProjectInline
 
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
         self.assertIn(ProjectAssignmentRateInline, inlines)
-        self.assertIn(GithubRepositoryProjectInline, inlines)
+        # GitHub repositories are only meaningful once the project exists (hidden on /add/).
+        self.assertNotIn(GithubRepositoryProjectInline, inlines)
+
+
+class DefaultAssignmentRateLoaderTestCase(SimpleTestCase):
+    """_default_assignment_rate_initial: skip unknown roles, fall back to the setting for a missing rate."""
+
+    def test_skips_unknown_roles_and_defaults_missing_rate(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from django.conf import settings
+
+        from projects import admin as projects_admin
+
+        rows = [
+            {"role": "developer", "rate_per_day": 123456},
+            {"role": "bogus-role", "rate_per_day": 999},  # unknown role -> skipped
+            {"role": "tester"},  # missing rate -> falls back to settings.DEFAULT_PROJECT_DAILY_RATE
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_path = Path(tmp) / "rates.json"
+            fixture_path.write_text(json.dumps(rows), encoding="utf-8")
+            with patch.object(projects_admin, "DEFAULT_ASSIGNMENT_RATES_FIXTURE", fixture_path):
+                result = projects_admin._default_assignment_rate_initial()
+        self.assertEqual(
+            result,
+            (
+                {"role": "developer", "rate_per_day": 123456},
+                {"role": "tester", "rate_per_day": settings.DEFAULT_PROJECT_DAILY_RATE},
+            ),
+        )
+
+    def test_missing_fixture_returns_empty(self):
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from projects import admin as projects_admin
+
+        with (
+            patch.object(projects_admin, "DEFAULT_ASSIGNMENT_RATES_FIXTURE", Path("/nonexistent/does-not-exist.json")),
+            self.assertLogs("projects.admin", level="ERROR"),
+        ):
+            self.assertEqual(projects_admin._default_assignment_rate_initial(), ())
 
 
 class ProjectAssignmentRateInlineConfigTestCase(TestCase):
-    def test_max_num_is_10(self):
-        self.assertEqual(ProjectAssignmentRateInline.max_num, 10)
+    def test_max_num_equals_role_count(self):
+        from projects.definitions import ProjectRoles
+
+        # one rate per role — no entries can be added beyond the number of defined roles
+        self.assertEqual(ProjectAssignmentRateInline.max_num, len(ProjectRoles.choices()))
+
+    def test_inline_expanded(self):
+        # the assignment-rates section is shown expanded (not collapsed) so prefilled defaults are visible
+        self.assertNotIn("collapse", getattr(ProjectAssignmentRateInline, "classes", ()) or ())
+
+
+class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Project add-form layout changes: phase top section, confidence/closure hidden, sections expanded."""
+
+    def setUp(self):
+        super().setUp()
+        self.existing_project = self.make_project("layout-existing-project")
+
+    @staticmethod
+    def _all_fieldset_fields(fieldsets: list) -> list:
+        return [field for _label, opts in fieldsets for field in opts.get("fields", ())]
+
+    def test_phase_in_top_section_on_add(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
+        top_fields = fieldsets[0][1]["fields"]
+        self.assertIn("phase", top_fields)
+
+    def test_confidence_not_in_form(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
+        self.assertNotIn("confidence", self._all_fieldset_fields(fieldsets))
+        self.assertNotIn("confidence", modeladmin.readonly_fields)
+
+    def test_closure_and_survey_section_not_displayed(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        for obj in (None, self.existing_project):
+            fields = self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=obj))
+            self.assertNotIn("close_comment", fields)
+            self.assertNotIn("survey_issued", fields)
+
+    def test_dates_and_estimates_section_expanded(self):
+        for _label, opts in KippoProjectBaseAdmin.fieldsets:
+            if "start_date" in opts.get("fields", ()):
+                self.assertNotIn("collapse", opts.get("classes", ()))
+                break
+        else:
+            self.fail("No 'Dates & Estimates' fieldset found")
+
+    def test_contract_inline_expanded_single_entry(self):
+        self.assertNotIn("collapse", getattr(KippoProjectContractInline, "classes", ()) or ())
+        self.assertEqual(KippoProjectContractInline.extra, 1)
+
+    def test_billing_entry_inline_removed(self):
+        from projects.admin import KippoProjectBillingEntryInline
+
+        self.assertNotIn(KippoProjectBillingEntryInline, KippoProjectBaseAdmin.inlines)
+
+
+class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Add-form runtime behavior: default assignment rates prefilled, customer hidden when prefilled."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="layout-customer",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_assignment_rate_inline_prefills_defaults_on_add(self):
+        inline = ProjectAssignmentRateInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=None)
+        self.assertEqual(formset_class.extra, 3)
+        formset = formset_class(instance=KippoProject())
+        roles = [form.initial.get("role") for form in formset.forms if form.initial]
+        self.assertEqual(roles, ["developer", "project_manager", "tester"])
+
+    def test_assignment_rate_inline_no_prefill_on_change(self):
+        inline = ProjectAssignmentRateInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=self.make_project("rate-change-project"))
+        self.assertEqual(formset_class.extra, 0)
+
+    def test_customer_field_hidden_when_prefilled_from_customer_admin(self):
+        url = reverse("admin:projects_activekippoproject_add")
+        response = self.client.get(url, {"customer": str(self.customer.id), "organization": str(self.organization.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form = response.context["adminform"].form
+        self.assertIsInstance(form.fields["customer"].widget, forms.HiddenInput)
+
+    def test_customer_field_visible_on_plain_add(self):
+        url = reverse("admin:projects_activekippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form = response.context["adminform"].form
+        self.assertNotIsInstance(form.fields["customer"].widget, forms.HiddenInput)
 
 
 class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
