@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 from unittest import TestCase
 from unittest.mock import MagicMock
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 if TYPE_CHECKING:
     from octocat.models import GithubRepository
@@ -17,8 +17,8 @@ from customers.models import KippoCustomer
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
-from django.http import HttpResponse
-from django.test import SimpleTestCase
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -990,6 +990,78 @@ class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBa
         results = response.context["cl"].queryset
         self.assertIn(self.acme_project, results)
         self.assertNotIn(self.other_project, results)
+
+
+class KippoProjectAdminReturnToTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """`_return_to` round-trip: a project add/change started from another admin page (e.g. the
+    customer admin's プロジェクトを追加 button) redirects back there on save and prefills the customer.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="ReturnTo Co",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.return_to = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+
+    def _add_request(self, params: dict, post_data: dict) -> HttpRequest:
+        # The add form posts to its own URL (empty form action), so the query string survives into
+        # response_add — RequestFactory mirrors that by parsing the path's query string into GET.
+        request = self.factory.post(f"/admin/projects/activekippoproject/add/?{urlencode(params)}", post_data)
+        request.user = self.superuser_no_org
+        return request
+
+    def test_get_changeform_initial_data_prefills_customer(self):
+        request = self.factory.get("/add/", {"customer": str(self.customer.id), "organization": str(self.organization.id)})
+        request.user = self.superuser_no_org
+        initial = self.modeladmin.get_changeform_initial_data(request)
+        self.assertEqual(initial["customer"], str(self.customer.id))
+        self.assertEqual(initial["organization"], str(self.organization.id))
+
+    def test_safe_return_to_accepts_relative_admin_url(self):
+        request = self._add_request({"_return_to": self.return_to}, {"_save": ""})
+        self.assertEqual(self.modeladmin._safe_return_to(request), self.return_to)
+
+    def test_safe_return_to_rejects_external_url(self):
+        request = self._add_request({"_return_to": "https://evil.example.com/x"}, {"_save": ""})
+        self.assertIsNone(self.modeladmin._safe_return_to(request))
+
+    def test_safe_return_to_none_when_absent(self):
+        request = self._add_request({}, {"_save": ""})
+        self.assertIsNone(self.modeladmin._safe_return_to(request))
+
+    def test_plain_save_redirects_back_to_return_to(self):
+        request = self._add_request({"_return_to": self.return_to}, {"_save": ""})
+        result = self.modeladmin._redirect_back_after_save(request, HttpResponse())
+        self.assertIsInstance(result, HttpResponseRedirect)
+        self.assertEqual(result["Location"], self.return_to)
+
+    def test_save_and_add_another_carries_return_and_customer_forward(self):
+        params = {"_return_to": self.return_to, "customer": str(self.customer.id), "organization": str(self.organization.id)}
+        request = self._add_request(params, {"_addanother": ""})
+        original = HttpResponseRedirect(reverse("admin:projects_activekippoproject_add"))
+        result = self.modeladmin._redirect_back_after_save(request, original)
+        query = parse_qs(urlparse(result["Location"]).query)
+        self.assertEqual(query["_return_to"], [self.return_to])
+        self.assertEqual(query["customer"], [str(self.customer.id)])
+        self.assertEqual(query["organization"], [str(self.organization.id)])
+
+    def test_save_and_continue_carries_return_forward(self):
+        change_url = reverse("admin:projects_activekippoproject_change", args=[self.customer.id])  # any change-like URL
+        request = self._add_request({"_return_to": self.return_to}, {"_continue": ""})
+        result = self.modeladmin._redirect_back_after_save(request, HttpResponseRedirect(change_url))
+        query = parse_qs(urlparse(result["Location"]).query)
+        self.assertEqual(query["_return_to"], [self.return_to])
+
+    def test_no_return_to_leaves_response_unchanged(self):
+        request = self._add_request({}, {"_save": ""})
+        original = HttpResponse()
+        self.assertIs(self.modeladmin._redirect_back_after_save(request, original), original)
 
 
 class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):

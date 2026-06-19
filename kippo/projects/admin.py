@@ -32,6 +32,7 @@ from django.http import (
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from octocat.functions import copy_project_v2, create_project_v2, get_organization_id
@@ -76,6 +77,11 @@ if TYPE_CHECKING:
     from .services.forecast import ForecastResult
 
 CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
+
+# GET/POST param carrying the admin URL to return to after a project add/change. Set by callers
+# that send the user into the project add form from elsewhere (e.g. the customer admin's
+# "プロジェクトを追加" button) so the save redirects back to where they came from.
+RETURN_TO_PARAM = "_return_to"
 
 logger = logging.getLogger(__name__)
 
@@ -1358,7 +1364,52 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         organization_id = request.GET.get("organization")
         if organization_id:
             initial["organization"] = organization_id
+        customer_id = request.GET.get("customer")
+        if customer_id:
+            initial["customer"] = customer_id
         return initial
+
+    def _safe_return_to(self, request: DjangoRequest) -> str | None:
+        """The validated `_return_to` admin URL (where the user came from), or None.
+
+        The add/change form posts to its own URL with the query string intact (empty form
+        action), so `_return_to` survives into response_add/response_change via request.GET.
+        """
+        return_to = request.GET.get(RETURN_TO_PARAM)
+        if return_to and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+            return return_to
+        return None
+
+    def _redirect_back_after_save(self, request: DjangoRequest, response: HttpResponse) -> HttpResponse:
+        return_to = self._safe_return_to(request)
+        if not return_to:
+            return response
+        # "Save and add another" / "Save and continue editing" keep the user in the project
+        # add/change flow — carry _return_to (and customer/organization prefill) forward so the
+        # eventual plain Save still returns to the originating page. Plain Save goes back now.
+        if any(key in request.POST for key in ("_addanother", "_continue", "_saveasnew")):
+            if isinstance(response, HttpResponseRedirect):
+                carry = {RETURN_TO_PARAM: return_to}
+                for key in ("customer", "organization"):
+                    value = request.GET.get(key)
+                    if value:
+                        carry[key] = value
+                response["Location"] = self._with_params(response["Location"], carry)
+            return response
+        return HttpResponseRedirect(return_to)
+
+    @staticmethod
+    def _with_params(url: str, params: dict[str, str]) -> str:
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+        query.update({key: [value] for key, value in params.items()})
+        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query, doseq=True)))
+
+    def response_add(self, request: DjangoRequest, obj: KippoProject, post_url_continue: str | None = None):
+        return self._redirect_back_after_save(request, super().response_add(request, obj, post_url_continue))
+
+    def response_change(self, request: DjangoRequest, obj: KippoProject):
+        return self._redirect_back_after_save(request, super().response_change(request, obj))
 
     def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
         if obj.pk is None:
