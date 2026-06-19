@@ -6,6 +6,7 @@ import re
 import urllib.parse
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from pathlib import Path
 from string import ascii_lowercase
 from typing import TYPE_CHECKING
 
@@ -42,7 +43,7 @@ from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus
+from .definitions import UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -90,6 +91,34 @@ PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 
 logger = logging.getLogger(__name__)
 
+# Default per-role daily rates pre-filled into the ProjectAssignmentRate inline on /add/.
+# Edit the values in fixtures/default_projectassignmentrates.json — no code change needed.
+# Keep the roles in this file aligned with ProjectRoles (rows with an unknown role are skipped).
+DEFAULT_ASSIGNMENT_RATES_FIXTURE = Path(__file__).parent / "fixtures" / "default_projectassignmentrates.json"
+
+
+def _default_assignment_rate_initial() -> tuple[dict, ...]:
+    """Role/rate_per_day defaults used to prefill the ProjectAssignmentRate inline on project creation.
+
+    Read fresh each call (tiny file, only on /add/). Rows whose role is not a valid ProjectRoles
+    value are skipped (logged); a missing/blank rate falls back to settings.DEFAULT_PROJECT_DAILY_RATE
+    so the fixture and the model default cannot silently drift.
+    """
+    try:
+        rows = json.loads(DEFAULT_ASSIGNMENT_RATES_FIXTURE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.exception("Failed to load default project assignment rates fixture: %s", DEFAULT_ASSIGNMENT_RATES_FIXTURE)
+        return ()
+    valid_roles = set(ProjectRoles.values())
+    initial = []
+    for row in rows:
+        role = row.get("role")
+        if role not in valid_roles:
+            logger.warning("Skipping default assignment rate with unknown role %r (valid roles: %s)", role, sorted(valid_roles))
+            continue
+        initial.append({"role": role, "rate_per_day": row.get("rate_per_day") or settings.DEFAULT_PROJECT_DAILY_RATE})
+    return tuple(initial)
+
 
 class LockWhenProjectClosedInlineMixin:
     """Inline mixin that disables add/change/delete when the parent KippoProject is closed."""
@@ -113,9 +142,29 @@ class LockWhenProjectClosedInlineMixin:
 class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectAssignmentRate
     extra = 0
-    max_num = 10
+    # One rate per role (unique_together project+role) — cap rows at the number of defined roles so
+    # no extra entries can be added beyond them. Stays in sync if ProjectRoles changes.
+    max_num = len(ProjectRoles.choices())
     fields = ("role", "rate_per_day")
-    classes = ["collapse"]
+
+    def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        """On /add/ (obj is None) prefill one row per default role/rate from the fixture so the
+        section is populated with sensible defaults the admin can edit before saving.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj is not None:
+            return formset
+        defaults = _default_assignment_rate_initial()
+        if not defaults:
+            return formset
+        formset.extra = len(defaults)
+
+        class DefaultRatesFormSet(formset):
+            def __init__(self, *args, **inner_kwargs) -> None:
+                inner_kwargs.setdefault("initial", list(defaults))
+                super().__init__(*args, **inner_kwargs)
+
+        return DefaultRatesFormSet
 
 
 class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
@@ -129,7 +178,6 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     model = KippoProjectContract
     extra = 1
     fields = ("billing_type", "amount", "start_date", "end_date", "note")
-    classes = ["collapse"]
 
     def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         # 請求方法 is required at project registration (kippo#40 / T19): require ≥1 contract on /add/.
@@ -806,6 +854,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
     # attribute so tests and subclasses can reference the same source of truth.
     HIDDEN_ON_ADD_INLINES = (
+        GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
         KippoProjectStatusReadOnlyInine,
@@ -833,9 +882,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
-    # confidence is derived from phase (editable=False); the revenue figures are derived from
-    # the contract + billing ledger (kippo#32 / T13) — all shown read-only in the form
-    readonly_fields = ("confidence", "get_contract_amount_display", "get_total_revenue_display")
+    # revenue figures are derived from the contract + billing ledger (kippo#32 / T13) — shown read-only.
+    # confidence is derived from phase (editable=False) and intentionally hidden from the form.
+    readonly_fields = ("get_contract_amount_display", "get_total_revenue_display")
     # Changelist ordering lives in get_ordering() (a Case() expression), not the `ordering`
     # attribute — see the note there for why the attribute can't express it.
     actions = [
@@ -857,7 +906,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 "fields": (
                     "name",
                     "problem_definition",
-                    "confidence",
+                    "phase",
                     "project_manager",
                     "meeting_calendar_url_field",
                     "meeting_description_tag_field",
@@ -867,7 +916,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         (
             _("Dates & Estimates"),
             {
-                "classes": ("collapse",),
                 "fields": (
                     "start_date",
                     "target_date",
@@ -890,7 +938,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 "fields": (
                     "organization",
                     "customer",
-                    "phase",
                     "category",
                     "parent_project",
                     "slack_channel_name",
@@ -904,16 +951,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 ),
             },
         ),
-        (
-            _("Closure & Survey"),
-            {
-                "classes": ("collapse",),
-                "fields": (
-                    "survey_issued",
-                    "close_comment",
-                ),
-            },
-        ),
     ]
     inlines = [
         # Milestones not used atm, commenting out.
@@ -922,7 +959,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
         KippoProjectContractInline,
-        KippoProjectBillingEntryInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         KippoProjectStatusReadOnlyInine,
@@ -1240,6 +1276,12 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
+
+        # Arriving from the customer admin's "プロジェクトを追加" button (?customer=<pk>): the customer is
+        # already chosen, so hide the field. The value is still prefilled (get_changeform_initial_data)
+        # and POSTed; the scoped queryset validates it server-side.
+        if obj is None and request.GET.get("customer") and "customer" in form.base_fields:
+            form.base_fields["customer"].widget = forms.HiddenInput()
 
         if obj is None and request.GET.get("_upsell_source") == "close":
             self._apply_upsell_source_widgets(form, user_memberships)

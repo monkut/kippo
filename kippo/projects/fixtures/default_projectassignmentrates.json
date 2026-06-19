@@ -1,0 +1,5 @@
+[
+  {"role": "developer", "rate_per_day": 180000},
+  {"role": "project_manager", "rate_per_day": 180000},
+  {"role": "tester", "rate_per_day": 180000}
+]

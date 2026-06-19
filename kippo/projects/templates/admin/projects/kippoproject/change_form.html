@@ -66,4 +66,41 @@
     });
 })();
 </script>
+<script>
+'use strict';
+// Auto-populate the first contract row's period from the project's start_date / target_date
+// as they are entered on the add form. Only fills a contract date that is empty or was itself
+// auto-filled — a date the user typed (or a pre-existing contract date on the change form) is
+// never clobbered. The model also backfills blank contract dates on save as a safety net.
+(function () {
+    function mirror(sourceId, targetId) {
+        var source = document.getElementById(sourceId);
+        var target = document.getElementById(targetId);
+        if (!source || !target) {
+            return;
+        }
+        target.addEventListener('input', function () {
+            target.dataset.userEdited = 'true';
+        });
+        function apply() {
+            if (target.dataset.userEdited === 'true') {
+                return;
+            }
+            // don't overwrite a value that wasn't placed here by this auto-fill
+            if (target.value && target.dataset.autofilled !== 'true') {
+                return;
+            }
+            target.value = source.value;
+            target.dataset.autofilled = 'true';
+        }
+        source.addEventListener('change', apply);
+        source.addEventListener('input', apply);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        mirror('id_start_date', 'id_contracts-0-start_date');
+        mirror('id_target_date', 'id_contracts-0-end_date');
+    });
+})();
+</script>
 {% endblock %}
