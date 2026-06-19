@@ -794,8 +794,14 @@ class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedB
     ordering = ("organization", "sort_order", "key")
 
 
-@admin.register(KippoProject)
-class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    """Shared config for the two registered project admins. Not registered itself.
+
+    Subclassed by KippoProjectAdmin (all projects) and ActiveKippoProjectAdmin (active only, via
+    the proxy's ActiveKippoProjectManager). Both render the same columns/ordering/actions; the
+    children only differ in queryset and a couple of list/exclude tweaks.
+    """
+
     form = KippoProjectAdminForm
     # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
     # attribute so tests and subclasses can reference the same source of truth.
@@ -805,8 +811,8 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     )
-    # Shared by both project admins (the active admin is a subclass) so 「プロジェクト」 and
-    # 「プロジェクト(実行中)」 look the same; the only real difference is the queryset.
+    # Shared base columns. KippoProjectAdmin appends display_as_active (it lists closed/inactive
+    # projects too); the active admin uses this set as-is.
     list_display = (
         "id",
         "get_customer_name",
@@ -1451,11 +1457,18 @@ class KippoProjectAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return qs.filter(organization__in=request.user.organizations).distinct()
 
 
+@admin.register(KippoProject)
+class KippoProjectAdmin(KippoProjectBaseAdmin):
+    # All projects, including closed/inactive — keep display_as_active so the active/closed state
+    # is visible at a glance (the only column that differs from the active admin).
+    list_display = (*KippoProjectBaseAdmin.list_display, "display_as_active")
+
+
 @admin.register(ActiveKippoProject)
-class ActiveKippoProjectAdmin(KippoProjectAdmin):
-    # Identical to KippoProjectAdmin except the queryset: the ActiveKippoProjectManager (proxy
-    # default manager) restricts it to open + display_as_active projects. The only form difference
-    # is below — closure fields never apply to an active project.
+class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
+    # Identical to the base except the queryset: the ActiveKippoProjectManager (proxy default
+    # manager) restricts it to open + display_as_active projects. The only form difference is
+    # below — closure fields never apply to an active project.
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: list[str] = list(super().get_exclude(request, obj) or ())

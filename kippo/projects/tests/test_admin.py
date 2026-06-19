@@ -27,6 +27,7 @@ from projects.admin import (
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
+    KippoProjectBaseAdmin,
     KippoProjectContractInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
@@ -1065,9 +1066,10 @@ class KippoProjectAdminReturnToTestCase(KippoProjectAdminFixtureTestCaseBase):
 
 
 class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """After the refactor, 「プロジェクト」 and 「プロジェクト(実行中)」 look near-identical: the active admin
-    inherits list_display, ordering and the change-page delete lock. The only differences are the
-    queryset (active-only, via the proxy manager) and the always-hidden closure fields.
+    """After the refactor both registered admins subclass KippoProjectBaseAdmin and look
+    near-identical: presentation (columns, ordering, change-page delete lock) lives on the base.
+    The differences are the queryset (active-only, via the proxy manager), the always-hidden
+    closure fields, and the display_as_active column that only the all-projects admin keeps.
     """
 
     def setUp(self):
@@ -1076,11 +1078,21 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
         self.request = self.factory.get("/")
         self.request.user = self.superuser_no_org
 
+    def test_both_admins_subclass_shared_base(self):
+        self.assertTrue(issubclass(KippoProjectAdmin, KippoProjectBaseAdmin))
+        self.assertTrue(issubclass(ActiveKippoProjectAdmin, KippoProjectBaseAdmin))
+
     def test_active_admin_does_not_override_presentation(self):
-        # parity comes from inheritance — these are no longer redefined on the active admin
+        # parity comes from inheritance — these are not redefined on the active admin
         for attr in ("list_display", "ordering", "has_delete_permission", "get_ordering", "get_queryset"):
-            self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited, not overridden")
-        self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectAdmin.list_display)
+            self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited from the base")
+        self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectBaseAdmin.list_display)
+
+    def test_all_projects_admin_keeps_display_as_active_column(self):
+        # the only list_display difference: the all-projects admin appends display_as_active
+        self.assertIn("display_as_active", KippoProjectAdmin.list_display)
+        self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
+        self.assertEqual(KippoProjectAdmin.list_display, (*KippoProjectBaseAdmin.list_display, "display_as_active"))
 
     def test_change_page_hides_delete_button_but_changelist_keeps_it(self):
         project = self.make_project("delete-lock")
