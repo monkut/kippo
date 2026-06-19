@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 from unittest import TestCase
 from unittest.mock import MagicMock
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 if TYPE_CHECKING:
     from octocat.models import GithubRepository
@@ -17,8 +17,8 @@ from customers.models import KippoCustomer
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
-from django.http import HttpResponse
-from django.test import SimpleTestCase
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -27,6 +27,7 @@ from projects.admin import (
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
+    KippoProjectBaseAdmin,
     KippoProjectContractInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
@@ -990,6 +991,137 @@ class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBa
         results = response.context["cl"].queryset
         self.assertIn(self.acme_project, results)
         self.assertNotIn(self.other_project, results)
+
+
+class KippoProjectAdminReturnToTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """`_return_to` round-trip: a project add/change started from another admin page (e.g. the
+    customer admin's プロジェクトを追加 button) redirects back there on save and prefills the customer.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="ReturnTo Co",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.return_to = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+
+    def _add_request(self, params: dict, post_data: dict) -> HttpRequest:
+        # The add form posts to its own URL (empty form action), so the query string survives into
+        # response_add — RequestFactory mirrors that by parsing the path's query string into GET.
+        request = self.factory.post(f"/admin/projects/activekippoproject/add/?{urlencode(params)}", post_data)
+        request.user = self.superuser_no_org
+        return request
+
+    def test_get_changeform_initial_data_prefills_customer(self):
+        request = self.factory.get("/add/", {"customer": str(self.customer.id), "organization": str(self.organization.id)})
+        request.user = self.superuser_no_org
+        initial = self.modeladmin.get_changeform_initial_data(request)
+        self.assertEqual(initial["customer"], str(self.customer.id))
+        self.assertEqual(initial["organization"], str(self.organization.id))
+
+    def test_safe_return_to_accepts_relative_admin_url(self):
+        request = self._add_request({"_return_to": self.return_to}, {"_save": ""})
+        self.assertEqual(self.modeladmin._safe_return_to(request), self.return_to)
+
+    def test_safe_return_to_rejects_external_url(self):
+        request = self._add_request({"_return_to": "https://evil.example.com/x"}, {"_save": ""})
+        self.assertIsNone(self.modeladmin._safe_return_to(request))
+
+    def test_safe_return_to_none_when_absent(self):
+        request = self._add_request({}, {"_save": ""})
+        self.assertIsNone(self.modeladmin._safe_return_to(request))
+
+    def test_plain_save_redirects_back_to_return_to(self):
+        request = self._add_request({"_return_to": self.return_to}, {"_save": ""})
+        result = self.modeladmin._redirect_back_after_save(request, HttpResponse())
+        self.assertIsInstance(result, HttpResponseRedirect)
+        self.assertEqual(result["Location"], self.return_to)
+
+    def test_save_and_add_another_carries_return_and_customer_forward(self):
+        params = {"_return_to": self.return_to, "customer": str(self.customer.id), "organization": str(self.organization.id)}
+        request = self._add_request(params, {"_addanother": ""})
+        original = HttpResponseRedirect(reverse("admin:projects_activekippoproject_add"))
+        result = self.modeladmin._redirect_back_after_save(request, original)
+        query = parse_qs(urlparse(result["Location"]).query)
+        self.assertEqual(query["_return_to"], [self.return_to])
+        self.assertEqual(query["customer"], [str(self.customer.id)])
+        self.assertEqual(query["organization"], [str(self.organization.id)])
+
+    def test_save_and_continue_carries_return_forward(self):
+        change_url = reverse("admin:projects_activekippoproject_change", args=[self.customer.id])  # any change-like URL
+        request = self._add_request({"_return_to": self.return_to}, {"_continue": ""})
+        result = self.modeladmin._redirect_back_after_save(request, HttpResponseRedirect(change_url))
+        query = parse_qs(urlparse(result["Location"]).query)
+        self.assertEqual(query["_return_to"], [self.return_to])
+
+    def test_no_return_to_leaves_response_unchanged(self):
+        request = self._add_request({}, {"_save": ""})
+        original = HttpResponse()
+        self.assertIs(self.modeladmin._redirect_back_after_save(request, original), original)
+
+
+class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """After the refactor both registered admins subclass KippoProjectBaseAdmin and look
+    near-identical: presentation (columns, ordering, change-page delete lock) lives on the base.
+    The differences are the queryset (active-only, via the proxy manager), the always-hidden
+    closure fields, and the display_as_active column that only the all-projects admin keeps.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.request = self.factory.get("/")
+        self.request.user = self.superuser_no_org
+
+    def test_both_admins_subclass_shared_base(self):
+        self.assertTrue(issubclass(KippoProjectAdmin, KippoProjectBaseAdmin))
+        self.assertTrue(issubclass(ActiveKippoProjectAdmin, KippoProjectBaseAdmin))
+
+    def test_active_admin_does_not_override_presentation(self):
+        # parity comes from inheritance — these are not redefined on the active admin
+        for attr in ("list_display", "ordering", "has_delete_permission", "get_ordering", "get_queryset"):
+            self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited from the base")
+        self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectBaseAdmin.list_display)
+
+    def test_all_projects_admin_keeps_display_as_active_column(self):
+        # the only list_display difference: the all-projects admin appends display_as_active
+        self.assertIn("display_as_active", KippoProjectAdmin.list_display)
+        self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
+        self.assertEqual(KippoProjectAdmin.list_display, (*KippoProjectBaseAdmin.list_display, "display_as_active"))
+
+    def test_change_page_hides_delete_button_but_changelist_keeps_it(self):
+        project = self.make_project("delete-lock")
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        change_request = self.factory.get(reverse("admin:projects_kippoproject_change", args=[project.id]))
+        change_request.user = self.superuser_no_org
+        self.assertFalse(modeladmin.has_delete_permission(change_request, project))
+        list_request = self.factory.get(reverse("admin:projects_kippoproject_changelist"))
+        list_request.user = self.superuser_no_org
+        self.assertTrue(modeladmin.has_delete_permission(list_request))
+
+    def test_changelist_orders_non_project_category_first(self):
+        # Regression guard: non-project-first ordering was previously dead (the order_by in
+        # get_queryset was overridden by the `ordering` attribute). Names are chosen so the
+        # non-project sorts LATER by name — proving the category ordering dominates the name tiebreak.
+        real = self.make_project("aaa-real-delivery")  # category "other"
+        anon = KippoProject.objects.create(
+            organization=self.organization,
+            name="zzz-anon-bucket",
+            category=_global_category("non-project"),
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        response = self.client.get(reverse("admin:projects_kippoproject_changelist"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        names = [p.name for p in response.context["cl"].result_list]
+        self.assertLess(names.index(anon.name), names.index(real.name))
 
 
 class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):

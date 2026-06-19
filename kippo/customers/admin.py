@@ -1,12 +1,17 @@
+import urllib.parse
+
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django import forms
 from django.contrib import admin
+from django.contrib.admin.utils import unquote
 from django.db import models
 from django.db.models import Count, Q
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
 from projects.models import KippoProject
 
@@ -24,8 +29,13 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     verbose_name_plural = _("プロジェクト")
     fields = ("get_project_link", "start_date", "target_date", "billing_date")
     readonly_fields = ("get_project_link", "start_date", "target_date", "billing_date")
+    # Wraps the default tabular inline and appends a "プロジェクトを追加" link that redirects to the
+    # ActiveKippoProject add form (project creation is rich — GitHub project, columnset, etc. — so
+    # it is never created inline). Scoped to this inline only; the global tabular template is
+    # untouched. The link's href (add_project_url) is built in KippoCustomerAdmin.change_view.
+    template = "admin/customers/edit_inline/kippoproject_add_redirect.html"
 
-    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No Add button
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:  # No inline add row
         return False
 
     def get_queryset(self, request: DjangoRequest):
@@ -78,6 +88,22 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # The compliance_check is auto-created via signal; guard against its absence anyway.
         compliance_check = getattr(obj, "compliance_check", None)
         return bool(compliance_check and compliance_check.verified)
+
+    def change_view(self, request: DjangoRequest, object_id: str, form_url: str = "", extra_context: dict | None = None):
+        # Surface an "プロジェクトを追加" button under the projects inline that sends the user to the
+        # ActiveKippoProject add form (project creation is rich — GitHub project, columnset, etc. —
+        # so it is never created inline). The new project is prefilled with this customer + its
+        # organization, and _return_to brings the user back to this customer page on save.
+        extra_context = extra_context or {}
+        customer = self.get_object(request, unquote(object_id))
+        if customer is not None:
+            params = {
+                "customer": str(customer.pk),
+                "organization": str(customer.organization_id),
+                RETURN_TO_PARAM: request.path,
+            }
+            extra_context["add_project_url"] = f"{reverse('admin:projects_activekippoproject_add')}?{urllib.parse.urlencode(params)}"
+        return super().change_view(request, object_id, form_url, extra_context)
 
     def get_form(self, request: DjangoRequest, obj: KippoCustomer | None = None, **kwargs) -> Form:
         form = super().get_form(request, obj, **kwargs)

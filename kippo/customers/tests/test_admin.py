@@ -1,6 +1,7 @@
 from datetime import date
 from http import HTTPStatus
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, default_project_category
@@ -114,6 +115,29 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         content = self.client.get(url).content.decode()
         self.assertIn(mine.name, content)
         self.assertNotIn(theirs.name, content)
+
+    def test_change_view_shows_add_project_button_prefilled_with_customer_and_return(self):
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        add_project_url = response.context["add_project_url"]
+        parsed = urlparse(add_project_url)
+        self.assertEqual(parsed.path, reverse("admin:projects_activekippoproject_add"))
+        params = parse_qs(parsed.query)
+        self.assertEqual(params["customer"], [str(self.customer.id)])
+        self.assertEqual(params["organization"], [str(self.organization.id)])
+        self.assertEqual(params["_return_to"], [url])
+        # button is rendered (label + link to the project add view)
+        content = response.content.decode()
+        self.assertIn("プロジェクトを追加", content)
+        self.assertIn(reverse("admin:projects_activekippoproject_add"), content)
+
+    def test_add_view_has_no_add_project_button(self):
+        # No customer pk yet on add → no project can be linked, so the button is absent.
+        response = self.client.get(reverse("admin:customers_kippocustomer_add"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertIsNone(response.context.get("add_project_url"))
+        self.assertNotIn("プロジェクトを追加", response.content.decode())
 
     def test_changelist_active_project_count_excludes_closed_and_inactive(self):
         # Two active projects (is_closed=False, display_as_active=True by default).

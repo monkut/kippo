@@ -1,0 +1,12 @@
+{% load i18n %}
+{# Read-only projects inline for KippoCustomer, plus a redirect-based "add" affordance. #}
+{# The default tabular inline is rendered unchanged via the include; the link below routes #}
+{# project creation through the ActiveKippoProject add form (rich: GitHub project, columnset, #}
+{# registration validation) and returns to this customer on save. add_project_url is built in #}
+{# KippoCustomerAdmin.change_view, so the link is absent on the customer add view (no pk yet). #}
+{% include "admin/edit_inline/tabular.html" %}
+{% if add_project_url %}
+<div class="add-row" style="padding: 8px 14px;">
+    <a href="{{ add_project_url }}" class="addlink">{% translate "プロジェクトを追加" %}</a>
+</div>
+{% endif %}
