@@ -248,6 +248,82 @@ files in production. Relevant settings (in `kippo/kippo/settings.py`):
 > because Vite already pre-hashes those filenames and the SPA's `index.html`
 > hard-codes them.
 
+## Projects (KippoProject) admin
+
+Projects are created and edited through two registered admins, both defined in
+`kippo/projects/admin.py` and sharing one form/layout via `KippoProjectBaseAdmin`:
+
+| Admin | Shows |
+| --- | --- |
+| **Project** (`KippoProject`) | All projects, including closed/inactive (adds a `display_as_active` column). |
+| **Project(実行中)** (`ActiveKippoProject`) | Only open projects with `display_as_active=True`. |
+
+### Create flow
+
+A project can be created from two entry points:
+
+1. **Directly** from the Project / Project(実行中) admin "Add" page.
+2. From a **customer** page (`KippoCustomer` admin) via the **プロジェクトを追加** button.
+   This sends the user to the `ActiveKippoProject` add form with the `customer` and
+   `organization` prefilled, hides the (already-chosen) `customer` field, and returns to
+   the customer page on save.
+
+Behavior on the **add** form (does not apply when editing an existing project):
+
+- **Required at registration**: `name`, `customer`, `project_manager`, `start_date`,
+  `target_date`, **and at least one contract** (請求方法 — enforced by the contract inline's
+  `min_num=1`). Editing an existing project is *not* bound by these rules, so older
+  customer-less / PM-less projects still save.
+- **Organization** is preselected to the user's session organization. For single-org users
+  it is hidden (nothing to choose); the queryset is still scoped, so a tampered submission is
+  rejected server-side.
+- **Column set** defaults to the organization's default and is hidden from non-superusers
+  (column-set selection is an admin concern).
+- **Upsell projects**: the **Close Project** action can spawn a follow-up "upsell" project
+  prefilled from the closed one. When an upsell category is selected, `parent_project` is
+  required and must belong to the same organization.
+
+### Form layout
+
+| Section | Fields | Notes |
+| --- | --- | --- |
+| _(top, no header)_ | `name`, `problem_definition`, `phase`, `project_manager`, MTG calendar links | MTG calendar/description links are computed, read-only, and shown on **existing** projects only. |
+| **Dates & Estimates** (expanded) | `start_date`, `target_date`, `allocated_staff_days`, `estimated_completion_date` | `estimated_completion_date` is a computed forecast, shown read-only on open projects when editing. |
+| **Billing** (collapsed) | `billing_date`, contract amount, total revenue | Contract amount and total revenue are **derived** (read-only) from the contract + billing ledger. |
+| **Details** (collapsed) | `organization`, `customer`, `category`, `parent_project`, Slack channels, `columnset`, `enable_cost_report`, `document_folder_url`, GitHub project URLs, `docbase_tag` | `parent_project` appears on **add** only (read-only display on change). |
+
+`confidence` is **not** shown on the form — it is auto-derived from `phase` (see below) and
+appears only as a changelist column. The closure/survey fields (`close_comment`,
+`survey_issued`) are **not** editable on the form; they are managed by the Close Project
+action.
+
+### Inlines
+
+| Inline | When | Notes |
+| --- | --- | --- |
+| **Project Assignment Rates** | add + change | One row **per role** (`developer`, `project_manager`, `tester`). On add, rows are prefilled from `kippo/projects/fixtures/default_projectassignmentrates.json`; capped at one entry per role (`max_num = number of roles`). |
+| **Monthly Assignments** | add + change | Per-user monthly allocation percentages. |
+| **Contracts** | add + change | Expanded with a single empty row. On the add form, the contract period dates auto-populate from the project `start_date` / `target_date` as they are entered (the model also backfills blank contract dates on save). |
+| **GitHub Repositories** | change only | Hidden on add — only meaningful once the project exists. |
+| **Weekly Effort** / **Status comments** | change only | Read-only history plus an editable add row. |
+
+### Key fields
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Unique project name (required). |
+| `phase` | Project phase/pipeline state; drives `confidence`. |
+| `confidence` | 0–100, **auto-derived from `phase`** (read-only). |
+| `category` | `KippoProjectOrganizationCategory` (global default or org-specific). |
+| `customer` | `KippoCustomer` the project is delivered for. |
+| `project_manager` | Assigned PM; defaults to the creating user. |
+| `parent_project` | Original project for upsell follow-ups. |
+| `start_date` / `target_date` | Engineering start / planned completion. `target_date` has a default; `billing_date` defaults to `target_date` when blank. |
+| `allocated_staff_days` | Estimated staff-days to completion. |
+| `columnset` | `ProjectColumnSet` used when a GitHub project is created via Kippo. |
+| `is_closed` / `actual_date` / `close_comment` | Set by the Close Project action, not the form. |
+| `display_as_active` | Whether the project appears in the Project(実行中) list. |
+
 ## Optional Features
 
 ### ProjectId Mapping file output
