@@ -53,6 +53,8 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
 
     **Filtering:**
     - is_active: Filter by display_as_active field (true/false)
+    - category: Include only the given category key (exact match)
+    - exclude_category: Exclude the given category key (exact match), e.g. drop non-project rows
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users)
@@ -92,6 +94,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 required=False,
                 type=str,
             ),
+            OpenApiParameter(
+                name="exclude_category",
+                description="Exclude projects whose category key matches this value (e.g. 'non-project').",
+                required=False,
+                type=str,
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
@@ -126,6 +134,11 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         category = self.request.query_params.get("category", None)
         if category is not None:
             queryset = queryset.filter(category__key=category)
+
+        # Exclude by category (exact match) — lets clients drop e.g. non-project rows server-side.
+        exclude_category = self.request.query_params.get("exclude_category", None)
+        if exclude_category is not None:
+            queryset = queryset.exclude(category__key=exclude_category)
 
         return queryset
 

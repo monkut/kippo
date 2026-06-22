@@ -417,6 +417,37 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn(str(self.project.id), all_ids)
         self.assertIn(str(other_category_project.id), all_ids)
 
+    def test_exclude_by_category(self):
+        """Test excluding projects by the exclude_category query parameter (exact match on the category key)."""
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        non_project_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="non-project")
+        self.project.category = si_category
+        self.project.save()
+
+        non_project = KippoProject.objects.create(
+            name="Non Project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            category=non_project_category,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        # Exclude non-project — only the si project should be returned.
+        url = f"{settings.URL_PREFIX}/api/projects/?exclude_category=non-project"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = [result["id"] for result in response.json()["results"]]
+        self.assertIn(str(self.project.id), result_ids)
+        self.assertNotIn(str(non_project.id), result_ids)
+
+        # Without the filter, both projects are returned.
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        response = self.client.get(url)
+        all_ids = [result["id"] for result in response.json()["results"]]
+        self.assertIn(str(self.project.id), all_ids)
+        self.assertIn(str(non_project.id), all_ids)
+
     def test_user_cannot_access_other_organization_projects(self):
         """Test that users can only access projects from their organizations."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.other_project.id}/"
