@@ -1401,6 +1401,27 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         else:
             self.fail("No 'Dates & Estimates' fieldset found")
 
+    def test_billing_and_details_sections_expanded_on_add(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
+        # Billing (billing_date) and Details (category) start expanded on /add/.
+        for _label, opts in fieldsets:
+            fields = opts.get("fields", ())
+            if "billing_date" in fields or "category" in fields:
+                self.assertNotIn("collapse", opts.get("classes", ()))
+
+    def test_billing_and_details_sections_collapsed_on_change(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
+        collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
+        self.assertTrue(any("billing_date" in opts.get("fields", ()) for opts in collapsed), "Billing should stay collapsed on change")
+        self.assertTrue(any("category" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
+
+    def test_columnset_not_in_add_or_change_fieldsets(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        for obj in (None, self.existing_project):
+            self.assertNotIn("columnset", self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=obj)))
+
     def test_contract_inline_expanded_single_entry(self):
         self.assertNotIn("collapse", getattr(KippoProjectContractInline, "classes", ()) or ())
         self.assertEqual(KippoProjectContractInline.extra, 1)
@@ -1590,47 +1611,44 @@ class KippoProjectAdminSingleOrgHidesOrganizationFieldTestCase(KippoProjectAdmin
 
 
 class KippoProjectAdminColumnsetFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """columnset is required, defaults to first available on /add/, and hidden for non-superusers."""
+    """columnset is never selectable in the admin: it is hidden from every form (add & change,
+    superuser & non-superuser) and auto-assigned to the organization's default on create.
+    """
 
-    @staticmethod
-    def _columnset_widget(adminform: AdminForm) -> forms.Widget:
-        widget = adminform.form.fields["columnset"].widget
-        return getattr(widget, "widget", widget)
-
-    def test_add_view_initial_columnset_is_first_available(self):
-        # superuser
+    def test_add_view_omits_columnset_field_for_superuser(self):
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertEqual(adminform.form.fields["columnset"].initial, ProjectColumnSet.objects.first())
+        self.assertNotIn("columnset", response.context["adminform"].form.fields)
 
-    def test_add_view_hides_columnset_field_for_non_superuser(self):
-        # log in as staff (single-org); columnset should be HiddenInput
+    def test_add_view_omits_columnset_field_for_non_superuser(self):
         self.client.force_login(self.staffuser_with_org)
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
-        # initial still preselects the first columnset so the form submits successfully
-        self.assertEqual(adminform.form.fields["columnset"].initial, ProjectColumnSet.objects.first())
+        self.assertNotIn("columnset", response.context["adminform"].form.fields)
 
-    def test_add_view_keeps_columnset_visible_for_superuser(self):
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertNotIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
-
-    def test_change_view_hides_columnset_field_for_non_superuser(self):
+    def test_change_view_omits_columnset_field(self):
         existing = self.make_project("columnset-change-target")
-        self.client.force_login(self.staffuser_with_org)
         url = reverse("admin:projects_kippoproject_change", args=[existing.id])
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertIsInstance(self._columnset_widget(adminform), forms.HiddenInput)
+        self.assertNotIn("columnset", response.context["adminform"].form.fields)
+
+    def test_save_model_auto_assigns_organization_default_columnset_on_create(self):
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        obj = KippoProject(organization=self.organization, name="auto-columnset-project", start_date=self.current_date)
+        self.assertIsNone(obj.columnset_id)
+        modeladmin.save_model(self.super_user_request, obj, form=None, change=False)
+        obj.refresh_from_db()
+        self.assertEqual(obj.columnset, self.organization.get_default_columnset())
+
+    def test_save_model_preserves_existing_columnset_on_change(self):
+        existing = self.make_project("columnset-preserve-target")
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        modeladmin.save_model(self.super_user_request, existing, form=None, change=True)
+        existing.refresh_from_db()
+        self.assertEqual(existing.columnset, self.columnset)
 
 
 class GithubRepositoryInlineSaveTestCase(KippoProjectAdminFixtureTestCaseBase):
