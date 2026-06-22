@@ -995,6 +995,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     excluded.append(fieldname)
         if not request.user.is_superuser and "github_project_api_nodeid" not in excluded:
             excluded.append("github_project_api_nodeid")
+        # columnset is never an admin choice — it is auto-assigned to the organization's default
+        # in save_model (see below). Hidden from the form for every user.
+        if "columnset" not in excluded:
+            excluded.append("columnset")
         return tuple(excluded)
 
     def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
@@ -1003,9 +1007,16 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # estimated_completion_date is a computed readonly field, only surfaced for open projects on edit
         if obj is None or obj.is_closed:
             excluded.add("estimated_completion_date")
-        if not excluded:
-            return fieldsets
-        return [(label, {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f not in excluded)}) for label, opts in fieldsets]
+        # Build a fresh fieldset list (never mutate the class attribute): strip excluded fields and,
+        # on /add/, expand the collapsed sections (Billing & Details) so their fields are visible
+        # without an extra click.
+        rebuilt = []
+        for label, opts in fieldsets:
+            new_opts = {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f not in excluded)}
+            if obj is None and "collapse" in new_opts.get("classes", ()):
+                new_opts["classes"] = tuple(c for c in new_opts["classes"] if c != "collapse")
+            rebuilt.append((label, new_opts))
+        return rebuilt
 
     def get_updated_by_display(self, obj: KippoProject) -> str:
         result = ""
@@ -1258,8 +1269,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and user_initial_organization and len(user_organizations) == 1:
             form.base_fields["organization"].widget = forms.HiddenInput()
 
-        self._apply_columnset_field(form, request, user_initial_organization, obj)
-
         # remove add/change/delete buttons from all ForeignKey fields
         for fieldname in form.base_fields:
             form.base_fields[fieldname].widget.can_add_related = False
@@ -1296,38 +1305,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         else:
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
-
-    @staticmethod
-    def _apply_columnset_field(
-        form: Form,
-        request: DjangoRequest,
-        user_initial_organization: KippoOrganization | None,
-        obj: KippoProject | None,
-    ) -> None:
-        """Set up the columnset field on the project form.
-
-        Scope choices to the org's columnsets (+ shared/global) and default to the organization's
-        resolved default on /add/. Hidden from non-superusers — columnset selection is an admin
-        concern, not a per-project staff decision.
-        """
-        if "columnset" not in form.base_fields:
-            return
-        if user_initial_organization is not None:
-            form.base_fields["columnset"].queryset = ProjectColumnSet.objects.filter(
-                models.Q(organization=user_initial_organization) | models.Q(organization__isnull=True)
-            )
-            if obj is None:
-                default_columnset = user_initial_organization.get_default_columnset()
-                if default_columnset:
-                    form.base_fields["columnset"].initial = default_columnset
-        elif obj is None:
-            # No session org (e.g. a superuser without a membership): keep the legacy
-            # global-first prefill so the required field isn't left blank.
-            first_columnset = ProjectColumnSet.objects.first()
-            if first_columnset:
-                form.base_fields["columnset"].initial = first_columnset
-        if not request.user.is_superuser:
-            form.base_fields["columnset"].widget = forms.HiddenInput()
 
     @staticmethod
     def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:
@@ -1475,6 +1452,13 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             obj.updated_by = request.user
         else:
             obj.updated_by = request.user
+
+        # columnset is hidden from the form (see get_exclude) — auto-assign the organization's
+        # default on create; existing projects keep their stored columnset.
+        if obj.columnset_id is None and obj.organization_id:
+            default_columnset = obj.organization.get_default_columnset()
+            if default_columnset is not None:
+                obj.columnset = default_columnset
 
         super().save_model(request, obj, form, change)
 

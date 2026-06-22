@@ -131,6 +131,19 @@ class KippoAdminSite(admin.AdminSite):
     site_title = settings.SITE_TITLE
     site_url = f"{settings.URL_PREFIX}/ui/weekly-effort"
 
+    # apps pinned to the top of the admin index, in this order; remaining apps keep Django's default order
+    APP_PRIORITY = ("customers", "projects")
+
+    def _app_sort_key(self, app: dict) -> int:
+        app_label = app["app_label"]
+        if app_label in self.APP_PRIORITY:
+            return self.APP_PRIORITY.index(app_label)
+        return len(self.APP_PRIORITY)
+
+    def get_app_list(self, request: DjangoRequest, app_label: str | None = None) -> list:
+        # stable sort keeps Django's default order for apps not in APP_PRIORITY
+        return sorted(super().get_app_list(request, app_label), key=self._app_sort_key)
+
 
 admin_site = KippoAdminSite(name="kippoadmin")
 

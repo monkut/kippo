@@ -5,7 +5,8 @@ from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.db import models
-from django.db.models import Count, Q
+from django.db.models import Count, IntegerField, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
@@ -16,6 +17,23 @@ from projects.functions import get_user_session_organization
 from projects.models import KippoProject
 
 from customers.models import KippoCustomer
+
+# A customer's active (open + display_as_active) project count. A correlated Subquery (a scalar
+# expression), NOT an aggregate: Django 5.2 forbids ordering by an aggregate that isn't also in
+# annotate(), and get_ordering() is applied to bare manager querysets (no annotation) when Django
+# builds FK form fields via get_field_queryset(). A scalar Subquery orders correctly anywhere.
+# Coalesce(..., 0) so customers with no active projects sort/display as 0 rather than NULL.
+ACTIVE_PROJECT_COUNT = Coalesce(
+    Subquery(
+        KippoProject.objects.filter(customer=OuterRef("pk"), is_closed=False, display_as_active=True)
+        .order_by()
+        .values("customer")
+        .annotate(count=Count("pk"))
+        .values("count"),
+        output_field=IntegerField(),
+    ),
+    0,
+)
 
 
 class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -49,35 +67,43 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("name", "organization", "email", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
+    list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
     list_filter = ("organization", "display_as_active")
     search_fields = ("name", "email")
-    ordering = ("organization", "-display_as_active", "name")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
 
+    def get_ordering(self, request: DjangoRequest) -> tuple:
+        # Most active customers first. Returns the self-contained Subquery expression (not the
+        # active_project_count annotation NAME) so order_by() resolves on ANY queryset — including
+        # the bare manager queryset Django builds for FK form fields via get_field_queryset(), which
+        # applies this admin's get_ordering(). Ordering by the annotation name would raise FieldError
+        # there, and the `ordering` attribute would be rejected by admin check E033.
+        return (ACTIVE_PROJECT_COUNT.desc(), "name")
+
+    def get_list_display(self, request: DjangoRequest) -> tuple:
+        # Show the organization column only for superusers who belong to more than one organization;
+        # non-superusers (org-scoped queryset) and single-org users have nothing to disambiguate.
+        if request.user.is_superuser and request.user.organizations.count() > 1:
+            return ("name", "organization", *self.list_display[1:])
+        return self.list_display
+
     def get_queryset(self, request: DjangoRequest):
-        # Annotate the count of each customer's active (open + display_as_active) projects so
-        # the list column is one query and sortable. distinct=True guards against row fan-out
-        # from the (non-superuser) organization join below.
+        # Annotate each customer's active (open + display_as_active) project count so the
+        # get_active_project_count column can render and sort on the annotation name. The count is a
+        # scalar Subquery (see ACTIVE_PROJECT_COUNT), so there is no join fan-out to dedup.
         qs = (
             super()
             .get_queryset(request)
             # select_related the OneToOne compliance_check so the 反社チェック column does not
             # issue one extra query per row in the changelist.
             .select_related("compliance_check")
-            .annotate(
-                active_project_count=Count(
-                    "projects",
-                    filter=Q(projects__is_closed=False, projects__display_as_active=True),
-                    distinct=True,
-                )
-            )
+            .annotate(active_project_count=ACTIVE_PROJECT_COUNT)
         )
         if request.user.is_superuser:
             return qs
-        return qs.filter(organization__in=request.user.organizations).order_by("organization").distinct()
+        return qs.filter(organization__in=request.user.organizations).distinct()
 
     @admin.display(description=_("アクティブプロジェクト数"), ordering="active_project_count")
     def get_active_project_count(self, obj: KippoCustomer) -> int:

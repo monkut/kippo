@@ -243,3 +243,86 @@ class KippoCustomerAdminOrganizationFieldTestCase(IsStaffModelAdminTestCaseBase)
         # Multi-org → field stays visible, still initialized to the session org.
         self.assertNotIsInstance(form_class.base_fields["organization"].widget, forms.HiddenInput)
         self.assertEqual(form_class.base_fields["organization"].initial, self.organization)
+
+
+class KippoCustomerAdminListDisplayTestCase(IsStaffModelAdminTestCaseBase):
+    """The changelist drops the email column, orders by active project count, and shows the
+    organization column only for multi-org superusers.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    @staticmethod
+    def _request(user: KippoUser) -> MagicMock:
+        request = MagicMock()
+        request.user = user
+        return request
+
+    def test_email_not_in_list_display(self):
+        self.assertNotIn("email", KippoCustomerAdmin.list_display)
+
+    def test_ordering_by_active_project_count_descending(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        ordering = modeladmin.get_ordering(self._request(self.superuser_no_org))
+        # most active first (descending), then name
+        self.assertTrue(ordering[0].descending)
+        self.assertEqual(ordering[1], "name")
+
+    def test_changelist_orders_customers_by_active_project_count(self):
+        # end-to-end: the rendered changelist must order rows by active project count, descending.
+        from datetime import date
+
+        from commons.tests import DEFAULT_COLUMNSET_PK
+        from projects.models import ProjectColumnSet
+
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+
+        def _customer(name: str) -> KippoCustomer:
+            return KippoCustomer.objects.create(
+                organization=self.organization, name=name, created_by=self.github_manager, updated_by=self.github_manager
+            )
+
+        busy = _customer("Busy")
+        idle = _customer("Idle")
+        for i in range(2):
+            KippoProject.objects.create(
+                organization=self.organization,
+                name=f"busy-project-{i}",
+                columnset=columnset,
+                start_date=date(2026, 6, 1),
+                customer=busy,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = self._request(self.superuser_no_org)
+        ordered = list(modeladmin.get_queryset(request).order_by(*modeladmin.get_ordering(request)))
+        self.assertLess(ordered.index(busy), ordered.index(idle))
+
+    def test_organization_hidden_for_non_superuser(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        self.assertNotIn("organization", modeladmin.get_list_display(self._request(self.staffuser_with_org)))
+
+    def test_organization_hidden_for_single_org_superuser(self):
+        OrganizationMembership.objects.create(
+            user=self.superuser_no_org,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        self.assertNotIn("organization", modeladmin.get_list_display(self._request(self.superuser_no_org)))
+
+    def test_organization_shown_for_multi_org_superuser(self):
+        for organization in (self.organization, self.other_organization):
+            OrganizationMembership.objects.create(
+                user=self.superuser_no_org,
+                organization=organization,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        list_display = modeladmin.get_list_display(self._request(self.superuser_no_org))
+        self.assertIn("organization", list_display)
+        # organization sits immediately after name
+        self.assertEqual(list_display[:2], ("name", "organization"))
