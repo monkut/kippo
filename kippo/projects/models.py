@@ -1313,7 +1313,7 @@ def cleanup_github_milestones(sender: type[KippoMilestone], instance: KippoMiles
 
 
 class ProjectMonthlyAssignment(UserCreatedBaseModel):
-    project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectassignment_project")
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="projectassignment_project")
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectassignment_user")
     month = models.DateField(null=True, blank=True, help_text=_("Assignment month (defaults to project start_date month)"))
     is_confirmed = models.BooleanField(default=False, help_text=_("Assignment is confirmed or not"))
@@ -1367,7 +1367,7 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
 
 class ProjectWeeklyEffort(UserCreatedBaseModel):
     week_start = models.DateField(default=previous_week_startdate, help_text="Effort Week Start (MONDAY)")
-    project = models.ForeignKey(KippoProject, on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_project")
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="projectweeklyeffort_project")
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectweeklyeffort_user")
     hours = models.SmallIntegerField(
         validators=(MinValueValidator(0), MaxValueValidator(7 * 24)),
