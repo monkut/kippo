@@ -214,7 +214,7 @@ class KippoProjectOrganizationCategory(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         scope = self.organization.name if self.organization_id else "global"
-        return f"{self.__class__.__name__}({scope}:{self.key})"
+        return f"({scope}) {self.label}"
 
     @classmethod
     def get_for_organization(cls, organization: KippoOrganization | None) -> QuerySet:
