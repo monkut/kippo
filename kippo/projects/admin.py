@@ -208,7 +208,7 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline
     # the project (the entry no longer carries a project FK).
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "is_manual", "note")
+    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "note")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):

@@ -979,6 +979,17 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         default=False,
         help_text=_("True for hand-added entries; False for entries generated from the contract terms."),
     )
+    is_received = models.BooleanField(
+        _("入金済"),
+        default=False,
+        help_text=_("True once payment for this billing entry has been received."),
+    )
+    received_datetime = models.DateTimeField(
+        _("入金日時"),
+        null=True,
+        blank=True,
+        help_text=_("When payment was received. Auto-set when is_received is enabled; cleared when disabled."),
+    )
     note = models.CharField(
         _("備考"),
         max_length=255,
@@ -994,6 +1005,14 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return f"KippoProjectBillingEntry({self.contract.project.name} {self.billing_date} ¥{self.amount})"
+
+    def save(self, *args, **kwargs):
+        # keep is_received and received_datetime consistent (mirrors KippoProject is_closed/closed_datetime)
+        if self.is_received and not self.received_datetime:
+            self.received_datetime = timezone.now()
+        elif not self.is_received and self.received_datetime:
+            self.received_datetime = None
+        super().save(*args, **kwargs)
 
 
 class KippoProjectStatus(UserCreatedBaseModel):
