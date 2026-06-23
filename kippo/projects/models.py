@@ -418,32 +418,38 @@ class KippoProject(UserCreatedBaseModel):
         """
         return sum((amount for _, amount in self.revenue_entries()), Decimal(0))
 
+    def get_contract(self) -> "KippoProjectContract | None":
+        """The project's single contract (kippo#31), or None when none has been created.
+
+        The contract is OneToOne — one contract per project; a separate engagement is modelled as
+        a new project, not a second contract. This is the safe accessor for the optional reverse
+        relation (the reverse OneToOne raises when unset).
+        """
+        return getattr(self, "contract", None)
+
     @property
     def contract_amount(self) -> Decimal:
-        """契約金額 (kippo#32 / T13): total contracted value across the project's contracts."""
-        return sum((contract.contract_value for contract in self.contracts.all()), Decimal(0))
+        """契約金額 (kippo#32 / T13): the project's contract total (0 when no contract)."""
+        contract = self.get_contract()
+        return contract.total_amount if contract else Decimal(0)
 
     @property
     def billing_types(self) -> list[str]:
-        """請求方法 (kippo#39 / T14): distinct billing types across the project's contracts.
-
-        After kippo#31 the billing method lives on KippoProjectContract; a project may have
-        several contracts (e.g. renewals), so the list view shows the distinct set.
+        """請求方法 (kippo#39 / T14): the project's billing type, as a one-element list (empty
+        when no contract). Kept as a list for API back-compat with the pre-OneToOne shape.
         """
-        return sorted({contract.billing_type for contract in self.contracts.all()})
+        contract = self.get_contract()
+        return [contract.billing_type] if contract else []
 
     @property
     def monthly_billing_schedule(self) -> list[tuple[datetime.date, Decimal]]:
-        """Planned per-month billing schedule across the project's monthly contracts (kippo#39 / T15).
+        """Planned per-month billing schedule for a monthly contract (kippo#39 / T15).
 
         Sorted ``(month_end_date, amount)`` entries — lets the UI render one row per month for
-        monthly-billing projects (月額は契約期間内毎月表示). Empty when the project has no
-        monthly contracts.
+        monthly-billing projects (月額は契約期間内毎月表示). Empty for delivery / no contract.
         """
-        schedule: list[tuple[datetime.date, Decimal]] = []
-        for contract in self.contracts.all():
-            schedule.extend(contract.monthly_schedule())
-        return sorted(schedule)
+        contract = self.get_contract()
+        return contract.monthly_schedule() if contract else []
 
     def developers(self):
         from tasks.models import KippoTask
@@ -803,25 +809,31 @@ class ActiveKippoProject(KippoProject):
 class KippoProjectContract(UserCreatedBaseModel):
     """The agreed billing terms for a project (kippo#31 / T11) — *how* the project is billed.
 
-    Terms live here rather than on ``KippoProject`` so a delivery project never carries a
-    meaningless monthly field, and renewals/amendments are additional rows instead of
-    overwrites. Billing *events* live in the ``KippoProjectBillingEntry`` ledger, generated
-    from these terms via ``generate_billing_entries()``.
+    One contract per project (OneToOne): a separate engagement is modelled as a new project, not
+    a second contract. Terms live here rather than on ``KippoProject`` so a delivery project never
+    carries a meaningless monthly field. Billing *events* live in the ``KippoProjectBillingEntry``
+    ledger, generated from these terms via ``generate_billing_entries()``.
     """
 
-    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="contracts")
+    project = models.OneToOneField(KippoProject, on_delete=models.CASCADE, related_name="contract")
     billing_type = models.CharField(
         _("請求方法"),
         max_length=20,
         choices=VALID_BILLING_TYPES,
         default=DEFAULT_BILLING_TYPE,
-        help_text=_("'delivery' (納品, amount billed once at the contract end_date) or 'monthly' (月額, amount accrues month-end per month)."),
+        help_text=_(
+            "'delivery' (納品, total_amount billed once at the contract end_date) or "
+            "'monthly' (月額, total_amount split month-end across the contract period)."
+        ),
     )
-    amount = models.DecimalField(
-        _("金額"),
+    total_amount = models.DecimalField(
+        _("契約金額"),
         max_digits=12,
         decimal_places=0,
-        help_text=_("JPY. Contract total for 'delivery'; per-month amount for 'monthly'."),
+        help_text=_(
+            "JPY. Total amount for the whole contract. For 'monthly' it is split evenly across the "
+            "contract months, with the rounding remainder on the final month."
+        ),
     )
     start_date = models.DateField(
         _("契約開始日"),
@@ -848,7 +860,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         ordering = ("created_datetime",)
 
     def __str__(self) -> str:
-        return f"KippoProjectContract({self.project.name} {self.billing_type} ¥{self.amount})"
+        return f"KippoProjectContract({self.project.name} {self.billing_type} ¥{self.total_amount})"
 
     def clean(self):
         if self.start_date and self.end_date and self.start_date > self.end_date:
@@ -862,91 +874,81 @@ class KippoProjectContract(UserCreatedBaseModel):
             self.end_date = self.project.target_date
         super().save(*args, **kwargs)
 
-    def _month_count(self) -> int:
-        """Number of calendar months the contract period [start_date, end_date] spans.
-
-        Matches the month set generate_billing_entries() bills for a monthly contract.
+    def _contract_months(self) -> list[datetime.date]:
+        """First-of-month dates for each calendar month the contract period [start_date, end_date]
+        spans. Empty when the period is unresolved. The single source of the billed month set.
         """
         if not self.start_date or not self.end_date:
-            return 0
-        count = 0
+            return []
+        months = []
         current = first_of_month(self.start_date)
         end = first_of_month(self.end_date)
         while current <= end:
-            count += 1
+            months.append(current)
             current = first_of_next_month(current)
-        return count
+        return months
 
-    @property
-    def contract_value(self) -> Decimal:
-        """Total contracted value (kippo#32 / T13): the full ``amount`` for a delivery
-        contract, or ``amount`` × number of billed months for a monthly contract.
+    def _monthly_amounts(self, months: list[datetime.date]) -> list[Decimal]:
+        """Per-month billed amounts for ``months``: ``total_amount`` split evenly across the contract
+        months as whole yen, with the rounding remainder added to the final month so the entries sum
+        exactly to ``total_amount``. Empty when ``months`` is empty.
         """
-        if self.billing_type == BILLING_TYPE_MONTHLY:
-            return self.amount * self._month_count()
-        return self.amount
+        if not months:
+            return []
+        base = self.total_amount // len(months)
+        amounts = [base] * len(months)
+        amounts[-1] += self.total_amount - base * len(months)
+        return amounts
 
     def monthly_schedule(self) -> list[tuple[datetime.date, Decimal]]:
         """Planned per-month billing schedule for a monthly contract (kippo#39 / T15).
 
-        One ``(month_end_date, amount)`` entry per calendar month in the contract period,
-        matching the month-end dates generate_billing_entries() bills. Empty for delivery
-        contracts and when the period is unresolved. This is the *planned* schedule derived
+        One ``(month_end_date, amount)`` entry per calendar month in the contract period, matching
+        the month-end (月末) dates and split amounts generate_billing_entries() bills. Empty for
+        delivery contracts and when the period is unresolved. This is the *planned* schedule derived
         from the contract terms (so it is available before any ledger entries are generated).
         """
-        if self.billing_type != BILLING_TYPE_MONTHLY or not self.start_date or not self.end_date:
+        if self.billing_type != BILLING_TYPE_MONTHLY:
             return []
-        schedule = []
-        current = first_of_month(self.start_date)
-        end = first_of_month(self.end_date)
-        while current <= end:
-            schedule.append((last_of_month(current), self.amount))
-            current = first_of_next_month(current)
-        return schedule
+        months = self._contract_months()
+        return [(last_of_month(month), amount) for month, amount in zip(months, self._monthly_amounts(months), strict=True)]
 
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).
 
-        - monthly: one entry (dated the last day of the month, amount=``amount``) per calendar
-          month the contract period [start_date, end_date] overlaps — Japanese month-end (月末)
-          billing. A month is included if any part of it falls within the period; the full
-          amount accrues for each such month (no proration — adjust the individual entry
-          afterwards if proration is needed).
-        - delivery: one entry of ``amount`` at the contract ``end_date`` (which itself
+        - monthly: one entry per calendar month the contract period [start_date, end_date] spans,
+          dated the last day of the month (月末). ``total_amount`` is split evenly across the months
+          as whole yen with the remainder on the final month (no proration — adjust an individual
+          entry afterwards if needed).
+        - delivery: one entry of ``total_amount`` at the contract ``end_date`` (which itself
           auto-populates from the project target_date).
 
-        Idempotent: dates that already have an entry (including manually adjusted ones) are
-        left untouched. Returns only the newly created entries. Returns [] when the dates
-        needed for the billing_type are not resolvable.
+        Idempotent: dates that already have an entry (including manually adjusted ones) are left
+        untouched. Returns only the newly created entries. Returns [] when the dates needed for the
+        billing_type are not resolvable.
         """
         existing_dates = set(self.project.billing_entries.values_list("billing_date", flat=True))
         missing_entries = []
 
         if self.billing_type == BILLING_TYPE_MONTHLY:
-            if not self.start_date or not self.end_date:
-                return []
-            current = first_of_month(self.start_date)
-            end = first_of_month(self.end_date)
-            while current <= end:
-                entry_date = last_of_month(current)
+            for entry_date, amount in self.monthly_schedule():
                 if entry_date not in existing_dates:
-                    missing_entries.append(self._build_entry(entry_date, created_by))
-                current = first_of_next_month(current)
+                    missing_entries.append(self._build_entry(entry_date, amount, created_by))
         else:  # delivery
             delivery_date = self.end_date
             if not delivery_date:
                 return []
             if delivery_date not in existing_dates:
-                missing_entries.append(self._build_entry(delivery_date, created_by))
+                missing_entries.append(self._build_entry(delivery_date, self.total_amount, created_by))
 
         return KippoProjectBillingEntry.objects.bulk_create(missing_entries)
 
-    def _build_entry(self, billing_date: datetime.date, created_by: KippoUser | None) -> "KippoProjectBillingEntry":
+    def _build_entry(self, billing_date: datetime.date, amount: Decimal, created_by: KippoUser | None) -> "KippoProjectBillingEntry":
         return KippoProjectBillingEntry(
             project=self.project,
             contract=self,
             billing_date=billing_date,
-            amount=self.amount,
+            amount=amount,
             created_by=created_by,
             updated_by=created_by,
         )

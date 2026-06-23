@@ -172,14 +172,14 @@ class KippoProjectViewSetTestCase(TestCase):
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type="monthly",
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
             created_by=self.github_manager,
             updated_by=self.github_manager,
         ).generate_billing_entries(created_by=self.github_manager)
 
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
         data = self.client.get(url).json()
-        # contract_amount = 300,000 × 3 months; total_revenue = ledger sum (same here)
+        # contract_amount = total_amount; total_revenue = ledger sum (900,000 split across 3 months)
         self.assertEqual(data["contract_amount"], "900000")
         self.assertEqual(data["total_revenue"], "900000")
 
@@ -223,21 +223,14 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(self.project.phase, "under-contract")
 
     def test_list_exposes_category_label_and_billing_types(self):
-        """List/detail expose category_label + distinct contract billing_types (kippo#39 / T14)."""
+        """List/detail expose category_label + the contract billing_type (kippo#39 / T14)."""
         from decimal import Decimal
 
-        # two contracts on the project: one monthly, one delivery -> distinct billing_types
+        # one contract per project (OneToOne) -> billing_types is its one-element list
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type="monthly",
-            amount=Decimal("300000"),
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        KippoProjectContract.objects.create(
-            project=self.project,
-            billing_type="delivery",
-            amount=Decimal("1000000"),
+            total_amount=Decimal("900000"),
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -245,7 +238,7 @@ class KippoProjectViewSetTestCase(TestCase):
         list_data = self.client.get(f"{settings.URL_PREFIX}/api/projects/").json()
         row = next(r for r in list_data["results"] if r["id"] == str(self.project.id))
         self.assertEqual(row["category_label"], self.project.category.label)
-        self.assertEqual(row["billing_types"], ["delivery", "monthly"])  # sorted distinct
+        self.assertEqual(row["billing_types"], ["monthly"])
 
     def test_monthly_billing_schedule_exposed_for_per_month_rows(self):
         """Monthly projects expose a per-month schedule for the list's per-month rows (kippo#39 / T15)."""
@@ -254,7 +247,7 @@ class KippoProjectViewSetTestCase(TestCase):
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type="monthly",
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),  # 900,000 over 3 months -> 300,000 each
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 3, 31),
             created_by=self.github_manager,

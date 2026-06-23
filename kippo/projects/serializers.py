@@ -188,8 +188,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     )
     # Human-readable category label for the list/detail view (kippo#39 / T14); `category` stays the key.
     category_label = serializers.CharField(source="category.label", read_only=True, allow_null=True)
-    # 請求方法 — distinct billing types across the project's contracts (kippo#39 / T14). Read-only;
-    # the billing method moved to KippoProjectContract in kippo#31.
+    # 請求方法 — the project's billing type as a one-element list (kippo#39 / T14). Read-only;
+    # the billing method lives on KippoProjectContract (OneToOne) since kippo#31.
     billing_types = serializers.ListField(child=serializers.CharField(), read_only=True)
     # Planned per-month billing schedule for monthly-billing projects (kippo#39 / T15) — lets the
     # list render one row per month (月額は契約期間内毎月表示). Empty for non-monthly projects.

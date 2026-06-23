@@ -149,18 +149,18 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         """Drive the contract inline formset the way the admin does, returning the saved contract."""
         inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
         formset_class = inline.get_formset(request=self.super_user_request, obj=project)
-        prefix = "contracts"
+        prefix = "contract"
         data = {
             f"{prefix}-TOTAL_FORMS": "1",
             f"{prefix}-INITIAL_FORMS": "0",
             f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
+            f"{prefix}-MAX_NUM_FORMS": "1",
         }
         data.update({f"{prefix}-0-{field}": value for field, value in form_data.items()})
         formset = formset_class(data=data, instance=project, prefix=prefix)
         self.assertTrue(formset.is_valid(), formset.errors)
         formset.save()
-        return project.contracts.get()
+        return project.contract
 
     def test_contract_inline_autopopulates_period_from_project(self):
         # the contract inline leaves start/end blank -> KippoProjectContract.save() fills them
@@ -171,7 +171,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
 
         contract = self._save_contract_inline(
             self.project1,
-            {"billing_type": "monthly", "amount": "300000", "start_date": "", "end_date": "", "note": ""},
+            {"billing_type": "monthly", "total_amount": "300000", "start_date": "", "end_date": "", "note": ""},
         )
         self.assertEqual(contract.start_date, date(2026, 2, 1))
         self.assertEqual(contract.end_date, date(2026, 8, 31))
@@ -184,7 +184,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
 
         contract = self._save_contract_inline(
             self.project1,
-            {"billing_type": "monthly", "amount": "300000", "start_date": "2026-03-15", "end_date": "2026-05-15", "note": ""},
+            {"billing_type": "monthly", "total_amount": "300000", "start_date": "2026-03-15", "end_date": "2026-05-15", "note": ""},
         )
         self.assertEqual(contract.start_date, date(2026, 3, 15))
         self.assertEqual(contract.end_date, date(2026, 5, 15))
@@ -221,15 +221,15 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
 
         inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
         formset_class = inline.get_formset(request=self.super_user_request, obj=self.project1)
-        prefix = "contracts"
+        prefix = "contract"
         data = {
             f"{prefix}-TOTAL_FORMS": "1",
             f"{prefix}-INITIAL_FORMS": "0",
             f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
-            # period echoes the pre-filled initial; billing_type echoes its default; amount left blank
+            f"{prefix}-MAX_NUM_FORMS": "1",
+            # period echoes the pre-filled initial; billing_type echoes its default; total_amount left blank
             f"{prefix}-0-billing_type": "delivery",
-            f"{prefix}-0-amount": "",
+            f"{prefix}-0-total_amount": "",
             f"{prefix}-0-start_date": "2026-02-01",
             f"{prefix}-0-end_date": "2026-08-31",
             f"{prefix}-0-note": "",
@@ -237,7 +237,7 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         formset = formset_class(data=data, instance=self.project1, prefix=prefix)
         self.assertTrue(formset.is_valid(), formset.errors)
         formset.save()
-        self.assertEqual(self.project1.contracts.count(), 0)
+        self.assertIsNone(getattr(self.project1, "contract", None))
 
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):
