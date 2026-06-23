@@ -967,18 +967,6 @@ class ActiveKippoProjectChangeViewTestCase(KippoProjectAdminFixtureTestCaseBase)
             overlap = [f for f in opts["fields"] if f in excluded]
             self.assertFalse(overlap, f"fieldset references excluded fields: {overlap}")
 
-    def test_billing_fieldset_hidden_in_active_admin_only(self):
-        # billing/revenue is managed on KippoProjectContractAdmin: the Billing summary fieldset is
-        # dropped from the active admin but kept on the full KippoProjectAdmin.
-        from projects.admin import BILLING_FIELDSET_LABEL, ActiveKippoProjectAdmin, KippoProjectAdmin
-
-        active_admin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
-        full_admin = KippoProjectAdmin(KippoProject, self.site)
-        active_labels = [label for label, _opts in active_admin.get_fieldsets(self.super_user_request, self.active_project)]
-        full_labels = [label for label, _opts in full_admin.get_fieldsets(self.super_user_request, self.active_project)]
-        self.assertNotIn(BILLING_FIELDSET_LABEL, active_labels)
-        self.assertIn(BILLING_FIELDSET_LABEL, full_labels)
-
 
 class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBase):
     """KippoProjectAdmin changelist search matches on the related customer's name."""
@@ -1413,20 +1401,18 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         else:
             self.fail("No 'Dates & Estimates' fieldset found")
 
-    def test_billing_and_details_sections_expanded_on_add(self):
+    def test_details_section_expanded_on_add(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
-        # Billing (revenue summary) and Details (category) start expanded on /add/.
+        # Details (category) starts expanded on /add/.
         for _label, opts in fieldsets:
-            fields = opts.get("fields", ())
-            if "get_contract_amount_display" in fields or "category" in fields:
+            if "category" in opts.get("fields", ()):
                 self.assertNotIn("collapse", opts.get("classes", ()))
 
-    def test_billing_and_details_sections_collapsed_on_change(self):
+    def test_details_section_collapsed_on_change(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
-        self.assertTrue(any("get_contract_amount_display" in opts.get("fields", ()) for opts in collapsed), "Billing should stay collapsed on change")
         self.assertTrue(any("category" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
 
     def test_columnset_not_in_add_or_change_fieldsets(self):
