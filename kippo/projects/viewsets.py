@@ -67,10 +67,10 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSuperuserOrOwnOrgReadUpdateCreate]
     queryset = (
         KippoProject.objects.all()
-        # contract (OneToOne) is select_related; billing_entries back the list's billing_types /
+        # contract (OneToOne) is select_related; its billing_entries back the list's billing_types /
         # contract_amount / total_revenue derived fields (kippo#39 / T14) — fetched to avoid N+1.
         .select_related("organization", "project_manager", "customer", "category", "contract")
-        .prefetch_related("github_repositories", "billing_entries")
+        .prefetch_related("github_repositories", "contract__billing_entries")
         .order_by("-created_datetime")
     )
 

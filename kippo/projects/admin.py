@@ -203,12 +203,12 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
         return PeriodPrefilledFormSet
 
 
-class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    # Billing entries belong to the contract (kippo#31): edited via KippoProjectContractAdmin, not
+    # the project (the entry no longer carries a project FK).
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "contract", "note")
-    readonly_fields = ("contract",)
-    classes = ["collapse"]
+    fields = ("billing_date", "amount", "is_manual", "note")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -1506,6 +1506,26 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)
+
+
+@admin.register(KippoProjectContract)
+class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
+    # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
+    # the project (KippoProjectContractInline); this page adds the billing-entries inline.
+    list_display = ("project", "billing_type", "total_amount", "start_date", "end_date")
+    list_filter = ("billing_type",)
+    search_fields = ("project__name",)
+    raw_id_fields = ("project",)
+    inlines = [KippoProjectBillingEntryInline]
+    actions = ["generate_billing_entries"]
+
+    @admin.action(description=_("契約から請求エントリを生成"))
+    def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+        created_count = 0
+        for contract in queryset:
+            created_count += len(contract.generate_billing_entries(created_by=request.user))
+        self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
 
 
 @admin.register(KippoMilestone)

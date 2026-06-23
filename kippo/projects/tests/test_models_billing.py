@@ -157,8 +157,9 @@ class MonthlyContractGenerationTestCase(TestCase):
         )
         self.assertTrue(all(entry.amount == Decimal("300000") for entry in created))
         self.assertTrue(all(entry.contract == contract for entry in created))
+        self.assertTrue(all(entry.is_manual is False for entry in created))  # generated, not hand-added
         self.assertTrue(all(entry.created_by == self.user for entry in created))
-        self.assertEqual(self.project.billing_entries.count(), 4)
+        self.assertEqual(contract.billing_entries.count(), 4)
 
     def test_total_amount_split_remainder_lands_on_final_month(self):
         # 1,000,000 over 3 months -> 333,333 / 333,333 / 333,334 (remainder on last); sums to total
@@ -208,13 +209,13 @@ class MonthlyContractGenerationTestCase(TestCase):
         self.assertEqual(len(first), 3)
         second = contract.generate_billing_entries()
         self.assertEqual(second, [])
-        self.assertEqual(self.project.billing_entries.count(), 3)
+        self.assertEqual(contract.billing_entries.count(), 3)
 
     def test_generation_preserves_manual_adjustments(self):
         # a manually adjusted month (price revision / proration) must survive regeneration
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
         contract.generate_billing_entries()
-        adjusted = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
+        adjusted = contract.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
         adjusted.amount = Decimal("150000")  # prorated month
         adjusted.save()
 
@@ -238,12 +239,13 @@ class MonthlyContractGenerationTestCase(TestCase):
         self.assertEqual(contract.generate_billing_entries(), [])
 
     def test_duplicate_entry_for_same_date_rejected(self):
-        # ledger uniqueness guard — one entry per (project, billing_date)
+        # ledger uniqueness guard — one entry per (contract, billing_date)
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
         contract.generate_billing_entries()
         with self.assertRaises(IntegrityError):
             KippoProjectBillingEntry.objects.create(
-                project=self.project,
+                contract=contract,
+                is_manual=True,
                 billing_date=datetime.date(2026, 1, 31),
                 amount=Decimal("100"),
             )
@@ -293,7 +295,7 @@ class DeliveryContractGenerationTestCase(TestCase):
         )
         self.assertEqual(len(contract.generate_billing_entries()), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
-        self.assertEqual(self.project.billing_entries.count(), 1)
+        self.assertEqual(contract.billing_entries.count(), 1)
 
 
 class RevenueEntriesTestCase(TestCase):
@@ -351,11 +353,18 @@ class RevenueEntriesTestCase(TestCase):
         self.assertEqual(entries, [])
 
     def test_manual_entry_included_in_revenue(self):
-        # entries added by hand (no contract) count toward revenue like generated ones
-        KippoProjectBillingEntry.objects.create(
+        # hand-added entries (is_manual) count toward revenue like generated ones
+        contract = KippoProjectContract.objects.create(
             project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            total_amount=Decimal("500000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        KippoProjectBillingEntry.objects.create(
+            contract=contract,
             billing_date=datetime.date(2026, 9, 30),
             amount=Decimal("500000"),
+            is_manual=True,
             note="追加請求",
         )
         self.assertEqual(
@@ -369,8 +378,9 @@ class RevenueEntriesTestCase(TestCase):
         total = sum(amount for _, amount in self.project.revenue_entries())
         self.assertEqual(total, Decimal("1000000"))
 
-    def test_contract_deletion_keeps_revenue_history(self):
-        # SET_NULL: deleting a contract must not delete its generated revenue entries
+    def test_contract_deletion_removes_billing_entries(self):
+        # CASCADE: billing entries belong to the contract, so deleting it removes its ledger
+        # (a separate engagement is a new project; contracts are amended, not deleted, in practice)
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
@@ -379,9 +389,9 @@ class RevenueEntriesTestCase(TestCase):
             end_date=datetime.date(2026, 2, 28),
         )
         contract.generate_billing_entries()
+        self.assertEqual(contract.billing_entries.count(), 2)
         contract.delete()
-        self.assertEqual(self.project.billing_entries.count(), 2)
-        self.assertTrue(all(entry.contract is None for entry in self.project.billing_entries.all()))
+        self.assertEqual(KippoProjectBillingEntry.objects.count(), 0)
 
 
 class DerivedRevenueFiguresTestCase(TestCase):
@@ -504,7 +514,7 @@ class DerivedRevenueFiguresTestCase(TestCase):
             end_date=datetime.date(2026, 3, 31),
         )
         contract.generate_billing_entries()
-        entry = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
+        entry = contract.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
         entry.amount = Decimal("150000")  # prorated month
         entry.save()
         self.assertEqual(self.project.total_revenue, Decimal("750000"))  # 300k + 150k + 300k

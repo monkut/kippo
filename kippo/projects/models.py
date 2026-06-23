@@ -400,9 +400,13 @@ class KippoProject(UserCreatedBaseModel):
         The ledger is the single source of truth for project revenue regardless of contract
         billing type (delivery contracts record their single billing, monthly contracts their
         generated months), so there is no double counting. The optional window is clamped by
-        month (an entry is included if its month overlaps [window_start, window_end]).
+        month (an entry is included if its month overlaps [window_start, window_end]). Empty when
+        the project has no contract (the ledger hangs off the contract).
         """
-        entries = self.billing_entries.all()
+        contract = self.get_contract()
+        if not contract:
+            return []
+        entries = contract.billing_entries.all()
         if window_start:
             entries = entries.filter(billing_date__gte=first_of_month(window_start))
         if window_end:
@@ -927,7 +931,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         untouched. Returns only the newly created entries. Returns [] when the dates needed for the
         billing_type are not resolvable.
         """
-        existing_dates = set(self.project.billing_entries.values_list("billing_date", flat=True))
+        existing_dates = set(self.billing_entries.values_list("billing_date", flat=True))
         missing_entries = []
 
         if self.billing_type == BILLING_TYPE_MONTHLY:
@@ -945,7 +949,6 @@ class KippoProjectContract(UserCreatedBaseModel):
 
     def _build_entry(self, billing_date: datetime.date, amount: Decimal, created_by: KippoUser | None) -> "KippoProjectBillingEntry":
         return KippoProjectBillingEntry(
-            project=self.project,
             contract=self,
             billing_date=billing_date,
             amount=amount,
@@ -955,22 +958,20 @@ class KippoProjectContract(UserCreatedBaseModel):
 
 
 class KippoProjectBillingEntry(UserCreatedBaseModel):
-    """A single billing/revenue entry in a project's billing ledger (kippo#31 / T11, T12).
+    """A single billing/revenue entry in a contract's billing ledger (kippo#31 / T11, T12).
 
-    The ledger is the single source of truth for project revenue. Entries are generated from
-    the project's ``KippoProjectContract`` terms (one entry for a delivery contract, one per
-    month for a monthly contract) and individual entries can then be adjusted (price revision,
-    proration) or added manually without touching the contract.
+    Every entry belongs to a ``KippoProjectContract`` — the contract is the unit of account, and
+    the ledger is the single source of truth for its revenue. Entries are generated from the
+    contract terms (one for a delivery contract, one per month for a monthly contract) and can then
+    be adjusted (price revision, proration) or added by hand (``is_manual=True``). The project is
+    reached via ``contract.project`` (contract↔project is OneToOne).
     """
 
-    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="billing_entries")
     contract = models.ForeignKey(
         KippoProjectContract,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="billing_entries",
-        help_text=_("Contract the entry was generated from (blank for manually added entries)."),
+        help_text=_("Contract this billing entry belongs to."),
     )
     billing_date = models.DateField(
         _("請求日"),
@@ -981,6 +982,11 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         max_digits=12,
         decimal_places=0,
         help_text=_("Billed amount (JPY)."),
+    )
+    is_manual = models.BooleanField(
+        _("手動追加"),
+        default=False,
+        help_text=_("True for hand-added entries; False for entries generated from the contract terms."),
     )
     note = models.CharField(
         _("備考"),
@@ -993,10 +999,10 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         verbose_name = _("請求エントリ")
         verbose_name_plural = verbose_name
         ordering = ("billing_date",)
-        constraints = (models.UniqueConstraint(fields=("project", "billing_date"), name="unique_billingentry_project_billing_date"),)
+        constraints = (models.UniqueConstraint(fields=("contract", "billing_date"), name="unique_billingentry_contract_billing_date"),)
 
     def __str__(self) -> str:
-        return f"KippoProjectBillingEntry({self.project.name} {self.billing_date} ¥{self.amount})"
+        return f"KippoProjectBillingEntry({self.contract.project.name} {self.billing_date} ¥{self.amount})"
 
 
 class KippoProjectStatus(UserCreatedBaseModel):
