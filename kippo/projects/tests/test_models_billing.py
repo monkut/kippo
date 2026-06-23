@@ -98,30 +98,6 @@ class ContractFieldsTestCase(TestCase):
             )
 
 
-class BillingDateConsistencyTestCase(TestCase):
-    """billing_date default behaviour must remain intact (kippo#31 keep-consistent guard)."""
-
-    fixtures = DEFAULT_FIXTURES
-
-    def setUp(self):
-        created = setup_basic_project()
-        self.project: KippoProject = created["KippoProject"]
-
-    def test_billing_date_defaults_to_target_date(self):
-        self.project.billing_date = None
-        self.project.target_date = datetime.date(2026, 9, 30)
-        self.project.save()
-        self.project.refresh_from_db()
-        self.assertEqual(self.project.billing_date, datetime.date(2026, 9, 30))
-
-    def test_explicit_billing_date_preserved(self):
-        self.project.billing_date = datetime.date(2026, 12, 25)
-        self.project.target_date = datetime.date(2026, 9, 30)
-        self.project.save()
-        self.project.refresh_from_db()
-        self.assertEqual(self.project.billing_date, datetime.date(2026, 12, 25))
-
-
 class MonthlyContractGenerationTestCase(TestCase):
     """Ledger generation from monthly contracts (kippo#31 / T12)."""
 

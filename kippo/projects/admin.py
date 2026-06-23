@@ -933,7 +933,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             BILLING_FIELDSET_LABEL,
             {
                 "classes": ("collapse",),
-                "fields": ("billing_date", "get_contract_amount_display", "get_total_revenue_display"),
+                "fields": ("get_contract_amount_display", "get_total_revenue_display"),
             },
         ),
         (

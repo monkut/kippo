@@ -248,7 +248,6 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "start_date",
             "target_date",
             "actual_date",
-            "billing_date",
             "total_revenue",
             "contract_amount",
             "document_folder_url",

@@ -1416,17 +1416,17 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
     def test_billing_and_details_sections_expanded_on_add(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
-        # Billing (billing_date) and Details (category) start expanded on /add/.
+        # Billing (revenue summary) and Details (category) start expanded on /add/.
         for _label, opts in fieldsets:
             fields = opts.get("fields", ())
-            if "billing_date" in fields or "category" in fields:
+            if "get_contract_amount_display" in fields or "category" in fields:
                 self.assertNotIn("collapse", opts.get("classes", ()))
 
     def test_billing_and_details_sections_collapsed_on_change(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
-        self.assertTrue(any("billing_date" in opts.get("fields", ()) for opts in collapsed), "Billing should stay collapsed on change")
+        self.assertTrue(any("get_contract_amount_display" in opts.get("fields", ()) for opts in collapsed), "Billing should stay collapsed on change")
         self.assertTrue(any("category" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
 
     def test_columnset_not_in_add_or_change_fieldsets(self):
