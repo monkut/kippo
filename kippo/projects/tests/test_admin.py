@@ -967,6 +967,18 @@ class ActiveKippoProjectChangeViewTestCase(KippoProjectAdminFixtureTestCaseBase)
             overlap = [f for f in opts["fields"] if f in excluded]
             self.assertFalse(overlap, f"fieldset references excluded fields: {overlap}")
 
+    def test_billing_fieldset_hidden_in_active_admin_only(self):
+        # billing/revenue is managed on KippoProjectContractAdmin: the Billing summary fieldset is
+        # dropped from the active admin but kept on the full KippoProjectAdmin.
+        from projects.admin import BILLING_FIELDSET_LABEL, ActiveKippoProjectAdmin, KippoProjectAdmin
+
+        active_admin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        full_admin = KippoProjectAdmin(KippoProject, self.site)
+        active_labels = [label for label, _opts in active_admin.get_fieldsets(self.super_user_request, self.active_project)]
+        full_labels = [label for label, _opts in full_admin.get_fieldsets(self.super_user_request, self.active_project)]
+        self.assertNotIn(BILLING_FIELDSET_LABEL, active_labels)
+        self.assertIn(BILLING_FIELDSET_LABEL, full_labels)
+
 
 class KippoProjectAdminCustomerSearchTestCase(KippoProjectAdminFixtureTestCaseBase):
     """KippoProjectAdmin changelist search matches on the related customer's name."""

@@ -89,6 +89,10 @@ RETURN_TO_PARAM = "_return_to"
 # stay in sync instead of repeating the literal tuple.
 PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 
+# Label of the read-only revenue summary fieldset. A constant so the base admin and the active
+# admin (which hides it — billing is managed on KippoProjectContractAdmin) reference the same object.
+BILLING_FIELDSET_LABEL = _("Billing")
+
 logger = logging.getLogger(__name__)
 
 # Default per-role daily rates pre-filled into the ProjectAssignmentRate inline on /add/.
@@ -926,7 +930,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             },
         ),
         (
-            _("Billing"),
+            BILLING_FIELDSET_LABEL,
             {
                 "classes": ("collapse",),
                 "fields": ("billing_date", "get_contract_amount_display", "get_total_revenue_display"),
@@ -1506,6 +1510,11 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)
+
+    def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
+        # Billing/revenue is managed on KippoProjectContractAdmin, so drop the read-only Billing
+        # summary fieldset here (it stays on the full KippoProjectAdmin).
+        return [fieldset for fieldset in super().get_fieldsets(request, obj) if fieldset[0] != BILLING_FIELDSET_LABEL]
 
 
 @admin.register(KippoProjectContract)
