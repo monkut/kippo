@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from projects.definitions import BILLING_TYPE_DELIVERY, BILLING_TYPE_MONTHLY, DEFAULT_BILLING_TYPE
@@ -26,13 +26,13 @@ class ContractFieldsTestCase(TestCase):
 
     def test_default_billing_type_is_delivery(self):
         self.assertEqual(DEFAULT_BILLING_TYPE, BILLING_TYPE_DELIVERY)
-        contract = KippoProjectContract.objects.create(project=self.project, amount=Decimal("1000000"))
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"))
         self.assertEqual(contract.billing_type, BILLING_TYPE_DELIVERY)
 
-    def test_amount_is_integer_jpy(self):
+    def test_total_amount_is_integer_jpy(self):
         # decimal_places=0 — JPY has no minor units
-        self.assertEqual(KippoProjectContract._meta.get_field("amount").decimal_places, 0)
-        self.assertEqual(KippoProjectContract._meta.get_field("amount").max_digits, 12)
+        self.assertEqual(KippoProjectContract._meta.get_field("total_amount").decimal_places, 0)
+        self.assertEqual(KippoProjectContract._meta.get_field("total_amount").max_digits, 12)
 
     def test_project_carries_no_billing_terms(self):
         # terms live on the contract — the project itself has no billing_type/monthly amount field
@@ -47,7 +47,7 @@ class ContractFieldsTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("1800000"),
         )
         contract.refresh_from_db()
         self.assertEqual(contract.start_date, datetime.date(2026, 1, 1))
@@ -60,7 +60,7 @@ class ContractFieldsTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
             start_date=datetime.date(2026, 3, 1),
             end_date=datetime.date(2026, 5, 31),
         )
@@ -72,30 +72,30 @@ class ContractFieldsTestCase(TestCase):
         contract = KippoProjectContract(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("300000"),
             start_date=datetime.date(2026, 6, 1),
             end_date=datetime.date(2026, 1, 1),
         )
         with self.assertRaises(ValidationError):
             contract.clean()
 
-    def test_renewal_is_an_additional_contract_row(self):
-        # renewals/amendments are new rows, not overwrites
+    def test_project_allows_only_one_contract(self):
+        # OneToOne — a separate engagement is a new project, not a second contract row
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("1800000"),
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 6, 30),
         )
-        KippoProjectContract.objects.create(
-            project=self.project,
-            billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("350000"),
-            start_date=datetime.date(2026, 7, 1),
-            end_date=datetime.date(2026, 12, 31),
-        )
-        self.assertEqual(self.project.contracts.count(), 2)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            KippoProjectContract.objects.create(
+                project=self.project,
+                billing_type=BILLING_TYPE_MONTHLY,
+                total_amount=Decimal("2100000"),
+                start_date=datetime.date(2026, 7, 1),
+                end_date=datetime.date(2026, 12, 31),
+            )
 
 
 class BillingDateConsistencyTestCase(TestCase):
@@ -132,17 +132,18 @@ class MonthlyContractGenerationTestCase(TestCase):
         self.project: KippoProject = created["KippoProject"]
         self.user = created["KippoUser"]
 
-    def _make_contract(self, start: datetime.date, end: datetime.date, amount: str = "300000") -> KippoProjectContract:
+    def _make_contract(self, start: datetime.date, end: datetime.date, total_amount: str = "300000") -> KippoProjectContract:
         return KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal(amount),
+            total_amount=Decimal(total_amount),
             start_date=start,
             end_date=end,
         )
 
     def test_multi_month_contract_generates_month_end_entry_per_month(self):
-        contract = self._make_contract(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10))
+        # 1,200,000 over Jan..Apr (4 months) -> 300,000 each
+        contract = self._make_contract(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10), total_amount="1200000")
         created = contract.generate_billing_entries(created_by=self.user)
         # each accrual month is billed at month-end (月末)
         self.assertEqual(
@@ -156,11 +157,22 @@ class MonthlyContractGenerationTestCase(TestCase):
         )
         self.assertTrue(all(entry.amount == Decimal("300000") for entry in created))
         self.assertTrue(all(entry.contract == contract for entry in created))
+        self.assertTrue(all(entry.is_manual is False for entry in created))  # generated, not hand-added
         self.assertTrue(all(entry.created_by == self.user for entry in created))
-        self.assertEqual(self.project.billing_entries.count(), 4)
+        self.assertEqual(contract.billing_entries.count(), 4)
+
+    def test_total_amount_split_remainder_lands_on_final_month(self):
+        # 1,000,000 over 3 months -> 333,333 / 333,333 / 333,334 (remainder on last); sums to total
+        contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31), total_amount="1000000")
+        created = contract.generate_billing_entries()
+        self.assertEqual(
+            [entry.amount for entry in created],
+            [Decimal("333333"), Decimal("333333"), Decimal("333334")],
+        )
+        self.assertEqual(sum(entry.amount for entry in created), Decimal("1000000"))
 
     def test_single_month_contract(self):
-        contract = self._make_contract(datetime.date(2026, 3, 1), datetime.date(2026, 3, 31))
+        contract = self._make_contract(datetime.date(2026, 3, 1), datetime.date(2026, 3, 31), total_amount="300000")
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].billing_date, datetime.date(2026, 3, 31))
@@ -186,7 +198,7 @@ class MonthlyContractGenerationTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
         )
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 3)
@@ -197,13 +209,13 @@ class MonthlyContractGenerationTestCase(TestCase):
         self.assertEqual(len(first), 3)
         second = contract.generate_billing_entries()
         self.assertEqual(second, [])
-        self.assertEqual(self.project.billing_entries.count(), 3)
+        self.assertEqual(contract.billing_entries.count(), 3)
 
     def test_generation_preserves_manual_adjustments(self):
         # a manually adjusted month (price revision / proration) must survive regeneration
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
         contract.generate_billing_entries()
-        adjusted = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
+        adjusted = contract.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
         adjusted.amount = Decimal("150000")  # prorated month
         adjusted.save()
 
@@ -222,17 +234,18 @@ class MonthlyContractGenerationTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("300000"),
         )
         self.assertEqual(contract.generate_billing_entries(), [])
 
     def test_duplicate_entry_for_same_date_rejected(self):
-        # ledger uniqueness guard — one entry per (project, billing_date)
+        # ledger uniqueness guard — one entry per (contract, billing_date)
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
         contract.generate_billing_entries()
         with self.assertRaises(IntegrityError):
             KippoProjectBillingEntry.objects.create(
-                project=self.project,
+                contract=contract,
+                is_manual=True,
                 billing_date=datetime.date(2026, 1, 31),
                 amount=Decimal("100"),
             )
@@ -251,7 +264,7 @@ class DeliveryContractGenerationTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
         created = contract.generate_billing_entries()
@@ -267,7 +280,7 @@ class DeliveryContractGenerationTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
         )
         created = contract.generate_billing_entries()
         self.assertEqual(len(created), 1)
@@ -277,12 +290,12 @@ class DeliveryContractGenerationTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
         self.assertEqual(len(contract.generate_billing_entries()), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
-        self.assertEqual(self.project.billing_entries.count(), 1)
+        self.assertEqual(contract.billing_entries.count(), 1)
 
 
 class RevenueEntriesTestCase(TestCase):
@@ -294,17 +307,18 @@ class RevenueEntriesTestCase(TestCase):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
 
-    def _generate_monthly(self, start: datetime.date, end: datetime.date, amount: str = "300000") -> None:
+    def _generate_monthly(self, start: datetime.date, end: datetime.date, total_amount: str = "300000") -> None:
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal(amount),
+            total_amount=Decimal(total_amount),
             start_date=start,
             end_date=end,
         ).generate_billing_entries()
 
     def test_revenue_entries_returns_ledger(self):
-        self._generate_monthly(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10))
+        # 1,200,000 over 4 months -> 300,000 each
+        self._generate_monthly(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10), total_amount="1200000")
         entries = self.project.revenue_entries()
         self.assertEqual(
             entries,
@@ -317,7 +331,7 @@ class RevenueEntriesTestCase(TestCase):
         )
 
     def test_window_clamps_to_requested_range(self):
-        self._generate_monthly(datetime.date(2026, 1, 1), datetime.date(2026, 6, 30))
+        self._generate_monthly(datetime.date(2026, 1, 1), datetime.date(2026, 6, 30), total_amount="1800000")
         months = [
             d
             for d, _ in self.project.revenue_entries(
@@ -339,11 +353,18 @@ class RevenueEntriesTestCase(TestCase):
         self.assertEqual(entries, [])
 
     def test_manual_entry_included_in_revenue(self):
-        # entries added by hand (no contract) count toward revenue like generated ones
-        KippoProjectBillingEntry.objects.create(
+        # hand-added entries (is_manual) count toward revenue like generated ones
+        contract = KippoProjectContract.objects.create(
             project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            total_amount=Decimal("500000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+        KippoProjectBillingEntry.objects.create(
+            contract=contract,
             billing_date=datetime.date(2026, 9, 30),
             amount=Decimal("500000"),
+            is_manual=True,
             note="追加請求",
         )
         self.assertEqual(
@@ -352,27 +373,29 @@ class RevenueEntriesTestCase(TestCase):
         )
 
     def test_total_revenue_over_contract(self):
-        self._generate_monthly(datetime.date(2026, 1, 1), datetime.date(2026, 4, 30), amount="250000")
+        # the per-month split always sums back to total_amount
+        self._generate_monthly(datetime.date(2026, 1, 1), datetime.date(2026, 4, 30), total_amount="1000000")
         total = sum(amount for _, amount in self.project.revenue_entries())
         self.assertEqual(total, Decimal("1000000"))
 
-    def test_contract_deletion_keeps_revenue_history(self):
-        # SET_NULL: deleting a contract must not delete its generated revenue entries
+    def test_contract_deletion_removes_billing_entries(self):
+        # CASCADE: billing entries belong to the contract, so deleting it removes its ledger
+        # (a separate engagement is a new project; contracts are amended, not deleted, in practice)
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("600000"),
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 2, 28),
         )
         contract.generate_billing_entries()
+        self.assertEqual(contract.billing_entries.count(), 2)
         contract.delete()
-        self.assertEqual(self.project.billing_entries.count(), 2)
-        self.assertTrue(all(entry.contract is None for entry in self.project.billing_entries.all()))
+        self.assertEqual(KippoProjectBillingEntry.objects.count(), 0)
 
 
 class DerivedRevenueFiguresTestCase(TestCase):
-    """契約金額 / トータル売上 derived from contracts + ledger (kippo#32 / T13)."""
+    """契約金額 / トータル売上 derived from the contract + ledger (kippo#32 / T13)."""
 
     fixtures = DEFAULT_FIXTURES
 
@@ -380,51 +403,44 @@ class DerivedRevenueFiguresTestCase(TestCase):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
 
-    def test_delivery_contract_value_is_amount(self):
-        contract = KippoProjectContract.objects.create(
+    def test_delivery_contract_amount_is_total_amount(self):
+        KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
-        self.assertEqual(contract.contract_value, Decimal("2000000"))
+        self.assertEqual(self.project.contract_amount, Decimal("2000000"))
 
-    def test_monthly_contract_value_is_amount_times_months(self):
-        contract = KippoProjectContract.objects.create(
+    def test_monthly_contract_amount_is_total_amount(self):
+        KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("1200000"),
             start_date=datetime.date(2026, 1, 15),
             end_date=datetime.date(2026, 4, 10),
         )
-        # Jan, Feb, Mar, Apr = 4 months
-        self.assertEqual(contract.contract_value, Decimal("1200000"))
+        self.assertEqual(self.project.contract_amount, Decimal("1200000"))
 
-    def test_contract_amount_sums_all_contracts(self):
-        KippoProjectContract.objects.create(
-            project=self.project,
-            billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
-            end_date=datetime.date(2026, 9, 30),
-        )
+    def test_contract_amount_is_zero_without_contract(self):
+        self.assertEqual(self.project.contract_amount, Decimal(0))
+
+    def test_billing_types_reflects_contract(self):
+        self.assertEqual(self.project.billing_types, [])
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 3, 31),
         )
-        # 2,000,000 (delivery) + 300,000 × 3 (monthly) = 2,900,000
-        self.assertEqual(self.project.contract_amount, Decimal("2900000"))
-
-    def test_contract_amount_is_zero_without_contracts(self):
-        self.assertEqual(self.project.contract_amount, Decimal(0))
+        self.assertEqual(self.project.billing_types, [BILLING_TYPE_MONTHLY])
 
     def test_monthly_schedule_is_month_end_per_month(self):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
             start_date=datetime.date(2026, 1, 15),
             end_date=datetime.date(2026, 3, 10),
         )
@@ -441,42 +457,35 @@ class DerivedRevenueFiguresTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
         self.assertEqual(contract.monthly_schedule(), [])
 
-    def test_project_monthly_billing_schedule_aggregates_sorted(self):
-        # two monthly contracts (e.g. renewal) merge into one sorted schedule
+    def test_project_monthly_billing_schedule_from_contract(self):
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
-            start_date=datetime.date(2026, 3, 1),
+            total_amount=Decimal("1100000"),
+            start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 4, 30),
         )
-        KippoProjectContract.objects.create(
-            project=self.project,
-            billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("250000"),
-            start_date=datetime.date(2026, 1, 1),
-            end_date=datetime.date(2026, 2, 28),
-        )
+        # 1,100,000 over 4 months -> 275,000 each (clean split)
         self.assertEqual(
             self.project.monthly_billing_schedule,
             [
-                (datetime.date(2026, 1, 31), Decimal("250000")),
-                (datetime.date(2026, 2, 28), Decimal("250000")),
-                (datetime.date(2026, 3, 31), Decimal("300000")),
-                (datetime.date(2026, 4, 30), Decimal("300000")),
+                (datetime.date(2026, 1, 31), Decimal("275000")),
+                (datetime.date(2026, 2, 28), Decimal("275000")),
+                (datetime.date(2026, 3, 31), Decimal("275000")),
+                (datetime.date(2026, 4, 30), Decimal("275000")),
             ],
         )
 
-    def test_project_monthly_billing_schedule_empty_for_delivery_only(self):
+    def test_project_monthly_billing_schedule_empty_for_delivery(self):
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            amount=Decimal("2000000"),
+            total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
         self.assertEqual(self.project.monthly_billing_schedule, [])
@@ -485,11 +494,11 @@ class DerivedRevenueFiguresTestCase(TestCase):
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("250000"),
+            total_amount=Decimal("1000000"),
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 4, 30),
         ).generate_billing_entries()
-        # 4 month-end entries × 250,000
+        # the 4 month-end entries sum back to total_amount
         self.assertEqual(self.project.total_revenue, Decimal("1000000"))
 
     def test_total_revenue_is_zero_without_entries(self):
@@ -500,13 +509,13 @@ class DerivedRevenueFiguresTestCase(TestCase):
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_MONTHLY,
-            amount=Decimal("300000"),
+            total_amount=Decimal("900000"),
             start_date=datetime.date(2026, 1, 1),
             end_date=datetime.date(2026, 3, 31),
         )
         contract.generate_billing_entries()
-        entry = self.project.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
+        entry = contract.billing_entries.get(billing_date=datetime.date(2026, 2, 28))
         entry.amount = Decimal("150000")  # prorated month
         entry.save()
         self.assertEqual(self.project.total_revenue, Decimal("750000"))  # 300k + 150k + 300k
-        self.assertEqual(self.project.contract_amount, Decimal("900000"))  # unchanged: 300k × 3
+        self.assertEqual(self.project.contract_amount, Decimal("900000"))  # unchanged: contract total_amount

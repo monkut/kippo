@@ -177,10 +177,11 @@ class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsSt
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = KippoProjectContract
     extra = 1
-    fields = ("billing_type", "amount", "start_date", "end_date", "note")
+    max_num = 1  # OneToOne — one contract per project (kippo#31)
+    fields = ("billing_type", "total_amount", "start_date", "end_date", "note")
 
     def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
-        # 請求方法 is required at project registration (kippo#40 / T19): require ≥1 contract on /add/.
+        # 請求方法 is required at project registration (kippo#40 / T19): require the contract on /add/.
         # Editing an existing project is unaffected (existing contract-less projects still save).
         return 1 if obj is None else 0
 
@@ -202,12 +203,12 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
         return PeriodPrefilledFormSet
 
 
-class KippoProjectBillingEntryInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline):
+    # Billing entries belong to the contract (kippo#31): edited via KippoProjectContractAdmin, not
+    # the project (the entry no longer carries a project FK).
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "contract", "note")
-    readonly_fields = ("contract",)
-    classes = ["collapse"]
+    fields = ("billing_date", "amount", "is_manual", "note")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -1124,9 +1125,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         created_count = 0
         skipped_names = []
         for project in queryset:
-            project_created_count = 0
-            for contract in project.contracts.all():
-                project_created_count += len(contract.generate_billing_entries(created_by=request.user))
+            contract = project.get_contract()
+            project_created_count = len(contract.generate_billing_entries(created_by=request.user)) if contract else 0
             created_count += project_created_count
             if not project_created_count:
                 skipped_names.append(project.name)
@@ -1141,7 +1141,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     @admin.display(description=_("契約金額"))
     def get_contract_amount_display(self, obj: KippoProject | None = None) -> str:
-        # derived from the project's contracts (kippo#32 / T13)
+        # derived from the project's contract (kippo#32 / T13)
         if obj is None or not obj.pk:
             return "-"
         return f"¥{obj.contract_amount:,.0f}"
@@ -1506,6 +1506,26 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)
+
+
+@admin.register(KippoProjectContract)
+class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
+    # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
+    # the project (KippoProjectContractInline); this page adds the billing-entries inline.
+    list_display = ("project", "billing_type", "total_amount", "start_date", "end_date")
+    list_filter = ("billing_type",)
+    search_fields = ("project__name",)
+    raw_id_fields = ("project",)
+    inlines = [KippoProjectBillingEntryInline]
+    actions = ["generate_billing_entries"]
+
+    @admin.action(description=_("契約から請求エントリを生成"))
+    def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+        created_count = 0
+        for contract in queryset:
+            created_count += len(contract.generate_billing_entries(created_by=request.user))
+        self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
 
 
 @admin.register(KippoMilestone)
