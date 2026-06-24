@@ -212,7 +212,81 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(summary["project_count"], 1)  # only the contract ending this FY
         self.assertEqual(summary["planned_total_display"], "¥2,000,000")
         self.assertEqual(summary["received_total_display"], "¥500,000")
+        self.assertGreaterEqual(summary["customer_count"], 2)  # self.customer + self.other_customer
         self.assertIn("契約予定合計", response.content.decode())  # header block rendered
+
+    def test_fiscal_year_summary_is_filter_aware(self):
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+
+        def _ending_contract(customer: KippoCustomer, name: str, total: str, received: str) -> None:
+            project = self._make_customer_project(name, customer, date(today.year, 6, 30))
+            contract = KippoProjectContract.objects.create(
+                project=project,
+                billing_type="delivery",
+                total_amount=Decimal(total),
+                end_date=date(today.year, 6, 30),
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+            KippoProjectBillingEntry.objects.create(
+                contract=contract, billing_date=date(today.year, 3, 31), amount=Decimal(received), is_received=True
+            )
+
+        _ending_contract(self.customer, "cust-a", "2000000", "500000")
+        _ending_contract(self.other_customer, "cust-b", "1000000", "300000")
+
+        # unfiltered → both customers' FY contracts roll up
+        url = reverse("admin:customers_kippocustomer_changelist")
+        unfiltered = next(s for s in self.client.get(url).context["fiscal_year_summaries"] if s["organization"] == self.organization.name)
+        self.assertEqual(unfiltered["project_count"], 2)
+        self.assertEqual(unfiltered["planned_total_display"], "¥3,000,000")
+        self.assertEqual(unfiltered["received_total_display"], "¥800,000")
+
+        # filtered to one customer → summary reflects only that customer
+        filtered_response = self.client.get(f"{url}?recent_ending_customer={self.customer.pk}")
+        filtered = next(s for s in filtered_response.context["fiscal_year_summaries"] if s["organization"] == self.organization.name)
+        self.assertEqual(filtered["customer_count"], 1)
+        self.assertEqual(filtered["project_count"], 1)
+        self.assertEqual(filtered["planned_total_display"], "¥2,000,000")
+        self.assertEqual(filtered["received_total_display"], "¥500,000")
+
+    def test_filter_supports_multiple_customer_selection(self):
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        third = KippoCustomer.objects.create(
+            organization=self.organization, name="Initech", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        for customer in (self.customer, self.other_customer, third):
+            project = self._make_customer_project(f"proj-{customer.name}", customer, date(today.year, 6, 30))
+            KippoProjectContract.objects.create(
+                project=project,
+                billing_type="delivery",
+                total_amount=Decimal("1000000"),
+                end_date=date(today.year, 6, 30),
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+
+        url = reverse("admin:customers_kippocustomer_changelist")
+        # repeated param → OR of the two selected customers (pk__in)
+        response = self.client.get(f"{url}?recent_ending_customer={self.customer.pk}&recent_ending_customer={self.other_customer.pk}")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        results = set(response.context["cl"].queryset)
+        self.assertEqual(results, {self.customer, self.other_customer})
+        self.assertNotIn(third, results)
 
     def test_active_project_detail_sums_received_within_current_fiscal_year(self):
         from datetime import timedelta

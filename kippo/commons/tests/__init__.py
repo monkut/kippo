@@ -1,4 +1,5 @@
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
+from django.http import QueryDict
 from django.test import TestCase
 from django.utils import timezone
 from octocat.models import GithubAccessToken, GithubRepository
@@ -103,7 +104,7 @@ def setup_basic_project(
 
 
 class MockRequest:
-    pass
+    GET = QueryDict()  # empty, immutable — admin list filters read request.GET.getlist()
 
 
 class IsStaffModelAdminTestCaseBase(TestCase):
