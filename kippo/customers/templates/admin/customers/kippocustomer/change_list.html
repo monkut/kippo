@@ -32,6 +32,23 @@
 {{ block.super }}
 {% endblock %}
 {% block extrahead %}{{ block.super }}
+{# Reserve the アクティブプロジェクト column width up front so expanding the per-project detail does not resize the column. #}
+<style>
+  #result_list th.column-get_active_project_count,
+  #result_list td.field-get_active_project_count {
+    min-width: 32em;
+  }
+  td.field-get_active_project_count table.active-projects-detail {
+    width: 100%;
+    table-layout: fixed;
+  }
+  td.field-get_active_project_count table.active-projects-detail th,
+  td.field-get_active_project_count table.active-projects-detail td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
 {# Toggle the per-project detail table under the アクティブプロジェクト count (KippoCustomerAdmin.get_active_project_count). #}
 <script>
 (function () {
