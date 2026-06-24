@@ -12,6 +12,24 @@ class KippoOrganizationTestCase(TestCase):
     def setUp(self):
         self.github_manager_user = KippoUser.objects.get(username="github-manager")
 
+    def test_timezone_defaults_to_jst(self):
+        organization = KippoOrganization.objects.create(
+            name="tz-default-org",
+            github_organization_name="ghtzdefault",
+            created_by=self.github_manager_user,
+            updated_by=self.github_manager_user,
+        )
+        self.assertEqual(organization.timezone, "Asia/Tokyo")
+
+    def test_validate_timezone(self):
+        from django.core.exceptions import ValidationError
+
+        from ..models import validate_timezone
+
+        validate_timezone("Asia/Tokyo")  # valid IANA name → no error
+        with self.assertRaises(ValidationError):
+            validate_timezone("Not/AZone")
+
     def create_organization_unassigned_kippouser(self):
         org_name = "testorg1"
         dummy_organization = KippoOrganization(

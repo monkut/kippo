@@ -1,5 +1,6 @@
 import datetime
 import urllib.parse
+import zoneinfo
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
@@ -41,10 +42,10 @@ ACTIVE_PROJECT_COUNT = Coalesce(
 
 def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date:
     """Start date of the organization's current fiscal year — (fiscalyear_start_month, day 1) in the
-    most recent year on or before today. 'Today' is the current date in the configured timezone
-    (Asia/Tokyo / JST; there is no per-organization timezone field).
+    most recent year on or before today, where 'today' is the current date in the organization's
+    own timezone (KippoOrganization.timezone; defaults to Asia/Tokyo / JST).
     """
-    today = timezone.localdate()
+    today = timezone.localdate(timezone=zoneinfo.ZoneInfo(organization.timezone))
     start_month = organization.fiscalyear_start_month
     year = today.year if today.month >= start_month else today.year - 1
     return datetime.date(year, start_month, 1)

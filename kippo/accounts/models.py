@@ -3,6 +3,7 @@ import logging
 import secrets
 import string
 import uuid
+import zoneinfo
 from collections import Counter
 from collections.abc import Generator
 from typing import TYPE_CHECKING
@@ -36,6 +37,12 @@ JAPAN_FISCALYEAR_START_MONTH = 4
 def generate_random_secret(n: int = 20) -> str:
     """Generate a random string of n length"""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
+
+
+def validate_timezone(value: str) -> None:
+    """Validate that ``value`` is a known IANA timezone name (e.g. 'Asia/Tokyo')."""
+    if value not in zoneinfo.available_timezones():
+        raise ValidationError(_("%(value)s is not a valid IANA timezone name."), params={"value": value})
 
 
 class KippoOrganization(UserCreatedBaseModel):
@@ -132,6 +139,13 @@ class KippoOrganization(UserCreatedBaseModel):
 
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
+    )
+    timezone = models.CharField(
+        _("タイムゾーン"),
+        max_length=64,
+        default="Asia/Tokyo",
+        validators=[validate_timezone],
+        help_text=_("IANA timezone used for fiscal-year / date determination (default: Asia/Tokyo / JST)."),
     )
     project_assignment_member_soft_ceiling = models.PositiveSmallIntegerField(
         default=settings.DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING,
@@ -231,7 +245,9 @@ class KippoOrganization(UserCreatedBaseModel):
         else:
             super().save(*args, **kwargs)
 
-    def get_next_fiscal_year(self) -> timezone.datetime:
+    # NOTE: datetime.datetime (not timezone.datetime) — the `timezone` model field shadows the
+    # django.utils.timezone import within this class's body where annotations are evaluated.
+    def get_next_fiscal_year(self) -> datetime.datetime:
         current = timezone.now()
         while current.month != self.fiscalyear_start_month:
             current += timezone.timedelta(days=1)
