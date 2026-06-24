@@ -145,6 +145,32 @@ class KippoCustomerComplianceCheckModelTestCase(TestCase):
         self.assertIsNone(check.created_by)
         self.assertIsNone(check.updated_by)
         self.assertIsNone(check.verified_datetime)
+        self.assertIsNone(check.verified_by)
+
+    def test_marking_verified_autosets_datetime(self):
+        customer = KippoCustomer.objects.create(organization=self.organization, name="Acme Verify", created_by=self.user, updated_by=self.user)
+        check = customer.compliance_check
+        check.verified = True
+        check.save()
+        check.refresh_from_db()
+        self.assertTrue(check.verified)
+        self.assertIsNotNone(check.verified_datetime)
+
+    def test_unverifying_clears_datetime_and_verified_by(self):
+        customer = KippoCustomer.objects.create(organization=self.organization, name="Acme Unverify", created_by=self.user, updated_by=self.user)
+        check = customer.compliance_check
+        check.verified = True
+        check.verified_by = self.user
+        check.save()
+        check.refresh_from_db()
+        self.assertEqual(check.verified_by, self.user)
+        self.assertIsNotNone(check.verified_datetime)
+        # un-verifying clears both the timestamp and the verifier
+        check.verified = False
+        check.save()
+        check.refresh_from_db()
+        self.assertIsNone(check.verified_datetime)
+        self.assertIsNone(check.verified_by)
 
     def test_one_to_one_relation_and_reverse_accessor(self):
         customer = KippoCustomer.objects.create(
