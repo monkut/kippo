@@ -3,6 +3,7 @@ import logging
 import secrets
 import string
 import uuid
+import zoneinfo
 from collections import Counter
 from collections.abc import Generator
 from typing import TYPE_CHECKING
@@ -31,11 +32,18 @@ logger = logging.getLogger(__name__)
 
 
 JAPAN_FISCALYEAR_START_MONTH = 4
+DEFAULT_ORGANIZATION_TIMEZONE = "Asia/Tokyo"  # JST
 
 
 def generate_random_secret(n: int = 20) -> str:
     """Generate a random string of n length"""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
+
+
+def validate_timezone(value: str) -> None:
+    """Validate that ``value`` is a known IANA timezone name (e.g. 'Asia/Tokyo')."""
+    if value not in zoneinfo.available_timezones():
+        raise ValidationError(_("%(value)s is not a valid IANA timezone name."), params={"value": value})
 
 
 class KippoOrganization(UserCreatedBaseModel):
@@ -132,6 +140,13 @@ class KippoOrganization(UserCreatedBaseModel):
 
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
+    )
+    timezone_name = models.CharField(
+        _("タイムゾーン"),
+        max_length=64,
+        default=DEFAULT_ORGANIZATION_TIMEZONE,
+        validators=[validate_timezone],
+        help_text=_("IANA timezone used for fiscal-year / date determination (default: Asia/Tokyo / JST)."),
     )
     project_assignment_member_soft_ceiling = models.PositiveSmallIntegerField(
         default=settings.DEFAULT_PROJECT_ASSIGNMENT_MEMBER_SOFT_CEILING,
@@ -237,6 +252,21 @@ class KippoOrganization(UserCreatedBaseModel):
             current += timezone.timedelta(days=1)
         next_fiscal_year = current.replace(day=1)
         return next_fiscal_year
+
+    def current_fiscal_year_start(self) -> datetime.date:
+        """Start date of this organization's current fiscal year — (fiscalyear_start_month, day 1) in
+        the most recent year on or before today, where 'today' is the current date in the
+        organization's timezone (timezone_name; falls back to JST if the stored value is invalid).
+        """
+        # validate_timezone only runs on full_clean (admin forms), not on .save(); guard against a
+        # bad/empty value persisted programmatically so callers can't raise on ZoneInfo().
+        try:
+            tz = zoneinfo.ZoneInfo(self.timezone_name or DEFAULT_ORGANIZATION_TIMEZONE)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+            tz = zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
+        today = timezone.localdate(timezone=tz)
+        year = today.year if today.month >= self.fiscalyear_start_month else today.year - 1
+        return datetime.date(year, self.fiscalyear_start_month, 1)
 
     def get_weeklyeffort_close_datetime(self, week_start: datetime.date) -> datetime.datetime:
         """週間稼働の締め日時 (T17): 締めは月単位 — week_start が属する月の全エントリが同時に締まる。

@@ -1,0 +1,50 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+{% if fiscal_year_summaries %}
+{# Per-organization current-fiscal-year summary (KippoCustomerAdmin.changelist_view). #}
+<div class="module" style="margin-bottom:12px">
+  <table>
+    <thead>
+      <tr>
+        <th>組織</th>
+        <th>会計年度</th>
+        <th style="text-align:right">完了予定プロジェクト数</th>
+        <th style="text-align:right">入金済合計</th>
+        <th style="text-align:right">契約予定合計</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for summary in fiscal_year_summaries %}
+      <tr>
+        <td>{{ summary.organization }}</td>
+        <td>{{ summary.fiscal_year_start|date:"Y-m-d" }} 〜 {{ summary.fiscal_year_end|date:"Y-m-d" }}</td>
+        <td style="text-align:right">{{ summary.project_count }}</td>
+        <td style="text-align:right">{{ summary.received_total_display }}</td>
+        <td style="text-align:right">{{ summary.planned_total_display }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}
+{% block extrahead %}{{ block.super }}
+{# Toggle the per-project detail table under the アクティブプロジェクト count (KippoCustomerAdmin.get_active_project_count). #}
+<script>
+(function () {
+  "use strict";
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("a.active-projects-toggle").forEach(function (toggle) {
+      toggle.addEventListener("click", function (event) {
+        event.preventDefault();
+        var detail = toggle.parentElement.querySelector(".active-projects-detail");
+        if (detail) {
+          detail.hidden = !detail.hidden;
+        }
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -156,8 +156,161 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         qs = modeladmin.get_queryset(self.super_user_request)
         customer = qs.get(pk=self.customer.pk)
         self.assertEqual(customer.active_project_count, 2)
-        self.assertEqual(modeladmin.get_active_project_count(customer), 2)
+        # non-zero count renders the clickable toggle showing the count
+        rendered = modeladmin.get_active_project_count(customer)
+        self.assertIn("active-projects-toggle", rendered)
+        self.assertIn(">2<", rendered)
         self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
+
+    def test_active_project_count_zero_renders_plain(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.super_user_request)
+        customer = qs.get(pk=self.customer.pk)  # no projects in this test
+        self.assertEqual(modeladmin.get_active_project_count(customer), 0)
+
+    def test_fiscal_year_summary_header_counts_contracts_ending_this_fy(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+
+        # Fiscal year starts in January → current FY = this (JST) calendar year.
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        # contract ending THIS FY → counted; planned = total_amount; received = its received entries
+        in_fy = self._make_customer_project("in-fy", self.customer, date(today.year, 6, 30))
+        in_fy_contract = KippoProjectContract.objects.create(
+            project=in_fy,
+            billing_type="delivery",
+            total_amount=Decimal("2000000"),
+            end_date=date(today.year, 6, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectBillingEntry.objects.create(
+            contract=in_fy_contract, billing_date=date(today.year, 6, 30), amount=Decimal("500000"), is_received=True
+        )
+        # contract ending in a PRIOR FY → excluded from count / planned / received
+        prior = self._make_customer_project("prior-fy", self.customer, fy_start - timedelta(days=1))
+        KippoProjectContract.objects.create(
+            project=prior,
+            billing_type="delivery",
+            total_amount=Decimal("9000000"),
+            end_date=fy_start - timedelta(days=1),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        # header summary excludes the prior-FY contract: count=1, planned=2,000,000 (not +9,000,000)
+        summary = next(s for s in response.context["fiscal_year_summaries"] if s["organization"] == self.organization.name)
+        self.assertEqual(summary["project_count"], 1)  # only the contract ending this FY
+        self.assertEqual(summary["planned_total_display"], "¥2,000,000")
+        self.assertEqual(summary["received_total_display"], "¥500,000")
+        self.assertIn("契約予定合計", response.content.decode())  # header block rendered
+
+    def test_active_project_detail_sums_received_within_current_fiscal_year(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+
+        # Fiscal year starts in January for this org → cutoff = Jan 1 of the current (JST) year.
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        project = self._make_customer_project("acme-billed", self.customer, date(today.year, 9, 30))
+        contract = KippoProjectContract.objects.create(
+            project=project,
+            billing_type="delivery",
+            total_amount=Decimal("2000000"),
+            end_date=date(today.year, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # received, on/after the fiscal-year start → counted
+        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=fy_start, amount=Decimal("500000"), is_received=True)
+        # received, but BEFORE the fiscal-year start (prior FY) → excluded by the cutoff
+        KippoProjectBillingEntry.objects.create(
+            contract=contract, billing_date=fy_start - timedelta(days=1), amount=Decimal("900000"), is_received=True
+        )
+        # not received, within the FY → excluded (only received entries are prefetched)
+        KippoProjectBillingEntry.objects.create(
+            contract=contract, billing_date=fy_start + timedelta(days=10), amount=Decimal("1500000"), is_received=False
+        )
+
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        customer = modeladmin.get_queryset(self.super_user_request).get(pk=self.customer.pk)
+        rendered = modeladmin.get_active_project_count(customer)
+        self.assertIn("acme-billed", rendered)
+        self.assertIn("¥500,000", rendered)  # only the in-FY received entry
+        self.assertNotIn("¥1,400,000", rendered)  # the pre-FY received entry is NOT added in
+        self.assertIn("¥2,000,000", rendered)  # contract total_amount
+        self.assertIn(date(today.year, 9, 30).isoformat(), rendered)  # contract end date
+
+    def test_recent_ending_customer_filter_lists_only_customers_with_projects_ending_in_last_2_fy(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        from customers.admin import CustomerEndingProjectsFilter
+
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        def _contract(project: KippoProject, end_date: date) -> None:
+            KippoProjectContract.objects.create(
+                project=project,
+                billing_type="delivery",
+                total_amount=Decimal("1000000"),
+                end_date=end_date,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+
+        # self.customer: a project whose contract ends this FY → qualifies
+        _contract(self._make_customer_project("recent", self.customer, date(today.year, 6, 30)), date(today.year, 6, 30))
+        # self.other_customer: only a contract ending 2 FYs before the current one → excluded
+        _contract(
+            self._make_customer_project("old", self.other_customer, fy_start - timedelta(days=400)),
+            fy_start - timedelta(days=400),
+        )
+
+        flt = CustomerEndingProjectsFilter(self.super_user_request, {}, KippoCustomer, KippoCustomerAdmin(KippoCustomer, self.site))
+        names = {name for _pk, name in flt.lookups(self.super_user_request, None)}
+        self.assertIn(self.customer.name, names)
+        self.assertNotIn(self.other_customer.name, names)
+
+        # selecting a customer filters the changelist to it
+        url = reverse("admin:customers_kippocustomer_changelist") + f"?recent_ending_customer={self.customer.pk}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        results = response.context["cl"].queryset
+        self.assertIn(self.customer, results)
+        self.assertNotIn(self.other_customer, results)
+
+    def test_visible_organizations_scope_matches_changelist(self):
+        # the FY header and the name filter use the same org scope as the rows: all orgs for a
+        # superuser (changelist is not org-scoped for superusers), else the user's own orgs.
+        from accounts.models import KippoOrganization
+
+        from customers.admin import _visible_organizations
+
+        self.assertEqual(set(_visible_organizations(self.super_user_request.user)), set(KippoOrganization.objects.all()))
+        staff_user = self.staff_user_request.user
+        self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
 
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):

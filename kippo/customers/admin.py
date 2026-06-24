@@ -1,20 +1,22 @@
+import datetime
 import urllib.parse
 
+from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.db import models
-from django.db.models import Count, IntegerField, OuterRef, Subquery
+from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
-from projects.models import KippoProject
+from projects.models import KippoProject, KippoProjectBillingEntry, KippoProjectContract
 
 from customers.models import KippoCustomer
 
@@ -34,6 +36,58 @@ ACTIVE_PROJECT_COUNT = Coalesce(
     ),
     0,
 )
+
+
+def _shift_fiscal_year(fiscal_year_start: datetime.date, years: int) -> datetime.date:
+    """The fiscal-year boundary ``years`` away from ``fiscal_year_start`` (same month, day 1)."""
+    return datetime.date(fiscal_year_start.year + years, fiscal_year_start.month, 1)
+
+
+def _visible_organizations(user: KippoUser) -> models.QuerySet:
+    """Organizations in scope for ``user`` on the customer admin — all for a superuser (the changelist
+    is not org-scoped for superusers), else the user's own organizations. Keeps the FY header and the
+    name filter consistent with the rows shown.
+    """
+    return KippoOrganization.objects.all() if user.is_superuser else user.organizations
+
+
+def _yen(amount: object) -> str:
+    return f"¥{amount:,.0f}"
+
+
+class CustomerEndingProjectsFilter(admin.SimpleListFilter):
+    """Customer-name filter listing only customers with 1+ project whose contract ends within the
+    last two fiscal years (previous + current FY) of the customer's organization.
+    """
+
+    title = _("顧客名（直近2会計年度に終了案件あり）")
+    parameter_name = "recent_ending_customer"
+
+    def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        pairs: dict[str, str] = {}
+        for organization in _visible_organizations(request.user):
+            fiscal_year_start = organization.current_fiscal_year_start()
+            # last two fiscal years = previous FY start (one year back) through current FY end (one year forward)
+            window_start = _shift_fiscal_year(fiscal_year_start, -1)
+            window_end = _shift_fiscal_year(fiscal_year_start, 1)
+            qualifying = (
+                KippoCustomer.objects.filter(
+                    organization=organization,
+                    projects__contract__end_date__gte=window_start,
+                    projects__contract__end_date__lt=window_end,
+                )
+                .distinct()
+                .values_list("pk", "name")
+            )
+            for pk, name in qualifying:
+                pairs[str(pk)] = name
+        return sorted(pairs.items(), key=lambda item: item[1])
+
+    def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
+        value = self.value()
+        if value:
+            return queryset.filter(pk=value)
+        return queryset
 
 
 class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -69,10 +123,13 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
-    list_filter = ("organization", "display_as_active")
+    list_filter = ("organization", "display_as_active", CustomerEndingProjectsFilter)
     search_fields = ("name", "email")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
+    # changelist template adds the inline script that toggles the per-project detail under the
+    # アクティブプロジェクト count (scoped to the changelist; avoids a static-manifest dependency).
+    change_list_template = "admin/customers/kippocustomer/change_list.html"
 
     def get_ordering(self, request: DjangoRequest) -> tuple:
         # Most active customers first. Returns the self-contained Subquery expression (not the
@@ -96,18 +153,109 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         qs = (
             super()
             .get_queryset(request)
-            # select_related the OneToOne compliance_check so the 反社チェック column does not
-            # issue one extra query per row in the changelist.
-            .select_related("compliance_check")
+            # select_related the OneToOne compliance_check (反社チェック column) and the organization
+            # (its fiscalyear_start_month bounds the received-total sum) so neither issues a per-row query.
+            .select_related("compliance_check", "organization")
             .annotate(active_project_count=ACTIVE_PROJECT_COUNT)
+            # active projects + their contract + received billing entries back the expandable detail
+            # rows of the アクティブプロジェクト column — prefetched to avoid N+1. Only is_received entries
+            # are loaded (the detail sums received amounts); the fiscal-year cutoff is applied per-row.
+            .prefetch_related(
+                Prefetch(
+                    "projects",
+                    queryset=(
+                        KippoProject.objects.filter(is_closed=False, display_as_active=True)
+                        .select_related("contract")
+                        .prefetch_related(Prefetch("contract__billing_entries", queryset=KippoProjectBillingEntry.objects.filter(is_received=True)))
+                        .order_by("name")
+                    ),
+                    to_attr="active_projects",
+                )
+            )
         )
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations).distinct()
 
-    @admin.display(description=_("アクティブプロジェクト数"), ordering="active_project_count")
-    def get_active_project_count(self, obj: KippoCustomer) -> int:
-        return obj.active_project_count
+    @admin.display(description=_("アクティブプロジェクト"), ordering="active_project_count")
+    def get_active_project_count(self, obj: KippoCustomer) -> int | str:
+        # Default: the count. Clicking a non-zero count toggles a per-project detail table (the
+        # toggle script is inlined in change_list.html). 0 renders plainly (nothing to expand).
+        count = obj.active_project_count
+        if not count:
+            return count
+        # Received amounts are summed only from the current fiscal year onward (per the customer's
+        # organization fiscalyear_start_month, relative to today in the organization's timezone).
+        fiscal_year_start = obj.organization.current_fiscal_year_start()
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
+            (self._active_project_row(project, fiscal_year_start) for project in getattr(obj, "active_projects", ())),
+        )
+        return format_html(
+            '<a href="#" class="active-projects-toggle">{}</a>'
+            '<table class="active-projects-detail" hidden>'
+            "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
+            "<tbody>{}</tbody></table>",
+            count,
+            _("プロジェクト"),
+            _("入金済合計(今期)"),
+            _("契約金額"),
+            _("契約終了日"),
+            rows,
+        )
+
+    @staticmethod
+    def _active_project_row(project: KippoProject, fiscal_year_start: datetime.date) -> tuple:
+        """One detail row: (project link, current-FY received-billing total, contract amount, end date).
+
+        Entries are pre-filtered to is_received=True (the prefetch); here we keep only those billed on
+        or after the fiscal-year start so the total is the current fiscal year's received revenue.
+        """
+        contract = getattr(project, "contract", None)
+        received = sum((entry.amount for entry in contract.billing_entries.all() if entry.billing_date >= fiscal_year_start), 0) if contract else 0
+        name_link = format_html('<a href="{}">{}</a>', project.get_admin_url(), project.name)
+        total_display = _yen(contract.total_amount) if contract else "-"
+        end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"
+        return (name_link, _yen(received), total_display, end_display)
+
+    def changelist_view(self, request: DjangoRequest, extra_context: dict | None = None):
+        # Inject a per-organization current-fiscal-year summary header (rendered by change_list.html).
+        extra_context = extra_context or {}
+        extra_context["fiscal_year_summaries"] = self._fiscal_year_org_summaries(request.user)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def _fiscal_year_org_summaries(self, user: KippoUser) -> list[dict]:
+        """Per-organization current-fiscal-year summary for the header — one entry per organization
+        the user belongs to. 'Projects planned to complete this FY' = contracts whose end_date falls
+        in the current fiscal year; planned total = Σ their total_amount; received total = Σ their
+        received billing-entry amounts.
+        """
+        summaries = []
+        for organization in _visible_organizations(user):
+            fiscal_year_start = organization.current_fiscal_year_start()
+            fiscal_year_end = _shift_fiscal_year(fiscal_year_start, 1)
+            contracts = KippoProjectContract.objects.filter(
+                project__organization=organization,
+                end_date__gte=fiscal_year_start,
+                end_date__lt=fiscal_year_end,
+            )
+            # count + planned total are over the same contracts queryset → one aggregate query
+            contract_summary = contracts.aggregate(count=Count("pk"), total=Sum("total_amount"))
+            received_total = (
+                KippoProjectBillingEntry.objects.filter(contract__in=contracts, is_received=True).aggregate(total=Sum("amount"))["total"] or 0
+            )
+            summaries.append(
+                {
+                    "organization": organization.name,
+                    "fiscal_year_start": fiscal_year_start,
+                    "fiscal_year_end": fiscal_year_end,
+                    "project_count": contract_summary["count"],
+                    "received_total_display": _yen(received_total),
+                    "planned_total_display": _yen(contract_summary["total"] or 0),
+                }
+            )
+        return summaries
 
     @admin.display(boolean=True, description=_("反社チェック"))
     def get_compliance_verified(self, obj: KippoCustomer) -> bool:
