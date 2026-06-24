@@ -39,7 +39,10 @@
     min-width: 32em;
   }
   td.field-get_active_project_count table.active-projects-detail {
-    width: 100%;
+    /* definite width (matching the column min-width) so table-layout:fixed engages — a percentage
+       resolves against the content-sized cell and is indefinite, which silently disables fixed
+       layout and lets the table grow to its content, resizing the column on expand. */
+    width: 32em;
     table-layout: fixed;
   }
   td.field-get_active_project_count table.active-projects-detail th,
