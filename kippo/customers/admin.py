@@ -45,7 +45,13 @@ def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date
     most recent year on or before today, where 'today' is the current date in the organization's
     own timezone (KippoOrganization.timezone; defaults to Asia/Tokyo / JST).
     """
-    today = timezone.localdate(timezone=zoneinfo.ZoneInfo(organization.timezone))
+    # validate_timezone only runs on full_clean (admin forms), not on .save(); fall back to JST if a
+    # bad/empty value was persisted programmatically so the changelist can't 500 on ZoneInfo().
+    try:
+        tz = zoneinfo.ZoneInfo(organization.timezone or "Asia/Tokyo")
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        tz = zoneinfo.ZoneInfo("Asia/Tokyo")
+    today = timezone.localdate(timezone=tz)
     start_month = organization.fiscalyear_start_month
     year = today.year if today.month >= start_month else today.year - 1
     return datetime.date(year, start_month, 1)
@@ -198,7 +204,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if not count:
             return count
         # Received amounts are summed only from the current fiscal year onward (per the customer's
-        # organization fiscalyear_start_month, relative to today in the configured JST timezone).
+        # organization fiscalyear_start_month, relative to today in the organization's timezone).
         fiscal_year_start = _current_fiscal_year_start(obj.organization)
         rows = format_html_join(
             "",
