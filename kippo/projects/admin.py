@@ -209,6 +209,9 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline
     model = KippoProjectBillingEntry
     extra = 0
     fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "note")
+    # received_datetime is auto-managed by KippoProjectBillingEntry.save() (set when is_received is
+    # ticked, cleared when unticked) — shown read-only so a typed value can't be silently discarded.
+    readonly_fields = ("received_datetime",)
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):

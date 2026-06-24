@@ -1429,6 +1429,14 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
 
         self.assertNotIn(KippoProjectBillingEntryInline, KippoProjectBaseAdmin.inlines)
 
+    def test_billing_entry_inline_received_datetime_readonly(self):
+        # received_datetime is auto-managed in save() — must be read-only in the inline so a typed
+        # value can't be silently discarded when is_received is left unchecked.
+        from projects.admin import KippoProjectBillingEntryInline
+
+        self.assertIn("received_datetime", KippoProjectBillingEntryInline.readonly_fields)
+        self.assertIn("received_datetime", KippoProjectBillingEntryInline.fields)
+
 
 class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
     """Add-form runtime behavior: default assignment rates prefilled, customer hidden when prefilled."""
