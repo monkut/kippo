@@ -168,6 +168,52 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         customer = qs.get(pk=self.customer.pk)  # no projects in this test
         self.assertEqual(modeladmin.get_active_project_count(customer), 0)
 
+    def test_fiscal_year_summary_header_counts_contracts_ending_this_fy(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+
+        # Fiscal year starts in January → current FY = this (JST) calendar year.
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        # contract ending THIS FY → counted; planned = total_amount; received = its received entries
+        in_fy = self._make_customer_project("in-fy", self.customer, date(today.year, 6, 30))
+        in_fy_contract = KippoProjectContract.objects.create(
+            project=in_fy,
+            billing_type="delivery",
+            total_amount=Decimal("2000000"),
+            end_date=date(today.year, 6, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectBillingEntry.objects.create(
+            contract=in_fy_contract, billing_date=date(today.year, 6, 30), amount=Decimal("500000"), is_received=True
+        )
+        # contract ending in a PRIOR FY → excluded from count / planned / received
+        prior = self._make_customer_project("prior-fy", self.customer, fy_start - timedelta(days=1))
+        KippoProjectContract.objects.create(
+            project=prior,
+            billing_type="delivery",
+            total_amount=Decimal("9000000"),
+            end_date=fy_start - timedelta(days=1),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        # header summary excludes the prior-FY contract: count=1, planned=2,000,000 (not +9,000,000)
+        summary = next(s for s in response.context["fiscal_year_summaries"] if s["organization"] == self.organization.name)
+        self.assertEqual(summary["project_count"], 1)  # only the contract ending this FY
+        self.assertEqual(summary["planned_total_display"], "¥2,000,000")
+        self.assertEqual(summary["received_total_display"], "¥500,000")
+        self.assertIn("契約予定合計", response.content.decode())  # header block rendered
+
     def test_active_project_detail_sums_received_within_current_fiscal_year(self):
         from datetime import timedelta
         from decimal import Decimal

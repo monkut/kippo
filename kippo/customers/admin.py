@@ -1,13 +1,13 @@
 import datetime
 import urllib.parse
 
-from accounts.models import KippoOrganization
+from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.db import models
-from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery
+from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
@@ -17,7 +17,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
-from projects.models import KippoProject, KippoProjectBillingEntry
+from projects.models import KippoProject, KippoProjectBillingEntry, KippoProjectContract
 
 from customers.models import KippoCustomer
 
@@ -178,6 +178,43 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         total_display = f"¥{contract.total_amount:,.0f}" if contract else "-"
         end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"
         return (name_link, f"¥{received:,.0f}", total_display, end_display)
+
+    def changelist_view(self, request: DjangoRequest, extra_context: dict | None = None):
+        # Inject a per-organization current-fiscal-year summary header (rendered by change_list.html).
+        extra_context = extra_context or {}
+        extra_context["fiscal_year_summaries"] = self._fiscal_year_org_summaries(request.user)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def _fiscal_year_org_summaries(self, user: KippoUser) -> list[dict]:
+        """Per-organization current-fiscal-year summary for the header — one entry per organization
+        the user belongs to. 'Projects planned to complete this FY' = contracts whose end_date falls
+        in the current fiscal year; planned total = Σ their total_amount; received total = Σ their
+        received billing-entry amounts.
+        """
+        summaries = []
+        for organization in user.organizations:
+            fiscal_year_start = self._current_fiscal_year_start(organization)
+            fiscal_year_end = datetime.date(fiscal_year_start.year + 1, fiscal_year_start.month, 1)
+            contracts = KippoProjectContract.objects.filter(
+                project__organization=organization,
+                end_date__gte=fiscal_year_start,
+                end_date__lt=fiscal_year_end,
+            )
+            planned_total = contracts.aggregate(total=Sum("total_amount"))["total"] or 0
+            received_total = (
+                KippoProjectBillingEntry.objects.filter(contract__in=contracts, is_received=True).aggregate(total=Sum("amount"))["total"] or 0
+            )
+            summaries.append(
+                {
+                    "organization": organization.name,
+                    "fiscal_year_start": fiscal_year_start,
+                    "fiscal_year_end": fiscal_year_end,
+                    "project_count": contracts.count(),
+                    "received_total_display": f"¥{received_total:,.0f}",
+                    "planned_total_display": f"¥{planned_total:,.0f}",
+                }
+            )
+        return summaries
 
     @admin.display(boolean=True, description=_("反社チェック"))
     def get_compliance_verified(self, obj: KippoCustomer) -> bool:
