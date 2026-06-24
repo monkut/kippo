@@ -13,7 +13,7 @@ from django.contrib.admin.views.main import ChangeList
 from django.db import models
 from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum
 from django.db.models.functions import Coalesce
-from django.forms import Form
+from django.forms import BaseFormSet, Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
@@ -22,7 +22,7 @@ from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
 from projects.models import KippoProject, KippoProjectBillingEntry, KippoProjectContract
 
-from customers.models import KippoCustomer
+from customers.models import KippoCustomer, KippoCustomerComplianceCheck
 
 # A customer's active (open + display_as_active) project count. A correlated Subquery (a scalar
 # expression), NOT an aggregate: Django 5.2 forbids ordering by an aggregate that isn't also in
@@ -97,7 +97,8 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
             )
             for pk, name in qualifying:
                 pairs[str(pk)] = name
-        return sorted(pairs.items(), key=lambda item: item[1])
+        # list customers by name, case-insensitively
+        return sorted(pairs.items(), key=lambda item: item[1].casefold())
 
     def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
         if self.selected_values:
@@ -151,16 +152,33 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
         return format_html('<a href="{}">{}</a>', obj.get_admin_url(), obj.name)
 
 
+class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedInline):
+    """Edit the customer's 反社チェック (compliance check) on the customer page. The record is
+    auto-created per customer by a post_save signal, so this inline only edits the existing one.
+    """
+
+    model = KippoCustomerComplianceCheck
+    extra = 0
+    max_num = 1
+    can_delete = False
+    fields = ("verified", "verified_datetime", "verified_by", "notes")
+    # verified_datetime / verified_by are auto-managed (stamped when verified is ticked, cleared when
+    # unticked) — shown read-only so typed values can't be silently discarded.
+    readonly_fields = ("verified_datetime", "verified_by")
+
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
+        return False  # one is auto-created per customer via the post_save signal
+
+
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
-    # organization is added conditionally in get_list_filter (only for multi-org members);
-    # the display_as_active filter is intentionally omitted.
+    # organization is added conditionally in get_list_filter (only for multi-org members).
     list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
-    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
-    inlines = (KippoProjectReadOnlyInline,)
+    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes")
+    inlines = (KippoCustomerComplianceCheckInline, KippoProjectReadOnlyInline)
     # changelist template adds the inline script that toggles the per-project detail under the
     # アクティブプロジェクト count (scoped to the changelist; avoids a static-manifest dependency).
     change_list_template = "admin/customers/kippocustomer/change_list.html"
@@ -172,6 +190,21 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # applies this admin's get_ordering(). Ordering by the annotation name would raise FieldError
         # there, and the `ordering` attribute would be rejected by admin check E033.
         return (ACTIVE_PROJECT_COUNT.desc(), "name")
+
+    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
+        # Specializes the base created_by/updated_by stamping to also record the compliance check's
+        # verified_by — the acting admin who marked it verified (save() clears it when un-verified).
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for instance in instances:
+            if instance.id is None:
+                instance.created_by = request.user
+            instance.updated_by = request.user
+            if isinstance(instance, KippoCustomerComplianceCheck) and instance.verified and not instance.verified_by:
+                instance.verified_by = request.user
+            instance.save()
+        formset.save_m2m()
 
     def get_list_display(self, request: DjangoRequest) -> tuple:
         # Show the organization column only for superusers who belong to more than one organization;

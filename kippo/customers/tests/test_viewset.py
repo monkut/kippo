@@ -176,22 +176,3 @@ class KippoCustomerViewSetTestCase(TestCase):
         response = self.client.delete(url)
         self.assertEqual(response.status_code, HTTPStatus.NO_CONTENT)
         self.assertFalse(KippoCustomer.objects.filter(id=self.customer.id).exists())
-
-    def test_filter_is_active_false_returns_inactive_only(self):
-        """`?is_active=false` returns only customers with display_as_active=False."""
-        inactive = KippoCustomer.objects.create(
-            organization=self.organization,
-            name="Inactive Customer",
-            display_as_active=False,
-            created_by=self.user,
-            updated_by=self.user,
-        )
-        self.client.force_authenticate(user=self.user)
-        url = f"{settings.URL_PREFIX}/api/customers/?is_active=false"
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        data = response.json()
-        customer_ids = [result["id"] for result in data["results"]]
-        self.assertIn(str(inactive.id), customer_ids)
-        self.assertNotIn(str(self.customer.id), customer_ids)

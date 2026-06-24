@@ -90,6 +90,48 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         for fieldname in ("get_project_link", "start_date", "target_date"):
             self.assertIn(fieldname, inline.fields)
 
+    def test_compliance_check_inline_registered_and_editable(self):
+        from customers.admin import KippoCustomerComplianceCheckInline
+
+        self.assertIn(KippoCustomerComplianceCheckInline, KippoCustomerAdmin.inlines)
+        # the 反社チェック record is auto-created per customer (signal); the inline edits it (no add)
+        inline = KippoCustomerComplianceCheckInline(KippoCustomer, self.site)
+        self.assertFalse(inline.has_add_permission(self.staff_user_request))
+        self.assertIn("verified_datetime", inline.readonly_fields)  # auto-managed
+        self.assertIn("verified_by", inline.readonly_fields)
+        # change view renders the compliance inline form for the auto-created record
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertIn("compliance_check-0-verified", response.content.decode())
+
+    def test_compliance_inline_save_stamps_verified_by_and_datetime(self):
+        from customers.admin import KippoCustomerComplianceCheckInline
+
+        check = self.customer.compliance_check
+        self.assertFalse(check.verified)
+        admin_obj = KippoCustomerAdmin(KippoCustomer, self.site)
+        inline = KippoCustomerComplianceCheckInline(KippoCustomer, self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=self.customer)
+        prefix = "compliance_check"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "1",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1",
+            f"{prefix}-0-id": str(check.id),
+            f"{prefix}-0-verified": "on",
+            f"{prefix}-0-notes": "",
+        }
+        formset = formset_class(data=data, instance=self.customer, prefix=prefix)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_obj.save_formset(self.super_user_request, form=None, formset=formset, change=True)
+
+        check.refresh_from_db()
+        self.assertTrue(check.verified)
+        self.assertEqual(check.verified_by, self.super_user_request.user)  # acting admin stamped
+        self.assertIsNotNone(check.verified_datetime)
+
     def test_change_view_lists_related_project_with_admin_link(self):
         project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1))
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
@@ -377,13 +419,12 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         staff_user = self.staff_user_request.user
         self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
 
-    def test_list_filter_omits_display_as_active_and_org_for_single_org_member(self):
+    def test_list_filter_omits_org_for_single_org_member(self):
         from customers.admin import CustomerEndingProjectsFilter
 
         # super_user_request.user is a member of exactly one org (added in the base setUp).
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         list_filter = modeladmin.get_list_filter(self.super_user_request)
-        self.assertNotIn("display_as_active", list_filter)
         self.assertNotIn("organization", list_filter)
         self.assertIn(CustomerEndingProjectsFilter, list_filter)
 
@@ -405,7 +446,6 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         list_filter = modeladmin.get_list_filter(self.super_user_request)
         self.assertIn("organization", list_filter)
-        self.assertNotIn("display_as_active", list_filter)
 
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):

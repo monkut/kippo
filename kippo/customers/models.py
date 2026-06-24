@@ -1,7 +1,9 @@
 import uuid
 
 from commons.models import UserCreatedBaseModel
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -23,11 +25,6 @@ class KippoCustomer(UserCreatedBaseModel):
         help_text=_("Link to customer-related documents (folder, drive, wiki, etc.)"),
     )
     notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
-    display_as_active = models.BooleanField(
-        _("Display as Active"),
-        default=True,
-        help_text=_("If False, hidden from default admin lists"),
-    )
 
     class Meta:
         unique_together = (("organization", "name"),)
@@ -54,6 +51,15 @@ class KippoCustomerComplianceCheck(UserCreatedBaseModel):
     )
     verified = models.BooleanField(default=False, verbose_name=_("反社チェック済み"))
     verified_datetime = models.DateTimeField(null=True, blank=True, verbose_name=_("反社チェック日時"))
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("反社チェック確認者"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="%(app_label)s_%(class)s_verified_by",
+        help_text=_("User who verified the compliance check. Stamped from the acting admin when verified is set; cleared when unset."),
+    )
     notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
 
     class Meta:
@@ -62,3 +68,13 @@ class KippoCustomerComplianceCheck(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return f"{self.customer.name} (verified={self.verified})"
+
+    def save(self, *args, **kwargs):
+        # keep the verification fields consistent (mirrors KippoProjectBillingEntry is_received).
+        # verified_by is stamped by the admin (request.user); here we only clear it when un-verified.
+        if self.verified and not self.verified_datetime:
+            self.verified_datetime = timezone.now()
+        elif not self.verified:
+            self.verified_datetime = None
+            self.verified_by = None
+        super().save(*args, **kwargs)
