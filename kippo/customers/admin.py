@@ -39,6 +39,53 @@ ACTIVE_PROJECT_COUNT = Coalesce(
 )
 
 
+def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date:
+    """Start date of the organization's current fiscal year — (fiscalyear_start_month, day 1) in the
+    most recent year on or before today. 'Today' is the current date in the configured timezone
+    (Asia/Tokyo / JST; there is no per-organization timezone field).
+    """
+    today = timezone.localdate()
+    start_month = organization.fiscalyear_start_month
+    year = today.year if today.month >= start_month else today.year - 1
+    return datetime.date(year, start_month, 1)
+
+
+class CustomerEndingProjectsFilter(admin.SimpleListFilter):
+    """Customer-name filter listing only customers with 1+ project whose contract ends within the
+    last two fiscal years (previous + current FY) of the customer's organization.
+    """
+
+    title = _("顧客名（直近2会計年度に終了案件あり）")
+    parameter_name = "recent_ending_customer"
+
+    def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        organizations = KippoOrganization.objects.all() if request.user.is_superuser else request.user.organizations
+        pairs: dict[str, str] = {}
+        for organization in organizations:
+            fiscal_year_start = _current_fiscal_year_start(organization)
+            # last two fiscal years = previous FY start (one year back) through current FY end (one year forward)
+            window_start = datetime.date(fiscal_year_start.year - 1, fiscal_year_start.month, 1)
+            window_end = datetime.date(fiscal_year_start.year + 1, fiscal_year_start.month, 1)
+            qualifying = (
+                KippoCustomer.objects.filter(
+                    organization=organization,
+                    projects__contract__end_date__gte=window_start,
+                    projects__contract__end_date__lt=window_end,
+                )
+                .distinct()
+                .values_list("pk", "name")
+            )
+            for pk, name in qualifying:
+                pairs[str(pk)] = name
+        return sorted(pairs.items(), key=lambda item: item[1])
+
+    def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
+        value = self.value()
+        if value:
+            return queryset.filter(pk=value)
+        return queryset
+
+
 class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     """Read-only list of projects linked to a KippoCustomer (managed via KippoProjectAdmin)."""
 
@@ -72,7 +119,7 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
-    list_filter = ("organization", "display_as_active")
+    list_filter = ("organization", "display_as_active", CustomerEndingProjectsFilter)
     search_fields = ("name", "email")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
@@ -135,7 +182,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             return count
         # Received amounts are summed only from the current fiscal year onward (per the customer's
         # organization fiscalyear_start_month, relative to today in the configured JST timezone).
-        fiscal_year_start = self._current_fiscal_year_start(obj.organization)
+        fiscal_year_start = _current_fiscal_year_start(obj.organization)
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
@@ -153,17 +200,6 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             _("契約終了日"),
             rows,
         )
-
-    @staticmethod
-    def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date:
-        """Start date of the organization's current fiscal year — (fiscalyear_start_month, day 1) in
-        the most recent year on or before today. 'Today' is the current date in the configured
-        timezone (Asia/Tokyo / JST; there is no per-organization timezone field).
-        """
-        today = timezone.localdate()
-        start_month = organization.fiscalyear_start_month
-        year = today.year if today.month >= start_month else today.year - 1
-        return datetime.date(year, start_month, 1)
 
     @staticmethod
     def _active_project_row(project: KippoProject, fiscal_year_start: datetime.date) -> tuple:
@@ -193,7 +229,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         """
         summaries = []
         for organization in user.organizations:
-            fiscal_year_start = self._current_fiscal_year_start(organization)
+            fiscal_year_start = _current_fiscal_year_start(organization)
             fiscal_year_end = datetime.date(fiscal_year_start.year + 1, fiscal_year_start.month, 1)
             contracts = KippoProjectContract.objects.filter(
                 project__organization=organization,

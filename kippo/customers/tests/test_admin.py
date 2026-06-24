@@ -256,6 +256,51 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn("¥2,000,000", rendered)  # contract total_amount
         self.assertIn(date(today.year, 9, 30).isoformat(), rendered)  # contract end date
 
+    def test_recent_ending_customer_filter_lists_only_customers_with_projects_ending_in_last_2_fy(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        from customers.admin import CustomerEndingProjectsFilter
+
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        def _contract(project: KippoProject, end_date: date) -> None:
+            KippoProjectContract.objects.create(
+                project=project,
+                billing_type="delivery",
+                total_amount=Decimal("1000000"),
+                end_date=end_date,
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+
+        # self.customer: a project whose contract ends this FY → qualifies
+        _contract(self._make_customer_project("recent", self.customer, date(today.year, 6, 30)), date(today.year, 6, 30))
+        # self.other_customer: only a contract ending 2 FYs before the current one → excluded
+        _contract(
+            self._make_customer_project("old", self.other_customer, fy_start - timedelta(days=400)),
+            fy_start - timedelta(days=400),
+        )
+
+        flt = CustomerEndingProjectsFilter(self.super_user_request, {}, KippoCustomer, KippoCustomerAdmin(KippoCustomer, self.site))
+        names = {name for _pk, name in flt.lookups(self.super_user_request, None)}
+        self.assertIn(self.customer.name, names)
+        self.assertNotIn(self.other_customer.name, names)
+
+        # selecting a customer filters the changelist to it
+        url = reverse("admin:customers_kippocustomer_changelist") + f"?recent_ending_customer={self.customer.pk}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        results = response.context["cl"].queryset
+        self.assertIn(self.customer, results)
+        self.assertNotIn(self.other_customer, results)
+
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin shows the 反社チェック (compliance verified) state as a boolean column."""
