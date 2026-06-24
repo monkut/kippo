@@ -301,6 +301,17 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn(self.customer, results)
         self.assertNotIn(self.other_customer, results)
 
+    def test_visible_organizations_scope_matches_changelist(self):
+        # the FY header and the name filter use the same org scope as the rows: all orgs for a
+        # superuser (changelist is not org-scoped for superusers), else the user's own orgs.
+        from accounts.models import KippoOrganization
+
+        from customers.admin import _visible_organizations
+
+        self.assertEqual(set(_visible_organizations(self.super_user_request.user)), set(KippoOrganization.objects.all()))
+        staff_user = self.staff_user_request.user
+        self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
+
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin shows the 反社チェック (compliance verified) state as a boolean column."""
