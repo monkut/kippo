@@ -60,8 +60,10 @@ def _yen(amount: object) -> str:
 
 
 class CustomerEndingProjectsFilter(admin.SimpleListFilter):
-    """Multi-select customer-name filter listing only customers with 1+ project whose contract ends
-    within the last two fiscal years (previous + current FY) of the customer's organization.
+    """Multi-select customer-name filter listing only customers with 1+ project whose target_date
+    (planned completion) falls within the last two fiscal years (previous + current FY) of the
+    customer's organization. Keyed on the project's own target_date — not the optional OneToOne
+    KippoProjectContract.end_date, which most projects do not have.
 
     Selecting several customers ORs them (pk__in). Each choice is a toggle link (add/remove the
     customer from the selection) rendered by the default admin/filter.html template — no checkbox
@@ -87,8 +89,8 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
             qualifying = (
                 KippoCustomer.objects.filter(
                     organization=organization,
-                    projects__contract__end_date__gte=window_start,
-                    projects__contract__end_date__lt=window_end,
+                    projects__target_date__gte=window_start,
+                    projects__target_date__lt=window_end,
                 )
                 .distinct()
                 .values_list("pk", "name")

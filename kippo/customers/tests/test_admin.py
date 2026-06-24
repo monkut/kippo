@@ -330,12 +330,10 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn("¥2,000,000", rendered)  # contract total_amount
         self.assertIn(date(today.year, 9, 30).isoformat(), rendered)  # contract end date
 
-    def test_recent_ending_customer_filter_lists_only_customers_with_projects_ending_in_last_2_fy(self):
+    def test_recent_ending_customer_filter_lists_customers_with_projects_in_last_2_fy(self):
         from datetime import timedelta
-        from decimal import Decimal
 
         from django.utils import timezone
-        from projects.models import KippoProjectContract
 
         from customers.admin import CustomerEndingProjectsFilter
 
@@ -344,27 +342,15 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         today = timezone.localdate()
         fy_start = date(today.year, 1, 1)
 
-        def _contract(project: KippoProject, end_date: date) -> None:
-            KippoProjectContract.objects.create(
-                project=project,
-                billing_type="delivery",
-                total_amount=Decimal("1000000"),
-                end_date=end_date,
-                created_by=self.github_manager,
-                updated_by=self.github_manager,
-            )
-
-        # self.customer: a project whose contract ends this FY → qualifies
-        _contract(self._make_customer_project("recent", self.customer, date(today.year, 6, 30)), date(today.year, 6, 30))
-        # self.other_customer: only a contract ending 2 FYs before the current one → excluded
-        _contract(
-            self._make_customer_project("old", self.other_customer, fy_start - timedelta(days=400)),
-            fy_start - timedelta(days=400),
-        )
+        # self.customer: a project with target_date in the last 2 FY and NO contract → still listed
+        # (the filter keys on the project's target_date, not the optional contract.end_date)
+        self._make_customer_project("recent", self.customer, date(today.year, 6, 30))
+        # self.other_customer: only a project ending well before the 2-FY window → excluded
+        self._make_customer_project("old", self.other_customer, fy_start - timedelta(days=400))
 
         flt = CustomerEndingProjectsFilter(self.super_user_request, {}, KippoCustomer, KippoCustomerAdmin(KippoCustomer, self.site))
         names = {name for _pk, name in flt.lookups(self.super_user_request, None)}
-        self.assertIn(self.customer.name, names)
+        self.assertIn(self.customer.name, names)  # listed despite having no contract
         self.assertNotIn(self.other_customer.name, names)
 
         # selecting a customer filters the changelist to it
