@@ -375,6 +375,11 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn(self.customer, results)
         self.assertNotIn(self.other_customer, results)
 
+        # a non-UUID (tampered) filter value must not 500 — it is ignored
+        bad_response = self.client.get(reverse("admin:customers_kippocustomer_changelist") + "?recent_ending_customer=not-a-uuid")
+        self.assertEqual(bad_response.status_code, HTTPStatus.OK)
+        self.assertIn(self.customer, bad_response.context["cl"].queryset)  # no filtering applied
+
     def test_visible_organizations_scope_matches_changelist(self):
         # the FY header and the name filter use the same org scope as the rows: all orgs for a
         # superuser (changelist is not org-scoped for superusers), else the user's own orgs.
