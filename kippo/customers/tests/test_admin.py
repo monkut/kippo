@@ -156,8 +156,43 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         qs = modeladmin.get_queryset(self.super_user_request)
         customer = qs.get(pk=self.customer.pk)
         self.assertEqual(customer.active_project_count, 2)
-        self.assertEqual(modeladmin.get_active_project_count(customer), 2)
+        # non-zero count renders the clickable toggle showing the count
+        rendered = modeladmin.get_active_project_count(customer)
+        self.assertIn("active-projects-toggle", rendered)
+        self.assertIn(">2<", rendered)
         self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
+
+    def test_active_project_count_zero_renders_plain(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        qs = modeladmin.get_queryset(self.super_user_request)
+        customer = qs.get(pk=self.customer.pk)  # no projects in this test
+        self.assertEqual(modeladmin.get_active_project_count(customer), 0)
+
+    def test_active_project_detail_shows_received_total_amount_and_end_date(self):
+        from decimal import Decimal
+
+        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+
+        project = self._make_customer_project("acme-billed", self.customer, date(2026, 9, 30))
+        contract = KippoProjectContract.objects.create(
+            project=project,
+            billing_type="delivery",
+            total_amount=Decimal("2000000"),
+            end_date=date(2026, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # one received + one not-yet-received entry → only the received amount is summed
+        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=date(2026, 6, 30), amount=Decimal("500000"), is_received=True)
+        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=date(2026, 9, 30), amount=Decimal("1500000"), is_received=False)
+
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        customer = modeladmin.get_queryset(self.super_user_request).get(pk=self.customer.pk)
+        rendered = modeladmin.get_active_project_count(customer)
+        self.assertIn("acme-billed", rendered)
+        self.assertIn("¥500,000", rendered)  # received total (only the is_received entry)
+        self.assertIn("¥2,000,000", rendered)  # contract total_amount
+        self.assertIn("2026-09-30", rendered)  # contract end date
 
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):

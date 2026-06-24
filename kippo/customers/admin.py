@@ -5,12 +5,12 @@ from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.db import models
-from django.db.models import Count, IntegerField, OuterRef, Subquery
+from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery
 from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
@@ -73,6 +73,9 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     search_fields = ("name", "email")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
+    # changelist template adds the inline script that toggles the per-project detail under the
+    # アクティブプロジェクト count (scoped to the changelist; avoids a static-manifest dependency).
+    change_list_template = "admin/customers/kippocustomer/change_list.html"
 
     def get_ordering(self, request: DjangoRequest) -> tuple:
         # Most active customers first. Returns the self-contained Subquery expression (not the
@@ -100,14 +103,59 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             # issue one extra query per row in the changelist.
             .select_related("compliance_check")
             .annotate(active_project_count=ACTIVE_PROJECT_COUNT)
+            # active projects + their contract/ledger back the expandable detail rows of the
+            # アクティブプロジェクト column — prefetched (one extra query each) to avoid N+1 per row.
+            .prefetch_related(
+                Prefetch(
+                    "projects",
+                    queryset=(
+                        KippoProject.objects.filter(is_closed=False, display_as_active=True)
+                        .select_related("contract")
+                        .prefetch_related("contract__billing_entries")
+                        .order_by("name")
+                    ),
+                    to_attr="active_projects",
+                )
+            )
         )
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations).distinct()
 
-    @admin.display(description=_("アクティブプロジェクト数"), ordering="active_project_count")
-    def get_active_project_count(self, obj: KippoCustomer) -> int:
-        return obj.active_project_count
+    @admin.display(description=_("アクティブプロジェクト"), ordering="active_project_count")
+    def get_active_project_count(self, obj: KippoCustomer) -> int | str:
+        # Default: the count. Clicking a non-zero count toggles a per-project detail table
+        # (active_projects.js). 0 renders plainly (nothing to expand).
+        count = obj.active_project_count
+        if not count:
+            return count
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
+            (self._active_project_row(project) for project in getattr(obj, "active_projects", ())),
+        )
+        return format_html(
+            '<a href="#" class="active-projects-toggle">{}</a>'
+            '<table class="active-projects-detail" hidden>'
+            "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
+            "<tbody>{}</tbody></table>",
+            count,
+            _("プロジェクト"),
+            _("入金済合計"),
+            _("契約金額"),
+            _("契約終了日"),
+            rows,
+        )
+
+    @staticmethod
+    def _active_project_row(project: KippoProject) -> tuple:
+        """One detail row: (project link, received-billing total, contract amount, contract end date)."""
+        contract = getattr(project, "contract", None)
+        received = sum((entry.amount for entry in contract.billing_entries.all() if entry.is_received), 0) if contract else 0
+        name_link = format_html('<a href="{}">{}</a>', project.get_admin_url(), project.name)
+        total_display = f"¥{contract.total_amount:,.0f}" if contract else "-"
+        end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"
+        return (name_link, f"¥{received:,.0f}", total_display, end_display)
 
     @admin.display(boolean=True, description=_("反社チェック"))
     def get_compliance_verified(self, obj: KippoCustomer) -> bool:
