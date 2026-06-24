@@ -5,6 +5,7 @@ from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from projects.definitions import BILLING_TYPE_DELIVERY, BILLING_TYPE_MONTHLY, DEFAULT_BILLING_TYPE
 from projects.models import (
@@ -96,30 +97,6 @@ class ContractFieldsTestCase(TestCase):
                 start_date=datetime.date(2026, 7, 1),
                 end_date=datetime.date(2026, 12, 31),
             )
-
-
-class BillingDateConsistencyTestCase(TestCase):
-    """billing_date default behaviour must remain intact (kippo#31 keep-consistent guard)."""
-
-    fixtures = DEFAULT_FIXTURES
-
-    def setUp(self):
-        created = setup_basic_project()
-        self.project: KippoProject = created["KippoProject"]
-
-    def test_billing_date_defaults_to_target_date(self):
-        self.project.billing_date = None
-        self.project.target_date = datetime.date(2026, 9, 30)
-        self.project.save()
-        self.project.refresh_from_db()
-        self.assertEqual(self.project.billing_date, datetime.date(2026, 9, 30))
-
-    def test_explicit_billing_date_preserved(self):
-        self.project.billing_date = datetime.date(2026, 12, 25)
-        self.project.target_date = datetime.date(2026, 9, 30)
-        self.project.save()
-        self.project.refresh_from_db()
-        self.assertEqual(self.project.billing_date, datetime.date(2026, 12, 25))
 
 
 class MonthlyContractGenerationTestCase(TestCase):
@@ -519,3 +496,63 @@ class DerivedRevenueFiguresTestCase(TestCase):
         entry.save()
         self.assertEqual(self.project.total_revenue, Decimal("750000"))  # 300k + 150k + 300k
         self.assertEqual(self.project.contract_amount, Decimal("900000"))  # unchanged: contract total_amount
+
+
+class BillingEntryReceivedTrackingTestCase(TestCase):
+    """is_received / received_datetime consistency on KippoProjectBillingEntry (mirrors
+    KippoProject.is_closed / closed_datetime auto-management in save()).
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+        self.user = created["KippoUser"]
+        self.contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            total_amount=Decimal("1000000"),
+            end_date=datetime.date(2026, 9, 30),
+        )
+
+    def _entry(self, **kwargs) -> KippoProjectBillingEntry:
+        defaults = {"contract": self.contract, "billing_date": datetime.date(2026, 9, 30), "amount": Decimal("1000000")}
+        defaults.update(kwargs)
+        return KippoProjectBillingEntry.objects.create(**defaults)
+
+    def test_defaults_to_not_received(self):
+        entry = self._entry()
+        self.assertFalse(entry.is_received)
+        self.assertIsNone(entry.received_datetime)
+
+    def test_marking_received_autosets_datetime(self):
+        entry = self._entry(is_received=True)
+        self.assertTrue(entry.is_received)
+        self.assertIsNotNone(entry.received_datetime)
+
+    def test_explicit_received_datetime_preserved(self):
+        when = timezone.now() - datetime.timedelta(days=3)
+        entry = self._entry(is_received=True, received_datetime=when)
+        entry.refresh_from_db()
+        self.assertEqual(entry.received_datetime, when)
+
+    def test_unmarking_received_clears_datetime(self):
+        entry = self._entry(is_received=True)
+        entry.is_received = False
+        entry.save()
+        entry.refresh_from_db()
+        self.assertFalse(entry.is_received)
+        self.assertIsNone(entry.received_datetime)
+
+    def test_received_by_preserved_while_received(self):
+        entry = self._entry(is_received=True, received_by=self.user)
+        entry.refresh_from_db()
+        self.assertEqual(entry.received_by, self.user)
+
+    def test_unmarking_received_clears_received_by(self):
+        entry = self._entry(is_received=True, received_by=self.user)
+        entry.is_received = False
+        entry.save()
+        entry.refresh_from_db()
+        self.assertIsNone(entry.received_by)

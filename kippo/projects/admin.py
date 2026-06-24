@@ -208,7 +208,10 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline
     # the project (the entry no longer carries a project FK).
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "is_manual", "note")
+    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "received_by", "note")
+    # received_datetime / received_by are auto-managed (stamped when is_received is ticked, cleared
+    # when unticked) — shown read-only so typed values can't be silently discarded.
+    readonly_fields = ("received_datetime", "received_by")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -883,9 +886,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
     autocomplete_fields = ("customer",)
-    # revenue figures are derived from the contract + billing ledger (kippo#32 / T13) — shown read-only.
-    # confidence is derived from phase (editable=False) and intentionally hidden from the form.
-    readonly_fields = ("get_contract_amount_display", "get_total_revenue_display")
     # Changelist ordering lives in get_ordering() (a Case() expression), not the `ordering`
     # attribute — see the note there for why the attribute can't express it.
     actions = [
@@ -923,13 +923,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "allocated_staff_days",
                     "estimated_completion_date",
                 ),
-            },
-        ),
-        (
-            _("Billing"),
-            {
-                "classes": ("collapse",),
-                "fields": ("billing_date", "get_contract_amount_display", "get_total_revenue_display"),
             },
         ),
         (
@@ -1009,7 +1002,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None or obj.is_closed:
             excluded.add("estimated_completion_date")
         # Build a fresh fieldset list (never mutate the class attribute): strip excluded fields and,
-        # on /add/, expand the collapsed sections (Billing & Details) so their fields are visible
+        # on /add/, expand the collapsed sections (Details) so their fields are visible
         # without an extra click.
         rebuilt = []
         for label, opts in fieldsets:
@@ -1138,20 +1131,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 _("No entries created for: %s (no contract, contract dates unresolved, or already generated)") % ", ".join(skipped_names),
                 level=messages.WARNING,
             )
-
-    @admin.display(description=_("契約金額"))
-    def get_contract_amount_display(self, obj: KippoProject | None = None) -> str:
-        # derived from the project's contract (kippo#32 / T13)
-        if obj is None or not obj.pk:
-            return "-"
-        return f"¥{obj.contract_amount:,.0f}"
-
-    @admin.display(description=_("トータル売上"))
-    def get_total_revenue_display(self, obj: KippoProject | None = None) -> str:
-        # derived from the billing ledger (kippo#32 / T13)
-        if obj is None or not obj.pk:
-            return "-"
-        return f"¥{obj.total_revenue:,.0f}"
 
     @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
@@ -1519,6 +1498,21 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmi
     raw_id_fields = ("project",)
     inlines = [KippoProjectBillingEntryInline]
     actions = ["generate_billing_entries"]
+
+    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
+        # Specializes the base created_by/updated_by stamping to also record received_by — the acting
+        # admin who marked the entry received (the model save() clears it when un-received).
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for instance in instances:
+            if instance.id is None:
+                instance.created_by = request.user
+            instance.updated_by = request.user
+            if instance.is_received and not instance.received_by:
+                instance.received_by = request.user
+            instance.save()
+        formset.save_m2m()
 
     @admin.action(description=_("契約から請求エントリを生成"))
     def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):

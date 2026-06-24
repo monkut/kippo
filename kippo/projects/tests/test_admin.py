@@ -1401,20 +1401,18 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         else:
             self.fail("No 'Dates & Estimates' fieldset found")
 
-    def test_billing_and_details_sections_expanded_on_add(self):
+    def test_details_section_expanded_on_add(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
-        # Billing (billing_date) and Details (category) start expanded on /add/.
+        # Details (category) starts expanded on /add/.
         for _label, opts in fieldsets:
-            fields = opts.get("fields", ())
-            if "billing_date" in fields or "category" in fields:
+            if "category" in opts.get("fields", ()):
                 self.assertNotIn("collapse", opts.get("classes", ()))
 
-    def test_billing_and_details_sections_collapsed_on_change(self):
+    def test_details_section_collapsed_on_change(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
-        self.assertTrue(any("billing_date" in opts.get("fields", ()) for opts in collapsed), "Billing should stay collapsed on change")
         self.assertTrue(any("category" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
 
     def test_columnset_not_in_add_or_change_fieldsets(self):
@@ -1430,6 +1428,14 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         from projects.admin import KippoProjectBillingEntryInline
 
         self.assertNotIn(KippoProjectBillingEntryInline, KippoProjectBaseAdmin.inlines)
+
+    def test_billing_entry_inline_received_datetime_readonly(self):
+        # received_datetime is auto-managed in save() — must be read-only in the inline so a typed
+        # value can't be silently discarded when is_received is left unchecked.
+        from projects.admin import KippoProjectBillingEntryInline
+
+        self.assertIn("received_datetime", KippoProjectBillingEntryInline.readonly_fields)
+        self.assertIn("received_datetime", KippoProjectBillingEntryInline.fields)
 
 
 class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
@@ -1839,3 +1845,47 @@ def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProj
                 else:
                     data[f"{prefix}-{i}-{name}"] = str(value)
     return data
+
+
+class ContractAdminBillingEntryReceivedByTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """KippoProjectContractAdmin.save_formset stamps received_by with the acting admin when a
+    billing entry is marked received.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.project = self.make_project("received-by-project")
+        self.contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            total_amount="1000000",
+            end_date=date(2026, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_save_formset_stamps_received_by_with_acting_user(self):
+        from projects.admin import KippoProjectBillingEntryInline, KippoProjectContractAdmin
+
+        admin_obj = KippoProjectContractAdmin(KippoProjectContract, self.site)
+        inline = KippoProjectBillingEntryInline(parent_model=KippoProjectContract, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=self.contract)
+        prefix = "billing_entries"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+            f"{prefix}-0-billing_date": "2026-09-30",
+            f"{prefix}-0-amount": "1000000",
+            f"{prefix}-0-is_received": "on",
+            f"{prefix}-0-note": "",
+        }
+        formset = formset_class(data=data, instance=self.contract, prefix=prefix)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_obj.save_formset(self.super_user_request, form=None, formset=formset, change=False)
+
+        entry = self.contract.billing_entries.get()
+        self.assertTrue(entry.is_received)
+        self.assertEqual(entry.received_by, self.superuser_no_org)  # acting admin stamped as verifier
+        self.assertIsNotNone(entry.received_datetime)

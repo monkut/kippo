@@ -45,8 +45,8 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     can_delete = False
     verbose_name = _("プロジェクト")
     verbose_name_plural = _("プロジェクト")
-    fields = ("get_project_link", "start_date", "target_date", "billing_date")
-    readonly_fields = ("get_project_link", "start_date", "target_date", "billing_date")
+    fields = ("get_project_link", "start_date", "target_date")
+    readonly_fields = ("get_project_link", "start_date", "target_date")
     # Wraps the default tabular inline and appends a "プロジェクトを追加" link that redirects to the
     # ActiveKippoProject add form (project creation is rich — GitHub project, columnset, etc. — so
     # it is never created inline). Scoped to this inline only; the global tabular template is

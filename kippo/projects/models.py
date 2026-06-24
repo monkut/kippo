@@ -347,12 +347,6 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         help_text=_("The date the project was actually completed on (not the initial target)"),
     )
-    billing_date = models.DateField(
-        _("請求日"),
-        null=True,
-        blank=True,
-        help_text=_("Date the project is billed. Defaults to the target date when left blank."),
-    )
     document_folder_url = models.URLField(
         _("ドキュメント保管URL"),
         blank=True,
@@ -756,9 +750,6 @@ class KippoProject(UserCreatedBaseModel):
         elif not self.is_closed and self.closed_datetime:
             self.closed_datetime = None
 
-        if not self.billing_date and self.target_date:
-            self.billing_date = self.target_date
-
         # confidence (確度) tracks phase, but is re-derived ONLY when phase changes (or on create).
         # An existing or manually-set confidence is otherwise preserved (kippo#36 / T09). The
         # migration that introduced phase set the initial values; ordinary edits leave them alone.
@@ -988,6 +979,26 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         default=False,
         help_text=_("True for hand-added entries; False for entries generated from the contract terms."),
     )
+    is_received = models.BooleanField(
+        _("入金済"),
+        default=False,
+        help_text=_("True once payment for this billing entry has been received."),
+    )
+    received_datetime = models.DateTimeField(
+        _("入金日時"),
+        null=True,
+        blank=True,
+        help_text=_("When payment was received. Auto-set when is_received is enabled; cleared when disabled."),
+    )
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("入金確認者"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="%(app_label)s_%(class)s_received_by",
+        help_text=_("User who verified/received the payment. Stamped from the acting admin when is_received is set; cleared when disabled."),
+    )
     note = models.CharField(
         _("備考"),
         max_length=255,
@@ -1003,6 +1014,16 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return f"KippoProjectBillingEntry({self.contract.project.name} {self.billing_date} ¥{self.amount})"
+
+    def save(self, *args, **kwargs):
+        # keep the receipt fields consistent (mirrors KippoProject is_closed/closed_datetime).
+        # received_by is stamped by the admin (request.user); here we only clear it when un-received.
+        if self.is_received and not self.received_datetime:
+            self.received_datetime = timezone.now()
+        elif not self.is_received:
+            self.received_datetime = None
+            self.received_by = None
+        super().save(*args, **kwargs)
 
 
 class KippoProjectStatus(UserCreatedBaseModel):

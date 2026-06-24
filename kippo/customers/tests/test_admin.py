@@ -68,7 +68,7 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
             updated_by=self.github_manager,
         )
 
-    def _make_customer_project(self, name: str, customer: KippoCustomer, target_date: date, billing_date: date) -> KippoProject:
+    def _make_customer_project(self, name: str, customer: KippoCustomer, target_date: date) -> KippoProject:
         return KippoProject.objects.create(
             organization=self.organization,
             name=name,
@@ -76,7 +76,6 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
             columnset=self.columnset,
             customer=customer,
             target_date=target_date,
-            billing_date=billing_date,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -88,29 +87,28 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertFalse(inline.can_delete)
         # every displayed field is read-only
         self.assertEqual(set(inline.fields), set(inline.readonly_fields))
-        for fieldname in ("get_project_link", "start_date", "target_date", "billing_date"):
+        for fieldname in ("get_project_link", "start_date", "target_date"):
             self.assertIn(fieldname, inline.fields)
 
-    def test_change_view_lists_related_project_with_admin_link_and_billing_date(self):
-        project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1), date(2026, 6, 15))
+    def test_change_view_lists_related_project_with_admin_link(self):
+        project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1))
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode()
         self.assertIn(project.name, content)
         self.assertIn(project.get_admin_url(), content)
-        self.assertIn("2026-06-15", content)  # billing_date rendered
 
     def test_change_view_orders_projects_by_target_date_ascending(self):
-        later = self._make_customer_project("acme-later", self.customer, date(2026, 9, 1), date(2026, 9, 1))
-        earlier = self._make_customer_project("acme-earlier", self.customer, date(2026, 3, 1), date(2026, 3, 1))
+        later = self._make_customer_project("acme-later", self.customer, date(2026, 9, 1))
+        earlier = self._make_customer_project("acme-earlier", self.customer, date(2026, 3, 1))
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
         content = self.client.get(url).content.decode()
         self.assertLess(content.index(earlier.name), content.index(later.name))
 
     def test_change_view_excludes_other_customers_projects(self):
-        mine = self._make_customer_project("acme-mine", self.customer, date(2026, 6, 1), date(2026, 6, 1))
-        theirs = self._make_customer_project("globex-theirs", self.other_customer, date(2026, 6, 1), date(2026, 6, 1))
+        mine = self._make_customer_project("acme-mine", self.customer, date(2026, 6, 1))
+        theirs = self._make_customer_project("globex-theirs", self.other_customer, date(2026, 6, 1))
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
         content = self.client.get(url).content.decode()
         self.assertIn(mine.name, content)
@@ -141,18 +139,18 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
 
     def test_changelist_active_project_count_excludes_closed_and_inactive(self):
         # Two active projects (is_closed=False, display_as_active=True by default).
-        self._make_customer_project("acme-a1", self.customer, date(2026, 6, 1), date(2026, 6, 1))
-        self._make_customer_project("acme-a2", self.customer, date(2026, 7, 1), date(2026, 7, 1))
+        self._make_customer_project("acme-a1", self.customer, date(2026, 6, 1))
+        self._make_customer_project("acme-a2", self.customer, date(2026, 7, 1))
         # Closed → not active → excluded.
-        closed = self._make_customer_project("acme-closed", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        closed = self._make_customer_project("acme-closed", self.customer, date(2026, 6, 1))
         closed.is_closed = True
         closed.save()
         # display_as_active=False → excluded.
-        inactive = self._make_customer_project("acme-inactive", self.customer, date(2026, 6, 1), date(2026, 6, 1))
+        inactive = self._make_customer_project("acme-inactive", self.customer, date(2026, 6, 1))
         inactive.display_as_active = False
         inactive.save()
         # Active project for a different customer must not inflate this customer's count.
-        self._make_customer_project("globex-active", self.other_customer, date(2026, 6, 1), date(2026, 6, 1))
+        self._make_customer_project("globex-active", self.other_customer, date(2026, 6, 1))
 
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         qs = modeladmin.get_queryset(self.super_user_request)
