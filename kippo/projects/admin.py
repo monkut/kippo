@@ -999,7 +999,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None or obj.is_closed:
             excluded.add("estimated_completion_date")
         # Build a fresh fieldset list (never mutate the class attribute): strip excluded fields and,
-        # on /add/, expand the collapsed sections (Billing & Details) so their fields are visible
+        # on /add/, expand the collapsed sections (Details) so their fields are visible
         # without an extra click.
         rebuilt = []
         for label, opts in fieldsets:
