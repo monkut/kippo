@@ -1,11 +1,11 @@
 import datetime
 import urllib.parse
-import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from commons.functions import is_uuid
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
@@ -59,14 +59,6 @@ def _yen(amount: object) -> str:
     return f"¥{amount:,.0f}"
 
 
-def _is_uuid(value: str) -> bool:
-    try:
-        uuid.UUID(value)
-    except (ValueError, TypeError):
-        return False
-    return True
-
-
 class CustomerEndingProjectsFilter(admin.SimpleListFilter):
     """Multi-select customer-name filter listing only customers with 1+ project whose contract ends
     within the last two fiscal years (previous + current FY) of the customer's organization.
@@ -83,7 +75,7 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
         super().__init__(request, params, model, model_admin)
         # read all selected values (the param may repeat); super() only keeps the last one. Drop
         # non-UUID values so a tampered query can't raise on the pk__in (UUID) lookup → 500.
-        self.selected_values = [value for value in request.GET.getlist(self.parameter_name) if _is_uuid(value)]
+        self.selected_values = [value for value in request.GET.getlist(self.parameter_name) if is_uuid(value)]
 
     def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
         pairs: dict[str, str] = {}
