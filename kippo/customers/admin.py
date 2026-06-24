@@ -121,7 +121,7 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
+    list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
     # organization is added conditionally in get_list_filter (only for multi-org members);
     # the display_as_active filter is intentionally omitted.
