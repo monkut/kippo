@@ -312,36 +312,6 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         staff_user = self.staff_user_request.user
         self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
 
-    def test_current_fiscal_year_start_uses_organization_timezone(self):
-        import datetime as dt
-        from unittest.mock import patch
-
-        from customers.admin import _current_fiscal_year_start
-
-        self.organization.fiscalyear_start_month = 1
-        # An instant that is 2026-01-01 in Tokyo (+09:00) but still 2025-12-31 in Los Angeles (-08:00).
-        instant = dt.datetime(2026, 1, 1, 2, 0, tzinfo=dt.UTC)
-        with patch("django.utils.timezone.now", return_value=instant):
-            self.organization.timezone = "Asia/Tokyo"
-            self.assertEqual(_current_fiscal_year_start(self.organization), dt.date(2026, 1, 1))
-            self.organization.timezone = "America/Los_Angeles"
-            self.assertEqual(_current_fiscal_year_start(self.organization), dt.date(2025, 1, 1))
-
-    def test_current_fiscal_year_start_falls_back_to_jst_on_invalid_timezone(self):
-        # validate_timezone runs only on full_clean, not .save(); a bad value must not 500 the
-        # changelist — fall back to JST.
-        import datetime as dt
-        from unittest.mock import patch
-
-        from customers.admin import _current_fiscal_year_start
-
-        self.organization.fiscalyear_start_month = 1
-        instant = dt.datetime(2026, 1, 1, 2, 0, tzinfo=dt.UTC)  # 2026-01-01 in JST
-        with patch("django.utils.timezone.now", return_value=instant):
-            for bad in ("", "Not/AZone"):
-                self.organization.timezone = bad
-                self.assertEqual(_current_fiscal_year_start(self.organization), dt.date(2026, 1, 1))
-
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin shows the 反社チェック (compliance verified) state as a boolean column."""

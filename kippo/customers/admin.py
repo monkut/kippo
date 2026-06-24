@@ -1,6 +1,5 @@
 import datetime
 import urllib.parse
-import zoneinfo
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
@@ -13,7 +12,6 @@ from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
@@ -38,23 +36,6 @@ ACTIVE_PROJECT_COUNT = Coalesce(
     ),
     0,
 )
-
-
-def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date:
-    """Start date of the organization's current fiscal year — (fiscalyear_start_month, day 1) in the
-    most recent year on or before today, where 'today' is the current date in the organization's
-    own timezone (KippoOrganization.timezone; defaults to Asia/Tokyo / JST).
-    """
-    # validate_timezone only runs on full_clean (admin forms), not on .save(); fall back to JST if a
-    # bad/empty value was persisted programmatically so the changelist can't 500 on ZoneInfo().
-    try:
-        tz = zoneinfo.ZoneInfo(organization.timezone or "Asia/Tokyo")
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
-        tz = zoneinfo.ZoneInfo("Asia/Tokyo")
-    today = timezone.localdate(timezone=tz)
-    start_month = organization.fiscalyear_start_month
-    year = today.year if today.month >= start_month else today.year - 1
-    return datetime.date(year, start_month, 1)
 
 
 def _shift_fiscal_year(fiscal_year_start: datetime.date, years: int) -> datetime.date:
@@ -85,7 +66,7 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
     def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
         pairs: dict[str, str] = {}
         for organization in _visible_organizations(request.user):
-            fiscal_year_start = _current_fiscal_year_start(organization)
+            fiscal_year_start = organization.current_fiscal_year_start()
             # last two fiscal years = previous FY start (one year back) through current FY end (one year forward)
             window_start = _shift_fiscal_year(fiscal_year_start, -1)
             window_end = _shift_fiscal_year(fiscal_year_start, 1)
@@ -205,7 +186,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             return count
         # Received amounts are summed only from the current fiscal year onward (per the customer's
         # organization fiscalyear_start_month, relative to today in the organization's timezone).
-        fiscal_year_start = _current_fiscal_year_start(obj.organization)
+        fiscal_year_start = obj.organization.current_fiscal_year_start()
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
@@ -252,7 +233,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         """
         summaries = []
         for organization in _visible_organizations(user):
-            fiscal_year_start = _current_fiscal_year_start(organization)
+            fiscal_year_start = organization.current_fiscal_year_start()
             fiscal_year_end = _shift_fiscal_year(fiscal_year_start, 1)
             contracts = KippoProjectContract.objects.filter(
                 project__organization=organization,
