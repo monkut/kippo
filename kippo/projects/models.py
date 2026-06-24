@@ -990,6 +990,15 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         blank=True,
         help_text=_("When payment was received. Auto-set when is_received is enabled; cleared when disabled."),
     )
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name=_("入金確認者"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="%(app_label)s_%(class)s_received_by",
+        help_text=_("User who verified/received the payment. Stamped from the acting admin when is_received is set; cleared when disabled."),
+    )
     note = models.CharField(
         _("備考"),
         max_length=255,
@@ -1007,11 +1016,13 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         return f"KippoProjectBillingEntry({self.contract.project.name} {self.billing_date} ¥{self.amount})"
 
     def save(self, *args, **kwargs):
-        # keep is_received and received_datetime consistent (mirrors KippoProject is_closed/closed_datetime)
+        # keep the receipt fields consistent (mirrors KippoProject is_closed/closed_datetime).
+        # received_by is stamped by the admin (request.user); here we only clear it when un-received.
         if self.is_received and not self.received_datetime:
             self.received_datetime = timezone.now()
-        elif not self.is_received and self.received_datetime:
+        elif not self.is_received:
             self.received_datetime = None
+            self.received_by = None
         super().save(*args, **kwargs)
 
 

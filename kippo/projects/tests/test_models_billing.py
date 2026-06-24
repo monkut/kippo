@@ -508,6 +508,7 @@ class BillingEntryReceivedTrackingTestCase(TestCase):
     def setUp(self):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
+        self.user = created["KippoUser"]
         self.contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
@@ -543,3 +544,15 @@ class BillingEntryReceivedTrackingTestCase(TestCase):
         entry.refresh_from_db()
         self.assertFalse(entry.is_received)
         self.assertIsNone(entry.received_datetime)
+
+    def test_received_by_preserved_while_received(self):
+        entry = self._entry(is_received=True, received_by=self.user)
+        entry.refresh_from_db()
+        self.assertEqual(entry.received_by, self.user)
+
+    def test_unmarking_received_clears_received_by(self):
+        entry = self._entry(is_received=True, received_by=self.user)
+        entry.is_received = False
+        entry.save()
+        entry.refresh_from_db()
+        self.assertIsNone(entry.received_by)

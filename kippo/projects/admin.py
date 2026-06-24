@@ -208,10 +208,10 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline
     # the project (the entry no longer carries a project FK).
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "note")
-    # received_datetime is auto-managed by KippoProjectBillingEntry.save() (set when is_received is
-    # ticked, cleared when unticked) — shown read-only so a typed value can't be silently discarded.
-    readonly_fields = ("received_datetime",)
+    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "received_by", "note")
+    # received_datetime / received_by are auto-managed (stamped when is_received is ticked, cleared
+    # when unticked) — shown read-only so typed values can't be silently discarded.
+    readonly_fields = ("received_datetime", "received_by")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -1498,6 +1498,21 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmi
     raw_id_fields = ("project",)
     inlines = [KippoProjectBillingEntryInline]
     actions = ["generate_billing_entries"]
+
+    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
+        # Specializes the base created_by/updated_by stamping to also record received_by — the acting
+        # admin who marked the entry received (the model save() clears it when un-received).
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for instance in instances:
+            if instance.id is None:
+                instance.created_by = request.user
+            instance.updated_by = request.user
+            if instance.is_received and not instance.received_by:
+                instance.received_by = request.user
+            instance.save()
+        formset.save_m2m()
 
     @admin.action(description=_("契約から請求エントリを生成"))
     def generate_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
