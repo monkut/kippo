@@ -1,11 +1,15 @@
 import datetime
 import urllib.parse
+from collections import defaultdict
+from collections.abc import Iterator
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from commons.functions import is_uuid
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
+from django.contrib.admin.views.main import ChangeList
 from django.db import models
 from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum
 from django.db.models.functions import Coalesce
@@ -56,12 +60,22 @@ def _yen(amount: object) -> str:
 
 
 class CustomerEndingProjectsFilter(admin.SimpleListFilter):
-    """Customer-name filter listing only customers with 1+ project whose contract ends within the
-    last two fiscal years (previous + current FY) of the customer's organization.
+    """Multi-select customer-name filter listing only customers with 1+ project whose contract ends
+    within the last two fiscal years (previous + current FY) of the customer's organization.
+
+    Selecting several customers ORs them (pk__in). Each choice is a toggle link (add/remove the
+    customer from the selection) rendered by the default admin/filter.html template — no checkbox
+    template needed; ``get_query_string`` emits repeated params (doseq=True).
     """
 
     title = _("顧客名（直近2会計年度に終了案件あり）")
     parameter_name = "recent_ending_customer"
+
+    def __init__(self, request: DjangoRequest, params: dict, model: type, model_admin: admin.ModelAdmin) -> None:
+        super().__init__(request, params, model, model_admin)
+        # read all selected values (the param may repeat); super() only keeps the last one. Drop
+        # non-UUID values so a tampered query can't raise on the pk__in (UUID) lookup → 500.
+        self.selected_values = [value for value in request.GET.getlist(self.parameter_name) if is_uuid(value)]
 
     def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
         pairs: dict[str, str] = {}
@@ -84,10 +98,26 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
         return sorted(pairs.items(), key=lambda item: item[1])
 
     def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
-        value = self.value()
-        if value:
-            return queryset.filter(pk=value)
+        if self.selected_values:
+            return queryset.filter(pk__in=self.selected_values)
         return queryset
+
+    def choices(self, changelist: ChangeList) -> Iterator[dict]:
+        selected = set(self.selected_values)
+        yield {
+            "selected": not selected,
+            "query_string": changelist.get_query_string(remove=[self.parameter_name]),
+            "display": _("すべて"),
+        }
+        for pk, name in self.lookup_choices:
+            is_selected = pk in selected
+            # toggle this customer in/out of the current selection
+            remaining = [value for value in self.selected_values if value != pk] if is_selected else [*self.selected_values, pk]
+            if remaining:
+                query_string = changelist.get_query_string({self.parameter_name: remaining})
+            else:
+                query_string = changelist.get_query_string(remove=[self.parameter_name])
+            yield {"selected": is_selected, "query_string": query_string, "display": name}
 
 
 class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -121,9 +151,11 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
+    list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
-    list_filter = ("organization", "display_as_active", CustomerEndingProjectsFilter)
+    # organization is added conditionally in get_list_filter (only for multi-org members);
+    # the display_as_active filter is intentionally omitted.
+    list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
@@ -145,6 +177,13 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if request.user.is_superuser and request.user.organizations.count() > 1:
             return ("name", "organization", *self.list_display[1:])
         return self.list_display
+
+    def get_list_filter(self, request: DjangoRequest) -> tuple:
+        # Offer the organization filter only to users who belong to more than one organization;
+        # a single-org member has nothing to filter by.
+        if request.user.organizations.count() > 1:
+            return ("organization", *self.list_filter)
+        return self.list_filter
 
     def get_queryset(self, request: DjangoRequest):
         # Annotate each customer's active (open + display_as_active) project count so the
@@ -220,23 +259,32 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return (name_link, _yen(received), total_display, end_display)
 
     def changelist_view(self, request: DjangoRequest, extra_context: dict | None = None):
-        # Inject a per-organization current-fiscal-year summary header (rendered by change_list.html).
-        extra_context = extra_context or {}
-        extra_context["fiscal_year_summaries"] = self._fiscal_year_org_summaries(request.user)
-        return super().changelist_view(request, extra_context=extra_context)
+        # Render the per-organization current-fiscal-year summary header AFTER super() so it can be
+        # scoped to the customers actually shown (i.e. respecting the active filters).
+        response = super().changelist_view(request, extra_context=extra_context)
+        if hasattr(response, "context_data") and "cl" in response.context_data:
+            response.context_data["fiscal_year_summaries"] = self._fiscal_year_org_summaries(response.context_data["cl"].queryset)
+        return response
 
-    def _fiscal_year_org_summaries(self, user: KippoUser) -> list[dict]:
-        """Per-organization current-fiscal-year summary for the header — one entry per organization
-        the user belongs to. 'Projects planned to complete this FY' = contracts whose end_date falls
-        in the current fiscal year; planned total = Σ their total_amount; received total = Σ their
-        received billing-entry amounts.
+    @staticmethod
+    def _fiscal_year_org_summaries(customers: models.QuerySet) -> list[dict]:
+        """Per-organization current-fiscal-year summary for the header, scoped to the (filtered)
+        ``customers`` shown on the changelist. Per org: customer count; 'projects planned to complete
+        this FY' = those customers' contracts whose end_date falls in the current FY; planned total =
+        Σ their total_amount; received total = Σ their received billing-entry amounts.
         """
+        customer_pks_by_org: dict = defaultdict(list)
+        for customer_pk, organization_id in customers.values_list("pk", "organization_id"):
+            customer_pks_by_org[organization_id].append(customer_pk)
+
+        organizations = {org.pk: org for org in KippoOrganization.objects.filter(pk__in=customer_pks_by_org)}
         summaries = []
-        for organization in _visible_organizations(user):
+        for organization_id, customer_pks in customer_pks_by_org.items():
+            organization = organizations[organization_id]
             fiscal_year_start = organization.current_fiscal_year_start()
             fiscal_year_end = _shift_fiscal_year(fiscal_year_start, 1)
             contracts = KippoProjectContract.objects.filter(
-                project__organization=organization,
+                project__customer__in=customer_pks,
                 end_date__gte=fiscal_year_start,
                 end_date__lt=fiscal_year_end,
             )
@@ -250,12 +298,13 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "organization": organization.name,
                     "fiscal_year_start": fiscal_year_start,
                     "fiscal_year_end": fiscal_year_end,
+                    "customer_count": len(customer_pks),
                     "project_count": contract_summary["count"],
                     "received_total_display": _yen(received_total),
                     "planned_total_display": _yen(contract_summary["total"] or 0),
                 }
             )
-        return summaries
+        return sorted(summaries, key=lambda summary: summary["organization"])
 
     @admin.display(boolean=True, description=_("反社チェック"))
     def get_compliance_verified(self, obj: KippoCustomer) -> bool:

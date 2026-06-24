@@ -1,9 +1,19 @@
 import datetime
+import uuid
 from calendar import monthrange
 
 from django.utils import timezone
 
 DECEMBER = 12
+
+
+def is_uuid(value: str) -> bool:
+    """True if `value` is a valid UUID string."""
+    try:
+        uuid.UUID(value)
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime]:
