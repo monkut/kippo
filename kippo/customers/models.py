@@ -23,11 +23,6 @@ class KippoCustomer(UserCreatedBaseModel):
         help_text=_("Link to customer-related documents (folder, drive, wiki, etc.)"),
     )
     notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
-    display_as_active = models.BooleanField(
-        _("Display as Active"),
-        default=True,
-        help_text=_("If False, hidden from default admin lists"),
-    )
 
     class Meta:
         unique_together = (("organization", "name"),)

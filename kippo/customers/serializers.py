@@ -25,7 +25,6 @@ class KippoCustomerSerializer(serializers.ModelSerializer):
             "website",
             "document_url",
             "notes",
-            "display_as_active",
             "created_datetime",
             "updated_datetime",
         ]

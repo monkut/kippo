@@ -22,7 +22,7 @@ from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
 from projects.models import KippoProject, KippoProjectBillingEntry, KippoProjectContract
 
-from customers.models import KippoCustomer
+from customers.models import KippoCustomer, KippoCustomerComplianceCheck
 
 # A customer's active (open + display_as_active) project count. A correlated Subquery (a scalar
 # expression), NOT an aggregate: Django 5.2 forbids ordering by an aggregate that isn't also in
@@ -151,16 +151,30 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
         return format_html('<a href="{}">{}</a>', obj.get_admin_url(), obj.name)
 
 
+class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedInline):
+    """Edit the customer's 反社チェック (compliance check) on the customer page. The record is
+    auto-created per customer by a post_save signal, so this inline only edits the existing one.
+    """
+
+    model = KippoCustomerComplianceCheck
+    extra = 0
+    max_num = 1
+    can_delete = False
+    fields = ("verified", "verified_datetime", "notes")
+
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
+        return False  # one is auto-created per customer via the post_save signal
+
+
 @admin.register(KippoCustomer)
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
-    # organization is added conditionally in get_list_filter (only for multi-org members);
-    # the display_as_active filter is intentionally omitted.
+    # organization is added conditionally in get_list_filter (only for multi-org members).
     list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
-    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
-    inlines = (KippoProjectReadOnlyInline,)
+    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes")
+    inlines = (KippoCustomerComplianceCheckInline, KippoProjectReadOnlyInline)
     # changelist template adds the inline script that toggles the per-project detail under the
     # アクティブプロジェクト count (scoped to the changelist; avoids a static-manifest dependency).
     change_list_template = "admin/customers/kippocustomer/change_list.html"

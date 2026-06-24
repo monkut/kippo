@@ -20,7 +20,6 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
     - Superusers see all customers.
 
     **Filtering:**
-    - is_active: Filter by display_as_active (true/false).
     - organization: UUID filter (still intersected with user's memberships).
     - search: SearchFilter on `name`, `email`.
 
@@ -39,7 +38,6 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(name="is_active", description="Filter by display_as_active (true/false)", required=False, type=bool),
             OpenApiParameter(name="organization", description="Filter by organization UUID", required=False, type=str),
             OpenApiParameter(name="search", description="Search on name, email", required=False, type=str),
         ]
@@ -48,7 +46,7 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
-        """Filter by user organization memberships, plus `is_active` and `organization` query params."""
+        """Filter by user organization memberships, plus the `organization` query param."""
         queryset = super().get_queryset()
         user = self.request.user
         if not user.is_superuser and hasattr(user, "organizationmembership_set"):
@@ -58,10 +56,5 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
         organization = self.request.query_params.get("organization", None)
         if organization:
             queryset = queryset.filter(organization=organization)
-
-        is_active = self.request.query_params.get("is_active", None)
-        if is_active is not None:
-            is_active_bool = is_active.lower() in ["true", "1", "yes"]
-            queryset = queryset.filter(display_as_active=is_active_bool)
 
         return queryset

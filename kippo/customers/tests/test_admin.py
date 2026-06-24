@@ -90,6 +90,19 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         for fieldname in ("get_project_link", "start_date", "target_date"):
             self.assertIn(fieldname, inline.fields)
 
+    def test_compliance_check_inline_registered_and_editable(self):
+        from customers.admin import KippoCustomerComplianceCheckInline
+
+        self.assertIn(KippoCustomerComplianceCheckInline, KippoCustomerAdmin.inlines)
+        # the 反社チェック record is auto-created per customer (signal); the inline edits it (no add)
+        inline = KippoCustomerComplianceCheckInline(KippoCustomer, self.site)
+        self.assertFalse(inline.has_add_permission(self.staff_user_request))
+        # change view renders the compliance inline form for the auto-created record
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertIn("compliance_check-0-verified", response.content.decode())
+
     def test_change_view_lists_related_project_with_admin_link(self):
         project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1))
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
@@ -377,13 +390,12 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         staff_user = self.staff_user_request.user
         self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
 
-    def test_list_filter_omits_display_as_active_and_org_for_single_org_member(self):
+    def test_list_filter_omits_org_for_single_org_member(self):
         from customers.admin import CustomerEndingProjectsFilter
 
         # super_user_request.user is a member of exactly one org (added in the base setUp).
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         list_filter = modeladmin.get_list_filter(self.super_user_request)
-        self.assertNotIn("display_as_active", list_filter)
         self.assertNotIn("organization", list_filter)
         self.assertIn(CustomerEndingProjectsFilter, list_filter)
 
@@ -405,7 +417,6 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         list_filter = modeladmin.get_list_filter(self.super_user_request)
         self.assertIn("organization", list_filter)
-        self.assertNotIn("display_as_active", list_filter)
 
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
