@@ -312,6 +312,36 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         staff_user = self.staff_user_request.user
         self.assertEqual(set(_visible_organizations(staff_user)), set(staff_user.organizations))
 
+    def test_list_filter_omits_display_as_active_and_org_for_single_org_member(self):
+        from customers.admin import CustomerEndingProjectsFilter
+
+        # super_user_request.user is a member of exactly one org (added in the base setUp).
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        list_filter = modeladmin.get_list_filter(self.super_user_request)
+        self.assertNotIn("display_as_active", list_filter)
+        self.assertNotIn("organization", list_filter)
+        self.assertIn(CustomerEndingProjectsFilter, list_filter)
+
+    def test_list_filter_includes_org_for_multi_org_member(self):
+        from accounts.models import KippoOrganization, OrganizationMembership
+
+        other = KippoOrganization.objects.create(
+            name="second-org",
+            github_organization_name="ghsecondorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        OrganizationMembership.objects.create(
+            user=self.super_user_request.user,
+            organization=other,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        list_filter = modeladmin.get_list_filter(self.super_user_request)
+        self.assertIn("organization", list_filter)
+        self.assertNotIn("display_as_active", list_filter)
+
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
     """KippoCustomerAdmin shows the 反社チェック (compliance verified) state as a boolean column."""

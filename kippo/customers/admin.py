@@ -123,7 +123,9 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "display_as_active", "updated_datetime")
     list_display_links = ("name",)
-    list_filter = ("organization", "display_as_active", CustomerEndingProjectsFilter)
+    # organization is added conditionally in get_list_filter (only for multi-org members);
+    # the display_as_active filter is intentionally omitted.
+    list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
     fields = ("organization", "name", "email", "phone", "website", "document_url", "notes", "display_as_active")
     inlines = (KippoProjectReadOnlyInline,)
@@ -145,6 +147,13 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if request.user.is_superuser and request.user.organizations.count() > 1:
             return ("name", "organization", *self.list_display[1:])
         return self.list_display
+
+    def get_list_filter(self, request: DjangoRequest) -> tuple:
+        # Offer the organization filter only to users who belong to more than one organization;
+        # a single-org member has nothing to filter by.
+        if request.user.organizations.count() > 1:
+            return ("organization", *self.list_filter)
+        return self.list_filter
 
     def get_queryset(self, request: DjangoRequest):
         # Annotate each customer's active (open + display_as_active) project count so the
