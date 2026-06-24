@@ -1,5 +1,7 @@
+import datetime
 import urllib.parse
 
+from accounts.models import KippoOrganization
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from django import forms
 from django.contrib import admin
@@ -10,11 +12,12 @@ from django.db.models.functions import Coalesce
 from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
-from projects.models import KippoProject
+from projects.models import KippoProject, KippoProjectBillingEntry
 
 from customers.models import KippoCustomer
 
@@ -99,19 +102,20 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         qs = (
             super()
             .get_queryset(request)
-            # select_related the OneToOne compliance_check so the 反社チェック column does not
-            # issue one extra query per row in the changelist.
-            .select_related("compliance_check")
+            # select_related the OneToOne compliance_check (反社チェック column) and the organization
+            # (its fiscalyear_start_month bounds the received-total sum) so neither issues a per-row query.
+            .select_related("compliance_check", "organization")
             .annotate(active_project_count=ACTIVE_PROJECT_COUNT)
-            # active projects + their contract/ledger back the expandable detail rows of the
-            # アクティブプロジェクト column — prefetched (one extra query each) to avoid N+1 per row.
+            # active projects + their contract + received billing entries back the expandable detail
+            # rows of the アクティブプロジェクト column — prefetched to avoid N+1. Only is_received entries
+            # are loaded (the detail sums received amounts); the fiscal-year cutoff is applied per-row.
             .prefetch_related(
                 Prefetch(
                     "projects",
                     queryset=(
                         KippoProject.objects.filter(is_closed=False, display_as_active=True)
                         .select_related("contract")
-                        .prefetch_related("contract__billing_entries")
+                        .prefetch_related(Prefetch("contract__billing_entries", queryset=KippoProjectBillingEntry.objects.filter(is_received=True)))
                         .order_by("name")
                     ),
                     to_attr="active_projects",
@@ -124,15 +128,18 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     @admin.display(description=_("アクティブプロジェクト"), ordering="active_project_count")
     def get_active_project_count(self, obj: KippoCustomer) -> int | str:
-        # Default: the count. Clicking a non-zero count toggles a per-project detail table
-        # (active_projects.js). 0 renders plainly (nothing to expand).
+        # Default: the count. Clicking a non-zero count toggles a per-project detail table (the
+        # toggle script is inlined in change_list.html). 0 renders plainly (nothing to expand).
         count = obj.active_project_count
         if not count:
             return count
+        # Received amounts are summed only from the current fiscal year onward (per the customer's
+        # organization fiscalyear_start_month, relative to today in the configured JST timezone).
+        fiscal_year_start = self._current_fiscal_year_start(obj.organization)
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
-            (self._active_project_row(project) for project in getattr(obj, "active_projects", ())),
+            (self._active_project_row(project, fiscal_year_start) for project in getattr(obj, "active_projects", ())),
         )
         return format_html(
             '<a href="#" class="active-projects-toggle">{}</a>'
@@ -141,17 +148,32 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             "<tbody>{}</tbody></table>",
             count,
             _("プロジェクト"),
-            _("入金済合計"),
+            _("入金済合計(今期)"),
             _("契約金額"),
             _("契約終了日"),
             rows,
         )
 
     @staticmethod
-    def _active_project_row(project: KippoProject) -> tuple:
-        """One detail row: (project link, received-billing total, contract amount, contract end date)."""
+    def _current_fiscal_year_start(organization: KippoOrganization) -> datetime.date:
+        """Start date of the organization's current fiscal year — (fiscalyear_start_month, day 1) in
+        the most recent year on or before today. 'Today' is the current date in the configured
+        timezone (Asia/Tokyo / JST; there is no per-organization timezone field).
+        """
+        today = timezone.localdate()
+        start_month = organization.fiscalyear_start_month
+        year = today.year if today.month >= start_month else today.year - 1
+        return datetime.date(year, start_month, 1)
+
+    @staticmethod
+    def _active_project_row(project: KippoProject, fiscal_year_start: datetime.date) -> tuple:
+        """One detail row: (project link, current-FY received-billing total, contract amount, end date).
+
+        Entries are pre-filtered to is_received=True (the prefetch); here we keep only those billed on
+        or after the fiscal-year start so the total is the current fiscal year's received revenue.
+        """
         contract = getattr(project, "contract", None)
-        received = sum((entry.amount for entry in contract.billing_entries.all() if entry.is_received), 0) if contract else 0
+        received = sum((entry.amount for entry in contract.billing_entries.all() if entry.billing_date >= fiscal_year_start), 0) if contract else 0
         name_link = format_html('<a href="{}">{}</a>', project.get_admin_url(), project.name)
         total_display = f"¥{contract.total_amount:,.0f}" if contract else "-"
         end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"

@@ -168,31 +168,47 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         customer = qs.get(pk=self.customer.pk)  # no projects in this test
         self.assertEqual(modeladmin.get_active_project_count(customer), 0)
 
-    def test_active_project_detail_shows_received_total_amount_and_end_date(self):
+    def test_active_project_detail_sums_received_within_current_fiscal_year(self):
+        from datetime import timedelta
         from decimal import Decimal
 
+        from django.utils import timezone
         from projects.models import KippoProjectBillingEntry, KippoProjectContract
 
-        project = self._make_customer_project("acme-billed", self.customer, date(2026, 9, 30))
+        # Fiscal year starts in January for this org → cutoff = Jan 1 of the current (JST) year.
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+        fy_start = date(today.year, 1, 1)
+
+        project = self._make_customer_project("acme-billed", self.customer, date(today.year, 9, 30))
         contract = KippoProjectContract.objects.create(
             project=project,
             billing_type="delivery",
             total_amount=Decimal("2000000"),
-            end_date=date(2026, 9, 30),
+            end_date=date(today.year, 9, 30),
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        # one received + one not-yet-received entry → only the received amount is summed
-        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=date(2026, 6, 30), amount=Decimal("500000"), is_received=True)
-        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=date(2026, 9, 30), amount=Decimal("1500000"), is_received=False)
+        # received, on/after the fiscal-year start → counted
+        KippoProjectBillingEntry.objects.create(contract=contract, billing_date=fy_start, amount=Decimal("500000"), is_received=True)
+        # received, but BEFORE the fiscal-year start (prior FY) → excluded by the cutoff
+        KippoProjectBillingEntry.objects.create(
+            contract=contract, billing_date=fy_start - timedelta(days=1), amount=Decimal("900000"), is_received=True
+        )
+        # not received, within the FY → excluded (only received entries are prefetched)
+        KippoProjectBillingEntry.objects.create(
+            contract=contract, billing_date=fy_start + timedelta(days=10), amount=Decimal("1500000"), is_received=False
+        )
 
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         customer = modeladmin.get_queryset(self.super_user_request).get(pk=self.customer.pk)
         rendered = modeladmin.get_active_project_count(customer)
         self.assertIn("acme-billed", rendered)
-        self.assertIn("¥500,000", rendered)  # received total (only the is_received entry)
+        self.assertIn("¥500,000", rendered)  # only the in-FY received entry
+        self.assertNotIn("¥1,400,000", rendered)  # the pre-FY received entry is NOT added in
         self.assertIn("¥2,000,000", rendered)  # contract total_amount
-        self.assertIn("2026-09-30", rendered)  # contract end date
+        self.assertIn(date(today.year, 9, 30).isoformat(), rendered)  # contract end date
 
 
 class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase):
