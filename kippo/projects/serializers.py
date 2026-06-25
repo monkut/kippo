@@ -692,6 +692,7 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
             "user_slack_image_url",
             "month",
             "percentage",
+            "role",
             "is_confirmed",
             "created_datetime",
             "updated_datetime",

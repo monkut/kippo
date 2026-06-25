@@ -1349,6 +1349,16 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
     percentage = models.SmallIntegerField(
         help_text=_("Workload percentage assigned to project from available workload available for project organization")
     )
+    role = models.CharField(
+        max_length=50,
+        choices=ProjectRoles.choices(),
+        blank=True,
+        default="",
+        help_text=_(
+            "Billing-rate role for effort-based billing; selects the project's ProjectAssignmentRate "
+            "for this user's logged effort. Empty falls back to the developer rate."
+        ),
+    )
 
     class Meta:
         unique_together = ("project", "user", "month")

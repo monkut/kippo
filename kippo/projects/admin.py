@@ -181,7 +181,7 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
 class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectMonthlyAssignment
     extra = 0
-    fields = ("user", "month", "percentage", "is_confirmed")
+    fields = ("user", "month", "percentage", "role", "is_confirmed")
     classes = ["collapse"]
 
 
@@ -1699,8 +1699,8 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project", "get_project_organization", "user", "month", "percentage", "is_confirmed")
-    list_filter = ("is_confirmed", "month", "project__organization")
+    list_display = ("project", "get_project_organization", "user", "month", "percentage", "role", "is_confirmed")
+    list_filter = ("is_confirmed", "role", "month", "project__organization")
     search_fields = ("project__name", "user__username")
     actions = (auto_extend_projectmonthlyassignment_action,)
 
