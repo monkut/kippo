@@ -102,16 +102,16 @@ FULL_CONFIDENCE = 100
 
 logger = logging.getLogger(__name__)
 
-# Default per-role daily rates pre-filled into the ProjectAssignmentRate inline on /add/.
+# Default per-role daily rates seeded onto a new project at registration (save_model).
 # Edit the values in fixtures/default_projectassignmentrates.json — no code change needed.
 # Keep the roles in this file aligned with ProjectRoles (rows with an unknown role are skipped).
 DEFAULT_ASSIGNMENT_RATES_FIXTURE = Path(__file__).parent / "fixtures" / "default_projectassignmentrates.json"
 
 
 def _default_assignment_rate_initial() -> tuple[dict, ...]:
-    """Role/rate_per_day defaults used to prefill the ProjectAssignmentRate inline on project creation.
+    """Role/rate_per_day defaults seeded onto a new project at registration (save_model).
 
-    Read fresh each call (tiny file, only on /add/). Rows whose role is not a valid ProjectRoles
+    Read fresh each call (tiny file, only on create). Rows whose role is not a valid ProjectRoles
     value are skipped (logged); a missing/blank rate falls back to settings.DEFAULT_PROJECT_DAILY_RATE
     so the fixture and the model default cannot silently drift.
     """
@@ -157,25 +157,8 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
     # no extra entries can be added beyond them. Stays in sync if ProjectRoles changes.
     max_num = len(ProjectRoles.choices())
     fields = ("role", "rate_per_day")
-
-    def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
-        """On /add/ (obj is None) prefill one row per default role/rate from the fixture so the
-        section is populated with sensible defaults the admin can edit before saving.
-        """
-        formset = super().get_formset(request, obj, **kwargs)
-        if obj is not None:
-            return formset
-        defaults = _default_assignment_rate_initial()
-        if not defaults:
-            return formset
-        formset.extra = len(defaults)
-
-        class DefaultRatesFormSet(formset):
-            def __init__(self, *args, **inner_kwargs) -> None:
-                inner_kwargs.setdefault("initial", list(defaults))
-                super().__init__(*args, **inner_kwargs)
-
-        return DefaultRatesFormSet
+    # Hidden on /add/ (see KippoProjectBaseAdmin.HIDDEN_ON_ADD_INLINES) — the fixture defaults are
+    # seeded in save_model on create. Shown on /change/ for editing the per-role rates.
 
 
 class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
@@ -797,10 +780,11 @@ add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calen
 
 class KippoProjectAdminForm(forms.ModelForm):
     # Required at project registration (kippo#40 / T19; extended in kippo#41) — enforced create-only so
-    # existing rows/edits are unaffected. name/organization are NOT NULL and category/phase carry model
-    # defaults (so the model/ModelForm already enforces those four); the remaining creation fields are
-    # enforced here. allocated_staff_days is NOT here — it is conditionally required (see clean()).
-    # 請求方法 is enforced via the required contract inline (see KippoProjectContractInline.get_min_num).
+    # existing rows/edits are unaffected. The model keeps these fields nullable; they are marked
+    # required on the add form (see __init__) so each renders with the required marker and is validated
+    # per-field. name/organization are NOT NULL and category/phase carry model defaults (already
+    # enforced by the model/ModelForm). allocated_staff_days is NOT here — it is conditionally required
+    # (see clean()). 請求方法 is enforced via the required contract inline (KippoProjectContractInline.get_min_num).
     REQUIRED_AT_REGISTRATION = (
         "customer",
         "project_manager",
@@ -813,15 +797,19 @@ class KippoProjectAdminForm(forms.ModelForm):
         model = KippoProject
         exclude = ()  # noqa: DJ006 (admin form inherits field config from ModelAdmin)
 
-    def clean(self):
-        cleaned_data = super().clean()
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         # KippoProject.id is a UUID with a default, so .pk is set even before save — use _state.adding
-        # to detect a genuine registration (add) vs an edit of an existing row.
+        # to detect a genuine registration (add) vs an edit of an existing row. On add the registration
+        # fields are required (asterisk + field-level validation); on edit they stay optional so an
+        # existing customer-less / date-less project still saves.
         if self.instance._state.adding:
             for field in self.REQUIRED_AT_REGISTRATION:
-                # test for "absent" (None/"") not falsiness
-                if cleaned_data.get(field) in (None, ""):
-                    self.add_error(field, _("This field is required at project registration."))
+                if field in self.fields:
+                    self.fields[field].required = True
+
+    def clean(self):
+        cleaned_data = super().clean()
         category = cleaned_data.get("category")
         # allocated_staff_days must be a positive estimate once a real, non-closed project is fully
         # confident — confidence (確度) is derived from the submitted phase. Non-project categories
@@ -890,6 +878,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
     # attribute so tests and subclasses can reference the same source of truth.
     HIDDEN_ON_ADD_INLINES = (
+        # Assignment rates use fixture defaults on /add/ (seeded in save_model); monthly assignments
+        # are managed after the project exists — both hidden on the add form.
+        ProjectAssignmentRateInline,
+        ProjectMonthlyAssignmentInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
@@ -1517,6 +1509,30 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 obj.columnset = default_columnset
 
         super().save_model(request, obj, form, change)
+
+        # The ProjectAssignmentRate inline is hidden on /add/ (see HIDDEN_ON_ADD_INLINES) — seed the
+        # per-role fixture defaults the inline used to prefill so a new project still gets its rates.
+        if not change:
+            self._create_default_assignment_rates(obj, request.user)
+
+    @staticmethod
+    def _create_default_assignment_rates(project: KippoProject, user: KippoUser) -> None:
+        """Create the default per-role assignment rates for a newly registered project.
+
+        Idempotent against the (project, role) unique_together — only roles not already present are
+        created, so a re-save or an upsell copy never duplicates a rate.
+        """
+        existing_roles = set(project.assignment_rates.values_list("role", flat=True))
+        for default in _default_assignment_rate_initial():
+            if default["role"] in existing_roles:
+                continue
+            ProjectAssignmentRate.objects.create(
+                project=project,
+                role=default["role"],
+                rate_per_day=default["rate_per_day"],
+                created_by=user,
+                updated_by=user,
+            )
 
     def get_ordering(self, request: DjangoRequest):
         # non-project category first, then confidence desc, target_date asc, name. A self-contained

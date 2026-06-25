@@ -1346,14 +1346,24 @@ class KippoProjectAdminInlinesTestCase(KippoProjectAdminFixtureTestCaseBase):
         for cls in KippoProjectAdmin.HIDDEN_ON_ADD_INLINES:
             self.assertIn(cls, inlines, f"{cls.__name__} should be present on ActiveKippoProject change")
 
-    def test_add_view_keeps_assignment_rate_inline_and_hides_repository(self):
-        from projects.admin import GithubRepositoryProjectInline
+    def test_add_view_hides_assignment_rate_and_monthly_assignment_inlines(self):
+        from projects.admin import GithubRepositoryProjectInline, ProjectMonthlyAssignmentInline
 
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
-        self.assertIn(ProjectAssignmentRateInline, inlines)
-        # GitHub repositories are only meaningful once the project exists (hidden on /add/).
+        # Assignment rates use fixture defaults on /add/ (seeded in save_model); monthly assignments
+        # and GitHub repositories are only meaningful once the project exists — all hidden on /add/.
+        self.assertNotIn(ProjectAssignmentRateInline, inlines)
+        self.assertNotIn(ProjectMonthlyAssignmentInline, inlines)
         self.assertNotIn(GithubRepositoryProjectInline, inlines)
+
+    def test_change_view_shows_assignment_rate_and_monthly_assignment_inlines(self):
+        from projects.admin import ProjectMonthlyAssignmentInline
+
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        inlines = modeladmin.get_inlines(self.staff_user_request, obj=self.project)
+        self.assertIn(ProjectAssignmentRateInline, inlines)
+        self.assertIn(ProjectMonthlyAssignmentInline, inlines)
 
 
 class DefaultAssignmentRateLoaderTestCase(SimpleTestCase):
@@ -1506,13 +1516,37 @@ class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
             updated_by=self.github_manager,
         )
 
-    def test_assignment_rate_inline_prefills_defaults_on_add(self):
-        inline = ProjectAssignmentRateInline(parent_model=KippoProject, admin_site=self.site)
-        formset_class = inline.get_formset(request=self.super_user_request, obj=None)
-        self.assertEqual(formset_class.extra, 3)
-        formset = formset_class(instance=KippoProject())
-        roles = [form.initial.get("role") for form in formset.forms if form.initial]
-        self.assertEqual(roles, ["developer", "project_manager", "tester"])
+    def test_save_model_seeds_default_assignment_rates_on_create(self):
+        # the assignment-rate inline is hidden on /add/; save_model seeds the fixture defaults instead
+        from projects.models import ProjectAssignmentRate
+
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        project = KippoProject(
+            organization=self.organization,
+            name="seed-rates-project",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            start_date=self.current_date,
+        )
+        modeladmin.save_model(self.super_user_request, project, form=None, change=False)
+        roles = set(ProjectAssignmentRate.objects.filter(project=project).values_list("role", flat=True))
+        self.assertEqual(roles, {"developer", "project_manager", "tester"})
+
+    def test_save_model_does_not_reseed_assignment_rates_on_change(self):
+        # editing an existing project must not re-create / duplicate its rates
+        from projects.models import ProjectAssignmentRate
+
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        project = self.make_project("no-reseed-project")
+        ProjectAssignmentRate.objects.create(
+            project=project,
+            role="developer",
+            rate_per_day=1,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        modeladmin.save_model(self.super_user_request, project, form=None, change=True)
+        self.assertEqual(ProjectAssignmentRate.objects.filter(project=project).count(), 1)
 
     def test_assignment_rate_inline_no_prefill_on_change(self):
         inline = ProjectAssignmentRateInline(parent_model=KippoProject, admin_site=self.site)
