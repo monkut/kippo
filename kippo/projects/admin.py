@@ -55,6 +55,7 @@ from .functions import (
     get_user_session_organization,
 )
 from .models import (
+    PHASE_CONFIDENCE,
     ActiveKippoProject,
     CollectIssuesAction,
     KippoMilestone,
@@ -94,6 +95,10 @@ PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 # save) and the upsell categories stay selectable, instead of the flat required-only plain add.
 UPSELL_SOURCE_PARAM = "_upsell_source"
 UPSELL_SOURCE_VALUE = "close"
+
+# confidence (%, derived from phase via PHASE_CONFIDENCE) at which a non-closed project must carry a
+# positive allocated_staff_days estimate (kippo#41).
+FULL_CONFIDENCE = 100
 
 logger = logging.getLogger(__name__)
 
@@ -791,17 +796,16 @@ add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calen
 
 
 class KippoProjectAdminForm(forms.ModelForm):
-    # Required at project registration (kippo#40 / T19; extended for all creation fields in kippo#41)
-    # — enforced create-only so existing rows/edits are unaffected. name/organization are NOT NULL and
-    # category/phase carry model defaults (so the model/ModelForm already enforces those four); the
-    # remaining creation fields are enforced here. 請求方法 is enforced via the required contract inline
-    # (see KippoProjectContractInline.get_min_num).
+    # Required at project registration (kippo#40 / T19; extended in kippo#41) — enforced create-only so
+    # existing rows/edits are unaffected. name/organization are NOT NULL and category/phase carry model
+    # defaults (so the model/ModelForm already enforces those four); the remaining creation fields are
+    # enforced here. allocated_staff_days is NOT here — it is conditionally required (see clean()).
+    # 請求方法 is enforced via the required contract inline (see KippoProjectContractInline.get_min_num).
     REQUIRED_AT_REGISTRATION = (
         "customer",
         "project_manager",
         "start_date",
         "target_date",
-        "allocated_staff_days",
         "problem_definition",
     )
 
@@ -815,10 +819,19 @@ class KippoProjectAdminForm(forms.ModelForm):
         # to detect a genuine registration (add) vs an edit of an existing row.
         if self.instance._state.adding:
             for field in self.REQUIRED_AT_REGISTRATION:
-                # test for "absent" (None/"") not falsiness — allocated_staff_days=0 is a valid entry,
-                # not a missing one.
+                # test for "absent" (None/"") not falsiness
                 if cleaned_data.get(field) in (None, ""):
                     self.add_error(field, _("This field is required at project registration."))
+        # allocated_staff_days must be a positive estimate once a (non-closed) project is fully
+        # confident — confidence (確度) is derived from the submitted phase (kippo#41).
+        phase = cleaned_data.get("phase")
+        allocated_staff_days = cleaned_data.get("allocated_staff_days")
+        needs_estimate = not self.instance.is_closed and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
+        if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
+            self.add_error(
+                "allocated_staff_days",
+                _("A positive value is required when confidence is 100% (phase 契約稼働中 / 完了)."),
+            )
         category = cleaned_data.get("category")
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")

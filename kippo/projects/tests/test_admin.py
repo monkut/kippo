@@ -809,23 +809,59 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         for field in ("customer", "project_manager", "start_date", "target_date"):
             self.assertIn(field, form.errors)
 
-    def test_registration_requires_allocated_staff_days_and_problem_definition(self):
-        # kippo#41: allocated_staff_days + problem_definition are also required at registration
+    def test_registration_requires_problem_definition(self):
+        # kippo#41: problem_definition is required at registration (allocated_staff_days is conditional)
         data = self._form_data(category="other")
-        for field in ("allocated_staff_days", "problem_definition"):
-            del data[field]
+        del data["problem_definition"]
         form = KippoProjectAdminForm(data=data)
         self.assertFalse(form.is_valid())
-        for field in ("allocated_staff_days", "problem_definition"):
-            self.assertIn(field, form.errors)
+        self.assertIn("problem_definition", form.errors)
 
-    def test_registration_accepts_allocated_staff_days_zero(self):
-        # 0 is a valid PositiveIntegerField value — the required check must test absence, not falsiness
-        data = self._form_data(category="other")
+    def test_non_full_confidence_allows_zero_or_blank_allocated_staff_days(self):
+        # phase proposing-low → confidence < 100 → allocated_staff_days need not be positive
+        data = self._form_data(category="other")  # _form_data uses phase=proposing-low
         data["allocated_staff_days"] = "0"
+        self.assertTrue(KippoProjectAdminForm(data=data).is_valid(), "0 allowed below full confidence")
+        del data["allocated_staff_days"]
+        self.assertTrue(KippoProjectAdminForm(data=data).is_valid(), "blank allowed below full confidence")
+
+    def test_full_confidence_requires_positive_allocated_staff_days(self):
+        # phase under-contract → confidence 100 → allocated_staff_days must be > 0
+        for bad in ("0", None):
+            data = self._form_data(category="other")
+            data["phase"] = "under-contract"
+            if bad is None:
+                del data["allocated_staff_days"]
+            else:
+                data["allocated_staff_days"] = bad
+            form = KippoProjectAdminForm(data=data)
+            self.assertFalse(form.is_valid(), f"allocated_staff_days={bad} should be invalid at full confidence")
+            self.assertIn("allocated_staff_days", form.errors)
+
+    def test_full_confidence_with_positive_allocated_staff_days_is_valid(self):
+        data = self._form_data(category="other")
+        data["phase"] = "completed"  # confidence 100
+        data["allocated_staff_days"] = "5"
         form = KippoProjectAdminForm(data=data)
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertNotIn("allocated_staff_days", form.errors)
+
+    def test_closed_project_exempt_from_full_confidence_allocated_requirement(self):
+        # the positive-allocated rule does not apply to closed projects
+        closed = KippoProject.objects.create(
+            organization=self.organization,
+            name="closed-full-confidence",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            phase="completed",
+            is_closed=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        data = self._form_data(category="other")
+        data["phase"] = "completed"
+        data["allocated_staff_days"] = "0"
+        form = KippoProjectAdminForm(instance=closed, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_edit_existing_project_not_blocked_by_new_required_fields(self):
         # the create-only rule also covers the kippo#41 additions — editing an existing project with a
