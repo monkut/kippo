@@ -19,6 +19,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from projects.definitions import ProjectRoles
 from projects.models import KippoProject, ProjectMonthlyAssignment
 from projects.serializers import ProjectMonthlyAssignmentSerializer
 
@@ -141,6 +142,26 @@ class ProjectMonthlyAssignmentModelTestCase(TestCase):
         candidate.refresh_from_db()
         self.assertTrue(candidate.is_confirmed)
 
+    def test_role_defaults_to_empty(self):
+        # role is optional; effort billing falls back to the developer rate when empty.
+        assignment = self._make_assignment()
+        assignment.save()
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.role, "")
+
+    def test_role_accepts_valid_projectrole(self):
+        assignment = self._make_assignment(role=ProjectRoles.PROJECT_MANAGER.value)
+        assignment.full_clean()
+        assignment.save()
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.role, ProjectRoles.PROJECT_MANAGER.value)
+
+    def test_role_rejects_invalid_value(self):
+        assignment = self._make_assignment(role="architect")
+        with self.assertRaises(ValidationError) as ctx:
+            assignment.full_clean()
+        self.assertIn("role", ctx.exception.error_dict)
+
 
 class ProjectMonthlyAssignmentSerializerTestCase(TestCase):
     """Serializer derives display/slack fields from OrganizationMembership."""
@@ -195,6 +216,12 @@ class ProjectMonthlyAssignmentSerializerTestCase(TestCase):
         data = ProjectMonthlyAssignmentSerializer(self.assignment).data
         self.assertIsNone(data["user_slack_username"])
         self.assertIsNone(data["user_slack_image_url"])
+
+    def test_serializer_exposes_role_writable(self):
+        self.assertIn("role", ProjectMonthlyAssignmentSerializer.Meta.fields)
+        self.assertNotIn("role", ProjectMonthlyAssignmentSerializer.Meta.read_only_fields)
+        data = ProjectMonthlyAssignmentSerializer(self.assignment).data
+        self.assertEqual(data["role"], "")
 
 
 class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
@@ -383,6 +410,28 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assignment_apr.refresh_from_db()
         self.assertEqual(self.assignment_apr.percentage, 75)
+
+    def test_create_with_role_persists(self):
+        new_month = datetime.date(2026, 7, 1)
+        payload = {
+            "project": str(self.project.id),
+            "user": str(self.user.id),
+            "month": new_month.isoformat(),
+            "percentage": 30,
+            "role": ProjectRoles.TESTER.value,
+            "is_confirmed": False,
+        }
+        response = self.client.post(self.list_url, payload, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        row = ProjectMonthlyAssignment.objects.get(project=self.project, user=self.user, month=new_month)
+        self.assertEqual(row.role, ProjectRoles.TESTER.value)
+
+    def test_partial_update_sets_role(self):
+        url = f"{self.list_url}{self.assignment_apr.id}/"
+        response = self.client.patch(url, {"role": ProjectRoles.PROJECT_MANAGER.value}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        self.assignment_apr.refresh_from_db()
+        self.assertEqual(self.assignment_apr.role, ProjectRoles.PROJECT_MANAGER.value)
 
     def test_destroy_removes_row(self):
         url = f"{self.list_url}{self.assignment_apr.id}/"

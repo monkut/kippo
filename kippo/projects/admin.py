@@ -43,7 +43,7 @@ from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
+from .definitions import NON_PROJECT_CATEGORY_VALUE, UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -55,6 +55,7 @@ from .functions import (
     get_user_session_organization,
 )
 from .models import (
+    PHASE_CONFIDENCE,
     ActiveKippoProject,
     CollectIssuesAction,
     KippoMilestone,
@@ -88,6 +89,16 @@ RETURN_TO_PARAM = "_return_to"
 # admin (hides them on /add/) and the active admin (hides them always — active ⇒ never closed)
 # stay in sync instead of repeating the literal tuple.
 PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
+
+# GET marker the close-action upsell wizard adds to the /add/ URL (kippo#41). When present, the admin
+# keeps the full sectioned add form (so the prefilled parent_project + inherited fields render and
+# save) and the upsell categories stay selectable, instead of the flat required-only plain add.
+UPSELL_SOURCE_PARAM = "_upsell_source"
+UPSELL_SOURCE_VALUE = "close"
+
+# confidence (%, derived from phase via PHASE_CONFIDENCE) at which a non-closed project must carry a
+# positive allocated_staff_days estimate (kippo#41).
+FULL_CONFIDENCE = 100
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +181,7 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
 class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
     model = ProjectMonthlyAssignment
     extra = 0
-    fields = ("user", "month", "percentage", "is_confirmed")
+    fields = ("user", "month", "percentage", "role", "is_confirmed")
     classes = ["collapse"]
 
 
@@ -634,7 +645,7 @@ def _build_upsell_prefill_params(project: KippoProject, selected_category: str) 
         "category": str(upsell_category_pk) if upsell_category_pk else "",
         "parent_project": str(project.id),
         "organization": str(project.organization_id),
-        "_upsell_source": "close",
+        UPSELL_SOURCE_PARAM: UPSELL_SOURCE_VALUE,
         "name": _next_upsell_project_name(project.name),
         "start_date": _start_of_next_month(today).isoformat(),
         "slack_channel_name": project.slack_channel_name,
@@ -785,10 +796,18 @@ add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calen
 
 
 class KippoProjectAdminForm(forms.ModelForm):
-    # Required at project registration (kippo#40 / T19) — enforced create-only so existing rows/edits
-    # are unaffected. category/phase always carry model defaults; 請求方法 is enforced via the required
-    # contract inline (see KippoProjectContractInline.get_min_num).
-    REQUIRED_AT_REGISTRATION = ("customer", "project_manager", "start_date", "target_date")
+    # Required at project registration (kippo#40 / T19; extended in kippo#41) — enforced create-only so
+    # existing rows/edits are unaffected. name/organization are NOT NULL and category/phase carry model
+    # defaults (so the model/ModelForm already enforces those four); the remaining creation fields are
+    # enforced here. allocated_staff_days is NOT here — it is conditionally required (see clean()).
+    # 請求方法 is enforced via the required contract inline (see KippoProjectContractInline.get_min_num).
+    REQUIRED_AT_REGISTRATION = (
+        "customer",
+        "project_manager",
+        "start_date",
+        "target_date",
+        "problem_definition",
+    )
 
     class Meta:
         model = KippoProject
@@ -800,9 +819,22 @@ class KippoProjectAdminForm(forms.ModelForm):
         # to detect a genuine registration (add) vs an edit of an existing row.
         if self.instance._state.adding:
             for field in self.REQUIRED_AT_REGISTRATION:
-                if not cleaned_data.get(field):
+                # test for "absent" (None/"") not falsiness
+                if cleaned_data.get(field) in (None, ""):
                     self.add_error(field, _("This field is required at project registration."))
         category = cleaned_data.get("category")
+        # allocated_staff_days must be a positive estimate once a real, non-closed project is fully
+        # confident — confidence (確度) is derived from the submitted phase. Non-project categories
+        # (internal/overhead buckets) are exempt (kippo#41).
+        phase = cleaned_data.get("phase")
+        allocated_staff_days = cleaned_data.get("allocated_staff_days")
+        is_non_project = getattr(category, "key", None) == NON_PROJECT_CATEGORY_VALUE
+        needs_estimate = not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
+        if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
+            self.add_error(
+                "allocated_staff_days",
+                _("A positive value is required when confidence is 100% (phase 契約稼働中 / 完了)."),
+            )
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
         # parent_project is readonly on the change form, so it won't appear in cleaned_data there
@@ -864,6 +896,21 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     )
+    # /add/ form (kippo#41): flat, no sections — only these required fields, in this order. The upsell
+    # close-wizard add (?_upsell_source=close) instead gets the full sectioned form (see get_fieldsets)
+    # so its prefilled optional fields (parent_project, slack, …) render and save.
+    ADD_FIELDS = (
+        "organization",
+        "customer",
+        "name",
+        "start_date",
+        "target_date",
+        "phase",
+        "category",
+        "project_manager",
+        "allocated_staff_days",
+        "problem_definition",
+    )
     # Shared base columns. KippoProjectAdmin appends display_as_active (it lists closed/inactive
     # projects too); the active admin uses this set as-is.
     list_display = (
@@ -900,17 +947,21 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         "generate_billing_entries",
     ]
     exclude = ("is_closed", "actual_date", "display_as_active", "display_in_project_report")
+    # Change-form layout (kippo#41). The /add/ form is flat + required-only (see ADD_FIELDS /
+    # get_fieldsets). Closure/survey fields (managed by the close action) and always-hidden fields
+    # (columnset, display_as_active, …) are omitted here and enforced via get_exclude.
     fieldsets = [
         (
             None,
             {
                 "fields": (
+                    "organization",
+                    "customer",
                     "name",
-                    "problem_definition",
                     "phase",
+                    "category",
                     "project_manager",
-                    "meeting_calendar_url_field",
-                    "meeting_description_tag_field",
+                    "problem_definition",
                 )
             },
         ),
@@ -930,18 +981,25 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             {
                 "classes": ("collapse",),
                 "fields": (
-                    "organization",
-                    "customer",
-                    "category",
                     "parent_project",
+                    "document_folder_url",
+                ),
+            },
+        ),
+        (
+            _("Extra"),
+            {
+                "classes": ("collapse",),
+                "fields": (
                     "slack_channel_name",
                     "slack_notification_channel_name",
-                    "columnset",
                     "enable_cost_report",
-                    "document_folder_url",
+                    "docbase_tag",
                     "github_project_html_url",
                     "github_project_api_nodeid",
-                    "docbase_tag",
+                    # computed readonly MTG-calendar displays (kippo#13) — optional, secondary info
+                    "meeting_calendar_url_field",
+                    "meeting_description_tag_field",
                 ),
             },
         ),
@@ -995,18 +1053,32 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             excluded.append("columnset")
         return tuple(excluded)
 
+    @staticmethod
+    def _is_upsell_add(request: DjangoRequest, obj: KippoProject | None) -> bool:
+        """True on the upsell close-wizard /add/ (kippo#41): it keeps the full sectioned form so the
+        prefilled parent_project + inherited fields render and save, unlike the flat plain add.
+        """
+        return obj is None and request.GET.get(UPSELL_SOURCE_PARAM) == UPSELL_SOURCE_VALUE
+
     def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
-        fieldsets = super().get_fieldsets(request, obj)
         excluded: set[str] = set(self.get_exclude(request, obj) or ())
         # estimated_completion_date is a computed readonly field, only surfaced for open projects on edit
         if obj is None or obj.is_closed:
             excluded.add("estimated_completion_date")
-        # Build a fresh fieldset list (never mutate the class attribute): strip excluded fields and,
-        # on /add/, expand the collapsed sections (Details) so their fields are visible
-        # without an extra click.
+        # /add/ (kippo#41): flat, required-only, in spec order — EXCEPT the upsell close-wizard add,
+        # which prefills optional fields (parent_project, slack, …) that must render to be saved, so it
+        # gets the full sectioned form below.
+        if obj is None and not self._is_upsell_add(request, obj):
+            return [(None, {"fields": tuple(f for f in self.ADD_FIELDS if f not in excluded)})]
+        # Change form (and upsell-wizard add): the full sectioned layout minus excluded fields. Build a
+        # fresh list (never mutate the class attribute); drop now-empty sections; expand collapsed
+        # sections on the add path so prefilled fields are visible.
         rebuilt = []
-        for label, opts in fieldsets:
-            new_opts = {**opts, "fields": tuple(f for f in opts.get("fields", ()) if f not in excluded)}
+        for label, opts in self.fieldsets:
+            fields = tuple(f for f in opts.get("fields", ()) if f not in excluded)
+            if not fields:
+                continue
+            new_opts = {**opts, "fields": fields}
             if obj is None and "collapse" in new_opts.get("classes", ()):
                 new_opts["classes"] = tuple(c for c in new_opts["classes"] if c != "collapse")
             rebuilt.append((label, new_opts))
@@ -1038,7 +1110,16 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def formfield_for_foreignkey(self, db_field: models.Field, request: DjangoRequest, **kwargs):
         # Limit the category select to active categories (global defaults + any organization's custom categories).
         if db_field.name == "category":
-            kwargs["queryset"] = KippoProjectOrganizationCategory.objects.filter(is_active=True)
+            queryset = KippoProjectOrganizationCategory.objects.filter(is_active=True)
+            # On the plain /add/ form (kippo#41) upsell categories are hidden: they require a
+            # parent_project, which only the upsell close-wizard add exposes. Manual upsell creation
+            # goes through the close wizard (?_upsell_source=close), where they remain available.
+            # Detect the add view via the resolved url_name (…_add) rather than a path substring.
+            url_name = getattr(request.resolver_match, "url_name", "") or ""
+            is_plain_add = url_name.endswith("_add") and request.GET.get(UPSELL_SOURCE_PARAM) != UPSELL_SOURCE_VALUE
+            if is_plain_add:
+                queryset = queryset.exclude(key__in=UPSELL_CATEGORY_VALUES)
+            kwargs["queryset"] = queryset
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description=_("confidence"), ordering="confidence")
@@ -1254,13 +1335,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             form.base_fields[fieldname].widget.can_change_related = False
             form.base_fields[fieldname].widget.can_delete_related = False
 
-        # parent_project: optional selectable field on add (GET-prefilled by the upsell close-action flow);
-        # readonly on change form (handled in get_readonly_fields).
-        # Required when category is an upsell value — enforced by KippoProjectAdminForm.clean().
-        # Scope queryset to the new project's organization — cross-org parent/child relationships make
-        # no business sense; the form's clean() rejects mismatches at submit-time.
-        if obj is None and "parent_project" in form.base_fields and user_initial_organization:
-            form.base_fields["parent_project"].queryset = KippoProject.objects.filter(organization=user_initial_organization)
+        # parent_project: readonly on the change form (handled in get_readonly_fields). On /add/ it only
+        # appears via the upsell close-wizard (kippo#41), where _apply_upsell_source_widgets scopes its
+        # queryset; required when category is an upsell value — enforced by KippoProjectAdminForm.clean().
 
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
@@ -1271,7 +1348,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and request.GET.get("customer") and "customer" in form.base_fields:
             form.base_fields["customer"].widget = forms.HiddenInput()
 
-        if obj is None and request.GET.get("_upsell_source") == "close":
+        if self._is_upsell_add(request, obj):
             self._apply_upsell_source_widgets(form, user_memberships)
         return form
 
@@ -1622,8 +1699,8 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project", "get_project_organization", "user", "month", "percentage", "is_confirmed")
-    list_filter = ("is_confirmed", "month", "project__organization")
+    list_display = ("project", "get_project_organization", "user", "month", "percentage", "role", "is_confirmed")
+    list_filter = ("is_confirmed", "role", "month", "project__organization")
     search_fields = ("project__name", "user__username")
     actions = (auto_extend_projectmonthlyassignment_action,)
 
