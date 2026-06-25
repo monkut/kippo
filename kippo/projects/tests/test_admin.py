@@ -588,22 +588,24 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTemplateUsed(response, "admin/projects/close_project_action.html")
         self.assertContains(response, "project1")
 
-    def _assert_parent_project_selectable(self, adminform: AdminForm, response_content: str) -> None:
-        widget = adminform.form.fields["parent_project"].widget
-        # the admin FK widget is wrapped in RelatedFieldWidgetWrapper — unwrap to get the real widget
-        inner_widget = getattr(widget, "widget", widget)
-        self.assertNotIsInstance(inner_widget, forms.HiddenInput)
-        self.assertIn('<select name="parent_project"', response_content)
-
     def test_add_form_prefills_from_get_params(self):
+        # the close-wizard opens /add/?_upsell_source=close&... and prefills the new project's fields;
+        # parent_project is present (hidden) on this wizard add (kippo#41).
         url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.project1.id)})
+        response = self.client.get(
+            url,
+            {
+                "_upsell_source": "close",
+                "category": "upsell-improvement",
+                "parent_project": str(self.project1.id),
+                "name": "prefilled-name",
+            },
+        )
         self.assertEqual(response.status_code, HTTPStatus.OK)
         adminform = response.context["adminform"]
-        self.assertEqual(adminform.form.initial.get("category"), "upsell-improvement")
+        self.assertEqual(adminform.form.initial.get("name"), "prefilled-name")
         self.assertEqual(adminform.form.initial.get("parent_project"), str(self.project1.id))
-        # parent_project should be a selectable field on add (not hidden) so manual users can pick a parent
-        self._assert_parent_project_selectable(adminform, response.content.decode())
+        self.assertIn("parent_project", adminform.form.fields)
 
     def test_close_related_fields_hidden_from_change_form(self):
         url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
@@ -631,58 +633,12 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertNotIn('name="parent_project"', response.content.decode())
         self.assertContains(response, self.project1.name)
 
-    def test_manual_add_form_exposes_parent_project_as_selectable(self):
-        # manual add (no GET params from close-action) — parent_project should be a visible Select, not hidden
+    def test_manual_add_form_omits_parent_project(self):
+        # kippo#41: the flat /add/ form no longer exposes parent_project (upsell creation is wizard-only)
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertIn("parent_project", adminform.form.fields)
-        self._assert_parent_project_selectable(adminform, response.content.decode())
-        # available parent options include the existing project
-        self.assertContains(response, self.project1.name)
-
-    def test_add_form_parent_project_queryset_scoped_to_new_projects_organization(self):
-        # parent_project dropdown should only list projects from the same org as the new project being created
-        other_org_project = KippoProject.objects.create(
-            organization=self.other_organization,
-            name="other-org-project",
-            category=_global_category("other"),
-            columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
-            start_date=self.current_date,
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        # log in as a staff user who only belongs to self.organization (not self.other_organization)
-        self.client.force_login(self.staffuser_with_org)
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        parent_qs = response.context["adminform"].form.fields["parent_project"].queryset
-        parent_ids = set(parent_qs.values_list("id", flat=True))
-        self.assertIn(self.project1.id, parent_ids)
-        self.assertNotIn(other_org_project.id, parent_ids)
-
-    def test_add_form_parent_project_queryset_excludes_other_orgs_for_superuser(self):
-        # superuser: parent_project queryset is scoped to the new project's org, not globally visible
-        other_org_project = KippoProject.objects.create(
-            organization=self.other_organization,
-            name="other-org-project-superuser-view",
-            category=_global_category("other"),
-            columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
-            start_date=self.current_date,
-            created_by=self.github_manager,
-            updated_by=self.github_manager,
-        )
-        # superuser_no_org was added to self.organization in setUp; log in
-        self.client.force_login(self.superuser_no_org)
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        parent_qs = response.context["adminform"].form.fields["parent_project"].queryset
-        parent_ids = set(parent_qs.values_list("id", flat=True))
-        self.assertIn(self.project1.id, parent_ids)
-        self.assertNotIn(other_org_project.id, parent_ids)
+        self.assertNotIn("parent_project", response.context["adminform"].form.fields)
 
     def test_upsell_redirect_hides_parent_project_and_organization(self):
         # close-action upsell redirect: parent_project and organization must render as hidden inputs
@@ -708,17 +664,6 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIn('type="hidden" name="parent_project"', content)
         self.assertIn('type="hidden" name="organization"', content)
 
-    def test_manual_add_without_upsell_marker_keeps_organization_visible(self):
-        # manual add (no _upsell_source marker) — organization should NOT be forced hidden by the
-        # upsell branch. (When the user has multiple orgs, organization is shown as a visible select.)
-        url = reverse("admin:projects_kippoproject_add")
-        # GET with parent_project but no _upsell_source: must remain in manual-add mode
-        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.project1.id)})
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        # parent_project remains selectable (not hidden)
-        self._assert_parent_project_selectable(adminform, response.content.decode())
-
     def test_upsell_form_with_derived_organization_is_valid_and_saves_parent(self):
         # the upsell prefill always sets organization = parent_project.organization, so the form
         # validator's parent-org invariant is satisfied by construction. Save and verify the result.
@@ -737,11 +682,13 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "confidence": "80",
                 "category": str(_global_category("upsell-improvement").pk),
                 "columnset": str(self.project1.columnset_id),
-                # required at registration (kippo#40 / T19)
+                # required at registration (kippo#40 / T19, extended kippo#41)
                 "customer": str(customer.id),
                 "project_manager": str(self.superuser_no_org.id),
                 "start_date": self.current_date.isoformat(),
                 "target_date": self.current_date.isoformat(),
+                "allocated_staff_days": "10",
+                "problem_definition": "upsell problem",
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
@@ -797,7 +744,8 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
 
     def _form_data(self, *, category: str, parent_project_id: str | None = None) -> dict:
         # category is a FK ModelChoiceField — submit the category's PK, resolved from its key.
-        # customer / project_manager / target_date are required at registration (kippo#40 / T19).
+        # customer / project_manager / dates / allocated_staff_days / problem_definition are all
+        # required at registration (kippo#40 / T19, extended in kippo#41).
         data = {
             "organization": str(self.organization.id),
             "name": "manual-new-project",
@@ -809,6 +757,8 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             "project_manager": str(self.github_manager.id),
             "start_date": self.current_date.isoformat(),
             "target_date": self.current_date.isoformat(),
+            "allocated_staff_days": "10",
+            "problem_definition": "solve the thing",
         }
         if parent_project_id:
             data["parent_project"] = parent_project_id
@@ -838,6 +788,33 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(form.is_valid())
         for field in ("customer", "project_manager", "start_date", "target_date"):
             self.assertIn(field, form.errors)
+
+    def test_registration_requires_allocated_staff_days_and_problem_definition(self):
+        # kippo#41: allocated_staff_days + problem_definition are also required at registration
+        data = self._form_data(category="other")
+        for field in ("allocated_staff_days", "problem_definition"):
+            del data[field]
+        form = KippoProjectAdminForm(data=data)
+        self.assertFalse(form.is_valid())
+        for field in ("allocated_staff_days", "problem_definition"):
+            self.assertIn(field, form.errors)
+
+    def test_edit_existing_project_not_blocked_by_new_required_fields(self):
+        # the create-only rule also covers the kippo#41 additions — editing an existing project with a
+        # blank allocated_staff_days / problem_definition must still validate
+        existing = KippoProject.objects.create(
+            organization=self.organization,
+            name="pre-existing-no-estimate",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        data = self._form_data(category="other")
+        for field in ("allocated_staff_days", "problem_definition"):
+            del data[field]
+        form = KippoProjectAdminForm(instance=existing, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_edit_existing_project_not_blocked_by_registration_requirements(self):
         # editing an existing customer-less / PM-less project must still validate (create-only rule)
@@ -1413,7 +1390,8 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
-        self.assertTrue(any("category" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
+        # Details (document_folder_url) + Extra stay collapsed on change (kippo#41)
+        self.assertTrue(any("document_folder_url" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
 
     def test_columnset_not_in_add_or_change_fieldsets(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
@@ -1479,36 +1457,48 @@ class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
 
 
 class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """parent_project should appear in Details fieldset (after category) on add — not on change."""
+    """parent_project (kippo#41): absent from the flat /add/ form; exposed (hidden) only on the upsell
+    close-wizard add; in the Details section (readonly) on change.
+    """
 
     def setUp(self):
         super().setUp()
         self.existing_project = self.make_project("existing-project")
 
     @staticmethod
-    def _details_fieldset_fields(fieldsets: list) -> tuple:
-        for _label, opts in fieldsets:
-            if "category" in opts.get("fields", ()):
-                return tuple(opts["fields"])
-        raise AssertionError("No fieldset containing 'category' found")
+    def _all_fieldset_fields(fieldsets: list) -> list:
+        return [f for _label, opts in fieldsets for f in opts.get("fields", ())]
 
-    def test_add_fieldsets_place_parent_project_immediately_after_category(self):
+    def test_plain_add_fieldsets_are_flat_required_only(self):
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
-        details_fields = self._details_fieldset_fields(fieldsets)
-        self.assertIn("parent_project", details_fields)
-        category_index = details_fields.index("category")
-        self.assertEqual(details_fields[category_index + 1], "parent_project")
+        # a single, unlabeled section holding exactly the required ADD_FIELDS, in order
+        self.assertEqual(len(fieldsets), 1)
+        label, opts = fieldsets[0]
+        self.assertIsNone(label)
+        self.assertEqual(tuple(opts["fields"]), KippoProjectBaseAdmin.ADD_FIELDS)
+        self.assertNotIn("parent_project", opts["fields"])
 
-    def test_change_fieldsets_omit_parent_project(self):
+    def test_change_fieldsets_have_four_sections_with_parent_in_details(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
+        labels = [str(label) if label is not None else None for label, _opts in fieldsets]
+        self.assertIn(None, labels)
+        for section in ("Dates & Estimates", "Details", "Extra"):
+            self.assertIn(section, labels)
+        # category sits in the top section; parent_project in Details (readonly on change)
+        self.assertIn("category", fieldsets[0][1]["fields"])
+        details = next(opts["fields"] for label, opts in fieldsets if str(label) == "Details")
+        self.assertIn("parent_project", details)
+
+    def test_active_admin_change_omits_parent_project(self):
+        # ActiveKippoProjectAdmin excludes parent_project on change (active projects aren't upsell-edited)
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
-        details_fields = self._details_fieldset_fields(fieldsets)
-        self.assertNotIn("parent_project", details_fields)
+        self.assertNotIn("parent_project", self._all_fieldset_fields(fieldsets))
 
     def test_class_fieldsets_attribute_unchanged_after_get_fieldsets(self):
-        # get_fieldsets must not mutate the (inherited) class attribute — exclusions are applied
-        # to a copy, otherwise mutations would persist across requests.
+        # get_fieldsets must not mutate the (inherited) class attribute — a fresh list is built each call.
         from copy import deepcopy
 
         before = deepcopy(ActiveKippoProjectAdmin.fieldsets)
@@ -1517,60 +1507,35 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         self.assertEqual(ActiveKippoProjectAdmin.fieldsets, before)
 
-    def test_add_view_renders_parent_project_select(self):
+    def test_plain_add_view_omits_parent_project(self):
+        # normal /add/ is flat + required-only — parent_project is not part of the form at all
         url = reverse("admin:projects_activekippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertNotIn("parent_project", response.context["adminform"].form.fields)
+
+    def test_upsell_wizard_add_view_exposes_parent_project_hidden(self):
+        # the close-wizard add (?_upsell_source=close) keeps the full sectioned form so parent_project
+        # renders (hidden) and POSTs — see KippoProjectBaseAdmin.get_fieldsets.
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(
+            url,
+            {"_upsell_source": "close", "category": "upsell-improvement", "parent_project": str(self.existing_project.id)},
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
         adminform = response.context["adminform"]
         self.assertIn("parent_project", adminform.form.fields)
-        # available parent options include the existing project
-        self.assertContains(response, self.existing_project.name)
-        # field must be a Select (not hidden) so users can pick a parent
         widget = adminform.form.fields["parent_project"].widget
         inner_widget = getattr(widget, "widget", widget)
-        self.assertNotIsInstance(inner_widget, forms.HiddenInput)
+        self.assertIsInstance(inner_widget, forms.HiddenInput)
 
-    def test_kippoproject_add_view_still_exposes_parent_project_for_close_action_prefill(self):
-        # KippoProjectAdmin (the close-action target) must continue to expose parent_project on /add/
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url, {"category": "upsell-improvement", "parent_project": str(self.existing_project.id)})
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        adminform = response.context["adminform"]
-        self.assertIn("parent_project", adminform.form.fields)
-        self.assertEqual(adminform.form.initial.get("parent_project"), str(self.existing_project.id))
-
-    @staticmethod
-    def _ordered_form_field_names(adminform: AdminForm) -> list:
-        # AdminForm iteration yields Fieldsets → Fieldlines → AdminFields/AdminReadonlyFields.
-        # Editable fields wrap a BoundField (.field has .name); readonly fields store .field as a dict.
-        names = []
-        for fieldset in adminform:
-            for fieldline in fieldset:
-                for admin_field in fieldline:
-                    f = admin_field.field
-                    names.append(f["name"] if isinstance(f, dict) else f.name)
-        return names
-
-    def test_kippoproject_add_view_places_parent_project_immediately_after_category(self):
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        ordered = self._ordered_form_field_names(response.context["adminform"])
-        self.assertIn("category", ordered)
-        self.assertIn("parent_project", ordered)
-        self.assertEqual(ordered[ordered.index("category") + 1], "parent_project")
-
-    def test_kippoproject_change_view_places_parent_project_after_category(self):
-        # parent_project is statically slotted after `category` in the Details fieldset, so the
-        # ordering is consistent across add and change views.
-        existing = self.make_project("ordering-change-target")
-        url = reverse("admin:projects_kippoproject_change", args=[existing.id])
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        ordered = self._ordered_form_field_names(response.context["adminform"])
-        self.assertIn("category", ordered)
-        self.assertIn("parent_project", ordered)
-        self.assertEqual(ordered[ordered.index("category") + 1], "parent_project")
+    def test_upsell_wizard_add_post_preserves_parent_project_field(self):
+        # form action="" posts to the same URL incl. its query string, so _upsell_source survives the
+        # POST and get_fieldsets rebuilds the full form — an invalid submit still re-renders parent_project.
+        url = reverse("admin:projects_kippoproject_add") + "?_upsell_source=close"
+        response = self.client.post(url, {"name": "incomplete-upsell"})  # intentionally invalid
+        self.assertEqual(response.status_code, HTTPStatus.OK)  # re-rendered with errors, not a redirect
+        self.assertIn("parent_project", response.context["adminform"].form.fields)
 
 
 class KippoProjectAdminSingleOrgHidesOrganizationFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
