@@ -172,7 +172,7 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     model = KippoProjectContract
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
-    fields = ("billing_type", "total_amount", "start_date", "end_date", "note")
+    fields = ("billing_type", "pricing_basis", "total_amount", "start_date", "end_date", "note")
 
     def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         # 請求方法 is required at project registration (kippo#40 / T19): require the contract on /add/.
@@ -1585,8 +1585,8 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmi
     # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
     # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
     # the project (KippoProjectContractInline); this page adds the billing-entries inline.
-    list_display = ("project", "billing_type", "total_amount", "start_date", "end_date")
-    list_filter = ("billing_type",)
+    list_display = ("project", "billing_type", "pricing_basis", "total_amount", "start_date", "end_date")
+    list_filter = ("billing_type", "pricing_basis")
     search_fields = ("project__name",)
     raw_id_fields = ("project",)
     inlines = [KippoProjectBillingEntryInline]

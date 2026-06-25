@@ -155,6 +155,8 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
             f"{prefix}-INITIAL_FORMS": "0",
             f"{prefix}-MIN_NUM_FORMS": "0",
             f"{prefix}-MAX_NUM_FORMS": "1",
+            # pricing_basis renders with its default selected; a browser posts it. Callers override via form_data.
+            f"{prefix}-0-pricing_basis": "fixed",
         }
         data.update({f"{prefix}-0-{field}": value for field, value in form_data.items()})
         formset = formset_class(data=data, instance=project, prefix=prefix)
@@ -227,8 +229,10 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
             f"{prefix}-INITIAL_FORMS": "0",
             f"{prefix}-MIN_NUM_FORMS": "0",
             f"{prefix}-MAX_NUM_FORMS": "1",
-            # period echoes the pre-filled initial; billing_type echoes its default; total_amount left blank
+            # period echoes the pre-filled initial; billing_type / pricing_basis echo their defaults;
+            # total_amount left blank
             f"{prefix}-0-billing_type": "delivery",
+            f"{prefix}-0-pricing_basis": "fixed",
             f"{prefix}-0-total_amount": "",
             f"{prefix}-0-start_date": "2026-02-01",
             f"{prefix}-0-end_date": "2026-08-31",
