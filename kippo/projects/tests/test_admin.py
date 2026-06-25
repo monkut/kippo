@@ -640,6 +640,26 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertNotIn("parent_project", response.context["adminform"].form.fields)
 
+    def test_plain_add_excludes_upsell_categories(self):
+        # kippo#41: upsell categories are hidden on the plain add form (they need a parent_project)
+        from projects.definitions import UPSELL_CATEGORY_VALUES
+
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        keys = set(response.context["adminform"].form.fields["category"].queryset.values_list("key", flat=True))
+        self.assertTrue(keys.isdisjoint(UPSELL_CATEGORY_VALUES), f"upsell categories leaked onto plain add: {keys & set(UPSELL_CATEGORY_VALUES)}")
+
+    def test_upsell_wizard_add_keeps_upsell_categories(self):
+        # the close-wizard add (?_upsell_source=close) keeps upsell categories selectable
+        from projects.definitions import UPSELL_CATEGORY_VALUES
+
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url, {"_upsell_source": "close"})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        keys = set(response.context["adminform"].form.fields["category"].queryset.values_list("key", flat=True))
+        self.assertFalse(keys.isdisjoint(UPSELL_CATEGORY_VALUES), "wizard add must keep upsell categories available")
+
     def test_upsell_redirect_hides_parent_project_and_organization(self):
         # close-action upsell redirect: parent_project and organization must render as hidden inputs
         # so the user cannot edit them; the values still POST so the existing validator runs.
@@ -798,6 +818,14 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.assertFalse(form.is_valid())
         for field in ("allocated_staff_days", "problem_definition"):
             self.assertIn(field, form.errors)
+
+    def test_registration_accepts_allocated_staff_days_zero(self):
+        # 0 is a valid PositiveIntegerField value — the required check must test absence, not falsiness
+        data = self._form_data(category="other")
+        data["allocated_staff_days"] = "0"
+        form = KippoProjectAdminForm(data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertNotIn("allocated_staff_days", form.errors)
 
     def test_edit_existing_project_not_blocked_by_new_required_fields(self):
         # the create-only rule also covers the kippo#41 additions — editing an existing project with a
@@ -1356,6 +1384,12 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=None)
         top_fields = fieldsets[0][1]["fields"]
         self.assertIn("phase", top_fields)
+
+    def test_add_fields_cover_all_registration_required_fields(self):
+        # poka-yoke: every create-only required field must be on the flat add form (ADD_FIELDS), else
+        # the form would reject a field the user can't see/fill (kippo#41)
+        missing = set(KippoProjectAdminForm.REQUIRED_AT_REGISTRATION) - set(KippoProjectBaseAdmin.ADD_FIELDS)
+        self.assertEqual(missing, set(), f"required-at-registration fields missing from ADD_FIELDS: {missing}")
 
     def test_confidence_not_in_form(self):
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)

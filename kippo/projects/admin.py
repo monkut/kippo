@@ -89,6 +89,12 @@ RETURN_TO_PARAM = "_return_to"
 # stay in sync instead of repeating the literal tuple.
 PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 
+# GET marker the close-action upsell wizard adds to the /add/ URL (kippo#41). When present, the admin
+# keeps the full sectioned add form (so the prefilled parent_project + inherited fields render and
+# save) and the upsell categories stay selectable, instead of the flat required-only plain add.
+UPSELL_SOURCE_PARAM = "_upsell_source"
+UPSELL_SOURCE_VALUE = "close"
+
 logger = logging.getLogger(__name__)
 
 # Default per-role daily rates pre-filled into the ProjectAssignmentRate inline on /add/.
@@ -634,7 +640,7 @@ def _build_upsell_prefill_params(project: KippoProject, selected_category: str) 
         "category": str(upsell_category_pk) if upsell_category_pk else "",
         "parent_project": str(project.id),
         "organization": str(project.organization_id),
-        "_upsell_source": "close",
+        UPSELL_SOURCE_PARAM: UPSELL_SOURCE_VALUE,
         "name": _next_upsell_project_name(project.name),
         "start_date": _start_of_next_month(today).isoformat(),
         "slack_channel_name": project.slack_channel_name,
@@ -809,7 +815,9 @@ class KippoProjectAdminForm(forms.ModelForm):
         # to detect a genuine registration (add) vs an edit of an existing row.
         if self.instance._state.adding:
             for field in self.REQUIRED_AT_REGISTRATION:
-                if not cleaned_data.get(field):
+                # test for "absent" (None/"") not falsiness — allocated_staff_days=0 is a valid entry,
+                # not a missing one.
+                if cleaned_data.get(field) in (None, ""):
                     self.add_error(field, _("This field is required at project registration."))
         category = cleaned_data.get("category")
         organization = cleaned_data.get("organization")
@@ -1030,6 +1038,13 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             excluded.append("columnset")
         return tuple(excluded)
 
+    @staticmethod
+    def _is_upsell_add(request: DjangoRequest, obj: KippoProject | None) -> bool:
+        """True on the upsell close-wizard /add/ (kippo#41): it keeps the full sectioned form so the
+        prefilled parent_project + inherited fields render and save, unlike the flat plain add.
+        """
+        return obj is None and request.GET.get(UPSELL_SOURCE_PARAM) == UPSELL_SOURCE_VALUE
+
     def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: set[str] = set(self.get_exclude(request, obj) or ())
         # estimated_completion_date is a computed readonly field, only surfaced for open projects on edit
@@ -1038,8 +1053,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # /add/ (kippo#41): flat, required-only, in spec order — EXCEPT the upsell close-wizard add,
         # which prefills optional fields (parent_project, slack, …) that must render to be saved, so it
         # gets the full sectioned form below.
-        is_upsell_add = obj is None and request.GET.get("_upsell_source") == "close"
-        if obj is None and not is_upsell_add:
+        if obj is None and not self._is_upsell_add(request, obj):
             return [(None, {"fields": tuple(f for f in self.ADD_FIELDS if f not in excluded)})]
         # Change form (and upsell-wizard add): the full sectioned layout minus excluded fields. Build a
         # fresh list (never mutate the class attribute); drop now-empty sections; expand collapsed
@@ -1085,7 +1099,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             # On the plain /add/ form (kippo#41) upsell categories are hidden: they require a
             # parent_project, which only the upsell close-wizard add exposes. Manual upsell creation
             # goes through the close wizard (?_upsell_source=close), where they remain available.
-            if "/add/" in request.path and request.GET.get("_upsell_source") != "close":
+            # Detect the add view via the resolved url_name (…_add) rather than a path substring.
+            url_name = getattr(request.resolver_match, "url_name", "") or ""
+            is_plain_add = url_name.endswith("_add") and request.GET.get(UPSELL_SOURCE_PARAM) != UPSELL_SOURCE_VALUE
+            if is_plain_add:
                 queryset = queryset.exclude(key__in=UPSELL_CATEGORY_VALUES)
             kwargs["queryset"] = queryset
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
@@ -1316,7 +1333,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if obj is None and request.GET.get("customer") and "customer" in form.base_fields:
             form.base_fields["customer"].widget = forms.HiddenInput()
 
-        if obj is None and request.GET.get("_upsell_source") == "close":
+        if self._is_upsell_add(request, obj):
             self._apply_upsell_source_widgets(form, user_memberships)
         return form
 
