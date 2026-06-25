@@ -43,7 +43,7 @@ from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
+from .definitions import NON_PROJECT_CATEGORY_VALUE, UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -822,17 +822,19 @@ class KippoProjectAdminForm(forms.ModelForm):
                 # test for "absent" (None/"") not falsiness
                 if cleaned_data.get(field) in (None, ""):
                     self.add_error(field, _("This field is required at project registration."))
-        # allocated_staff_days must be a positive estimate once a (non-closed) project is fully
-        # confident — confidence (確度) is derived from the submitted phase (kippo#41).
+        category = cleaned_data.get("category")
+        # allocated_staff_days must be a positive estimate once a real, non-closed project is fully
+        # confident — confidence (確度) is derived from the submitted phase. Non-project categories
+        # (internal/overhead buckets) are exempt (kippo#41).
         phase = cleaned_data.get("phase")
         allocated_staff_days = cleaned_data.get("allocated_staff_days")
-        needs_estimate = not self.instance.is_closed and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
+        is_non_project = getattr(category, "key", None) == NON_PROJECT_CATEGORY_VALUE
+        needs_estimate = not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
         if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
             self.add_error(
                 "allocated_staff_days",
                 _("A positive value is required when confidence is 100% (phase 契約稼働中 / 完了)."),
             )
-        category = cleaned_data.get("category")
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
         # parent_project is readonly on the change form, so it won't appear in cleaned_data there

@@ -863,6 +863,14 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         form = KippoProjectAdminForm(instance=closed, data=data)
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_non_project_category_exempt_from_full_confidence_allocated_requirement(self):
+        # non-project (internal/overhead) categories are exempt even at full confidence
+        data = self._form_data(category="non-project")
+        data["phase"] = "completed"  # confidence 100
+        data["allocated_staff_days"] = "0"
+        form = KippoProjectAdminForm(data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_edit_existing_project_not_blocked_by_new_required_fields(self):
         # the create-only rule also covers the kippo#41 additions — editing an existing project with a
         # blank allocated_staff_days / problem_definition must still validate
