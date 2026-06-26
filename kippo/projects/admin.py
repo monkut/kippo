@@ -10,6 +10,7 @@ from pathlib import Path
 from string import ascii_lowercase
 from typing import TYPE_CHECKING
 
+import nested_admin
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
@@ -150,7 +151,7 @@ class LockWhenProjectClosedInlineMixin:
         return super().has_delete_permission(request, obj)
 
 
-class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = ProjectAssignmentRate
     extra = 0
     # One rate per role (unique_together project+role) — cap rows at the number of defined roles so
@@ -161,18 +162,30 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
     # seeded in save_model on create. Shown on /change/ for editing the per-role rates.
 
 
-class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = ProjectMonthlyAssignment
     extra = 0
     fields = ("user", "month", "percentage", "role", "is_confirmed")
     classes = ["collapse"]
 
 
-class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
+    # Billing entries belong to the contract (kippo#31). Rendered both directly on
+    # KippoProjectContractAdmin and nested under KippoProjectContractInline on the project page.
+    model = KippoProjectBillingEntry
+    extra = 0
+    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "received_by", "note")
+    # received_datetime / received_by are auto-managed (stamped when is_received is ticked, cleared
+    # when unticked) — shown read-only so typed values can't be silently discarded.
+    readonly_fields = ("received_datetime", "received_by")
+
+
+class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedStackedInline):
     model = KippoProjectContract
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
     fields = ("billing_type", "pricing_basis", "total_amount", "start_date", "end_date", "note")
+    inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
 
     def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         # 請求方法 is required at project registration (kippo#40 / T19): require the contract on /add/.
@@ -195,17 +208,6 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
                 super().__init__(*args, **inner_kwargs)
 
         return PeriodPrefilledFormSet
-
-
-class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, admin.TabularInline):
-    # Billing entries belong to the contract (kippo#31): edited via KippoProjectContractAdmin, not
-    # the project (the entry no longer carries a project FK).
-    model = KippoProjectBillingEntry
-    extra = 0
-    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "received_by", "note")
-    # received_datetime / received_by are auto-managed (stamped when is_received is ticked, cleared
-    # when unticked) — shown read-only so typed values can't be silently discarded.
-    readonly_fields = ("received_datetime", "received_by")
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -236,7 +238,7 @@ class KippoMilestoneAdminInline(AllowIsStaffAdminMixin, admin.TabularInline):
         return qs
 
 
-class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
+class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = ProjectWeeklyEffort
     extra = 0
     fields = ("week_start", "user", "hours")
@@ -279,7 +281,7 @@ class ProjectWeeklyEffortInlineFormSet(BaseInlineFormSet):
                 form.add_error("week_start", WEEKLY_EFFORT_CLOSED_MESSAGE)
 
 
-class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = ProjectWeeklyEffort
     extra = 1
     fields = ("week_start", "user", "hours")
@@ -315,7 +317,7 @@ class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsSt
         return formset
 
 
-class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = KippoProjectStatus
     extra = 0
     fields = ("created_datetime", "created_by", "comment")
@@ -333,7 +335,7 @@ class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, admin.TabularInlin
         return qs
 
 
-class KippoProjectStatusAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.TabularInline):
+class KippoProjectStatusAdminInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = KippoProjectStatus
     extra = 1
     fields = ("comment",)
@@ -428,7 +430,7 @@ class GithubRepositoryProjectInlineFormSet(BaseInlineFormSet):
             obj.save(update_fields=["project"])
 
 
-class GithubRepositoryProjectInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, admin.StackedInline):
+class GithubRepositoryProjectInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedStackedInline):
     model = GithubRepository
     fk_name = "project"
     form = GithubRepositoryProjectInlineForm
@@ -821,7 +823,7 @@ class KippoProjectAdminForm(forms.ModelForm):
         if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
             self.add_error(
                 "allocated_staff_days",
-                _("A positive value is required when confidence is 100% (phase 契約稼働中 / 完了)."),
+                _("A positive value is required when confidence is 100% (phase 契約(稼働中) / 完了)."),
             )
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
@@ -866,7 +868,7 @@ class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedB
     ordering = ("organization", "sort_order", "key")
 
 
-class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmin, UserCreatedBaseModelAdmin):
     """Shared config for the two registered project admins. Not registered itself.
 
     Subclassed by KippoProjectAdmin (all projects) and ActiveKippoProjectAdmin (active only, via
@@ -1290,6 +1292,11 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             if instance._state.adding:  # Only for create (needed for handling uuid field as id)
                 instance.created_by = request.user  # only update created_by once!
             instance.updated_by = request.user
+            # Billing entries can now be edited via the nested inline on the project page; stamp
+            # received_by here too (the model save() leaves it for the admin), matching
+            # KippoProjectContractAdmin.save_formset so receipts are consistent regardless of page.
+            if isinstance(instance, KippoProjectBillingEntry) and instance.is_received and not instance.received_by:
+                instance.received_by = request.user
             instance.save()
         formset.save_m2m()
 
@@ -1392,7 +1399,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             readonly_fields = (*readonly_fields, *locked)
         return readonly_fields
 
-    @admin.display(description=_("Estimated Completion Date"))
+    @admin.display(description=_("完了予測日"))
     def estimated_completion_date(self, obj: KippoProject | None = None) -> str:
         from .exceptions import ProjectStartDateRequiredError
         from .services.forecast import ProjectAssignmentForecastManager
@@ -1581,7 +1588,7 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
 
 
 @admin.register(KippoProjectContract)
-class KippoProjectContractAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmin, UserCreatedBaseModelAdmin):
     # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
     # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
     # the project (KippoProjectContractInline); this page adds the billing-entries inline.

@@ -1,9 +1,10 @@
 import datetime
 
-from accounts.models import Country, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
+from accounts.models import Country, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 from commons.definitions import SATURDAY, SUNDAY
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
@@ -683,6 +684,63 @@ class KippoProjectOrganizationCategoryTestCase(TestCase):
     def test_new_project_defaults_to_other_category(self):
         # setup_basic_project creates projects without an explicit category — they take the model default.
         self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)
+
+
+class KippoProjectCategoryLabelUniquenessTestCase(TestCase):
+    """ラベル uniqueness: global↔org labels must not repeat; org↔org labels may overlap."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.user = created["KippoUser"]
+        self.org1 = created["KippoOrganization"]
+        self.org2 = KippoOrganization.objects.create(
+            name="second-test-organization",
+            github_organization_name="category-label-second-org",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+    def _make(self, organization: KippoOrganization | None, key: str, label: str) -> KippoProjectOrganizationCategory:
+        return KippoProjectOrganizationCategory.objects.create(
+            organization=organization, key=key, label=label, created_by=self.user, updated_by=self.user
+        )
+
+    def test_two_organizations_may_share_a_label(self):
+        # OK: org1=label1, org2=label1
+        self._make(self.org1, key="k1", label="共有ラベル")
+        self._make(self.org2, key="k1", label="共有ラベル")  # no error
+        labels = KippoProjectOrganizationCategory.objects.filter(label="共有ラベル").count()
+        self.assertEqual(labels, 2)
+
+    def test_global_label_cannot_be_reused_by_an_organization(self):
+        # NG: global=label1 already exists → org1=label1 is rejected by clean()
+        self._make(None, key="g1", label="グローバル限定")
+        category = KippoProjectOrganizationCategory(
+            organization=self.org1, key="g1-org", label="グローバル限定", created_by=self.user, updated_by=self.user
+        )
+        with self.assertRaises(ValidationError):
+            category.full_clean()
+
+    def test_organization_label_cannot_be_reused_globally(self):
+        # NG (symmetric): org label already exists → adding the same global label is rejected by clean()
+        self._make(self.org1, key="o1", label="組織限定")
+        category = KippoProjectOrganizationCategory(organization=None, key="o1-global", label="組織限定", created_by=self.user, updated_by=self.user)
+        with self.assertRaises(ValidationError):
+            category.full_clean()
+
+    def test_duplicate_global_label_rejected(self):
+        self._make(None, key="g1", label="重複グローバル")
+        category = KippoProjectOrganizationCategory(organization=None, key="g2", label="重複グローバル", created_by=self.user, updated_by=self.user)
+        with self.assertRaises(ValidationError):
+            category.full_clean()
+
+    def test_duplicate_label_within_one_organization_rejected(self):
+        self._make(self.org1, key="o1", label="重複組織")
+        category = KippoProjectOrganizationCategory(organization=self.org1, key="o2", label="重複組織", created_by=self.user, updated_by=self.user)
+        with self.assertRaises(ValidationError):
+            category.full_clean()
 
 
 class KippoProjectPhaseStatusTestCase(TestCase):

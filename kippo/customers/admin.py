@@ -43,6 +43,9 @@ ACTIVE_PROJECT_COUNT = Coalesce(
 )
 
 
+MONTHS_PER_YEAR = 12
+
+
 def _shift_fiscal_year(fiscal_year_start: datetime.date, years: int) -> datetime.date:
     """The fiscal-year boundary ``years`` away from ``fiscal_year_start`` (same month, day 1)."""
     return datetime.date(fiscal_year_start.year + years, fiscal_year_start.month, 1)
@@ -213,7 +216,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     # organization is added conditionally in get_list_filter (only for multi-org members).
     list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
-    fields = ("organization", "name", "email", "phone", "website", "document_url", "notes")
+    fields = ("organization", "name", "email", "phone", "website", "document_url", "contract_folder_url", "notes")
     inlines = (KippoCustomerComplianceCheckInline, KippoProjectReadOnlyInline)
     # changelist template adds the inline script that toggles the per-project detail under the
     # アクティブプロジェクト count (scoped to the changelist; avoids a static-manifest dependency).
@@ -351,11 +354,47 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return response
 
     @staticmethod
-    def _fiscal_year_org_summaries(customers: models.QuerySet) -> list[dict]:
+    def _fiscal_year_months(fiscal_year_start: datetime.date) -> list[datetime.date]:
+        """The 12 first-of-month dates of the fiscal year starting at ``fiscal_year_start``."""
+        months = []
+        month = fiscal_year_start
+        for offset in range(MONTHS_PER_YEAR):
+            month_index = (fiscal_year_start.month - 1 + offset) % MONTHS_PER_YEAR + 1
+            year = fiscal_year_start.year + (fiscal_year_start.month - 1 + offset) // MONTHS_PER_YEAR
+            month = datetime.date(year, month_index, 1)
+            months.append(month)
+        return months
+
+    @classmethod
+    def _monthly_planned_breakdown(cls, customer_pks: list, fiscal_year_start: datetime.date, fiscal_year_end: datetime.date) -> list[dict]:
+        """Per-month planned contract totals across ``customer_pks`` contracts for the current FY.
+
+        Each contract's planned billing schedule (monthly contracts spread per month, delivery at
+        end_date — KippoProjectContract.planned_billing_schedule) is bucketed into the FY month its
+        billing_date falls in. Contracts that bill outside the FY contribute nothing.
+        """
+        fiscal_year_months = cls._fiscal_year_months(fiscal_year_start)
+        monthly_totals = dict.fromkeys(fiscal_year_months, 0)
+        # Only contracts that can bill on/after the FY start are relevant — one ending before it bills
+        # nothing in the FY. Bounds the per-contract schedule work (effort contracts compute per month).
+        contracts = (
+            KippoProjectContract.objects.filter(project__customer__in=customer_pks, end_date__gte=fiscal_year_start)
+            .select_related("project__organization")
+            .prefetch_related("project__assignment_rates")
+        )
+        for contract in contracts:
+            for billing_date, amount in contract.planned_billing_schedule():
+                if amount and fiscal_year_start <= billing_date < fiscal_year_end:
+                    monthly_totals[datetime.date(billing_date.year, billing_date.month, 1)] += amount
+        return [{"month": month.strftime("%Y/%m"), "amount_display": _yen(monthly_totals[month])} for month in fiscal_year_months]
+
+    @classmethod
+    def _fiscal_year_org_summaries(cls, customers: models.QuerySet) -> list[dict]:
         """Per-organization current-fiscal-year summary for the header, scoped to the (filtered)
-        ``customers`` shown on the changelist. Per org: customer count; 'projects planned to complete
+        ``customers`` shown on the changelist. Per org: customer count; 'contracts planned to complete
         this FY' = those customers' contracts whose end_date falls in the current FY; planned total =
-        Σ their total_amount; received total = Σ their received billing-entry amounts.
+        Σ their total_amount; received total = Σ their received billing-entry amounts; and a
+        month-by-month planned-billing breakdown across the FY.
         """
         customer_pks_by_org: dict = defaultdict(list)
         for customer_pk, organization_id in customers.values_list("pk", "organization_id"):
@@ -386,6 +425,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                     "project_count": contract_summary["count"],
                     "received_total_display": _yen(received_total),
                     "planned_total_display": _yen(contract_summary["total"] or 0),
+                    "monthly_planned_breakdown": cls._monthly_planned_breakdown(customer_pks, fiscal_year_start, fiscal_year_end),
                 }
             )
         return sorted(summaries, key=lambda summary: summary["organization"])

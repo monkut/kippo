@@ -4,11 +4,14 @@ from typing import Any
 
 from accounts.models import KippoUser
 from django.conf import settings
+from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -18,6 +21,8 @@ from .definitions import SkipReason
 from .exceptions import ProjectStartDateRequiredError
 from .models import (
     KippoProject,
+    KippoProjectBillingEntry,
+    KippoProjectContract,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
     ProjectMonthlyAssignment,
@@ -27,6 +32,8 @@ from .models import (
 )
 from .permissions import IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
+    KippoProjectBillingEntrySerializer,
+    KippoProjectContractSerializer,
     KippoProjectSerializer,
     KippoProjectUserStatisfactionResultSerializer,
     OrganizationMemberSerializer,
@@ -538,6 +545,92 @@ class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(project__id=project_id)
 
         return queryset
+
+
+def _user_accessible_projects(user: KippoUser) -> QuerySet:
+    """Projects visible to ``user`` — all for a superuser, else those in the user's organizations."""
+    projects = KippoProject.objects.all()
+    if not user.is_superuser and hasattr(user, "organizationmembership_set"):
+        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+        projects = projects.filter(organization__in=user_organizations)
+    return projects
+
+
+class KippoProjectContractViewSet(viewsets.ModelViewSet):
+    """Contract (kippo#31) for a project, nested under ``/projects/{project_pk}/contract/``.
+
+    OneToOne — a project has at most one contract. ``GET`` / ``POST`` use the collection URL
+    (the list returns the single contract; POST creates it, rejecting a second). ``PUT`` / ``PATCH``
+    / ``DELETE`` address the contract by its id at ``/projects/{project_pk}/contract/{id}/`` (the id
+    comes from the GET response). Org-scoped: a user sees only contracts for projects in their
+    organizations; superusers see all. ``project`` is taken from the URL, not the payload.
+    """
+
+    serializer_class = KippoProjectContractSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = KippoProjectContract.objects.all().select_related("project__organization").order_by("project")
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(project__in=_user_accessible_projects(self.request.user))
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            queryset = queryset.filter(project_id=project_pk)
+        return queryset
+
+    def perform_create(self, serializer: KippoProjectContractSerializer) -> None:
+        project = get_object_or_404(_user_accessible_projects(self.request.user), pk=self.kwargs.get("project_pk"))
+        if KippoProjectContract.objects.filter(project=project).exists():
+            raise ValidationError("This project already has a contract; edit it via PUT/PATCH.")
+        serializer.save(project=project, created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer: KippoProjectContractSerializer) -> None:
+        serializer.save(updated_by=self.request.user)
+
+
+class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):
+    """A project contract's billing-ledger entries (kippo#31), nested under
+    ``/projects/{project_pk}/billing-entries/``.
+
+    Org-scoped via the contract's project. Read + write. ``contract`` is resolved from the URL's
+    project (the project must already have a contract). ``received_by`` is stamped from the acting
+    user when ``is_received`` is set (mirrors the admin); ``received_datetime`` is auto-managed by
+    the model.
+    """
+
+    serializer_class = KippoProjectBillingEntrySerializer
+    permission_classes = [IsAuthenticated]
+    queryset = KippoProjectBillingEntry.objects.all().select_related("contract__project__organization", "received_by").order_by("billing_date")
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(contract__project__in=_user_accessible_projects(self.request.user))
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            queryset = queryset.filter(contract__project_id=project_pk)
+        return queryset
+
+    def _contract_for_request(self) -> KippoProjectContract:
+        project = get_object_or_404(_user_accessible_projects(self.request.user), pk=self.kwargs.get("project_pk"))
+        contract = getattr(project, "contract", None)
+        if contract is None:
+            raise ValidationError("This project has no contract; create the contract before adding billing entries.")
+        return contract
+
+    def perform_create(self, serializer: KippoProjectBillingEntrySerializer) -> None:
+        contract = self._contract_for_request()
+        # contract is read_only (set from the URL), so DRF can't build the (contract, billing_date)
+        # UniqueConstraint validator — check it here so a duplicate is a clean 400, not a 500.
+        billing_date = serializer.validated_data.get("billing_date")
+        if contract.billing_entries.filter(billing_date=billing_date).exists():
+            raise ValidationError({"billing_date": "A billing entry already exists for this contract and date."})
+        received_by = self.request.user if serializer.validated_data.get("is_received") else None
+        serializer.save(contract=contract, received_by=received_by, created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer: KippoProjectBillingEntrySerializer) -> None:
+        # Mirror the admin: stamp the acting user as receiver when newly marked received (the model
+        # save() clears received_by when is_received is unset).
+        is_received = serializer.validated_data.get("is_received", serializer.instance.is_received)
+        received_by = self.request.user if is_received and not serializer.instance.received_by else serializer.instance.received_by
+        serializer.save(received_by=received_by, updated_by=self.request.user)
 
 
 class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
