@@ -105,6 +105,21 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertIn("compliance_check-0-verified", response.content.decode())
 
+    def test_compliance_inline_shows_not_completed_notice_when_unverified(self):
+        # The 反社チェック inline (add/change UI) shows the reminder while the check is not completed.
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        content = self.client.get(url).content.decode()
+        self.assertIn("反社チェックが未完了です", content)
+        self.assertIn("反社チェック完了", content)  # references the changelist action
+
+    def test_compliance_inline_hides_notice_when_completed(self):
+        check = self.customer.compliance_check
+        check.verified = True
+        check.save()
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        content = self.client.get(url).content.decode()
+        self.assertNotIn("未完了", content)  # reminder gone once completed
+
     def test_compliance_inline_save_stamps_verified_by_and_datetime(self):
         from customers.admin import KippoCustomerComplianceCheckInline
 
@@ -500,22 +515,22 @@ class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase)
     def test_compliance_column_in_list_display(self):
         self.assertIn("get_compliance_verified", KippoCustomerAdmin.list_display)
 
-    def test_compliance_display_shows_not_completed_message_when_unverified(self):
+    def test_compliance_display_method_is_boolean(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        # Auto-created compliance_check is unverified → render the reminder pointing at the action.
-        rendered = modeladmin.get_compliance_verified(self.customer)
-        self.assertIn("未完了", rendered)
-        self.assertIn("反社チェック完了", rendered)  # references the action label
+        self.assertTrue(modeladmin.get_compliance_verified.boolean)
 
-    def test_compliance_display_shows_checkmark_when_verified(self):
+    def test_compliance_display_false_when_unverified(self):
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        # Auto-created compliance_check is unverified.
+        self.assertFalse(modeladmin.get_compliance_verified(self.customer))
+
+    def test_compliance_display_true_when_verified(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         check = self.customer.compliance_check
         check.verified = True
         check.save()
         refreshed = KippoCustomer.objects.get(pk=self.customer.pk)
-        rendered = modeladmin.get_compliance_verified(refreshed)
-        self.assertIn("✓", rendered)
-        self.assertNotIn("未完了", rendered)
+        self.assertTrue(modeladmin.get_compliance_verified(refreshed))
 
     def test_queryset_selects_related_compliance_check(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
