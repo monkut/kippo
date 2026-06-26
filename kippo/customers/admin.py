@@ -162,13 +162,25 @@ class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedIn
     extra = 0
     max_num = 1
     can_delete = False
-    fields = ("verified", "verified_datetime", "verified_by", "notes")
+    fields = ("completion_notice", "verified", "verified_datetime", "verified_by", "notes")
     # verified_datetime / verified_by are auto-managed (stamped when verified is ticked, cleared when
-    # unticked) — shown read-only so typed values can't be silently discarded.
-    readonly_fields = ("verified_datetime", "verified_by")
+    # unticked) — shown read-only so typed values can't be silently discarded. completion_notice is a
+    # read-only reminder rendered when the check is not yet completed.
+    readonly_fields = ("completion_notice", "verified_datetime", "verified_by")
 
     def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
         return False  # one is auto-created per customer via the post_save signal
+
+    @admin.display(description=_("ステータス"))
+    def completion_notice(self, obj: KippoCustomerComplianceCheck | None):
+        # Not yet completed → remind the admin to mark it complete via the 「反社チェック完了」 changelist
+        # action (the wording mirrors the action label so it is findable). Completed → a check mark.
+        if obj and obj.verified:
+            return format_html('<span style="color:#447e3c">✓ 反社チェック済み</span>')
+        return format_html(
+            '<span style="color:#ba2121">{}</span>',
+            _("反社チェックが未完了です。完了後、「反社チェック完了」アクションで更新してください。"),
+        )
 
 
 @admin.register(KippoCustomer)
@@ -257,8 +269,8 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def get_active_project_count(self, obj: KippoCustomer) -> int | str:
         # Default: the count. A non-zero count renders a caret toggle that expands a per-project
         # detail table inline below the count (the toggle script + caret styling are inlined in
-        # change_list.html; the column width is reserved up front so expanding never resizes it).
-        # 0 renders plainly (nothing to expand).
+        # change_list.html; the detail stays in layout in both states — collapsed via CSS max-height —
+        # so expanding never resizes the column). 0 renders plainly (nothing to expand).
         count = obj.active_project_count
         if not count:
             return count
@@ -273,7 +285,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return format_html(
             '<a href="#" class="active-projects-toggle" role="button" aria-expanded="false">'
             '<span class="active-projects-caret" aria-hidden="true"></span>{}</a>'
-            '<div class="active-projects-detail" hidden>'
+            '<div class="active-projects-detail">'
             "<table>"
             "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
             "<tbody>{}</tbody></table></div>",
@@ -347,19 +359,11 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
         return sorted(summaries, key=lambda summary: summary["organization"])
 
-    @admin.display(description=_("反社チェック"))
-    def get_compliance_verified(self, obj: KippoCustomer):
-        # Verified → a check mark. Not verified → an inline reminder telling the admin to run the
-        # 「反社チェック完了」 action once the check is done (the wording mirrors the action's label so
-        # it is findable in the actions dropdown). The compliance_check is auto-created via signal;
-        # guard against its absence anyway.
+    @admin.display(boolean=True, description=_("反社チェック"))
+    def get_compliance_verified(self, obj: KippoCustomer) -> bool:
+        # The compliance_check is auto-created via signal; guard against its absence anyway.
         compliance_check = getattr(obj, "compliance_check", None)
-        if compliance_check and compliance_check.verified:
-            return format_html('<span style="color:#447e3c">✓</span>')
-        return format_html(
-            '<span style="color:#ba2121">{}</span>',
-            _("反社チェックが未完了です。完了後、「反社チェック完了」アクションで更新してください。"),
-        )
+        return bool(compliance_check and compliance_check.verified)
 
     @admin.action(description=_("反社チェック完了（ComplianceCheck Completed）"))
     def mark_compliance_check_completed(self, request: DjangoRequest, queryset: models.QuerySet) -> None:

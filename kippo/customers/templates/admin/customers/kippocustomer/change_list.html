@@ -32,21 +32,23 @@
 {{ block.super }}
 {% endblock %}
 {% block extrahead %}{{ block.super }}
-{# A caret toggle expands the per-project detail inline below the count. The column width is reserved
-   up front (min-width) and the detail table fills it exactly (width:100% + fixed layout), so expanding
-   the detail can never widen the column. In-flow (not an absolutely-positioned popover) so it is never
-   clipped by the admin's `.results { overflow-x: auto }` container. #}
+{% comment %}
+A caret toggles the per-project detail inline below the アクティブプロジェクト count. The detail is kept
+in layout in BOTH states — collapsed via max-height:0 (NOT display:none) — so its width contribution to
+the column is identical open or closed; the column therefore cannot change width on expand/collapse
+(display:none would drop the detail from the collapsed layout and let the column grow when it reopens).
+The detail table is width:100% so it fills the cell without clipping, and its cells ellipsis-clip so long
+names never widen it. In-flow (not an absolutely positioned popover) so it is never clipped by the admin's
+`.results { overflow-x: auto }` container. NOTE: this is a comment-tag block on purpose — a multi-line
+Django single-line comment leaks its text into the rendered page, so do not convert this back to one.
+{% endcomment %}
 <style>
-  #result_list th.column-get_active_project_count,
-  #result_list td.field-get_active_project_count {
-    min-width: 32em;
-  }
   a.active-projects-toggle {
     cursor: pointer;
     white-space: nowrap;
   }
   .active-projects-caret::before {
-    content: "\25B6"; /* ▶ collapsed; rotates to ▼ when expanded */
+    content: "\25B6"; /* collapsed caret; rotates 90deg to point down when expanded */
     display: inline-block;
     margin-right: .4em;
     font-size: .75em;
@@ -56,15 +58,21 @@
     transform: rotate(90deg);
   }
   td.field-get_active_project_count .active-projects-detail {
-    margin-top: .4em;
+    /* collapsed: clipped to 0 height but still laid out (width preserved) so the column width is the
+       same whether open or closed — expanding can never resize the column. */
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .15s ease;
+  }
+  td.field-get_active_project_count .active-projects-detail.open {
+    max-height: 60em;
   }
   td.field-get_active_project_count .active-projects-detail table {
-    /* width:100% fills the reserved cell content box exactly (a fixed em would overflow by the cell
-       padding and widen the column); table-layout:fixed engages because the cell width is definite
-       via the column min-width, so the detail never forces the column wider. */
+    /* fills the cell so the detail is never clipped; because the detail is laid out in BOTH states
+       (collapsed via max-height:0), its width contribution is identical open/closed → no column resize. */
     width: 100%;
     table-layout: fixed;
-    margin: 0;
+    margin: .4em 0 0;
   }
   td.field-get_active_project_count .active-projects-detail th,
   td.field-get_active_project_count .active-projects-detail td {
@@ -83,8 +91,8 @@
         event.preventDefault();
         var detail = toggle.parentElement.querySelector(".active-projects-detail");
         if (detail) {
-          detail.hidden = !detail.hidden;
-          toggle.setAttribute("aria-expanded", detail.hidden ? "false" : "true");
+          var open = detail.classList.toggle("open");
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
         }
       });
     });
