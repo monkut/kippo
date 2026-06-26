@@ -11,7 +11,7 @@ from projects.models import KippoProject
 from projects.tests.test_admin import KippoProjectAdminFixtureTestCaseBase
 
 from customers.admin import KippoCustomerAdmin, KippoProjectReadOnlyInline
-from customers.models import KippoCustomer
+from customers.models import KippoCustomer, KippoCustomerComplianceCheck
 
 
 class IsStaffOrganizationKippoCustomerAdminTestCase(IsStaffModelAdminTestCaseBase):
@@ -87,8 +87,54 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertFalse(inline.can_delete)
         # every displayed field is read-only
         self.assertEqual(set(inline.fields), set(inline.readonly_fields))
-        for fieldname in ("get_project_link", "start_date", "target_date"):
+        for fieldname in ("get_project_link", "start_date", "target_date", "get_contract_type", "get_contract_end_date", "get_contract_total"):
             self.assertIn(fieldname, inline.fields)
+
+    def test_inline_shows_contract_type_end_date_and_total(self):
+        from decimal import Decimal
+
+        from projects.models import KippoProjectContract
+
+        project = self._make_customer_project("acme-contract", self.customer, date(2026, 9, 30))
+        KippoProjectContract.objects.create(
+            project=project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=Decimal("1500000"),
+            end_date=date(2026, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        inline = KippoProjectReadOnlyInline(KippoCustomer, self.site)
+        self.assertEqual(inline.get_contract_type(project), "納品 / 固定")
+        self.assertEqual(inline.get_contract_end_date(project), "2026-09-30")
+        self.assertEqual(inline.get_contract_total(project), "¥1,500,000")
+
+    def test_inline_contract_columns_blank_without_contract(self):
+        # A project with no contract renders "-" in each contract column (no crash on the reverse O2O).
+        project = self._make_customer_project("acme-no-contract", self.customer, date(2026, 9, 30))
+        inline = KippoProjectReadOnlyInline(KippoCustomer, self.site)
+        self.assertEqual(inline.get_contract_type(project), "-")
+        self.assertEqual(inline.get_contract_end_date(project), "-")
+        self.assertEqual(inline.get_contract_total(project), "-")
+
+    def test_inline_contract_total_shows_jisseki_for_effort_pricing(self):
+        # Effort pricing leaves total_amount blank (billed on actuals) → 実績, not a crash on _yen(None).
+        from projects.models import KippoProjectContract
+
+        project = self._make_customer_project("acme-effort", self.customer, date(2026, 9, 30))
+        KippoProjectContract.objects.create(
+            project=project,
+            billing_type="monthly",
+            pricing_basis="effort",
+            total_amount=None,
+            end_date=date(2026, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        inline = KippoProjectReadOnlyInline(KippoCustomer, self.site)
+        self.assertEqual(inline.get_contract_total(project), "実績")
+        self.assertEqual(inline.get_contract_type(project), "月額 / 実績")
 
     def test_compliance_check_inline_registered_and_editable(self):
         from customers.admin import KippoCustomerComplianceCheckInline
@@ -119,6 +165,18 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
         content = self.client.get(url).content.decode()
         self.assertNotIn("未完了", content)  # reminder gone once completed
+
+    def test_change_view_backfills_missing_compliance_record_and_shows_notice(self):
+        # Customers predating the auto-create signal have no compliance_check; with extra=0 and no add
+        # permission the inline would render empty and hide the notice. change_view backfills the record.
+        self.customer.compliance_check.delete()
+        self.assertFalse(KippoCustomerComplianceCheck.objects.filter(customer=self.customer).exists())
+        url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
+        content = self.client.get(url).content.decode()
+        # the record is created on view, so the inline form and its completion notice now render
+        self.assertTrue(KippoCustomerComplianceCheck.objects.filter(customer=self.customer).exists())
+        self.assertIn("compliance_check-0-verified", content)
+        self.assertIn("反社チェックが未完了です", content)
 
     def test_compliance_inline_save_stamps_verified_by_and_datetime(self):
         from customers.admin import KippoCustomerComplianceCheckInline

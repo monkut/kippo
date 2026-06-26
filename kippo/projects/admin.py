@@ -1005,8 +1005,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         KippoProjectContractInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
-        KippoProjectStatusReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
+        KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     ]
     # copy-to-clipboard handler + toast for the MTG calendar link readonly fields (kippo#13)
