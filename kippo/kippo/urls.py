@@ -26,6 +26,7 @@ urlpatterns = [
     path("tasks/", include("tasks.urls")),
     path("octocat/", include("octocat.urls")),
     path("admin/", admin.site.urls),
+    path("nested_admin/", include("nested_admin.urls")),  # nested inline JS endpoints (django-nested-admin)
     path("api/", include(api_patterns)),
     path("api/", include(customers_api_patterns)),
     path("api/requirements/", include(requirements_api_patterns)),

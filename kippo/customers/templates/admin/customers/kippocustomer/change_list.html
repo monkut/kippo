@@ -28,6 +28,26 @@
     </tbody>
   </table>
 </div>
+{# Month-by-month planned contract totals for the current fiscal year (KippoCustomerAdmin._monthly_planned_breakdown). #}
+<div class="module" style="margin-bottom:12px">
+  <h3 style="margin:0 0 6px">月別契約予定合計（当会計年度）</h3>
+  {% for summary in fiscal_year_summaries %}
+  <table style="margin-bottom:8px">
+    <thead>
+      <tr>
+        <th>{{ summary.organization }}</th>
+        {% for month in summary.monthly_planned_breakdown %}<th style="text-align:right">{{ month.month }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>契約予定</td>
+        {% for month in summary.monthly_planned_breakdown %}<td style="text-align:right">{{ month.amount_display }}</td>{% endfor %}
+      </tr>
+    </tbody>
+  </table>
+  {% endfor %}
+</div>
 {% endif %}
 {{ block.super }}
 {% endblock %}

@@ -166,7 +166,7 @@ VALID_PROJECT_PHASES = (
     ("proposing-mid", _("提案(中)")),
     ("proposing-high", _("提案(高)")),
     ("verbal-order", _("口頭受注")),
-    ("under-contract", _("契約稼働中")),
+    ("under-contract", _("契約(稼働中)")),
     ("completed", _("完了")),
     ("lost", _("失注")),
 )
@@ -214,11 +214,34 @@ class KippoProjectOrganizationCategory(UserCreatedBaseModel):
         constraints = (
             models.UniqueConstraint(fields=("organization", "key"), name="uniq_org_category_key"),
             models.UniqueConstraint(fields=("key",), condition=models.Q(organization__isnull=True), name="uniq_global_category_key"),
+            # ラベル: unique within an organization (org↔org overlap is allowed, e.g. org1=label1 + org2=label1),
+            # and unique among the global defaults. The global↔org disjointness (a global label may not also be
+            # used by an organization, and vice versa) cannot be expressed as a UniqueConstraint — it is enforced
+            # in clean().
+            models.UniqueConstraint(fields=("organization", "label"), name="uniq_org_category_label"),
+            models.UniqueConstraint(fields=("label",), condition=models.Q(organization__isnull=True), name="uniq_global_category_label"),
         )
 
+    def clean(self):
+        super().clean()
+        # A label is shared between only one scope: a global label and an organization label must not
+        # collide (org↔org overlap stays allowed). The UniqueConstraints above cover within-org and
+        # among-global uniqueness; this is the cross-scope half they cannot express.
+        if not self.label:
+            return
+        if self.organization_id is None:
+            # global default: no organization may already use this label
+            clashes = KippoProjectOrganizationCategory.objects.filter(label=self.label, organization__isnull=False).exclude(pk=self.pk)
+            if clashes.exists():
+                raise ValidationError({"label": _("このラベルは組織カテゴリで使用されているため、グローバルでは使用できません。")})
+        else:
+            # organization-scoped: no global default may use this label
+            clashes = KippoProjectOrganizationCategory.objects.filter(label=self.label, organization__isnull=True).exclude(pk=self.pk)
+            if clashes.exists():
+                raise ValidationError({"label": _("このラベルはグローバルカテゴリで使用されているため、組織では使用できません。")})
+
     def __str__(self) -> str:
-        scope = self.organization.name if self.organization_id else "global"
-        return f"({scope}) {self.label}"
+        return self.label
 
     @classmethod
     def get_for_organization(cls, organization: KippoOrganization | None) -> QuerySet:
@@ -365,7 +388,7 @@ class KippoProject(UserCreatedBaseModel):
         help_text=_("Comma-separated DocBase tags used by the crawler to fetch matching posts (e.g. 'foo,bar')"),
     )
     problem_definition = models.TextField(
-        _("プロジェクト課題定義"),
+        _("プロジェクト紹介"),
         blank=True,
         default="",
         help_text=_("Define the problem that the project is set out to solve."),
@@ -993,6 +1016,16 @@ class KippoProjectContract(UserCreatedBaseModel):
         if not self.end_date:
             return []
         return [(self.end_date, self.total_amount)]
+
+    def planned_billing_schedule(self) -> list[tuple[datetime.date, Decimal]]:
+        """Planned ``(billing_date, amount)`` entries across all billing types (kippo#31).
+
+        Monthly contracts spread ``total_amount`` per month (月末 dates); delivery contracts produce a
+        single entry at ``end_date``; effort amounts come from logged effort. The same schedule
+        ``generate_billing_entries()`` bills from, exposed for planned-revenue reporting before any
+        ledger entries exist.
+        """
+        return self._billing_schedule()
 
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).

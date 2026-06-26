@@ -366,6 +366,52 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertGreaterEqual(summary["customer_count"], 2)  # self.customer + self.other_customer
         self.assertIn("契約予定合計", response.content.decode())  # header block rendered
 
+    def test_fiscal_year_summary_monthly_planned_breakdown(self):
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        # FY starts in January → 12 months are this calendar year, Jan..Dec.
+        self.organization.fiscalyear_start_month = 1
+        self.organization.save()
+        today = timezone.localdate()
+
+        # delivery contract → whole total lands in its end_date month (March)
+        delivery = self._make_customer_project("delivery", self.customer, date(today.year, 3, 31))
+        KippoProjectContract.objects.create(
+            project=delivery,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=Decimal("3000000"),
+            end_date=date(today.year, 3, 31),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        # monthly contract Apr–Jun (3 months) → ¥1,200,000 split ¥400,000 per month
+        monthly = self._make_customer_project("monthly", self.customer, date(today.year, 6, 30))
+        KippoProjectContract.objects.create(
+            project=monthly,
+            billing_type="monthly",
+            pricing_basis="fixed",
+            total_amount=Decimal("1200000"),
+            start_date=date(today.year, 4, 1),
+            end_date=date(today.year, 6, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        summary = next(s for s in response.context["fiscal_year_summaries"] if s["organization"] == self.organization.name)
+        breakdown = {row["month"]: row["amount_display"] for row in summary["monthly_planned_breakdown"]}
+        self.assertEqual(len(summary["monthly_planned_breakdown"]), 12)  # one entry per FY month
+        self.assertEqual(breakdown[f"{today.year}/03"], "¥3,000,000")  # delivery total in its end month
+        self.assertEqual(breakdown[f"{today.year}/04"], "¥400,000")  # monthly split
+        self.assertEqual(breakdown[f"{today.year}/05"], "¥400,000")
+        self.assertEqual(breakdown[f"{today.year}/06"], "¥400,000")
+        self.assertEqual(breakdown[f"{today.year}/01"], "¥0")  # months with no billing → 0
+        self.assertIn("月別契約予定合計", response.content.decode())  # monthly header block rendered
+
     def test_fiscal_year_summary_is_filter_aware(self):
         from decimal import Decimal
 
