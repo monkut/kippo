@@ -1348,3 +1348,139 @@ class ProjectColumnsetDefaultTestCase(TestCase):
         response = self.client.patch(f"{self.url}{project.id}/", {"organization": str(other_org.id)}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
         self.assertIn("columnset", response.json())
+
+
+class ContractAndBillingEntryAPITestCase(TestCase):
+    """Contract + billing-entry REST endpoints nested under projects/ (kippo#31)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+
+        # a project in another organization the user does NOT belong to (scoping check)
+        self.other_org = KippoOrganization.objects.create(
+            name="contract-api-other-org",
+            github_organization_name="contract-api-other-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.other_project = KippoProject.objects.create(
+            name="Other Project",
+            organization=self.other_org,
+            columnset=self.project.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.base = f"{settings.URL_PREFIX}/api/projects"
+
+    def test_create_read_update_contract(self):
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url, {"billing_type": "delivery", "pricing_basis": "fixed", "total_amount": "1500000", "end_date": "2026-09-30"}, format="json"
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.assertEqual(KippoProjectContract.objects.filter(project=self.project).count(), 1)
+        # the project (from the URL) is bound server-side, not the payload
+        self.assertEqual(resp.json()["project"], str(self.project.id))
+        listing = self.client.get(url).json()
+        self.assertEqual(len(listing["results"]), 1)
+        contract_id = resp.json()["id"]
+        patch = self.client.patch(f"{url}{contract_id}/", {"total_amount": "2000000"}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
+        self.assertEqual(self.project.contract.total_amount, 2000000)
+
+    def test_second_contract_rejected(self):
+        url = f"{self.base}/{self.project.id}/contract/"
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1,
+            end_date="2026-09-30",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        resp = self.client.post(url, {"billing_type": "delivery", "pricing_basis": "fixed", "total_amount": "5"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+
+    def test_billing_entry_crud_and_received_by_stamp(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1000000,
+            end_date="2026-09-30",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        url = f"{self.base}/{self.project.id}/billing-entries/"
+        resp = self.client.post(url, {"billing_date": "2026-09-30", "amount": "1000000", "is_received": True}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        entry = self.project.contract.billing_entries.get()
+        self.assertEqual(entry.received_by, self.user)  # stamped from the acting user
+        self.assertIsNotNone(entry.received_datetime)  # auto-set by model.save()
+
+    def test_billing_entry_requires_contract(self):
+        url = f"{self.base}/{self.project.id}/billing-entries/"
+        resp = self.client.post(url, {"billing_date": "2026-09-30", "amount": "1"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+
+    def test_contract_org_scoped(self):
+        KippoProjectContract.objects.create(
+            project=self.other_project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1,
+            end_date="2026-09-30",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        listing = self.client.get(f"{self.base}/{self.other_project.id}/contract/").json()
+        self.assertEqual(listing["results"], [])
+        resp = self.client.post(
+            f"{self.base}/{self.other_project.id}/contract/",
+            {"billing_type": "delivery", "pricing_basis": "fixed", "total_amount": "1"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.NOT_FOUND)
+
+    def test_fixed_contract_requires_total_amount(self):
+        # mirror KippoProjectContract.clean(): fixed pricing without total_amount → 400, not a saved
+        # contract that later breaks billing generation.
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(url, {"billing_type": "delivery", "pricing_basis": "fixed", "end_date": "2026-09-30"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("total_amount", resp.json())
+
+    def test_contract_start_after_end_rejected(self):
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {"billing_type": "delivery", "pricing_basis": "fixed", "total_amount": "1", "start_date": "2026-10-01", "end_date": "2026-09-30"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+
+    def test_duplicate_billing_entry_rejected_cleanly(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1000000,
+            end_date="2026-09-30",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        url = f"{self.base}/{self.project.id}/billing-entries/"
+        first = self.client.post(url, {"billing_date": "2026-09-30", "amount": "1000000"}, format="json")
+        self.assertEqual(first.status_code, HTTPStatus.CREATED, first.content)
+        # same (contract, billing_date) → clean 400 (the unique constraint would otherwise 500)
+        dup = self.client.post(url, {"billing_date": "2026-09-30", "amount": "5"}, format="json")
+        self.assertEqual(dup.status_code, HTTPStatus.BAD_REQUEST)

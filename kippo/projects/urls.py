@@ -3,6 +3,7 @@ from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from octocat.viewsets import ProjectGithubRepositoryViewSet
 from rest_framework.routers import DefaultRouter
+from rest_framework_nested import routers as nested_routers
 
 from . import api_views, views
 from .views import (
@@ -14,6 +15,8 @@ from .views import (
     WeeklyEffortMissingWeeksView,
 )
 from .viewsets import (
+    KippoProjectBillingEntryViewSet,
+    KippoProjectContractViewSet,
     KippoProjectUserStatisfactionResultViewSet,
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
@@ -34,6 +37,12 @@ router.register(r"personal-holidays", PersonalHolidayViewSet, basename="personal
 router.register(r"public-holidays", PublicHolidayViewSet, basename="publicholiday")
 router.register(r"organizations", OrganizationViewSet, basename="kippoorganization")
 router.register(r"weekly-effort-unlocks", ProjectWeeklyEffortUnlockViewSet, basename="projectweeklyeffortunlock")
+
+# Contract + billing-entries nested under projects/ (kippo#31) — read+write, org-scoped.
+# /api/projects/{project_pk}/contract/ and /api/projects/{project_pk}/billing-entries/
+projects_nested_router = nested_routers.NestedDefaultRouter(router, r"projects", lookup="project")
+projects_nested_router.register(r"contract", KippoProjectContractViewSet, basename="project-contract")
+projects_nested_router.register(r"billing-entries", KippoProjectBillingEntryViewSet, basename="project-billing-entry")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(
@@ -136,6 +145,7 @@ api_patterns = [
     ),
     # API ViewSets
     path("", include(router.urls)),
+    path("", include(projects_nested_router.urls)),
 ]
 
 urlpatterns = html_and_legacy_patterns
