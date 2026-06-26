@@ -269,8 +269,8 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     def get_active_project_count(self, obj: KippoCustomer) -> int | str:
         # Default: the count. A non-zero count renders a caret toggle that expands a per-project
         # detail table inline below the count (the toggle script + caret styling are inlined in
-        # change_list.html; the column width is reserved up front so expanding never resizes it).
-        # 0 renders plainly (nothing to expand).
+        # change_list.html; the detail stays in layout in both states — collapsed via CSS max-height —
+        # so expanding never resizes the column). 0 renders plainly (nothing to expand).
         count = obj.active_project_count
         if not count:
             return count
@@ -285,7 +285,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return format_html(
             '<a href="#" class="active-projects-toggle" role="button" aria-expanded="false">'
             '<span class="active-projects-caret" aria-hidden="true"></span>{}</a>'
-            '<div class="active-projects-detail" hidden>'
+            '<div class="active-projects-detail">'
             "<table>"
             "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
             "<tbody>{}</tbody></table></div>",
