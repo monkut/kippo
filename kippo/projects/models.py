@@ -26,9 +26,13 @@ from tasks.models import KippoTaskStatus
 from .definitions import (
     BILLING_TYPE_MONTHLY,
     DEFAULT_BILLING_TYPE,
+    DEFAULT_PRICING_BASIS,
     DEFAULT_PROJECT_CATEGORY_VALUE,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+    PRICING_BASIS_EFFORT,
+    PRICING_BASIS_FIXED,
     VALID_BILLING_TYPES,
+    VALID_PRICING_BASES,
     ProjectProgressStatus,
     ProjectRoles,
     ValidCurrencies,
@@ -427,9 +431,11 @@ class KippoProject(UserCreatedBaseModel):
 
     @property
     def contract_amount(self) -> Decimal:
-        """契約金額 (kippo#32 / T13): the project's contract total (0 when no contract)."""
+        """契約金額 (kippo#32 / T13): the project's contract total (0 when no contract, or when an
+        effort contract has no fixed total/cap set).
+        """
         contract = self.get_contract()
-        return contract.total_amount if contract else Decimal(0)
+        return (contract.total_amount or Decimal(0)) if contract else Decimal(0)
 
     @property
     def billing_types(self) -> list[str]:
@@ -817,17 +823,30 @@ class KippoProjectContract(UserCreatedBaseModel):
         choices=VALID_BILLING_TYPES,
         default=DEFAULT_BILLING_TYPE,
         help_text=_(
-            "'delivery' (納品, total_amount billed once at the contract end_date) or "
-            "'monthly' (月額, total_amount split month-end across the contract period)."
+            "When revenue is billed: 'delivery' (納品, once at the contract end_date) or 'monthly' (月額, each month-end across the contract period)."
+        ),
+    )
+    pricing_basis = models.CharField(
+        _("料金体系"),
+        max_length=20,
+        choices=VALID_PRICING_BASES,
+        default=DEFAULT_PRICING_BASIS,
+        help_text=_(
+            "How each billed amount is computed: 'fixed' (固定, the contract total_amount) or "
+            "'effort' (実績, actual logged effort × role rate — time-&-materials). When 'effort', "
+            "total_amount is an optional cap (上限) and may be left blank."
         ),
     )
     total_amount = models.DecimalField(
         _("契約金額"),
         max_digits=12,
         decimal_places=0,
+        null=True,
+        blank=True,
         help_text=_(
-            "JPY. Total amount for the whole contract. For 'monthly' it is split evenly across the "
-            "contract months, with the rounding remainder on the final month."
+            "JPY. Contract total for 'fixed' pricing (required; for 'monthly' it is split evenly "
+            "across the contract months with the remainder on the final month). For 'effort' pricing "
+            "it is an optional cap (上限) and may be left blank."
         ),
     )
     start_date = models.DateField(
@@ -855,11 +874,23 @@ class KippoProjectContract(UserCreatedBaseModel):
         ordering = ("created_datetime",)
 
     def __str__(self) -> str:
-        return f"KippoProjectContract({self.project.name} {self.billing_type} ¥{self.total_amount})"
+        amount = f"¥{self.total_amount}" if self.total_amount is not None else "実績"
+        return f"KippoProjectContract({self.project.name} {self.billing_type}/{self.pricing_basis} {amount})"
+
+    @property
+    def requires_estimate(self) -> bool:
+        """True when the project needs an allocated_staff_days estimate — i.e. fixed-priced work.
+        Effort (T&M) contracts are billed on actuals, so no upfront estimate is required.
+        """
+        return self.pricing_basis == PRICING_BASIS_FIXED
 
     def clean(self):
         if self.start_date and self.end_date and self.start_date > self.end_date:
             raise ValidationError(_("Contract start_date is after end_date"))
+        # total_amount is the contract total for fixed pricing (required); for effort it is an
+        # optional cap and may be left blank.
+        if self.pricing_basis == PRICING_BASIS_FIXED and self.total_amount is None:
+            raise ValidationError({"total_amount": _("Total amount is required for fixed-price contracts.")})
 
     def save(self, *args, **kwargs):
         # auto-populate the contract period from the project when left blank
@@ -900,42 +931,91 @@ class KippoProjectContract(UserCreatedBaseModel):
 
         One ``(month_end_date, amount)`` entry per calendar month in the contract period, matching
         the month-end (月末) dates and split amounts generate_billing_entries() bills. Empty for
-        delivery contracts and when the period is unresolved. This is the *planned* schedule derived
-        from the contract terms (so it is available before any ledger entries are generated).
+        delivery contracts, effort pricing (amounts depend on not-yet-logged hours), and when the
+        period is unresolved. This is the *planned* schedule derived from the contract terms (so it
+        is available before any ledger entries are generated).
         """
-        if self.billing_type != BILLING_TYPE_MONTHLY:
+        if self.billing_type != BILLING_TYPE_MONTHLY or self.pricing_basis != PRICING_BASIS_FIXED:
             return []
         months = self._contract_months()
         return [(last_of_month(month), amount) for month, amount in zip(months, self._monthly_amounts(months), strict=True)]
 
+    def _effort_amount(self, period_start: datetime.date | None, period_end: datetime.date | None) -> Decimal:
+        """Billed amount for effort logged within ``[period_start, period_end]``.
+
+        Sum over the project's ``ProjectWeeklyEffort`` rows whose ``week_start`` falls in the period
+        of ``hours ÷ day_workhours × rate_per_day``, rounded to whole yen. A weekly row is attributed
+        to the month of its ``week_start`` (Monday) for role lookup. The billing-rate role comes from
+        the user's ``ProjectMonthlyAssignment`` for that month (blank → developer); the rate comes
+        from the project's ``ProjectAssignmentRate`` for that role (missing → the settings default).
+        """
+        if not period_start or not period_end:
+            return Decimal(0)
+        day_workhours = self.project.organization.day_workhours or 7
+        rates = {rate.role: rate.rate_per_day for rate in self.project.assignment_rates.all()}
+        default_rate = settings.DEFAULT_PROJECT_DAILY_RATE
+        developer_role = ProjectRoles.DEVELOPER.value
+        # (user_id, first-of-month) -> billing role, for the assignments that set one
+        assignment_roles: dict[tuple, str] = {}
+        for assignment in ProjectMonthlyAssignment.objects.filter(project=self.project).exclude(role=""):
+            if assignment.month:
+                assignment_roles[(assignment.user_id, first_of_month(assignment.month))] = assignment.role
+        efforts = ProjectWeeklyEffort.objects.filter(
+            project=self.project,
+            week_start__gte=period_start,
+            week_start__lte=period_end,
+        )
+        total = Decimal(0)
+        for effort in efforts:
+            role = assignment_roles.get((effort.user_id, first_of_month(effort.week_start))) or developer_role
+            rate = rates.get(role, default_rate)
+            total += (Decimal(effort.hours) / Decimal(day_workhours)) * Decimal(rate)
+        return total.quantize(Decimal("1"))
+
+    def _billing_schedule(self) -> list[tuple[datetime.date, Decimal]]:
+        """``(billing_date, amount)`` pairs to bill, per the billing_type × pricing_basis matrix.
+
+        ``billing_type`` picks the dates (one per month at month-end, or one at ``end_date``);
+        ``pricing_basis`` picks each amount (split ``total_amount`` for fixed, Σ effort for effort).
+        The single source ``generate_billing_entries()`` bills from.
+        """
+        if self.pricing_basis == PRICING_BASIS_EFFORT:
+            if self.billing_type == BILLING_TYPE_MONTHLY:
+                return [(last_of_month(month), self._effort_amount(month, last_of_month(month))) for month in self._contract_months()]
+            # effort + delivery: settle the whole period's effort once at end_date
+            if not (self.start_date and self.end_date):
+                return []
+            return [(self.end_date, self._effort_amount(self.start_date, self.end_date))]
+        # fixed pricing
+        if self.billing_type == BILLING_TYPE_MONTHLY:
+            return self.monthly_schedule()
+        # fixed + delivery
+        if not self.end_date:
+            return []
+        return [(self.end_date, self.total_amount)]
+
     def generate_billing_entries(self, created_by: KippoUser | None = None) -> list["KippoProjectBillingEntry"]:
         """Populate the project's billing ledger from these terms (kippo#31 / T12).
 
-        - monthly: one entry per calendar month the contract period [start_date, end_date] spans,
-          dated the last day of the month (月末). ``total_amount`` is split evenly across the months
-          as whole yen with the remainder on the final month (no proration — adjust an individual
-          entry afterwards if needed).
-        - delivery: one entry of ``total_amount`` at the contract ``end_date`` (which itself
-          auto-populates from the project target_date).
+        Entry dates come from ``billing_type``, amounts from ``pricing_basis`` (see
+        ``_billing_schedule``):
+        - billing_type monthly: one entry per contract month, dated the last day of the month (月末).
+        - billing_type delivery: one entry at the contract ``end_date`` (auto-populated from the
+          project target_date).
+        - pricing_basis fixed: ``total_amount`` (split evenly across the months for monthly, with the
+          remainder on the final month — no proration; adjust an entry afterwards if needed).
+        - pricing_basis effort: actual logged effort × role rate for the period.
 
         Idempotent: dates that already have an entry (including manually adjusted ones) are left
-        untouched. Returns only the newly created entries. Returns [] when the dates needed for the
-        billing_type are not resolvable.
+        untouched, and zero/None amounts (e.g. a month with no logged effort) create nothing. Returns
+        only the newly created entries.
         """
         existing_dates = set(self.billing_entries.values_list("billing_date", flat=True))
-        missing_entries = []
-
-        if self.billing_type == BILLING_TYPE_MONTHLY:
-            for entry_date, amount in self.monthly_schedule():
-                if entry_date not in existing_dates:
-                    missing_entries.append(self._build_entry(entry_date, amount, created_by))
-        else:  # delivery
-            delivery_date = self.end_date
-            if not delivery_date:
-                return []
-            if delivery_date not in existing_dates:
-                missing_entries.append(self._build_entry(delivery_date, self.total_amount, created_by))
-
+        missing_entries = [
+            self._build_entry(entry_date, amount, created_by)
+            for entry_date, amount in self._billing_schedule()
+            if amount and entry_date not in existing_dates
+        ]
         return KippoProjectBillingEntry.objects.bulk_create(missing_entries)
 
     def _build_entry(self, billing_date: datetime.date, amount: Decimal, created_by: KippoUser | None) -> "KippoProjectBillingEntry":

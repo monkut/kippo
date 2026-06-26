@@ -64,6 +64,18 @@ VALID_BILLING_TYPES = (
 )
 DEFAULT_BILLING_TYPE = BILLING_TYPE_DELIVERY
 
+# KippoProjectContract pricing basis (料金体系) — orthogonal to billing_type. billing_type sets
+# *when* revenue is billed; pricing_basis sets *how* each entry's amount is computed.
+# "fixed" (固定): bill the contract total_amount. "effort" (実績): bill actual logged effort
+# (Σ hours ÷ day_workhours × role rate_per_day) — time-&-materials / 準委任 履行割合型.
+PRICING_BASIS_FIXED = "fixed"
+PRICING_BASIS_EFFORT = "effort"
+VALID_PRICING_BASES = (
+    (PRICING_BASIS_FIXED, _("固定")),
+    (PRICING_BASIS_EFFORT, _("実績")),
+)
+DEFAULT_PRICING_BASIS = PRICING_BASIS_FIXED
+
 
 class ProjectRoles(StringEnumWithChoices):
     """Roles for project assignment rates."""

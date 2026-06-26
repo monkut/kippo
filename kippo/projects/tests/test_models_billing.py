@@ -2,16 +2,28 @@ import datetime
 from decimal import Decimal
 
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from projects.definitions import BILLING_TYPE_DELIVERY, BILLING_TYPE_MONTHLY, DEFAULT_BILLING_TYPE
+from projects.definitions import (
+    BILLING_TYPE_DELIVERY,
+    BILLING_TYPE_MONTHLY,
+    DEFAULT_BILLING_TYPE,
+    DEFAULT_PRICING_BASIS,
+    PRICING_BASIS_EFFORT,
+    PRICING_BASIS_FIXED,
+    ProjectRoles,
+)
 from projects.models import (
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
+    ProjectAssignmentRate,
+    ProjectMonthlyAssignment,
+    ProjectWeeklyEffort,
 )
 
 
@@ -496,6 +508,151 @@ class DerivedRevenueFiguresTestCase(TestCase):
         entry.save()
         self.assertEqual(self.project.total_revenue, Decimal("750000"))  # 300k + 150k + 300k
         self.assertEqual(self.project.contract_amount, Decimal("900000"))  # unchanged: contract total_amount
+
+
+class PricingBasisFieldTestCase(TestCase):
+    """pricing_basis (fixed/effort) field, validation, and requires_estimate (effort-billing)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+
+    def test_default_pricing_basis_is_fixed(self):
+        self.assertEqual(DEFAULT_PRICING_BASIS, PRICING_BASIS_FIXED)
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"))
+        self.assertEqual(contract.pricing_basis, PRICING_BASIS_FIXED)
+
+    def test_requires_estimate_true_for_fixed(self):
+        contract = KippoProjectContract(project=self.project, pricing_basis=PRICING_BASIS_FIXED, total_amount=Decimal("1000000"))
+        self.assertTrue(contract.requires_estimate)
+
+    def test_requires_estimate_false_for_effort(self):
+        contract = KippoProjectContract(project=self.project, pricing_basis=PRICING_BASIS_EFFORT)
+        self.assertFalse(contract.requires_estimate)
+
+    def test_clean_requires_total_amount_for_fixed(self):
+        contract = KippoProjectContract(project=self.project, pricing_basis=PRICING_BASIS_FIXED, total_amount=None)
+        with self.assertRaises(ValidationError):
+            contract.clean()
+
+    def test_clean_allows_blank_total_amount_for_effort(self):
+        contract = KippoProjectContract(project=self.project, pricing_basis=PRICING_BASIS_EFFORT, total_amount=None)
+        contract.clean()  # no raise
+
+    def test_contract_amount_zero_when_effort_total_blank(self):
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 3, 31),
+        )
+        self.assertEqual(self.project.contract_amount, Decimal(0))
+
+
+class EffortContractGenerationTestCase(TestCase):
+    """Ledger generation for effort (T&M) contracts — amounts = Σ(hours ÷ day_workhours × role rate).
+
+    setup_basic_project() builds an org with day_workhours=8 and 'octocat' as a developer member.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+        self.user = created["KippoUser"]
+        self.organization = created["KippoOrganization"]
+        self.assertEqual(self.organization.day_workhours, 8)  # guards the test math below
+
+    def _set_rate(self, role: str, rate_per_day: int) -> None:
+        ProjectAssignmentRate.objects.create(project=self.project, role=role, rate_per_day=rate_per_day, created_by=self.user, updated_by=self.user)
+
+    def _log_effort(self, week_start: datetime.date, hours: int) -> None:
+        ProjectWeeklyEffort.objects.create(
+            project=self.project, user=self.user, week_start=week_start, hours=hours, created_by=self.user, updated_by=self.user
+        )
+
+    def _assign_role(self, month: datetime.date, role: str) -> None:
+        ProjectMonthlyAssignment.objects.create(
+            project=self.project, user=self.user, month=month, role=role, percentage=100, created_by=self.user, updated_by=self.user
+        )
+
+    def _effort_contract(self, billing_type: str, start: datetime.date, end: datetime.date) -> KippoProjectContract:
+        return KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=billing_type,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
+            start_date=start,
+            end_date=end,
+        )
+
+    def test_effort_monthly_bills_logged_hours_per_month(self):
+        self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
+        self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days
+        self._log_effort(datetime.date(2026, 1, 19), 8)  # 1 day  -> Jan total 6 days = 600,000
+        self._log_effort(datetime.date(2026, 2, 2), 16)  # 2 days -> Feb 200,000
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
+        created = contract.generate_billing_entries(created_by=self.user)
+        self.assertEqual(
+            [(e.billing_date, e.amount) for e in created],
+            [(datetime.date(2026, 1, 31), Decimal("600000")), (datetime.date(2026, 2, 28), Decimal("200000"))],
+        )
+
+    def test_effort_role_from_projectmonthlyassignment(self):
+        # the tester rate applies because the month's ProjectMonthlyAssignment sets role=tester
+        self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
+        self._set_rate(ProjectRoles.TESTER.value, 50_000)
+        self._assign_role(datetime.date(2026, 1, 1), ProjectRoles.TESTER.value)
+        self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days × 50,000 = 250,000
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        created = contract.generate_billing_entries()
+        self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 1, 31), Decimal("250000"))])
+
+    def test_effort_missing_rate_falls_back_to_default(self):
+        # no ProjectAssignmentRate rows -> developer role resolves to settings.DEFAULT_PROJECT_DAILY_RATE
+        self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days × 180,000
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        created = contract.generate_billing_entries()
+        expected = Decimal(5 * settings.DEFAULT_PROJECT_DAILY_RATE)  # 900,000
+        self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 1, 31), expected)])
+
+    def test_effort_delivery_settles_total_period_effort_at_end_date(self):
+        self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
+        self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days
+        self._log_effort(datetime.date(2026, 2, 2), 16)  # 2 days -> total 7 days = 700,000
+        contract = self._effort_contract(BILLING_TYPE_DELIVERY, datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
+        created = contract.generate_billing_entries()
+        self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 2, 28), Decimal("700000"))])
+
+    def test_effort_monthly_zero_effort_month_creates_nothing(self):
+        self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
+        self._log_effort(datetime.date(2026, 1, 5), 40)  # Jan only
+        self._log_effort(datetime.date(2026, 3, 2), 8)  # Mar only; Feb has no logged effort
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
+        created = contract.generate_billing_entries()
+        self.assertEqual(
+            [(e.billing_date, e.amount) for e in created],
+            [(datetime.date(2026, 1, 31), Decimal("500000")), (datetime.date(2026, 3, 31), Decimal("100000"))],
+        )
+
+    def test_effort_generation_is_idempotent(self):
+        self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        self.assertEqual(len(contract.generate_billing_entries()), 1)
+        self.assertEqual(contract.generate_billing_entries(), [])
+        self.assertEqual(contract.billing_entries.count(), 1)
+
+    def test_effort_contract_has_empty_monthly_schedule(self):
+        # the *planned* schedule is meaningless for effort (future hours unknown)
+        contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
+        self.assertEqual(contract.monthly_schedule(), [])
+        self.assertEqual(self.project.monthly_billing_schedule, [])
 
 
 class BillingEntryReceivedTrackingTestCase(TestCase):
