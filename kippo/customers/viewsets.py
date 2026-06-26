@@ -128,7 +128,8 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
         return queryset
 
     @extend_schema(responses=CustomerActiveProjectSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="active-projects")
+    # pagination_class=None → bare-array response (matches the runtime; no paginated {results} wrapper)
+    @action(detail=True, methods=["get"], url_path="active-projects", pagination_class=None)
     def active_projects(self, request: Request, pk: str | None = None) -> Response:
         """List the customer's active (open + display_as_active) projects with contract amount, end
         date, and current-FY received-billing total (mirrors the admin's active-project detail rows).
@@ -153,7 +154,7 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
         ],
         responses=FiscalYearSummarySerializer(many=True),
     )
-    @action(detail=False, methods=["get"], url_path="fiscal-year-summary")
+    @action(detail=False, methods=["get"], url_path="fiscal-year-summary", pagination_class=None)
     def fiscal_year_summary(self, request: Request) -> Response:
         """Per-organization current-fiscal-year summary over the filtered in-scope customers (same
         org-scope + organization + recent_ending filters as list).
