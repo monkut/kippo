@@ -150,6 +150,23 @@ class KippoCustomerViewSetTestCase(TestCase):
         self.assertEqual(data["organization"], str(self.organization.id))
         self.assertEqual(data["organization_name"], self.organization.name)
 
+    def test_contract_folder_url_roundtrips_through_api(self):
+        """A contract_folder_url set via PATCH is returned by GET."""
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/customers/{self.customer.id}/"
+        contract_folder_url = "https://drive.example.com/contracts/acme"
+        patch_response = self.client.patch(
+            url,
+            {"contract_folder_url": contract_folder_url},
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, HTTPStatus.OK)
+        self.assertEqual(patch_response.json()["contract_folder_url"], contract_folder_url)
+
+        get_response = self.client.get(url)
+        self.assertEqual(get_response.status_code, HTTPStatus.OK)
+        self.assertEqual(get_response.json()["contract_folder_url"], contract_folder_url)
+
     def test_non_superuser_patch_cannot_reassign_organization(self):
         """Non-superuser PATCH cannot reassign customer to an org they don't belong to."""
         self.client.force_authenticate(user=self.user)

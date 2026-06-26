@@ -24,6 +24,7 @@ class KippoCustomerSerializer(serializers.ModelSerializer):
             "phone",
             "website",
             "document_url",
+            "contract_folder_url",
             "notes",
             "created_datetime",
             "updated_datetime",
