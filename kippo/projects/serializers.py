@@ -6,11 +6,13 @@ from commons.fields import CommaSeparatedField
 from django.conf import settings
 from django.db.models import Sum
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import (
     FULL_CONFIDENCE_PERCENTAGE,
+    PRICING_BASIS_FIXED,
     SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
     WEEKLY_EFFORT_CLOSED_MESSAGE,
     ProjectProgressStatus,
@@ -19,6 +21,8 @@ from .definitions import (
 from .functions import previous_week_startdate
 from .models import (
     KippoProject,
+    KippoProjectBillingEntry,
+    KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -160,6 +164,68 @@ class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
         model = ProjectAssignmentRate
         fields = ["id", "project", "project_name", "role", "rate_per_day", "created_datetime", "updated_datetime"]
         read_only_fields = ["id", "project_name", "created_datetime", "updated_datetime"]
+
+
+class KippoProjectContractSerializer(serializers.ModelSerializer):
+    """The project's contract (kippo#31) — billing terms. project is set from the nested route."""
+
+    project_name = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = KippoProjectContract
+        fields = [
+            "id",
+            "project",
+            "project_name",
+            "billing_type",
+            "pricing_basis",
+            "total_amount",
+            "start_date",
+            "end_date",
+            "note",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        # project comes from the URL (nested under projects/) — set in the viewset, not the payload.
+        read_only_fields = ["id", "project", "project_name", "created_datetime", "updated_datetime"]
+
+    def validate(self, attrs: dict) -> dict:
+        # DRF does not run model.clean(); mirror KippoProjectContract.clean() so the API enforces the
+        # same invariants as the admin (a fixed-price contract without total_amount otherwise breaks
+        # billing generation: total_amount // len(months)). For PATCH, fall back to the stored values.
+        instance = self.instance
+        pricing_basis = attrs.get("pricing_basis", getattr(instance, "pricing_basis", None))
+        total_amount = attrs.get("total_amount", getattr(instance, "total_amount", None))
+        start_date = attrs.get("start_date", getattr(instance, "start_date", None))
+        end_date = attrs.get("end_date", getattr(instance, "end_date", None))
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError({"end_date": _("Contract start_date is after end_date")})
+        if pricing_basis == PRICING_BASIS_FIXED and total_amount is None:
+            raise serializers.ValidationError({"total_amount": _("Total amount is required for fixed-price contracts.")})
+        return attrs
+
+
+class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
+    """One entry in a contract's billing ledger (kippo#31). contract is set from the nested route."""
+
+    class Meta:
+        model = KippoProjectBillingEntry
+        fields = [
+            "id",
+            "contract",
+            "billing_date",
+            "amount",
+            "is_manual",
+            "is_received",
+            "received_datetime",
+            "received_by",
+            "note",
+            "created_datetime",
+            "updated_datetime",
+        ]
+        # contract comes from the URL (nested under projects/); received_datetime/received_by are
+        # auto-managed by the model save() (stamped when is_received is set, cleared when unset).
+        read_only_fields = ["id", "contract", "received_datetime", "received_by", "created_datetime", "updated_datetime"]
 
 
 class KippoProjectSerializer(serializers.ModelSerializer):

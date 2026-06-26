@@ -24,6 +24,12 @@ class KippoCustomer(UserCreatedBaseModel):
         verbose_name=_("ドキュメントURL"),
         help_text=_("Link to customer-related documents (folder, drive, wiki, etc.)"),
     )
+    contract_folder_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name=_("契約フォルダURL"),
+        help_text=_("Link to the customer's contract documents folder (drive, etc.)"),
+    )
     notes = models.TextField(blank=True, default="", verbose_name=_("メモ"))
 
     class Meta:
