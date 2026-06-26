@@ -277,19 +277,28 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # Received amounts are summed only from the current fiscal year onward (per the customer's
         # organization fiscalyear_start_month, relative to today in the organization's timezone).
         fiscal_year_start = obj.organization.current_fiscal_year_start()
+        active_projects = getattr(obj, "active_projects", ())
+        # Sum of each active project's contract total (契約金額). Projects without a contract, or whose
+        # contract leaves total_amount blank (effort pricing), contribute 0 — so the parenthesised total
+        # next to the count is Σ contracted amounts across the customer's active projects.
+        contract_total = sum(
+            (project.contract.total_amount for project in active_projects if getattr(project, "contract", None) and project.contract.total_amount),
+            0,
+        )
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
-            (self._active_project_row(project, fiscal_year_start) for project in getattr(obj, "active_projects", ())),
+            (self._active_project_row(project, fiscal_year_start) for project in active_projects),
         )
         return format_html(
             '<a href="#" class="active-projects-toggle" role="button" aria-expanded="false">'
-            '<span class="active-projects-caret" aria-hidden="true"></span>{}</a>'
+            '<span class="active-projects-caret" aria-hidden="true"></span>{} ({})</a>'
             '<div class="active-projects-detail">'
             "<table>"
             "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
             "<tbody>{}</tbody></table></div>",
             count,
+            _yen(contract_total),
             _("プロジェクト"),
             _("入金済合計(今期)"),
             _("契約金額"),

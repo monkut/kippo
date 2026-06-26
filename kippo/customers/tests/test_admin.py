@@ -218,7 +218,8 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertIn("active-projects-toggle", rendered)
         self.assertIn("active-projects-caret", rendered)  # expand/collapse icon
         self.assertIn('aria-expanded="false"', rendered)  # starts collapsed
-        self.assertIn(">2<", rendered)
+        # count followed by the parenthesised Σ contract total — ¥0 here (these projects have no contract)
+        self.assertIn(">2 (¥0)<", rendered)
         self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
 
     def test_compliance_check_completed_action_stamps_verified_fields(self):
@@ -421,6 +422,32 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertNotIn("¥1,400,000", rendered)  # the pre-FY received entry is NOT added in
         self.assertIn("¥2,000,000", rendered)  # contract total_amount
         self.assertIn(date(today.year, 9, 30).isoformat(), rendered)  # contract end date
+
+    def test_active_project_count_shows_sum_of_contract_totals(self):
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        today = timezone.localdate()
+        # Two active projects with contracts (¥2,000,000 + ¥1,240,000) and one with no contract (Σ += 0).
+        for name, amount in (("acme-a", Decimal("2000000")), ("acme-b", Decimal("1240000"))):
+            project = self._make_customer_project(name, self.customer, date(today.year, 9, 30))
+            KippoProjectContract.objects.create(
+                project=project,
+                billing_type="delivery",
+                total_amount=amount,
+                end_date=date(today.year, 9, 30),
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+        self._make_customer_project("acme-no-contract", self.customer, date(today.year, 9, 30))
+
+        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
+        customer = modeladmin.get_queryset(self.super_user_request).get(pk=self.customer.pk)
+        rendered = modeladmin.get_active_project_count(customer)
+        # count (3) followed by the parenthesised Σ contract total (¥3,240,000)
+        self.assertIn(">3 (¥3,240,000)<", rendered)
 
     def test_recent_ending_customer_filter_lists_customers_with_projects_in_last_2_fy(self):
         from datetime import timedelta
