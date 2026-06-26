@@ -17,6 +17,7 @@ from .views import (
 from .viewsets import (
     KippoProjectBillingEntryViewSet,
     KippoProjectContractViewSet,
+    KippoProjectOrganizationCategoryViewSet,
     KippoProjectUserStatisfactionResultViewSet,
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
@@ -29,6 +30,7 @@ from .viewsets import (
 # REST Framework router for API viewsets
 router = DefaultRouter()
 router.register(r"projects", KippoProjectViewSet, basename="kippoproject")
+router.register(r"project-categories", KippoProjectOrganizationCategoryViewSet, basename="projectcategory")
 router.register(r"assignment-rates", ProjectAssignmentRateViewSet, basename="projectassignmentrate")
 router.register(r"monthly-assignments", ProjectMonthlyAssignmentViewSet, basename="projectmonthlyassignment")
 router.register(r"monthly-costs", ProjectMonthlyCostViewSet, basename="projectmonthlycost")

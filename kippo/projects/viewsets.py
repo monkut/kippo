@@ -4,7 +4,7 @@ from typing import Any
 
 from accounts.models import KippoUser
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -23,6 +23,7 @@ from .models import (
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
+    KippoProjectOrganizationCategory,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
     ProjectMonthlyAssignment,
@@ -34,6 +35,7 @@ from .permissions import IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadU
 from .serializers import (
     KippoProjectBillingEntrySerializer,
     KippoProjectContractSerializer,
+    KippoProjectOrganizationCategorySerializer,
     KippoProjectSerializer,
     KippoProjectUserStatisfactionResultSerializer,
     OrganizationMemberSerializer,
@@ -47,6 +49,53 @@ from .serializers import (
 from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
 from .services.suggest import ProjectAssignmentSuggestionManager
+
+
+class KippoProjectOrganizationCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only list of selectable project categories (kippo#43).
+
+    Backs the kippo-ui project create/edit form category picker.
+
+    **Organization Scoping:**
+    - Regular users see global default categories plus the categories of organizations they belong to.
+    - Superusers see all active categories.
+
+    **Filtering:**
+    - organization: UUID filter — narrows to that organization's categories (intersected with the
+      user's memberships) while still including the global defaults.
+
+    **Permissions:**
+    - Read (GET): Authenticated users (organization-scoped for regular users).
+    """
+
+    serializer_class = KippoProjectOrganizationCategorySerializer
+    permission_classes = [IsAuthenticated]
+    queryset = KippoProjectOrganizationCategory.objects.filter(is_active=True).order_by("sort_order", "label")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="organization", description="Filter by organization UUID (globals always included)", required=False, type=str),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        """Globals + the user's organization categories; superusers see all active categories."""
+        queryset = super().get_queryset()
+        user = self.request.user
+        organization = self.request.query_params.get("organization", None)
+
+        if user.is_superuser:
+            if organization:
+                queryset = queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
+            return queryset
+
+        user_organizations = list(user.organizationmembership_set.values_list("organization", flat=True))
+        if organization and organization in {str(org_id) for org_id in user_organizations}:
+            return queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
+        return queryset.filter(Q(organization__isnull=True) | Q(organization__in=user_organizations))
 
 
 class KippoProjectViewSet(viewsets.ModelViewSet):
