@@ -133,8 +133,8 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
     can_delete = False
     verbose_name = _("プロジェクト")
     verbose_name_plural = _("プロジェクト")
-    fields = ("get_project_link", "start_date", "target_date")
-    readonly_fields = ("get_project_link", "start_date", "target_date")
+    fields = ("get_project_link", "start_date", "target_date", "get_contract_type", "get_contract_end_date", "get_contract_total")
+    readonly_fields = ("get_project_link", "start_date", "target_date", "get_contract_type", "get_contract_end_date", "get_contract_total")
     # Wraps the default tabular inline and appends a "プロジェクトを追加" link that redirects to the
     # ActiveKippoProject add form (project creation is rich — GitHub project, columnset, etc. — so
     # it is never created inline). Scoped to this inline only; the global tabular template is
@@ -145,12 +145,34 @@ class KippoProjectReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
         return False
 
     def get_queryset(self, request: DjangoRequest):
-        # earliest target_date first
-        return super().get_queryset(request).order_by("target_date")
+        # earliest target_date first; select_related the OneToOne contract so the contract columns
+        # below don't issue a per-project query.
+        return super().get_queryset(request).select_related("contract").order_by("target_date")
 
     @admin.display(description=KippoProject._meta.get_field("name").verbose_name)
     def get_project_link(self, obj: KippoProject):
         return format_html('<a href="{}">{}</a>', obj.get_admin_url(), obj.name)
+
+    @admin.display(description=_("契約種別"))
+    def get_contract_type(self, obj: KippoProject) -> str:
+        # 請求方法 / 料金体系 (e.g. 納品 / 固定) — both halves describe the contract terms. "-" with no contract.
+        contract = getattr(obj, "contract", None)
+        if not contract:
+            return "-"
+        return f"{contract.get_billing_type_display()} / {contract.get_pricing_basis_display()}"
+
+    @admin.display(description=_("契約終了日"))
+    def get_contract_end_date(self, obj: KippoProject) -> str:
+        contract = getattr(obj, "contract", None)
+        return contract.end_date.isoformat() if contract and contract.end_date else "-"
+
+    @admin.display(description=_("契約金額"))
+    def get_contract_total(self, obj: KippoProject) -> str:
+        # No contract → "-". Effort pricing leaves total_amount blank (billed on actuals) → 実績.
+        contract = getattr(obj, "contract", None)
+        if not contract:
+            return "-"
+        return _yen(contract.total_amount) if contract.total_amount is not None else _("実績")
 
 
 class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedInline):
@@ -401,6 +423,10 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         extra_context = extra_context or {}
         customer = self.get_object(request, unquote(object_id))
         if customer is not None:
+            # Backfill the 反社チェック record for customers that predate the auto-create signal — without
+            # it the inline (extra=0, no add permission) renders an empty section and the completion
+            # notice never shows. get_or_create is idempotent for customers that already have one.
+            KippoCustomerComplianceCheck.objects.get_or_create(customer=customer)
             params = {
                 "customer": str(customer.pk),
                 "organization": str(customer.organization_id),
