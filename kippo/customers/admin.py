@@ -1,6 +1,5 @@
 import datetime
 import urllib.parse
-from collections import defaultdict
 from collections.abc import Iterator
 
 from accounts.models import KippoOrganization, KippoUser
@@ -11,8 +10,7 @@ from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.contrib.admin.views.main import ChangeList
 from django.db import models
-from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Prefetch
 from django.forms import BaseFormSet, Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
@@ -21,34 +19,19 @@ from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
-from projects.models import KippoProject, KippoProjectBillingEntry, KippoProjectContract
+from projects.models import KippoProject, KippoProjectBillingEntry
 
+from customers.functions import (
+    ACTIVE_PROJECT_COUNT,
+    active_projects_contract_total,
+    fiscal_year_org_summaries,
+    project_received_total_current_fy,
+    shift_fiscal_year,
+)
 from customers.models import KippoCustomer, KippoCustomerComplianceCheck
 
-# A customer's active (open + display_as_active) project count. A correlated Subquery (a scalar
-# expression), NOT an aggregate: Django 5.2 forbids ordering by an aggregate that isn't also in
-# annotate(), and get_ordering() is applied to bare manager querysets (no annotation) when Django
-# builds FK form fields via get_field_queryset(). A scalar Subquery orders correctly anywhere.
-# Coalesce(..., 0) so customers with no active projects sort/display as 0 rather than NULL.
-ACTIVE_PROJECT_COUNT = Coalesce(
-    Subquery(
-        KippoProject.objects.filter(customer=OuterRef("pk"), is_closed=False, display_as_active=True)
-        .order_by()
-        .values("customer")
-        .annotate(count=Count("pk"))
-        .values("count"),
-        output_field=IntegerField(),
-    ),
-    0,
-)
-
-
-MONTHS_PER_YEAR = 12
-
-
-def _shift_fiscal_year(fiscal_year_start: datetime.date, years: int) -> datetime.date:
-    """The fiscal-year boundary ``years`` away from ``fiscal_year_start`` (same month, day 1)."""
-    return datetime.date(fiscal_year_start.year + years, fiscal_year_start.month, 1)
+# The reusable fiscal-year / summary / per-project computations live in customers.functions (shared
+# with KippoCustomerViewSet). This admin formats their raw values as ¥-strings for the changelist.
 
 
 def _visible_organizations(user: KippoUser) -> models.QuerySet:
@@ -88,8 +71,8 @@ class CustomerEndingProjectsFilter(admin.SimpleListFilter):
         for organization in _visible_organizations(request.user):
             fiscal_year_start = organization.current_fiscal_year_start()
             # last two fiscal years = previous FY start (one year back) through current FY end (one year forward)
-            window_start = _shift_fiscal_year(fiscal_year_start, -1)
-            window_end = _shift_fiscal_year(fiscal_year_start, 1)
+            window_start = shift_fiscal_year(fiscal_year_start, -1)
+            window_end = shift_fiscal_year(fiscal_year_start, 1)
             qualifying = (
                 KippoCustomer.objects.filter(
                     organization=organization,
@@ -303,13 +286,8 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # organization fiscalyear_start_month, relative to today in the organization's timezone).
         fiscal_year_start = obj.organization.current_fiscal_year_start()
         active_projects = getattr(obj, "active_projects", ())
-        # Sum of each active project's contract total (契約金額). Projects without a contract, or whose
-        # contract leaves total_amount blank (effort pricing), contribute 0 — so the parenthesised total
-        # next to the count is Σ contracted amounts across the customer's active projects.
-        contract_total = sum(
-            (project.contract.total_amount for project in active_projects if getattr(project, "contract", None) and project.contract.total_amount),
-            0,
-        )
+        # Σ each active project's contract total (契約金額) — the parenthesised total next to the count.
+        contract_total = active_projects_contract_total(list(active_projects))
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td style='text-align:right'>{}</td><td style='text-align:right'>{}</td><td>{}</td></tr>",
@@ -339,7 +317,7 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         or after the fiscal-year start so the total is the current fiscal year's received revenue.
         """
         contract = getattr(project, "contract", None)
-        received = sum((entry.amount for entry in contract.billing_entries.all() if entry.billing_date >= fiscal_year_start), 0) if contract else 0
+        received = project_received_total_current_fy(project, fiscal_year_start)
         name_link = format_html('<a href="{}">{}</a>', project.get_admin_url(), project.name)
         total_display = _yen(contract.total_amount) if contract else "-"
         end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"
@@ -354,81 +332,27 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         return response
 
     @staticmethod
-    def _fiscal_year_months(fiscal_year_start: datetime.date) -> list[datetime.date]:
-        """The 12 first-of-month dates of the fiscal year starting at ``fiscal_year_start``."""
-        months = []
-        month = fiscal_year_start
-        for offset in range(MONTHS_PER_YEAR):
-            month_index = (fiscal_year_start.month - 1 + offset) % MONTHS_PER_YEAR + 1
-            year = fiscal_year_start.year + (fiscal_year_start.month - 1 + offset) // MONTHS_PER_YEAR
-            month = datetime.date(year, month_index, 1)
-            months.append(month)
-        return months
-
-    @classmethod
-    def _monthly_planned_breakdown(cls, customer_pks: list, fiscal_year_start: datetime.date, fiscal_year_end: datetime.date) -> list[dict]:
-        """Per-month planned contract totals across ``customer_pks`` contracts for the current FY.
-
-        Each contract's planned billing schedule (monthly contracts spread per month, delivery at
-        end_date — KippoProjectContract.planned_billing_schedule) is bucketed into the FY month its
-        billing_date falls in. Contracts that bill outside the FY contribute nothing.
-        """
-        fiscal_year_months = cls._fiscal_year_months(fiscal_year_start)
-        monthly_totals = dict.fromkeys(fiscal_year_months, 0)
-        # Only contracts that can bill on/after the FY start are relevant — one ending before it bills
-        # nothing in the FY. Bounds the per-contract schedule work (effort contracts compute per month).
-        contracts = (
-            KippoProjectContract.objects.filter(project__customer__in=customer_pks, end_date__gte=fiscal_year_start)
-            .select_related("project__organization")
-            .prefetch_related("project__assignment_rates")
-        )
-        for contract in contracts:
-            for billing_date, amount in contract.planned_billing_schedule():
-                if amount and fiscal_year_start <= billing_date < fiscal_year_end:
-                    monthly_totals[datetime.date(billing_date.year, billing_date.month, 1)] += amount
-        return [{"month": month.strftime("%Y/%m"), "amount_display": _yen(monthly_totals[month])} for month in fiscal_year_months]
-
-    @classmethod
-    def _fiscal_year_org_summaries(cls, customers: models.QuerySet) -> list[dict]:
+    def _fiscal_year_org_summaries(customers: models.QuerySet) -> list[dict]:
         """Per-organization current-fiscal-year summary for the header, scoped to the (filtered)
-        ``customers`` shown on the changelist. Per org: customer count; 'contracts planned to complete
-        this FY' = those customers' contracts whose end_date falls in the current FY; planned total =
-        Σ their total_amount; received total = Σ their received billing-entry amounts; and a
-        month-by-month planned-billing breakdown across the FY.
+        ``customers`` shown on the changelist. The raw per-org aggregates come from the shared
+        customers.functions.fiscal_year_org_summaries (the source of truth shared with the API); this
+        formats them into the ¥-strings the header template renders.
         """
-        customer_pks_by_org: dict = defaultdict(list)
-        for customer_pk, organization_id in customers.values_list("pk", "organization_id"):
-            customer_pks_by_org[organization_id].append(customer_pk)
-
-        organizations = {org.pk: org for org in KippoOrganization.objects.filter(pk__in=customer_pks_by_org)}
-        summaries = []
-        for organization_id, customer_pks in customer_pks_by_org.items():
-            organization = organizations[organization_id]
-            fiscal_year_start = organization.current_fiscal_year_start()
-            fiscal_year_end = _shift_fiscal_year(fiscal_year_start, 1)
-            contracts = KippoProjectContract.objects.filter(
-                project__customer__in=customer_pks,
-                end_date__gte=fiscal_year_start,
-                end_date__lt=fiscal_year_end,
-            )
-            # count + planned total are over the same contracts queryset → one aggregate query
-            contract_summary = contracts.aggregate(count=Count("pk"), total=Sum("total_amount"))
-            received_total = (
-                KippoProjectBillingEntry.objects.filter(contract__in=contracts, is_received=True).aggregate(total=Sum("amount"))["total"] or 0
-            )
-            summaries.append(
-                {
-                    "organization": organization.name,
-                    "fiscal_year_start": fiscal_year_start,
-                    "fiscal_year_end": fiscal_year_end,
-                    "customer_count": len(customer_pks),
-                    "project_count": contract_summary["count"],
-                    "received_total_display": _yen(received_total),
-                    "planned_total_display": _yen(contract_summary["total"] or 0),
-                    "monthly_planned_breakdown": cls._monthly_planned_breakdown(customer_pks, fiscal_year_start, fiscal_year_end),
-                }
-            )
-        return sorted(summaries, key=lambda summary: summary["organization"])
+        return [
+            {
+                "organization": summary["organization"].name,
+                "fiscal_year_start": summary["fiscal_year_start"],
+                "fiscal_year_end": summary["fiscal_year_end"],
+                "customer_count": summary["customer_count"],
+                "project_count": summary["project_count"],
+                "received_total_display": _yen(summary["received_total"]),
+                "planned_total_display": _yen(summary["planned_total"]),
+                "monthly_planned_breakdown": [
+                    {"month": row["month"], "amount_display": _yen(row["amount"])} for row in summary["monthly_planned_breakdown"]
+                ],
+            }
+            for summary in fiscal_year_org_summaries(customers)
+        ]
 
     @admin.display(boolean=True, description=_("反社チェック"))
     def get_compliance_verified(self, obj: KippoCustomer) -> bool:
