@@ -16,6 +16,7 @@ from django.db.models.functions import Coalesce
 from django.forms import BaseFormSet, Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from projects.admin import RETURN_TO_PARAM
@@ -174,6 +175,7 @@ class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedIn
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
+    actions = ("mark_compliance_check_completed",)
     # organization is added conditionally in get_list_filter (only for multi-org members).
     list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
@@ -253,8 +255,10 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
 
     @admin.display(description=_("アクティブプロジェクト"), ordering="active_project_count")
     def get_active_project_count(self, obj: KippoCustomer) -> int | str:
-        # Default: the count. Clicking a non-zero count toggles a per-project detail table (the
-        # toggle script is inlined in change_list.html). 0 renders plainly (nothing to expand).
+        # Default: the count. A non-zero count renders a caret toggle that expands a per-project
+        # detail table inline below the count (the toggle script + caret styling are inlined in
+        # change_list.html; the column width is reserved up front so expanding never resizes it).
+        # 0 renders plainly (nothing to expand).
         count = obj.active_project_count
         if not count:
             return count
@@ -267,10 +271,12 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             (self._active_project_row(project, fiscal_year_start) for project in getattr(obj, "active_projects", ())),
         )
         return format_html(
-            '<a href="#" class="active-projects-toggle">{}</a>'
-            '<table class="active-projects-detail" hidden>'
+            '<a href="#" class="active-projects-toggle" role="button" aria-expanded="false">'
+            '<span class="active-projects-caret" aria-hidden="true"></span>{}</a>'
+            '<div class="active-projects-detail" hidden>'
+            "<table>"
             "<thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>"
-            "<tbody>{}</tbody></table>",
+            "<tbody>{}</tbody></table></div>",
             count,
             _("プロジェクト"),
             _("入金済合計(今期)"),
@@ -341,11 +347,38 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             )
         return sorted(summaries, key=lambda summary: summary["organization"])
 
-    @admin.display(boolean=True, description=_("反社チェック"))
-    def get_compliance_verified(self, obj: KippoCustomer) -> bool:
-        # The compliance_check is auto-created via signal; guard against its absence anyway.
+    @admin.display(description=_("反社チェック"))
+    def get_compliance_verified(self, obj: KippoCustomer):
+        # Verified → a check mark. Not verified → an inline reminder telling the admin to run the
+        # 「反社チェック完了」 action once the check is done (the wording mirrors the action's label so
+        # it is findable in the actions dropdown). The compliance_check is auto-created via signal;
+        # guard against its absence anyway.
         compliance_check = getattr(obj, "compliance_check", None)
-        return bool(compliance_check and compliance_check.verified)
+        if compliance_check and compliance_check.verified:
+            return format_html('<span style="color:#447e3c">✓</span>')
+        return format_html(
+            '<span style="color:#ba2121">{}</span>',
+            _("反社チェックが未完了です。完了後、「反社チェック完了」アクションで更新してください。"),
+        )
+
+    @admin.action(description=_("反社チェック完了（ComplianceCheck Completed）"))
+    def mark_compliance_check_completed(self, request: DjangoRequest, queryset: models.QuerySet) -> None:
+        # Mark each selected customer's 反社チェック completed: stamp the verified flag, the datetime,
+        # and the acting admin as verifier. Already-completed checks are left untouched so their
+        # original datetime/verifier are preserved.
+        now = timezone.now()
+        completed = 0
+        for customer in queryset:
+            compliance_check = getattr(customer, "compliance_check", None)
+            if compliance_check is None or compliance_check.verified:
+                continue
+            compliance_check.verified = True
+            compliance_check.verified_datetime = now
+            compliance_check.verified_by = request.user
+            compliance_check.updated_by = request.user
+            compliance_check.save()
+            completed += 1
+        self.message_user(request, _("反社チェックを完了にしました: %(count)d 件") % {"count": completed})
 
     def change_view(self, request: DjangoRequest, object_id: str, form_url: str = "", extra_context: dict | None = None):
         # Surface an "プロジェクトを追加" button under the projects inline that sends the user to the

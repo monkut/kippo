@@ -198,11 +198,46 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         qs = modeladmin.get_queryset(self.super_user_request)
         customer = qs.get(pk=self.customer.pk)
         self.assertEqual(customer.active_project_count, 2)
-        # non-zero count renders the clickable toggle showing the count
+        # non-zero count renders the clickable toggle (with an expand/collapse caret) showing the count
         rendered = modeladmin.get_active_project_count(customer)
         self.assertIn("active-projects-toggle", rendered)
+        self.assertIn("active-projects-caret", rendered)  # expand/collapse icon
+        self.assertIn('aria-expanded="false"', rendered)  # starts collapsed
         self.assertIn(">2<", rendered)
         self.assertEqual(qs.get(pk=self.other_customer.pk).active_project_count, 1)
+
+    def test_compliance_check_completed_action_stamps_verified_fields(self):
+        check = self.customer.compliance_check
+        self.assertFalse(check.verified)
+        url = reverse("admin:customers_kippocustomer_changelist")
+        response = self.client.post(
+            url,
+            {"action": "mark_compliance_check_completed", "_selected_action": [str(self.customer.pk)]},
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)  # redirects back to the changelist
+        check.refresh_from_db()
+        self.assertTrue(check.verified)
+        self.assertIsNotNone(check.verified_datetime)
+        self.assertEqual(check.verified_by, self.superuser_no_org)  # acting admin stamped as verifier
+
+    def test_compliance_check_completed_action_preserves_already_verified(self):
+        from django.utils import timezone
+
+        check = self.other_customer.compliance_check
+        original_datetime = timezone.now() - timezone.timedelta(days=3)
+        check.verified = True
+        check.verified_datetime = original_datetime
+        check.verified_by = self.github_manager
+        check.save()
+        url = reverse("admin:customers_kippocustomer_changelist")
+        self.client.post(
+            url,
+            {"action": "mark_compliance_check_completed", "_selected_action": [str(self.other_customer.pk)]},
+        )
+        check.refresh_from_db()
+        # already-completed check is left untouched (original verifier/datetime preserved)
+        self.assertEqual(check.verified_by, self.github_manager)
+        self.assertEqual(check.verified_datetime, original_datetime)
 
     def test_active_project_count_zero_renders_plain(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
@@ -465,22 +500,22 @@ class KippoCustomerAdminComplianceDisplayTestCase(IsStaffModelAdminTestCaseBase)
     def test_compliance_column_in_list_display(self):
         self.assertIn("get_compliance_verified", KippoCustomerAdmin.list_display)
 
-    def test_compliance_display_method_is_boolean(self):
+    def test_compliance_display_shows_not_completed_message_when_unverified(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        self.assertTrue(modeladmin.get_compliance_verified.boolean)
+        # Auto-created compliance_check is unverified → render the reminder pointing at the action.
+        rendered = modeladmin.get_compliance_verified(self.customer)
+        self.assertIn("未完了", rendered)
+        self.assertIn("反社チェック完了", rendered)  # references the action label
 
-    def test_compliance_display_false_when_unverified(self):
-        modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
-        # Auto-created compliance_check is unverified.
-        self.assertFalse(modeladmin.get_compliance_verified(self.customer))
-
-    def test_compliance_display_true_when_verified(self):
+    def test_compliance_display_shows_checkmark_when_verified(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)
         check = self.customer.compliance_check
         check.verified = True
         check.save()
         refreshed = KippoCustomer.objects.get(pk=self.customer.pk)
-        self.assertTrue(modeladmin.get_compliance_verified(refreshed))
+        rendered = modeladmin.get_compliance_verified(refreshed)
+        self.assertIn("✓", rendered)
+        self.assertNotIn("未完了", rendered)
 
     def test_queryset_selects_related_compliance_check(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)

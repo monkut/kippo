@@ -32,21 +32,42 @@
 {{ block.super }}
 {% endblock %}
 {% block extrahead %}{{ block.super }}
-{# Reserve the アクティブプロジェクト column width up front so expanding the per-project detail does not resize the column. #}
+{# A caret toggle expands the per-project detail inline below the count. The column width is reserved
+   up front (min-width) and the detail table fills it exactly (width:100% + fixed layout), so expanding
+   the detail can never widen the column. In-flow (not an absolutely-positioned popover) so it is never
+   clipped by the admin's `.results { overflow-x: auto }` container. #}
 <style>
   #result_list th.column-get_active_project_count,
   #result_list td.field-get_active_project_count {
     min-width: 32em;
   }
-  td.field-get_active_project_count table.active-projects-detail {
-    /* definite width (matching the column min-width) so table-layout:fixed engages — a percentage
-       resolves against the content-sized cell and is indefinite, which silently disables fixed
-       layout and lets the table grow to its content, resizing the column on expand. */
-    width: 32em;
-    table-layout: fixed;
+  a.active-projects-toggle {
+    cursor: pointer;
+    white-space: nowrap;
   }
-  td.field-get_active_project_count table.active-projects-detail th,
-  td.field-get_active_project_count table.active-projects-detail td {
+  .active-projects-caret::before {
+    content: "\25B6"; /* ▶ collapsed; rotates to ▼ when expanded */
+    display: inline-block;
+    margin-right: .4em;
+    font-size: .75em;
+    transition: transform .1s ease;
+  }
+  a.active-projects-toggle[aria-expanded="true"] .active-projects-caret::before {
+    transform: rotate(90deg);
+  }
+  td.field-get_active_project_count .active-projects-detail {
+    margin-top: .4em;
+  }
+  td.field-get_active_project_count .active-projects-detail table {
+    /* width:100% fills the reserved cell content box exactly (a fixed em would overflow by the cell
+       padding and widen the column); table-layout:fixed engages because the cell width is definite
+       via the column min-width, so the detail never forces the column wider. */
+    width: 100%;
+    table-layout: fixed;
+    margin: 0;
+  }
+  td.field-get_active_project_count .active-projects-detail th,
+  td.field-get_active_project_count .active-projects-detail td {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -63,6 +84,7 @@
         var detail = toggle.parentElement.querySelector(".active-projects-detail");
         if (detail) {
           detail.hidden = !detail.hidden;
+          toggle.setAttribute("aria-expanded", detail.hidden ? "false" : "true");
         }
       });
     });
