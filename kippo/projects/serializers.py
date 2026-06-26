@@ -166,6 +166,15 @@ class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "project_name", "created_datetime", "updated_datetime"]
 
 
+class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
+    """Read-only serializer for KippoProjectOrganizationCategory (project category picker)."""
+
+    class Meta:
+        model = KippoProjectOrganizationCategory
+        fields = ["id", "key", "label", "organization", "sort_order", "is_active"]
+        read_only_fields = fields
+
+
 class KippoProjectContractSerializer(serializers.ModelSerializer):
     """The project's contract (kippo#31) — billing terms. project is set from the nested route."""
 
