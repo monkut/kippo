@@ -80,7 +80,7 @@ class CustomerActiveProjectSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True)
     contract_amount = serializers.SerializerMethodField()
     contract_end_date = serializers.SerializerMethodField()
-    received_total_current_fy = serializers.DecimalField(max_digits=14, decimal_places=0, read_only=True)
+    received_total_current_fy = serializers.DecimalField(max_digits=14, decimal_places=0, coerce_to_string=False, read_only=True)
 
     def get_contract_amount(self, obj) -> Decimal | None:  # noqa: ANN001 (obj is a KippoProject; left unannotated so drf-spectacular need not import it)
         contract = getattr(obj, "contract", None)
@@ -95,7 +95,7 @@ class FiscalYearMonthlyBreakdownSerializer(serializers.Serializer):
     """One FY-month planned-billing total: {"month": "YYYY/MM", "amount": decimal}."""
 
     month = serializers.CharField()
-    amount = serializers.DecimalField(max_digits=16, decimal_places=0)
+    amount = serializers.DecimalField(max_digits=16, decimal_places=0, coerce_to_string=False)
 
 
 class FiscalYearSummaryOrganizationSerializer(serializers.Serializer):
@@ -111,6 +111,6 @@ class FiscalYearSummarySerializer(serializers.Serializer):
     fiscal_year_end = serializers.DateField()
     customer_count = serializers.IntegerField()
     project_count = serializers.IntegerField()
-    planned_total = serializers.DecimalField(max_digits=16, decimal_places=0)
-    received_total = serializers.DecimalField(max_digits=16, decimal_places=0)
+    planned_total = serializers.DecimalField(max_digits=16, decimal_places=0, coerce_to_string=False)
+    received_total = serializers.DecimalField(max_digits=16, decimal_places=0, coerce_to_string=False)
     monthly_planned_breakdown = FiscalYearMonthlyBreakdownSerializer(many=True)
