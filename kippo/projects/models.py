@@ -921,7 +921,13 @@ class KippoProjectContract(UserCreatedBaseModel):
             self.start_date = self.project.start_date
         if not self.end_date:
             self.end_date = self.project.target_date
+        is_initial_creation = self._state.adding
         super().save(*args, **kwargs)
+        # Populate the billing ledger from the terms on initial creation so the user does not have to
+        # run the generate_billing_entries admin action by hand. Idempotent and safe to re-run later
+        # (as months elapse or effort accrues) via the still-available action / API.
+        if is_initial_creation:
+            self.generate_billing_entries(created_by=self.created_by)
 
     def _contract_months(self) -> list[datetime.date]:
         """First-of-month dates for each calendar month the contract period [start_date, end_date]

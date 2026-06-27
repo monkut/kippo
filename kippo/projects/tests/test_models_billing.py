@@ -128,12 +128,29 @@ class MonthlyContractGenerationTestCase(TestCase):
             total_amount=Decimal(total_amount),
             start_date=start,
             end_date=end,
+            created_by=self.user,
+            updated_by=self.user,
         )
 
+    def test_billing_entries_generated_on_contract_creation(self):
+        # creating the contract populates the ledger from the terms — the user does not run the
+        # generate_billing_entries action by hand
+        contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31), total_amount="900000")
+        self.assertEqual(
+            [(entry.billing_date, entry.amount) for entry in contract.billing_entries.all()],
+            [
+                (datetime.date(2026, 1, 31), Decimal("300000")),
+                (datetime.date(2026, 2, 28), Decimal("300000")),
+                (datetime.date(2026, 3, 31), Decimal("300000")),
+            ],
+        )
+        self.assertTrue(all(entry.created_by == self.user for entry in contract.billing_entries.all()))  # contract's created_by
+        self.assertTrue(all(entry.is_manual is False for entry in contract.billing_entries.all()))  # generated, not hand-added
+
     def test_multi_month_contract_generates_month_end_entry_per_month(self):
-        # 1,200,000 over Jan..Apr (4 months) -> 300,000 each
+        # 1,200,000 over Jan..Apr (4 months) -> 300,000 each, generated on creation
         contract = self._make_contract(datetime.date(2026, 1, 15), datetime.date(2026, 4, 10), total_amount="1200000")
-        created = contract.generate_billing_entries(created_by=self.user)
+        created = list(contract.billing_entries.all())
         # each accrual month is billed at month-end (月末)
         self.assertEqual(
             [entry.billing_date for entry in created],
@@ -153,7 +170,7 @@ class MonthlyContractGenerationTestCase(TestCase):
     def test_total_amount_split_remainder_lands_on_final_month(self):
         # 1,000,000 over 3 months -> 333,333 / 333,333 / 333,334 (remainder on last); sums to total
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31), total_amount="1000000")
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(
             [entry.amount for entry in created],
             [Decimal("333333"), Decimal("333333"), Decimal("333334")],
@@ -162,14 +179,14 @@ class MonthlyContractGenerationTestCase(TestCase):
 
     def test_single_month_contract(self):
         contract = self._make_contract(datetime.date(2026, 3, 1), datetime.date(2026, 3, 31), total_amount="300000")
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].billing_date, datetime.date(2026, 3, 31))
         self.assertEqual(created[0].amount, Decimal("300000"))
 
     def test_contract_spanning_year_boundary(self):
         contract = self._make_contract(datetime.date(2025, 11, 1), datetime.date(2026, 2, 28))
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(
             [entry.billing_date for entry in created],
             [
@@ -189,15 +206,14 @@ class MonthlyContractGenerationTestCase(TestCase):
             billing_type=BILLING_TYPE_MONTHLY,
             total_amount=Decimal("900000"),
         )
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(len(created), 3)
 
     def test_generation_is_idempotent(self):
+        # entries are generated on contract creation; re-running the action creates nothing new
         contract = self._make_contract(datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
-        first = contract.generate_billing_entries()
-        self.assertEqual(len(first), 3)
-        second = contract.generate_billing_entries()
-        self.assertEqual(second, [])
+        self.assertEqual(contract.billing_entries.count(), 3)
+        self.assertEqual(contract.generate_billing_entries(), [])
         self.assertEqual(contract.billing_entries.count(), 3)
 
     def test_generation_preserves_manual_adjustments(self):
@@ -256,7 +272,7 @@ class DeliveryContractGenerationTestCase(TestCase):
             total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].billing_date, datetime.date(2026, 9, 30))
         self.assertEqual(created[0].amount, Decimal("2000000"))
@@ -271,18 +287,19 @@ class DeliveryContractGenerationTestCase(TestCase):
             billing_type=BILLING_TYPE_DELIVERY,
             total_amount=Decimal("2000000"),
         )
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].billing_date, datetime.date(2026, 9, 30))
 
     def test_delivery_generation_is_idempotent(self):
+        # the single delivery entry is generated on creation; re-running the action creates nothing new
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
             total_amount=Decimal("2000000"),
             end_date=datetime.date(2026, 9, 30),
         )
-        self.assertEqual(len(contract.generate_billing_entries()), 1)
+        self.assertEqual(contract.billing_entries.count(), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
         self.assertEqual(contract.billing_entries.count(), 1)
 
@@ -342,11 +359,14 @@ class RevenueEntriesTestCase(TestCase):
         self.assertEqual(entries, [])
 
     def test_manual_entry_included_in_revenue(self):
-        # hand-added entries (is_manual) count toward revenue like generated ones
+        # hand-added entries (is_manual) count toward revenue like generated ones.
+        # effort pricing with no logged effort leaves the ledger empty on creation, so the manual
+        # entry below is the only one.
         contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            total_amount=Decimal("500000"),
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
             end_date=datetime.date(2026, 9, 30),
         )
         KippoProjectBillingEntry.objects.create(
@@ -597,7 +617,7 @@ class EffortContractGenerationTestCase(TestCase):
         self._log_effort(datetime.date(2026, 1, 19), 8)  # 1 day  -> Jan total 6 days = 600,000
         self._log_effort(datetime.date(2026, 2, 2), 16)  # 2 days -> Feb 200,000
         contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
-        created = contract.generate_billing_entries(created_by=self.user)
+        created = list(contract.billing_entries.all())
         self.assertEqual(
             [(e.billing_date, e.amount) for e in created],
             [(datetime.date(2026, 1, 31), Decimal("600000")), (datetime.date(2026, 2, 28), Decimal("200000"))],
@@ -610,14 +630,14 @@ class EffortContractGenerationTestCase(TestCase):
         self._assign_role(datetime.date(2026, 1, 1), ProjectRoles.TESTER.value)
         self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days × 50,000 = 250,000
         contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 1, 31), Decimal("250000"))])
 
     def test_effort_missing_rate_falls_back_to_default(self):
         # no ProjectAssignmentRate rows -> developer role resolves to settings.DEFAULT_PROJECT_DAILY_RATE
         self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days × 180,000
         contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         expected = Decimal(5 * settings.DEFAULT_PROJECT_DAILY_RATE)  # 900,000
         self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 1, 31), expected)])
 
@@ -626,7 +646,7 @@ class EffortContractGenerationTestCase(TestCase):
         self._log_effort(datetime.date(2026, 1, 5), 40)  # 5 days
         self._log_effort(datetime.date(2026, 2, 2), 16)  # 2 days -> total 7 days = 700,000
         contract = self._effort_contract(BILLING_TYPE_DELIVERY, datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual([(e.billing_date, e.amount) for e in created], [(datetime.date(2026, 2, 28), Decimal("700000"))])
 
     def test_effort_monthly_zero_effort_month_creates_nothing(self):
@@ -634,7 +654,7 @@ class EffortContractGenerationTestCase(TestCase):
         self._log_effort(datetime.date(2026, 1, 5), 40)  # Jan only
         self._log_effort(datetime.date(2026, 3, 2), 8)  # Mar only; Feb has no logged effort
         contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 3, 31))
-        created = contract.generate_billing_entries()
+        created = list(contract.billing_entries.all())
         self.assertEqual(
             [(e.billing_date, e.amount) for e in created],
             [(datetime.date(2026, 1, 31), Decimal("500000")), (datetime.date(2026, 3, 31), Decimal("100000"))],
@@ -644,7 +664,8 @@ class EffortContractGenerationTestCase(TestCase):
         self._set_rate(ProjectRoles.DEVELOPER.value, 100_000)
         self._log_effort(datetime.date(2026, 1, 5), 40)
         contract = self._effort_contract(BILLING_TYPE_MONTHLY, datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
-        self.assertEqual(len(contract.generate_billing_entries()), 1)
+        # the entry is generated on creation (effort already logged above); re-running creates nothing new
+        self.assertEqual(contract.billing_entries.count(), 1)
         self.assertEqual(contract.generate_billing_entries(), [])
         self.assertEqual(contract.billing_entries.count(), 1)
 
@@ -666,10 +687,13 @@ class BillingEntryReceivedTrackingTestCase(TestCase):
         created = setup_basic_project()
         self.project: KippoProject = created["KippoProject"]
         self.user = created["KippoUser"]
+        # effort pricing with no logged effort leaves the ledger empty on creation, so each test below
+        # controls its own single entry via _entry() without colliding with an auto-generated one
         self.contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type=BILLING_TYPE_DELIVERY,
-            total_amount=Decimal("1000000"),
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
             end_date=datetime.date(2026, 9, 30),
         )
 

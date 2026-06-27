@@ -1411,11 +1411,12 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
 
     def test_billing_entry_crud_and_received_by_stamp(self):
+        # effort/no-effort -> empty ledger on creation, so the POSTed entry below is the only one
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type="delivery",
-            pricing_basis="fixed",
-            total_amount=1000000,
+            pricing_basis="effort",
+            total_amount=None,
             end_date="2026-09-30",
             created_by=self.user,
             updated_by=self.user,
@@ -1469,11 +1470,12 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
 
     def test_duplicate_billing_entry_rejected_cleanly(self):
+        # effort/no-effort -> empty ledger on creation, so the first POST below is the only entry
         KippoProjectContract.objects.create(
             project=self.project,
             billing_type="delivery",
-            pricing_basis="fixed",
-            total_amount=1000000,
+            pricing_basis="effort",
+            total_amount=None,
             end_date="2026-09-30",
             created_by=self.user,
             updated_by=self.user,

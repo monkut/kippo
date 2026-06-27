@@ -370,9 +370,12 @@ class KippoCustomerChangelistParityTestCase(TestCase):
         # delivery contract ending in March → whole total in its end month; received entry counted
         delivery = self._make_project("delivery", self.customer, date(self.today.year, 3, 31))
         delivery_contract = self._make_contract(delivery, "3000000", date(self.today.year, 3, 31))
-        KippoProjectBillingEntry.objects.create(
-            contract=delivery_contract, billing_date=date(self.today.year, 3, 31), amount=Decimal("1000000"), is_received=True
-        )
+        # the contract auto-generates a 3,000,000 entry at end-of-March on creation; record a
+        # 1,000,000 partial receipt against it (planned stays 3,000,000 from the terms)
+        entry = delivery_contract.billing_entries.get(billing_date=date(self.today.year, 3, 31))
+        entry.amount = Decimal("1000000")
+        entry.is_received = True
+        entry.save()
         # monthly fixed Apr–Jun (3 months) → 1,200,000 split 400,000/month
         monthly = self._make_project("monthly", self.customer, date(self.today.year, 6, 30))
         self._make_contract(monthly, "1200000", date(self.today.year, 6, 30), billing_type="monthly", start_date=date(self.today.year, 4, 1))

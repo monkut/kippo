@@ -1936,10 +1936,13 @@ class ContractAdminBillingEntryReceivedByTestCase(KippoProjectAdminFixtureTestCa
     def setUp(self):
         super().setUp()
         self.project = self.make_project("received-by-project")
+        # effort/no-effort -> empty ledger on creation, so the entry added via the formset below is
+        # the only one (a fixed contract would auto-generate one at 2026-09-30 and collide)
         self.contract = KippoProjectContract.objects.create(
             project=self.project,
             billing_type="delivery",
-            total_amount="1000000",
+            pricing_basis="effort",
+            total_amount=None,
             end_date=date(2026, 9, 30),
             created_by=self.github_manager,
             updated_by=self.github_manager,
