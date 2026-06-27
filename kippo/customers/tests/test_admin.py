@@ -324,7 +324,7 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         from decimal import Decimal
 
         from django.utils import timezone
-        from projects.models import KippoProjectBillingEntry, KippoProjectContract
+        from projects.models import KippoProjectContract
 
         # Fiscal year starts in January → current FY = this (JST) calendar year.
         self.organization.fiscalyear_start_month = 1
@@ -342,9 +342,12 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        KippoProjectBillingEntry.objects.create(
-            contract=in_fy_contract, billing_date=date(today.year, 6, 30), amount=Decimal("500000"), is_received=True
-        )
+        # the contract auto-generates a 2,000,000 entry at its end_date on creation; record a 500,000
+        # partial receipt against it (planned stays 2,000,000 from the terms)
+        in_fy_entry = in_fy_contract.billing_entries.get(billing_date=date(today.year, 6, 30))
+        in_fy_entry.amount = Decimal("500000")
+        in_fy_entry.is_received = True
+        in_fy_entry.save()
         # contract ending in a PRIOR FY → excluded from count / planned / received
         prior = self._make_customer_project("prior-fy", self.customer, fy_start - timedelta(days=1))
         KippoProjectContract.objects.create(
