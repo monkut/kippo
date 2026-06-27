@@ -8,6 +8,12 @@
     .kippo-copy-status { font-size: 12px; color: #4f8a10; opacity: 0; transition: opacity 0.15s ease; }
     .kippo-copy-status.is-visible { opacity: 1; }
     .kippo-copy-status--error { color: #ba2121; }
+    /* Collapsed nested-admin inline section dividers. When an inline is collapsed, Django/nested_admin
+       wraps the inline's section <h2> (which already carries its own ~8px section-bar padding) inside a
+       <summary> that adds padding again, so the divider renders ~double height (≈69px) vs the project's
+       own collapsible fieldset sections (≈36px, whose <h2> is a padding-less, inline .fieldset-heading).
+       Mirror that: make the inline h2 inline + padding-less so the <summary>'s own padding sizes the bar. */
+    .djn-fieldset details > summary > h2 { display: inline; padding: 0; margin: 0; }
 </style>
 <script>
 'use strict';
