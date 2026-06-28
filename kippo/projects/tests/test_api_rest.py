@@ -441,6 +441,70 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn(str(self.project.id), all_ids)
         self.assertIn(str(non_project.id), all_ids)
 
+    def test_search_filters_by_name_substring(self):
+        """Test the `search` query parameter filters projects by case-insensitive name substring."""
+        match = KippoProject.objects.create(
+            name="Demand Forecasting Platform",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        url = f"{settings.URL_PREFIX}/api/projects/?search=forecasting"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = [result["id"] for result in response.json()["results"]]
+        self.assertIn(str(match.id), result_ids)
+        self.assertNotIn(str(self.project.id), result_ids)
+
+    def test_parent_project_is_writable_and_exposes_name(self):
+        """Test parent_project can be set (same org) and parent_project_name is returned read-only."""
+        parent = KippoProject.objects.create(
+            name="Parent Project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"parent_project": str(parent.id)}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        data = response.json()
+        self.assertEqual(data["parent_project"], str(parent.id))
+        self.assertEqual(data["parent_project_name"], "Parent Project")
+
+    def test_parent_project_cross_organization_rejected(self):
+        """Test a parent_project from a different organization is rejected."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        # self.other_project belongs to other_organization; superuser-free user can still send the id.
+        response = self.client.patch(url, {"parent_project": str(self.other_project.id)}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("parent_project", response.json())
+
+    def test_enable_cost_report_requires_slack_channel(self):
+        """Test enable_cost_report cannot be turned on without a slack_channel_name (model.clean parity)."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        self.project.slack_channel_name = ""
+        self.project.save()
+        rejected = self.client.patch(url, {"enable_cost_report": True}, format="json")
+        self.assertEqual(rejected.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("enable_cost_report", rejected.json())
+        # With a slack channel supplied in the same request it succeeds.
+        accepted = self.client.patch(url, {"enable_cost_report": True, "slack_channel_name": "proj-costs"}, format="json")
+        self.assertEqual(accepted.status_code, HTTPStatus.OK, accepted.content)
+        self.assertTrue(accepted.json()["enable_cost_report"])
+
+    def test_meeting_fields_exposed_read_only(self):
+        """Test meeting_calendar_url + meeting_description_tag are exposed and read-only."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        data = self.client.get(url).json()
+        self.assertIn(f'[dsearch]{{"project":"{self.project.id}"}}[/dsearch]', data["meeting_description_tag"])
+        self.assertIn("calendar.google.com", data["meeting_calendar_url"])
+        # Read-only: attempting to write them is ignored (value stays derived).
+        response = self.client.patch(url, {"meeting_description_tag": "tampered"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertNotEqual(response.json()["meeting_description_tag"], "tampered")
+
     def test_user_cannot_access_other_organization_projects(self):
         """Test that users can only access projects from their organizations."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.other_project.id}/"
