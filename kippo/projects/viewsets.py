@@ -156,6 +156,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 required=False,
                 type=str,
             ),
+            OpenApiParameter(
+                name="search",
+                description="Case-insensitive substring match on the project name (for name-search pickers).",
+                required=False,
+                type=str,
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
@@ -195,6 +201,11 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         exclude_category = self.request.query_params.get("exclude_category", None)
         if exclude_category is not None:
             queryset = queryset.exclude(category__key=exclude_category)
+
+        # Case-insensitive name substring search (powers name-search pickers, e.g. parent_project).
+        search = self.request.query_params.get("search", None)
+        if search:
+            queryset = queryset.filter(name__icontains=search)
 
         return queryset
 

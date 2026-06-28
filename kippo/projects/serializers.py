@@ -287,6 +287,20 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         required=False,
         help_text="ProjectColumnSet for this project. Defaults to the organization's default columnset when omitted.",
     )
+    # parent_project (親プロジェクト) — original project for upsell projects (admin parity). Writable
+    # FK; a cross-org or self-referencing parent is rejected in validate(). parent_project_name is the
+    # read-only label so clients can render the selection without a second lookup.
+    parent_project = serializers.PrimaryKeyRelatedField(
+        queryset=KippoProject.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Original (parent) project for upsell projects.",
+    )
+    parent_project_name = serializers.CharField(source="parent_project.name", read_only=True, allow_null=True)
+    # MTG calendar template URL + dsearch tag — read-only, mirroring the admin's
+    # meeting_calendar_url_field / meeting_description_tag_field display methods.
+    meeting_calendar_url = serializers.SerializerMethodField()
+    meeting_description_tag = serializers.SerializerMethodField()
 
     class Meta:
         model = KippoProject
@@ -309,8 +323,11 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "monthly_billing_schedule",
             "slack_channel_name",
             "slack_notification_channel_name",
+            "enable_cost_report",
             "project_manager",
             "project_manager_username",
+            "parent_project",
+            "parent_project_name",
             "is_closed",
             "closed_datetime",
             "display_as_active",
@@ -328,6 +345,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "document_folder_url",
             "docbase_tag",
             "problem_definition",
+            "meeting_calendar_url",
+            "meeting_description_tag",
             "survey_issued",
             "assignment_rates",
             "has_requirements",
@@ -344,6 +363,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "organization_name",
             "customer_name",
             "project_manager_username",
+            "parent_project_name",  # read-only label for the parent_project FK
+            "meeting_calendar_url",  # MTG calendar template URL (admin parity)
+            "meeting_description_tag",  # dsearch tag for meeting minutes (admin parity)
             "customer_document_url",  # linked customer's contract-folder URL (kippo#34 / T04)
             "phase_display",  # human-readable status label (kippo#37 / T10)
             "category_label",  # human-readable category label (kippo#39 / T14)
@@ -391,6 +413,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
                 )
             attrs["columnset"] = columnset
 
+        self._validate_parent_project(attrs, organization)
+        self._validate_enable_cost_report(attrs)
+
         # Required-field validation at project registration (kippo#40 / T19). Create-only — edits of
         # existing rows (and existing data) are unaffected. category/phase always carry model defaults,
         # so the enforced gaps are the genuinely-optional fields. 請求方法 (billing method) lives on
@@ -402,6 +427,41 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             if missing:
                 raise serializers.ValidationError(missing)
         return attrs
+
+    def _validate_parent_project(self, attrs: dict, organization: "KippoOrganization | None") -> None:
+        """parent_project (upsell) must be same-org and not the project itself (admin parity)."""
+        parent_project = attrs.get("parent_project")
+        if parent_project is None:
+            return
+        if self.instance is not None and parent_project.id == self.instance.id:
+            raise serializers.ValidationError({"parent_project": "A project cannot be its own parent project."})
+        if organization is not None and parent_project.organization_id != organization.id:
+            raise serializers.ValidationError({"parent_project": "Parent project must belong to the project's organization."})
+
+    def _validate_enable_cost_report(self, attrs: dict) -> None:
+        """enable_cost_report requires a slack_channel_name (mirrors KippoProject.clean()). Falls back
+        to the stored values for fields absent from this (partial) update.
+        """
+        enable_cost_report = attrs.get("enable_cost_report")
+        if enable_cost_report is None and self.instance is not None:
+            enable_cost_report = self.instance.enable_cost_report
+        if not enable_cost_report:
+            return
+        slack_channel_name = attrs.get("slack_channel_name")
+        if slack_channel_name is None and self.instance is not None:
+            slack_channel_name = self.instance.slack_channel_name
+        if not slack_channel_name:
+            raise serializers.ValidationError({"enable_cost_report": "slack_channel_name is required when enable_cost_report is True."})
+
+    @extend_schema_field(serializers.CharField())
+    def get_meeting_calendar_url(self, obj: KippoProject) -> str:
+        """Google Calendar event-template URL pre-filled for this project (admin parity)."""
+        return obj.get_meeting_calendar_template_url()
+
+    @extend_schema_field(serializers.CharField())
+    def get_meeting_description_tag(self, obj: KippoProject) -> str:
+        """Dsearch sentinel tag embedding the project id, for meeting-minutes discovery (admin parity)."""
+        return obj.get_dsearch_tag()
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_allocated_effort_hours(self, obj: KippoProject) -> float | None:
