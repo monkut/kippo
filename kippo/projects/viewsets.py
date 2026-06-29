@@ -162,6 +162,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
                 required=False,
                 type=str,
             ),
+            OpenApiParameter(
+                name="customer",
+                description="Filter by customer UUID (exact match on KippoProject.customer).",
+                required=False,
+                type=str,
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
@@ -206,6 +212,12 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         search = self.request.query_params.get("search", None)
         if search:
             queryset = queryset.filter(name__icontains=search)
+
+        # Filter by customer (exact match on the customer UUID) — efficient FK lookup; lets the
+        # parent_project picker scope candidates to the project's customer server-side.
+        customer = self.request.query_params.get("customer", None)
+        if customer:
+            queryset = queryset.filter(customer=customer)
 
         return queryset
 

@@ -457,6 +457,33 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn(str(match.id), result_ids)
         self.assertNotIn(str(self.project.id), result_ids)
 
+    def test_filter_by_customer(self):
+        """Test the `customer` query parameter filters projects by the customer UUID (exact match)."""
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="Filter Co",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        with_customer = KippoProject.objects.create(
+            name="With Customer",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            customer=customer,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        url = f"{settings.URL_PREFIX}/api/projects/?customer={customer.id}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = [result["id"] for result in response.json()["results"]]
+        self.assertIn(str(with_customer.id), result_ids)
+        # self.project has no customer → excluded by the filter.
+        self.assertNotIn(str(self.project.id), result_ids)
+
     def test_parent_project_is_writable_and_exposes_name(self):
         """Test parent_project can be set (same org) and parent_project_name is returned read-only."""
         parent = KippoProject.objects.create(
