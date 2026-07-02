@@ -95,7 +95,7 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset = queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
             return queryset
 
-        user_organizations = list(user.organizationmembership_set.values_list("organization", flat=True))
+        user_organizations = organization_ids_for_user(user)
         if organization and organization in {str(org_id) for org_id in user_organizations}:
             return queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
         return queryset.filter(Q(organization__isnull=True) | Q(organization__in=user_organizations))

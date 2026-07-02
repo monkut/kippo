@@ -16,12 +16,21 @@ def organization_ids_for_user(user: Any) -> set:  # noqa: ANN401
     Empty set for unauthenticated users or users without ``organizationmembership_set``.
     Use this for non-viewset call sites (permissions, ad-hoc access checks). Viewsets
     should prefer :class:`OrganizationFilterMixin`.
+
+    The result is memoized on the user object (``user._organization_ids_cache``) so the
+    repeated calls within one request (get_queryset + permissions + serializer validators)
+    reuse a single query. The user object is instantiated per request, so this is
+    request-scoped and Lambda-safe — it never persists across invocations.
     """
     if not (user and user.is_authenticated):
         return set()
     if not hasattr(user, "organizationmembership_set"):
         return set()
-    return set(user.organizationmembership_set.values_list("organization", flat=True))
+    cached = getattr(user, "_organization_ids_cache", None)
+    if cached is None:
+        cached = set(user.organizationmembership_set.values_list("organization", flat=True))
+        user._organization_ids_cache = cached
+    return cached
 
 
 class OrganizationFilterMixin:
@@ -43,6 +52,13 @@ class OrganizationFilterMixin:
         user = self.request.user
         if not user.is_superuser and hasattr(user, "organizationmembership_set"):
             lookup = organization_lookup or self.organization_lookup
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+            # Reuse the request-scoped org-id cache when a prior helper call (permission check,
+            # serializer validator) already populated it — so a detail request fetches the ids
+            # once. When the cache is cold (a list request whose only org use is this filter),
+            # fall back to the lazy membership queryset so Django inlines it as a SQL subquery
+            # and adds no extra round-trip.
+            user_organizations = getattr(user, "_organization_ids_cache", None)
+            if user_organizations is None:
+                user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
             queryset = queryset.filter(**{f"{lookup}__in": user_organizations})
         return queryset

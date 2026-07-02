@@ -11,7 +11,7 @@ from string import ascii_lowercase
 from typing import TYPE_CHECKING
 
 import nested_admin
-from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
 from commons.functions import get_current_month_date_range
@@ -22,7 +22,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Case, JSONField, Model, QuerySet, Value, When
+from django.db.models import Case, JSONField, Model, OuterRef, Prefetch, QuerySet, Subquery, Sum, Value, When
 from django.forms import BaseFormSet, Form
 from django.forms.models import BaseInlineFormSet
 from django.http import (
@@ -56,6 +56,7 @@ from .functions import (
     get_user_session_organization,
 )
 from .models import (
+    _COMPUTE,
     PHASE_CONFIDENCE,
     ActiveKippoProject,
     CollectIssuesAction,
@@ -922,7 +923,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "show_github_project_html_url",
     )
     list_display_links = ("id", "name")
-    list_select_related = ("customer", "category")
+    list_select_related = ("customer", "category", "organization")
     search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
@@ -1127,13 +1128,17 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     def get_kippoprojectuserstatisfactionresult_usernames(self, obj: KippoProject | None = None) -> str:
         result = ""
         if obj:
-            result = format_html(
-                "<br>".join(
+            # Changelist prefetches satisfaction results (get_queryset) to avoid a query per row;
+            # fall back to the live query on other admin paths.
+            if hasattr(obj, "_changelist_satisfaction_results"):
+                usernames = [row.created_by.username for row in obj._changelist_satisfaction_results]
+            else:
+                usernames = list(
                     KippoProjectUserStatisfactionResult.objects.filter(project=obj)
                     .order_by("created_by__username")
                     .values_list("created_by__username", flat=True)
                 )
-            )
+            result = format_html("<br>".join(usernames))
         return result
 
     @admin.display(description=_("顧客アンケートURL"))
@@ -1210,20 +1215,27 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     @admin.display(description=_("最新コメント"))
     def get_latest_kippoprojectstatus_comment(self, obj: KippoProject):
         result = ""
-        latest_status = obj.get_latest_kippoprojectstatus()
-        if latest_status:
-            display_date = latest_status.created_datetime.strftime("(%m/%d) ")
-            result = latest_status.comment
+        # Changelist annotates the latest comment/datetime (get_queryset) to avoid a .latest()
+        # per row; fall back to the live query on other admin paths.
+        if hasattr(obj, "_changelist_latest_status_comment"):
+            comment = obj._changelist_latest_status_comment
+            created_datetime = obj._changelist_latest_status_datetime
+        else:
+            latest_status = obj.get_latest_kippoprojectstatus()
+            comment = latest_status.comment if latest_status else None
+            created_datetime = latest_status.created_datetime if latest_status else None
+        if comment is not None and created_datetime is not None:
+            display_date = created_datetime.strftime("(%m/%d) ")
             spaces = "&nbsp;" * 75
-            result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=result)
+            result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=comment)
         return result
 
     @admin.display(description=_("稼働状況"))
-    def get_projectstatus_display(self, obj: KippoProject | None = None) -> str:
+    def get_projectstatus_display(self, obj: KippoProject | None = None, total_effort: object = _COMPUTE, holidays: object = _COMPUTE) -> str:
         progress_status_display = "-"
         if obj:
             progress_status_display = None
-            project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values()
+            project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values(total_effort=total_effort, holidays=holidays)
             # low < high
             # if x > high, then display as "red"
             # if x > low, then display as "yellow"
@@ -1557,9 +1569,72 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        return qs.filter(organization__in=request.user.organizations).distinct()
+        if not request.user.is_superuser:
+            qs = qs.filter(organization__in=request.user.organizations).distinct()
+        return self._annotate_changelist(qs)
+
+    @staticmethod
+    def _annotate_changelist(qs: QuerySet) -> QuerySet:
+        """Batch the per-row changelist queries into the list query.
+
+        Replaces three N+1 columns (effort Sum aggregate, latest-status `.latest()`, and the
+        satisfaction-result usernames query) with two correlated Subqueries plus one prefetch,
+        so the changelist runs a bounded number of queries regardless of row count. The display
+        methods read these annotations/prefetch when present and fall back to their live queries
+        otherwise (detail view, other admin paths).
+        """
+        latest_status = KippoProjectStatus.objects.filter(project=OuterRef("pk")).order_by("-created_datetime")
+        effort_total = ProjectWeeklyEffort.objects.filter(project=OuterRef("pk")).values("project").annotate(total=Sum("hours")).values("total")
+        return qs.annotate(
+            _changelist_total_effort=Subquery(effort_total),
+            _changelist_latest_status_comment=Subquery(latest_status.values("comment")[:1]),
+            _changelist_latest_status_datetime=Subquery(latest_status.values("created_datetime")[:1]),
+        ).prefetch_related(
+            Prefetch(
+                "kippoprojectuserstatisfactionresult_set",
+                queryset=KippoProjectUserStatisfactionResult.objects.select_related("created_by").order_by("created_by__username"),
+                to_attr="_changelist_satisfaction_results",
+            )
+        )
+
+    def get_list_display(self, request: DjangoRequest):
+        """Bind the status column to a request-scoped per-org holiday cache.
+
+        `get_projectstatus_display` needs each project's org holidays; computing them per row is a
+        PublicHoliday query per row. A list_display callable can't see `request`, so we close over
+        it here and pass the cached holiday set (built lazily, once per org, per request) plus the
+        effort annotation into the display method.
+        """
+        columns = super().get_list_display(request)
+
+        @admin.display(description=_("稼働状況"))
+        def projectstatus_display(obj: KippoProject) -> str:
+            holidays = self._changelist_holidays_for(request, obj)
+            total_effort = obj._changelist_total_effort if hasattr(obj, "_changelist_total_effort") else _COMPUTE
+            return self.get_projectstatus_display(obj, total_effort=total_effort, holidays=holidays)
+
+        return tuple(projectstatus_display if column == "get_projectstatus_display" else column for column in columns)
+
+    def _changelist_holidays_for(self, request: DjangoRequest, obj: KippoProject) -> set:
+        """Return (and lazily cache on the request) the org's public-holiday dates.
+
+        The cache is a per-request dict keyed by organization id. Membership is all
+        `get_expected_effort` tests, so the full per-country holiday set (a superset of the
+        project's own date range) yields identical results while collapsing N per-row queries
+        into one query per distinct organization.
+        """
+        cache = getattr(request, "_changelist_holidays_by_org", None)
+        if cache is None:
+            cache = {}
+            request._changelist_holidays_by_org = cache
+        org_id = obj.organization_id
+        if org_id not in cache:
+            country_id = obj.organization.default_holiday_country_id
+            holidays: set = set()
+            if country_id:
+                holidays = set(PublicHoliday.objects.filter(country_id=country_id).values_list("day", flat=True))
+            cache[org_id] = holidays
+        return cache[org_id]
 
 
 @admin.register(KippoProject)
