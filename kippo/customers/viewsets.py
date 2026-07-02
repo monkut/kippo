@@ -1,6 +1,7 @@
 from typing import Any
 
 from accounts.models import KippoOrganization
+from commons.viewsets import OrganizationFilterMixin
 from django.db.models import Prefetch, Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -37,7 +38,7 @@ def _active_projects_prefetch() -> Prefetch:
     )
 
 
-class KippoCustomerViewSet(viewsets.ModelViewSet):
+class KippoCustomerViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for KippoCustomer model.
 
@@ -113,10 +114,7 @@ class KippoCustomerViewSet(viewsets.ModelViewSet):
             .annotate(active_project_count=ACTIVE_PROJECT_COUNT)
             .prefetch_related(_active_projects_prefetch())
         )
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset, "organization")
 
         organization = self.request.query_params.get("organization", None)
         if organization:

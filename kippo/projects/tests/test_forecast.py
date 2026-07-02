@@ -5,6 +5,7 @@ Covers monkut/kippo#226 (Phase 1 of feature #224). Decisions A1–A6, D5, O1–O
 
 import datetime
 from http import HTTPStatus
+from unittest import mock
 
 from accounts.models import Country, KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 from commons.definitions import SATURDAY
@@ -132,9 +133,14 @@ class ForecastServiceTestCase(TestCase):
     def test_in_progress_month_logged_effort_counts_only(self):
         # 80 logged hours within current month — must be counted toward "spent".
         current_monday = self.today - datetime.timedelta(days=self.today.weekday())
+        forecast_today = self.today
         if current_monday.month != self.today.month:
             current_monday = self.today.replace(day=1)
             current_monday = current_monday + datetime.timedelta(days=(7 - current_monday.weekday()) % 7)
+            # Early in a month that starts mid-week, the first in-month Monday is after the real
+            # today; the forecast only counts effort with week_start <= today, so freeze its
+            # "today" to that Monday to keep the in-progress-month premise deterministic.
+            forecast_today = current_monday
         ProjectWeeklyEffort.objects.create(
             project=self.project,
             user=self.user,
@@ -146,7 +152,8 @@ class ForecastServiceTestCase(TestCase):
         next_month = first_of_next_month(self.today)
         self._make_assignment(month=next_month, percentage=100)
 
-        result = ProjectAssignmentForecastManager(self.project).compute()
+        with mock.patch("projects.services.forecast.timezone.localdate", return_value=forecast_today):
+            result = ProjectAssignmentForecastManager(self.project).compute()
         completion = result.estimated_completion_date
         self.assertIsNotNone(completion)
         # Spent 80 → remaining 80 → should still finish in ~2 weeks of next month

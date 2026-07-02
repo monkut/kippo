@@ -3,6 +3,7 @@
 from http import HTTPStatus
 from typing import Any
 
+from commons.viewsets import organization_ids_for_user
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from projects.models import KippoProject
@@ -19,14 +20,6 @@ class _ErrorDetailSerializer(serializers.Serializer):
     """Standard DRF-style error envelope: ``{"detail": "<message>"}``."""
 
     detail = serializers.CharField()
-
-
-def _user_org_ids(user: Any) -> set:  # noqa: ANN401
-    if not (user and user.is_authenticated):
-        return set()
-    if not hasattr(user, "organizationmembership_set"):
-        return set()
-    return set(user.organizationmembership_set.values_list("organization", flat=True))
 
 
 @extend_schema(
@@ -53,7 +46,7 @@ class GithubRepositoryViewSet(
         queryset = super().get_queryset()
         user = self.request.user
         if not user.is_superuser:
-            queryset = queryset.filter(organization__in=_user_org_ids(user))
+            queryset = queryset.filter(organization__in=organization_ids_for_user(user))
         return queryset
 
     @extend_schema(
@@ -114,7 +107,7 @@ class ProjectGithubRepositoryViewSet(
         project_id = self.kwargs["project_id"]
         project = get_object_or_404(KippoProject, pk=project_id)
         user = self.request.user
-        if not user.is_superuser and project.organization_id not in _user_org_ids(user):
+        if not user.is_superuser and project.organization_id not in organization_ids_for_user(user):
             # Mirror DRF's PermissionDenied -> 403 without leaking existence.
             self.permission_denied(self.request, message="Project is not in any of your organizations.")
         return project

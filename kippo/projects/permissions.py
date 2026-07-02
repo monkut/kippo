@@ -2,23 +2,10 @@
 
 from typing import Any
 
+from commons.viewsets import organization_ids_for_user
 from rest_framework import permissions
 from rest_framework.request import Request
 from rest_framework.views import APIView
-
-
-def _user_org_ids(user: Any) -> set:  # noqa: ANN401
-    """Return the set of organization PKs the user is a member of.
-
-    Returns an empty set for unauthenticated users or users without
-    `organizationmembership_set` (mirrors the queryset-scoping pattern in
-    `projects/viewsets.py:90-94`).
-    """
-    if not (user and user.is_authenticated):
-        return set()
-    if not hasattr(user, "organizationmembership_set"):
-        return set()
-    return set(user.organizationmembership_set.values_list("organization", flat=True))
 
 
 class IsSuperuserOrOwnOrgReadUpdateCreate(permissions.BasePermission):
@@ -46,7 +33,7 @@ class IsSuperuserOrOwnOrgReadUpdateCreate(permissions.BasePermission):
             target_org = request.data.get("organization") if hasattr(request, "data") else None
             if not target_org:
                 return False
-            return str(target_org) in {str(oid) for oid in _user_org_ids(user)}
+            return str(target_org) in {str(oid) for oid in organization_ids_for_user(user)}
         # PUT/PATCH: allow at view-level; object-level check enforces org membership.
         # DELETE/other: not permitted for non-superusers.
         return request.method in ["PUT", "PATCH"]
@@ -63,7 +50,7 @@ class IsSuperuserOrOwnOrgReadUpdateCreate(permissions.BasePermission):
             return True
 
         if request.method in ["PUT", "PATCH"]:
-            return getattr(obj, "organization_id", None) in _user_org_ids(user)
+            return getattr(obj, "organization_id", None) in organization_ids_for_user(user)
 
         if request.method == "DELETE":
             return False

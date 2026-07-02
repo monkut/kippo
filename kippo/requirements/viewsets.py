@@ -2,7 +2,8 @@ import logging
 from typing import Any
 
 import requests
-from django.db.models import QuerySet
+from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
+from django.db.models import Count, FloatField, OuterRef, Subquery, Sum
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from projects.models import KippoProject
 from rest_framework import status, viewsets
@@ -65,26 +66,6 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
-class OrganizationFilterMixin:
-    """Mixin to filter querysets by user's organization membership."""
-
-    request: Request
-
-    def filter_by_organization(self, queryset: QuerySet, project_path: str = "project") -> QuerySet:
-        """Filter queryset by user's organization memberships.
-
-        Args:
-            queryset: The queryset to filter
-            project_path: The path to the project field (e.g., "project" or "requirement__project")
-        """
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            filter_key = f"{project_path}__organization__in"
-            queryset = queryset.filter(**{filter_key: user_organizations})
-        return queryset
-
-
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -117,7 +98,7 @@ class ProjectProblemDefinitionViewSet(OrganizationFilterMixin, viewsets.ModelVie
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         if project_id:
             queryset = queryset.filter(project_id=project_id)
@@ -191,7 +172,7 @@ class ProjectAssumptionViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         category = self.request.query_params.get("category")
         if project_id:
@@ -270,7 +251,7 @@ class ProjectBusinessRequirementCategoryViewSet(OrganizationFilterMixin, viewset
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         if project_id:
             queryset = queryset.filter(project_id=project_id)
@@ -309,7 +290,7 @@ class ProjectTechnicalRequirementCategoryViewSet(OrganizationFilterMixin, viewse
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         if project_id:
             queryset = queryset.filter(project_id=project_id)
@@ -377,7 +358,7 @@ class ProjectBusinessRequirementViewSet(OrganizationFilterMixin, viewsets.ModelV
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         problem_id = self.request.query_params.get("problem")
         category_id = self.request.query_params.get("category")
@@ -387,7 +368,28 @@ class ProjectBusinessRequirementViewSet(OrganizationFilterMixin, viewsets.ModelV
             queryset = queryset.filter(problems__id=problem_id)
         if category_id:
             queryset = queryset.filter(category_id=category_id)
-        return queryset.distinct()
+        queryset = queryset.distinct()
+
+        # The list serializer derives category_name (FK), problems_data (M2M), technical_requirements_count
+        # and total_estimate_days per row — resolve them in bulk to avoid per-row queries. The estimate
+        # sum uses a correlated Subquery so it does not fan out against the technical-requirements Count.
+        if self.action == "list":
+            estimate_total = Subquery(
+                ProjectBusinessRequirementEstimate.objects.filter(requirement__business_requirements=OuterRef("pk"))
+                .values("requirement__business_requirements")
+                .annotate(total=Sum("days"))
+                .values("total")[:1],
+                output_field=FloatField(),
+            )
+            queryset = (
+                queryset.select_related("category", "project")
+                .prefetch_related("problems")
+                .annotate(
+                    technical_requirements_count_annotated=Count("projecttechnicalrequirement", distinct=True),
+                    total_estimate_days_annotated=estimate_total,
+                )
+            )
+        return queryset
 
     @extend_schema(
         request=None,
@@ -475,7 +477,7 @@ class ProjectTechnicalRequirementViewSet(OrganizationFilterMixin, viewsets.Model
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         project_id = self.request.query_params.get("project")
         business_requirement_id = self.request.query_params.get("business_requirement")
         category_id = self.request.query_params.get("category")
@@ -552,8 +554,10 @@ class ProjectProblemDefinitionCommentViewSet(OrganizationFilterMixin, viewsets.M
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         queryset = queryset.filter(requirement_id=self.kwargs["problem_definition_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projectproblemdefinitioncomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
@@ -626,8 +630,10 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         queryset = queryset.filter(requirement_id=self.kwargs["business_requirement_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projectbusinessrequirementcomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
@@ -697,8 +703,10 @@ class ProjectTechnicalRequirementCommentViewSet(OrganizationFilterMixin, viewset
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         queryset = queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projecttechnicalrequirementcomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
@@ -734,7 +742,7 @@ class ProjectBusinessRequirementEstimateViewSet(OrganizationFilterMixin, viewset
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         queryset = queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
         return queryset
 
@@ -768,7 +776,7 @@ class ProjectTechnicalRequirementGithubIssueViewSet(OrganizationFilterMixin, vie
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="technical_requirement__project")
+        queryset = self.filter_by_organization(queryset, "technical_requirement__project__organization")
         queryset = queryset.filter(technical_requirement_id=self.kwargs["technical_requirement_pk"])
         return queryset
 
@@ -825,13 +833,11 @@ class ScheduleEstimationAPIView(APIView):
 
         # Check organization access for non-superusers
         user = request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            if project.organization_id not in user_organizations:
-                return Response(
-                    {"error": "You do not have access to this project"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+        if not user.is_superuser and hasattr(user, "organizationmembership_set") and project.organization_id not in organization_ids_for_user(user):
+            return Response(
+                {"error": "You do not have access to this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         try:
             result = schedule_technical_requirements(
@@ -856,7 +862,7 @@ class ProblemDefinitionEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadO
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         return queryset.filter(requirement_id=self.kwargs["problem_definition_pk"])
 
     @extend_schema(
@@ -888,7 +894,7 @@ class AssumptionEvaluationViewSet(OrganizationFilterMixin, viewsets.ReadOnlyMode
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         return queryset.filter(requirement_id=self.kwargs["assumption_pk"])
 
     @extend_schema(
@@ -920,7 +926,7 @@ class BusinessRequirementEvaluationViewSet(OrganizationFilterMixin, viewsets.Rea
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         return queryset.filter(requirement_id=self.kwargs["business_requirement_pk"])
 
     @extend_schema(
@@ -952,7 +958,7 @@ class TechnicalRequirementEvaluationViewSet(OrganizationFilterMixin, viewsets.Re
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = self.filter_by_organization(queryset, project_path="requirement__project")
+        queryset = self.filter_by_organization(queryset, "requirement__project__organization")
         return queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
 
     @extend_schema(

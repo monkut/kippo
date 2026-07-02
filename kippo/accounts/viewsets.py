@@ -5,6 +5,7 @@ from collections import defaultdict
 from http import HTTPStatus
 from typing import Any
 
+from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
@@ -135,7 +136,7 @@ class PersonalHolidayViewSet(viewsets.ModelViewSet):
 _TRUTHY = ("true", "1", "yes")
 
 
-class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class OrganizationViewSet(OrganizationFilterMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     """
     Read-only ViewSet for KippoOrganization.
 
@@ -159,11 +160,8 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def get_queryset(self):
         """Scope to the requester's organization memberships (superusers see all)."""
         queryset = super().get_queryset()
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(id__in=user_organizations)
-        return queryset
+        # The model *is* the organization, so scope on its own primary key.
+        return self.filter_by_organization(queryset, "id")
 
     @extend_schema(
         responses={
@@ -239,13 +237,11 @@ class OrganizationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             return Response({"detail": "Not found."}, status=HTTPStatus.NOT_FOUND)
 
         user = request.user
-        if not user.is_superuser:
-            user_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
-            if organization.id not in user_org_ids:
-                return Response(
-                    {"detail": "You are not a member of this organization."},
-                    status=HTTPStatus.FORBIDDEN,
-                )
+        if not user.is_superuser and organization.id not in organization_ids_for_user(user):
+            return Response(
+                {"detail": "You are not a member of this organization."},
+                status=HTTPStatus.FORBIDDEN,
+            )
 
         # Use self.request.query_params (Any-typed) over the more strictly-typed request param
         # to match the dynamic-typing pattern already used in projects/viewsets.py for query params.

@@ -1796,3 +1796,58 @@ class ResetOnEditTestCase(TestCase):
             title="New Problem",
         )
         self.assertEqual(problem.evaluation_state, EvaluationStates.UNEVALUATED.value)
+
+
+class BusinessRequirementListQueryCountTestCase(TestCase):
+    """Regression guard: the business-requirements list endpoint must run a constant number of
+    queries regardless of how many requirements (and their technical requirements / estimates /
+    problems) exist.
+
+    Guards the N+1 elimination in ProjectBusinessRequirementListSerializer / its viewset
+    (category select_related, problems prefetch, technical_requirements_count + total_estimate_days
+    annotations).
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+
+        self.tech_category = ProjectTechnicalRequirementCategory.objects.create(project=self.project, name="Tech")
+        for index in range(3):
+            self._add_business_requirement(index)
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _add_business_requirement(self, index: int) -> None:
+        category = ProjectBusinessRequirementCategory.objects.create(project=self.project, name=f"Cat-{index}")
+        requirement = ProjectBusinessRequirement.objects.create(project=self.project, category=category, title=f"BR-{index}")
+        problem = ProjectProblemDefinition.objects.create(project=self.project, title=f"Problem-{index}")
+        requirement.problems.add(problem)
+        for tech_index in range(2):
+            tech_req = ProjectTechnicalRequirement.objects.create(project=self.project, category=self.tech_category, title=f"TR-{index}-{tech_index}")
+            tech_req.business_requirements.add(requirement)
+            ProjectBusinessRequirementEstimate.objects.create(
+                requirement=tech_req, days=3.0, confidence=0.8, created_by=self.user, updated_by=self.user
+            )
+
+    def test_list_business_requirements_constant_query_count(self):
+        """The list endpoint issues a fixed number of queries independent of requirement/related-row count."""
+        url = f"{API_PREFIX}/business-requirements/?page_size=100"
+        expected_queries = 3
+        with self.assertNumQueries(expected_queries):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertGreaterEqual(response.json()["count"], 3)
+
+        # Adding more requirements (and related rows) must NOT increase the query count.
+        for index in range(3, 6):
+            self._add_business_requirement(index)
+        with self.assertNumQueries(expected_queries):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertGreaterEqual(response.json()["count"], 6)
