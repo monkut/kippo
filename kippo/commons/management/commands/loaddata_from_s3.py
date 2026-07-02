@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.translation import gettext as _
 
-from kippo.awsclients import S3_CLIENT
+from kippo.awsclients import get_s3_client
 
 
 class Command(BaseCommand):
@@ -32,7 +32,7 @@ class Command(BaseCommand):
             # Download the file from S3
             # -- lambda has a default 512 MB in /tmp
             self.stdout.write(f"Downloading from S3: s3://{s3_bucket_name}/{s3_key} -> {tmpdir}/{s3_key} ...")
-            S3_CLIENT.download_file(s3_bucket_name, s3_key, str(output_filepath))
+            get_s3_client().download_file(s3_bucket_name, s3_key, str(output_filepath))
             self.stdout.write(f"Downloading from S3: s3://{s3_bucket_name}/{s3_key} -> {tmpdir}/{s3_key} ... DONE")
 
             self.stdout.write("Loadding data ...")

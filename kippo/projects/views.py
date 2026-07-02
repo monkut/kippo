@@ -28,7 +28,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from tasks.models import KippoTask, KippoTaskStatus
 
-from kippo.awsclients import S3_CLIENT, s3_key_exists
+from kippo.awsclients import get_s3_client, s3_key_exists
 
 # from .charts.functions import prepare_burndown_chart_components
 from .functions import get_user_session_organization
@@ -310,7 +310,7 @@ def data_download_done(request: DjangoRequest):
     expired_seconds = request.GET.get("expired_seconds", 3600)
 
     if all((referer, current_path == referer_path, filename, s3_key_exists(settings.DUMPDATA_S3_BUCKETNAME, filename))):
-        presigned_url = S3_CLIENT.generate_presigned_url(
+        presigned_url = get_s3_client().generate_presigned_url(
             ClientMethod="get_object",
             Params={"Bucket": settings.DUMPDATA_S3_BUCKETNAME, "Key": filename},
             ExpiresIn=expired_seconds,

@@ -10,7 +10,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from kippo.awsclients import S3_RESOURCE
+from kippo.awsclients import get_s3_resource
 
 
 class Command(BaseCommand):
@@ -50,7 +50,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"> Checkpoint Elapsed: {checkpoint_elapsed}")
 
                 self.stdout.write(f'Writing "project" db dump to: {s3_uri}')
-                S3_RESOURCE.Bucket(s3_bucket_name).put_object(Key=s3_key, Body=upload_f)
+                get_s3_resource().Bucket(s3_bucket_name).put_object(Key=s3_key, Body=upload_f)
                 end = timezone.now()
                 total_elapsed = end - start
                 self.stdout.write(f"> Total Elapsed: {total_elapsed}\n")
