@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
+from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from django.conf import settings
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet, Sum
 from django.shortcuts import get_object_or_404
@@ -100,7 +101,7 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.filter(Q(organization__isnull=True) | Q(organization__in=user_organizations))
 
 
-class KippoProjectViewSet(viewsets.ModelViewSet):
+class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for KippoProject model.
 
@@ -275,10 +276,7 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         queryset = queryset.annotate(has_requirements_annotated=Exists(ProjectProblemDefinition.objects.filter(project=OuterRef("pk"))))
 
         # Filter by user's organization memberships (skip for superusers)
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset)
 
         # Filter by is_active parameter
         # When is_active=true, return only projects that are:
@@ -467,7 +465,7 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         return Response({"patterns": [p.model_dump(mode="json") for p in patterns]})
 
 
-class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
+class ProjectWeeklyEffortViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectWeeklyEffort model.
 
@@ -547,10 +545,8 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         # Filter by user's organization memberships through project (skip for superusers)
+        queryset = self.filter_by_organization(queryset, "project__organization")
         user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(project__organization__in=user_organizations)
 
         # Filter by project parameter
         project_id = self.request.query_params.get("project", None)
@@ -585,7 +581,7 @@ class ProjectWeeklyEffortViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-class ProjectWeeklyEffortUnlockViewSet(viewsets.ModelViewSet):
+class ProjectWeeklyEffortUnlockViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """週間稼働アンロックの申請・承認 API (kippo#33 / T18).
 
     - **Create (POST)**: 認証ユーザが自分の締め後の週のアンロックを `organization` + `week_start` + `reason` で申請する
@@ -604,10 +600,7 @@ class ProjectWeeklyEffortUnlockViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        user = self.request.user
-        if not user.is_superuser:
-            org_ids = list(user.organizationmembership_set.values_list("organization_id", flat=True))
-            queryset = queryset.filter(organization_id__in=org_ids)
+        queryset = self.filter_by_organization(queryset, "organization")
         organization_id = self.request.query_params.get("organization", None)
         if organization_id:
             queryset = queryset.filter(organization_id=organization_id)
@@ -655,7 +648,7 @@ class ProjectWeeklyEffortUnlockViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(unlock).data, status=HTTPStatus.OK)
 
 
-class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):
+class ProjectAssignmentRateViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectAssignmentRate model.
 
@@ -699,10 +692,7 @@ class ProjectAssignmentRateViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         # Filter by user's organization memberships through project (skip for superusers)
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(project__organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset, "project__organization")
 
         # Filter by project parameter
         project_id = self.request.query_params.get("project", None)
@@ -798,7 +788,7 @@ class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):
         serializer.save(received_by=received_by, updated_by=self.request.user)
 
 
-class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
+class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectMonthlyAssignment model.
 
@@ -885,10 +875,7 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         # Filter by user's organization memberships through project (skip for superusers)
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(project__organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset, "project__organization")
 
         # Filter by project parameter
         project_id = self.request.query_params.get("project", None)
@@ -949,10 +936,8 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
 
         user = request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
-            if project.organization_id not in user_org_ids:
-                return Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
+        if not user.is_superuser and hasattr(user, "organizationmembership_set") and project.organization_id not in organization_ids_for_user(user):
+            return Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
 
         triggered_by = user if user.is_authenticated else None
         created_rows, skip_reason = auto_create_future_assignments(project, triggered_by)
@@ -966,7 +951,7 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
         )
 
 
-class ProjectMonthlyCostViewSet(viewsets.ModelViewSet):
+class ProjectMonthlyCostViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for ProjectMonthlyCost model.
 
@@ -1038,10 +1023,7 @@ class ProjectMonthlyCostViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         # Filter by user's organization memberships through project (skip for superusers)
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(project__organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset, "project__organization")
 
         # Filter by project parameter
         project_id = self.request.query_params.get("project", None)
@@ -1071,7 +1053,7 @@ class ProjectMonthlyCostViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-class KippoProjectUserStatisfactionResultViewSet(viewsets.ModelViewSet):
+class KippoProjectUserStatisfactionResultViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
     """
     ViewSet for KippoProjectUserStatisfactionResult model (振り返り従業員アンケート).
 
@@ -1128,10 +1110,7 @@ class KippoProjectUserStatisfactionResultViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         # Filter by user's organization memberships through project (skip for superusers)
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(project__organization__in=user_organizations)
+        queryset = self.filter_by_organization(queryset, "project__organization")
 
         # Filter by project parameter
         project_id = self.request.query_params.get("project", None)
