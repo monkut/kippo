@@ -60,6 +60,13 @@ class ProjectAssignmentForecastManager:
         self.__logged_hours_cache: int | None = None
         self.__latest_logged_week_start_cache: datetime.date | None = None
         self.__latest_logged_week_start_loaded: bool = False
+        # Memoizes the query-derived portion of the forecast user-context (membership,
+        # holiday country, public + personal holidays) keyed by the inputs that determine
+        # it: (frozenset(user_ids), next_month_start, horizon). The suggester reuses one
+        # manager across ~28 compute() calls over the same users/horizon (seed + binary
+        # search + s_max + final), so this collapses ~110 identical queries to 4.
+        # Instance-scoped only — managers are constructed per request, so this is Lambda-safe.
+        self.__user_context_cache: dict[tuple, tuple[dict, dict, dict, dict]] = {}
 
     def compute(self, overlay: dict[int, dict[datetime.date, int]] | None = None) -> ForecastResult:
         """Return the forecast payload.
@@ -155,8 +162,30 @@ class ProjectAssignmentForecastManager:
         next_month_start: datetime.date,
         horizon: datetime.date,
     ) -> ProjectAssignmentForecastUserContext:
-        organization = self.project.organization
         user_ids = list(by_user_month.keys())
+        cache_key = (frozenset(user_ids), next_month_start, horizon)
+        cached = self.__user_context_cache.get(cache_key)
+        if cached is None:
+            cached = self.__load_user_context_queries(user_ids, next_month_start, horizon)
+            self.__user_context_cache[cache_key] = cached
+        user_membership, user_holiday_country, public_holidays_by_country, user_personal_holidays = cached
+
+        return ProjectAssignmentForecastUserContext(
+            by_user_month=by_user_month,
+            user_membership=user_membership,
+            user_holiday_country=user_holiday_country,
+            public_holidays_by_country=public_holidays_by_country,
+            user_personal_holidays=user_personal_holidays,
+        )
+
+    def __load_user_context_queries(
+        self,
+        user_ids: list[int],
+        next_month_start: datetime.date,
+        horizon: datetime.date,
+    ) -> tuple[dict, dict, dict, dict]:
+        """Run the 4 DB queries behind the forecast user-context. Memoized by the caller."""
+        organization = self.project.organization
 
         user_membership = {m.user_id: m for m in OrganizationMembership.objects.filter(user_id__in=user_ids, organization=organization)}
 
@@ -179,13 +208,7 @@ class ProjectAssignmentForecastManager:
             for offset in range(ph.duration):
                 user_personal_holidays[ph.user_id].add(ph.day + datetime.timedelta(days=offset))
 
-        return ProjectAssignmentForecastUserContext(
-            by_user_month=by_user_month,
-            user_membership=user_membership,
-            user_holiday_country=user_holiday_country,
-            public_holidays_by_country=public_holidays_by_country,
-            user_personal_holidays=user_personal_holidays,
-        )
+        return user_membership, user_holiday_country, public_holidays_by_country, user_personal_holidays
 
     @staticmethod
     def __user_contributes_on(ctx: ProjectAssignmentForecastUserContext, user_id: int, day: datetime.date, weekday: int) -> int | None:
