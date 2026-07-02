@@ -507,6 +507,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_has_requirements(self, obj: KippoProject) -> bool:
         """Check if the project has any problem definitions."""
+        annotated = getattr(obj, "has_requirements_annotated", None)
+        if annotated is not None:
+            return annotated
+
         from requirements.models import ProjectProblemDefinition
 
         return ProjectProblemDefinition.objects.filter(project=obj).exists()
@@ -514,7 +518,16 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     @extend_schema_field(ProjectProgressStatusInlineSerializer(allow_null=True))
     def get_projectstatus_display(self, obj: KippoProject) -> dict | None:
         """Get the project progress status display values."""
-        project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values()
+        # In list context the effort total and org holidays are precomputed once per page
+        # (see KippoProjectViewSet); inject them to avoid a per-row aggregate + PublicHoliday query.
+        effort_totals = self.context.get("project_effort_totals")
+        if effort_totals is not None:
+            holidays = self.context["public_holidays_by_country"].get(obj.organization.default_holiday_country_id, set())
+            project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values(
+                total_effort=effort_totals.get(obj.id), holidays=holidays
+            )
+        else:
+            project_progress_status = obj.get_projectprogressstatus_values()
         if project_progress_status.allocated_effort_hours is None:
             return None
         return {
@@ -527,7 +540,13 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     @extend_schema_field(LatestCommentInlineSerializer(allow_null=True))
     def get_latest_comment(self, obj: KippoProject) -> dict | None:
         """Get the latest KippoProjectStatus comment with commentor info."""
-        latest_status = obj.get_latest_kippoprojectstatus()
+        # The viewset prefetches statuses ordered newest-first into `_prefetched_latest_statuses`
+        # (with created_by select_related) so the list endpoint avoids a per-row `.latest()` query.
+        prefetched = getattr(obj, "_prefetched_latest_statuses", None)
+        if prefetched is not None:
+            latest_status = prefetched[0] if prefetched else None
+        else:
+            latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
             created_by = latest_status.created_by
             display_name = None
@@ -545,23 +564,43 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             }
         return None
 
+    def _effort_context_rows(self, obj: KippoProject) -> tuple[int, list[dict]] | None:
+        """Return `(total_hours, user_effort_rows)` from the per-page batch context, or None.
+
+        The viewset precomputes one grouped `ProjectWeeklyEffort` aggregate per page and stores it
+        in serializer context, so the effort-derived fields share it instead of each re-scanning
+        the table. Returns None in detail/retrieve (no batch) so callers fall back to per-object queries.
+        """
+        user_efforts_by_project = self.context.get("project_user_efforts")
+        if user_efforts_by_project is None:
+            return None
+        total_hours = self.context["project_effort_totals"].get(obj.id) or 0
+        return total_hours, user_efforts_by_project.get(obj.id, [])
+
     @extend_schema_field(WeeklyEffortUserInlineSerializer(many=True))
     def get_weekly_effort_users(self, obj: KippoProject) -> list[dict]:
         """Get list of users with their weekly effort percentages for this project."""
-        # Get total hours for the project
-        total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
-        total_hours = total_hours_result["total"] or 0
+        batch = self._effort_context_rows(obj)
+        if batch is not None:
+            total_hours, user_efforts = batch
+            if total_hours == 0:
+                return []
+            user_efforts = sorted(user_efforts, key=lambda e: e["user_hours"], reverse=True)
+        else:
+            # Get total hours for the project
+            total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
+            total_hours = total_hours_result["total"] or 0
 
-        if total_hours == 0:
-            return []
+            if total_hours == 0:
+                return []
 
-        # Get hours per user
-        user_efforts = (
-            ProjectWeeklyEffort.objects.filter(project=obj)
-            .values("user__id", "user__username", "user__first_name", "user__last_name")
-            .annotate(user_hours=Sum("hours"))
-            .order_by("-user_hours")
-        )
+            # Get hours per user
+            user_efforts = (
+                ProjectWeeklyEffort.objects.filter(project=obj)
+                .values("user__id", "user__username", "user__first_name", "user__last_name")
+                .annotate(user_hours=Sum("hours"))
+                .order_by("-user_hours")
+            )
 
         result = []
         for effort in user_efforts:
@@ -589,22 +628,29 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         Returns users sorted alphabetically by username with their survey completion status.
         Only includes users with effort percentage > 3%.
         """
-        # Get total hours for the project
-        total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
-        total_hours = total_hours_result["total"] or 0
+        batch = self._effort_context_rows(obj)
+        if batch is not None:
+            total_hours, user_efforts = batch
+            if total_hours == 0:
+                return []
+            completed_user_ids = self.context["project_survey_completed_users"].get(obj.id, set())
+        else:
+            # Get total hours for the project
+            total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
+            total_hours = total_hours_result["total"] or 0
 
-        if total_hours == 0:
-            return []
+            if total_hours == 0:
+                return []
 
-        # Get hours per user
-        user_efforts = (
-            ProjectWeeklyEffort.objects.filter(project=obj)
-            .values("user__id", "user__username", "user__first_name", "user__last_name")
-            .annotate(user_hours=Sum("hours"))
-        )
+            # Get hours per user
+            user_efforts = (
+                ProjectWeeklyEffort.objects.filter(project=obj)
+                .values("user__id", "user__username", "user__first_name", "user__last_name")
+                .annotate(user_hours=Sum("hours"))
+            )
 
-        # Get users who have completed the survey for this project
-        completed_user_ids = set(KippoProjectUserStatisfactionResult.objects.filter(project=obj).values_list("created_by_id", flat=True))
+            # Get users who have completed the survey for this project
+            completed_user_ids = set(KippoProjectUserStatisfactionResult.objects.filter(project=obj).values_list("created_by_id", flat=True))
 
         result = []
         for effort in user_efforts:
@@ -845,16 +891,23 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
         ]
 
     def _get_user_organization_membership(self, obj: ProjectMonthlyAssignment) -> "OrganizationMembership | None":
-        """Get the user's OrganizationMembership for the project's organization."""
-        from accounts.models import OrganizationMembership
+        """Get the user's OrganizationMembership for the project's organization.
 
-        try:
-            return OrganizationMembership.objects.get(
-                user=obj.user,
-                organization=obj.project.organization,
-            )
-        except OrganizationMembership.DoesNotExist:
-            return None
+        Memoized per serializer instance (both slack fields call this per row) and resolved from the
+        viewset's prefetched `user__organizationmembership_set` when present, falling back to a direct
+        query for standalone/single-object use.
+        """
+        organization_id = obj.project.organization_id
+        cache = self.__dict__.setdefault("_membership_cache", {})
+        key = (obj.user_id, organization_id)
+        if key in cache:
+            return cache[key]
+
+        # `.all()` uses the prefetched cache when the viewset prefetched it (no query); otherwise it
+        # issues one query for the user's memberships, which is then filtered in Python.
+        membership = next((m for m in obj.user.organizationmembership_set.all() if m.organization_id == organization_id), None)
+        cache[key] = membership
+        return membership
 
     @extend_schema_field(serializers.CharField())
     def get_user_display_name(self, obj: ProjectMonthlyAssignment) -> str:

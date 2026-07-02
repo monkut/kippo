@@ -92,7 +92,12 @@ class ProjectProblemDefinitionCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_replies(self, obj: ProjectProblemDefinitionComment) -> list[dict]:
-        replies = ProjectProblemDefinitionComment.objects.filter(parent_comment=obj)
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        replies = (
+            cache["projectproblemdefinitioncomment_set"]
+            if "projectproblemdefinitioncomment_set" in cache
+            else ProjectProblemDefinitionComment.objects.filter(parent_comment=obj)
+        )
         return ProjectProblemDefinitionCommentSerializer(replies, many=True).data
 
 
@@ -139,7 +144,12 @@ class ProjectBusinessRequirementCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_replies(self, obj: ProjectBusinessRequirementComment) -> list[dict]:
-        replies = ProjectBusinessRequirementComment.objects.filter(parent_comment=obj)
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        replies = (
+            cache["projectbusinessrequirementcomment_set"]
+            if "projectbusinessrequirementcomment_set" in cache
+            else ProjectBusinessRequirementComment.objects.filter(parent_comment=obj)
+        )
         return ProjectBusinessRequirementCommentSerializer(replies, many=True).data
 
 
@@ -171,7 +181,12 @@ class ProjectTechnicalRequirementCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_replies(self, obj: ProjectTechnicalRequirementComment) -> list[dict]:
-        replies = ProjectTechnicalRequirementComment.objects.filter(parent_comment=obj)
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        replies = (
+            cache["projecttechnicalrequirementcomment_set"]
+            if "projecttechnicalrequirementcomment_set" in cache
+            else ProjectTechnicalRequirementComment.objects.filter(parent_comment=obj)
+        )
         return ProjectTechnicalRequirementCommentSerializer(replies, many=True).data
 
 
@@ -314,10 +329,17 @@ class ProjectBusinessRequirementListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_technical_requirements_count(self, obj: ProjectBusinessRequirement) -> int:
+        annotated = getattr(obj, "technical_requirements_count_annotated", None)
+        if annotated is not None:
+            return annotated
         return obj.projecttechnicalrequirement_set.count()
 
     @extend_schema_field(serializers.FloatField())
     def get_total_estimate_days(self, obj: ProjectBusinessRequirement) -> float:
+        # The list viewset annotates the per-requirement estimate sum; fall back to a direct query
+        # for non-annotated (single-object) use. `None` (no estimates) matches the empty-sum's 0.
+        if hasattr(obj, "total_estimate_days_annotated"):
+            return obj.total_estimate_days_annotated or 0
         estimates = ProjectBusinessRequirementEstimate.objects.filter(requirement__business_requirements=obj)
         return sum(e.days for e in estimates)
 

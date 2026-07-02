@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 import requests
-from django.db.models import QuerySet
+from django.db.models import Count, FloatField, OuterRef, QuerySet, Subquery, Sum
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from projects.models import KippoProject
 from rest_framework import status, viewsets
@@ -387,7 +387,28 @@ class ProjectBusinessRequirementViewSet(OrganizationFilterMixin, viewsets.ModelV
             queryset = queryset.filter(problems__id=problem_id)
         if category_id:
             queryset = queryset.filter(category_id=category_id)
-        return queryset.distinct()
+        queryset = queryset.distinct()
+
+        # The list serializer derives category_name (FK), problems_data (M2M), technical_requirements_count
+        # and total_estimate_days per row — resolve them in bulk to avoid per-row queries. The estimate
+        # sum uses a correlated Subquery so it does not fan out against the technical-requirements Count.
+        if self.action == "list":
+            estimate_total = Subquery(
+                ProjectBusinessRequirementEstimate.objects.filter(requirement__business_requirements=OuterRef("pk"))
+                .values("requirement__business_requirements")
+                .annotate(total=Sum("days"))
+                .values("total")[:1],
+                output_field=FloatField(),
+            )
+            queryset = (
+                queryset.select_related("category", "project")
+                .prefetch_related("problems")
+                .annotate(
+                    technical_requirements_count_annotated=Count("projecttechnicalrequirement", distinct=True),
+                    total_estimate_days_annotated=estimate_total,
+                )
+            )
+        return queryset
 
     @extend_schema(
         request=None,
@@ -554,6 +575,8 @@ class ProjectProblemDefinitionCommentViewSet(OrganizationFilterMixin, viewsets.M
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
         queryset = queryset.filter(requirement_id=self.kwargs["problem_definition_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projectproblemdefinitioncomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
@@ -628,6 +651,8 @@ class ProjectBusinessRequirementCommentViewSet(OrganizationFilterMixin, viewsets
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
         queryset = queryset.filter(requirement_id=self.kwargs["business_requirement_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projectbusinessrequirementcomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)
@@ -699,6 +724,8 @@ class ProjectTechnicalRequirementCommentViewSet(OrganizationFilterMixin, viewset
         queryset = super().get_queryset()
         queryset = self.filter_by_organization(queryset, project_path="requirement__project")
         queryset = queryset.filter(requirement_id=self.kwargs["technical_requirement_pk"])
+        # created_by backs created_by_name; the reverse self-relation backs each comment's replies.
+        queryset = queryset.select_related("created_by").prefetch_related("projecttechnicalrequirementcomment_set__created_by")
         top_level_only = self.request.query_params.get("top_level_only")
         if top_level_only == "true":
             queryset = queryset.filter(parent_comment__isnull=True)

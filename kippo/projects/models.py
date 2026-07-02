@@ -43,6 +43,11 @@ from .functions import previous_week_startdate
 
 logger = logging.getLogger(__name__)
 
+# Sentinel for effort/holiday inputs the REST API list endpoints precompute in bulk and inject,
+# letting a single grouped query replace the per-row aggregate/PublicHoliday lookups while the
+# admin/standalone callers keep their original (un-injected) behavior.
+_COMPUTE = object()
+
 UNASSIGNED_USER_GITHUB_LOGIN_PREFIX = settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
 GITHUB_MANAGER_USERNAME = settings.GITHUB_MANAGER_USERNAME
 UNPROCESSABLE_ENTITY_422 = 422
@@ -552,15 +557,19 @@ class KippoProject(UserCreatedBaseModel):
         )
         return None
 
-    def get_projecteffort_values(self) -> tuple[int, int | None, float | None]:
-        actual_effort_hours = self.get_total_effort()
+    def get_projecteffort_values(self, total_effort: object = _COMPUTE) -> tuple[int, int | None, float | None]:
+        actual_effort_hours = self.get_total_effort() if total_effort is _COMPUTE else total_effort
         total_effort_percentage = None
         if actual_effort_hours and self.allocated_effort_hours:
             total_effort_percentage = (actual_effort_hours / self.allocated_effort_hours) * 100
         return actual_effort_hours, self.allocated_effort_hours, total_effort_percentage
 
-    def get_expected_effort(self, at_date: datetime.date | None = None) -> tuple[int | None, int | None]:
-        """Calculate the expected effort hours for the project at a given date"""
+    def get_expected_effort(self, at_date: datetime.date | None = None, holidays: object = _COMPUTE) -> tuple[int | None, int | None]:
+        """Calculate the expected effort hours for the project at a given date.
+
+        `holidays` may be a precomputed collection of holiday `datetime.date`s (membership is
+        all that is tested) to avoid a per-project PublicHoliday query in bulk/list contexts.
+        """
         expected_effort_days = None
         expected_effort_hours = None
         if self.start_date and self.target_date and self.allocated_staff_days:
@@ -570,13 +579,14 @@ class KippoProject(UserCreatedBaseModel):
             if self.start_date <= at_date <= self.target_date or at_date > self.target_date:
                 total_project_hours = self.allocated_staff_days * self.organization.day_workhours
                 # get weekdays - public holidays
-                holidays = []
-                if self.organization.default_holiday_country:
-                    holidays = list(
-                        PublicHoliday.objects.filter(
-                            country=self.organization.default_holiday_country, day__gte=self.start_date, day__lte=self.target_date
-                        ).values_list("day", flat=True)
-                    )
+                if holidays is _COMPUTE:
+                    holidays = []
+                    if self.organization.default_holiday_country:
+                        holidays = list(
+                            PublicHoliday.objects.filter(
+                                country=self.organization.default_holiday_country, day__gte=self.start_date, day__lte=self.target_date
+                            ).values_list("day", flat=True)
+                        )
 
                 total_available_workdays = 0
                 available_workdays_at_date = None
@@ -606,9 +616,9 @@ class KippoProject(UserCreatedBaseModel):
             logger.warning(f"start_date={self.start_date}, target_date={self.target_date}, allocated_staff_days={self.allocated_staff_days}")
         return expected_effort_days, expected_effort_hours
 
-    def get_projectprogressstatus_values(self) -> ProjectProgressStatus:
-        actual_effort_hours, allocated_effort_hours, total_effort_percentage = self.get_projecteffort_values()
-        expected_effort_days, expected_effort_hours = self.get_expected_effort()
+    def get_projectprogressstatus_values(self, total_effort: object = _COMPUTE, holidays: object = _COMPUTE) -> ProjectProgressStatus:
+        actual_effort_hours, allocated_effort_hours, total_effort_percentage = self.get_projecteffort_values(total_effort=total_effort)
+        expected_effort_days, expected_effort_hours = self.get_expected_effort(holidays=holidays)
         logger.debug(
             f"project={self.name}, allocated_effort_hours={allocated_effort_hours}, "
             f"actual_effort_hours={actual_effort_hours}, expected_effort_hours={expected_effort_hours}"

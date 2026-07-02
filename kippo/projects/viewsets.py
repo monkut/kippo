@@ -1,10 +1,11 @@
 import datetime
+from collections.abc import Sequence
 from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
 from django.conf import settings
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -24,6 +25,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
     ProjectMonthlyAssignment,
@@ -126,7 +128,19 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         # contract (OneToOne) is select_related; its billing_entries back the list's billing_types /
         # contract_amount / total_revenue derived fields (kippo#39 / T14) — fetched to avoid N+1.
         .select_related("organization", "project_manager", "customer", "category", "contract")
-        .prefetch_related("github_repositories", "contract__billing_entries")
+        .prefetch_related(
+            "github_repositories",
+            "contract__billing_entries",
+            # assignment_rates backs the serializer's get_assignment_rates (per-role rates).
+            "assignment_rates",
+            # newest-first statuses feed get_latest_comment without a per-row .latest() query;
+            # created_by is select_related for the comment author display name.
+            Prefetch(
+                "kippoprojectstatus_set",
+                queryset=KippoProjectStatus.objects.select_related("created_by").order_by("-created_datetime"),
+                to_attr="_prefetched_latest_statuses",
+            ),
+        )
         .order_by("-created_datetime")
     )
 
@@ -171,7 +185,81 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
-        return super().list(request, *args, **kwargs)
+        # Precompute per-page batch data (effort aggregate, survey completions, org holidays) once
+        # and expose it through the serializer context so the per-project derived fields do not each
+        # re-query. Mirrors ModelViewSet.list() but with the batch-context hook.
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            self._list_batch_context = self._build_batch_context(page)
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        objects = list(queryset)
+        self._list_batch_context = self._build_batch_context(objects)
+        serializer = self.get_serializer(objects, many=True)
+        return Response(serializer.data)
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        batch = getattr(self, "_list_batch_context", None)
+        if batch:
+            context.update(batch)
+        return context
+
+    def _build_batch_context(self, projects: Sequence[KippoProject]) -> dict:
+        """Build the per-page effort / survey / holiday lookups shared via serializer context.
+
+        Returns keys `project_effort_totals`, `project_user_efforts`, `project_survey_completed_users`
+        and `public_holidays_by_country`. A project absent from `project_effort_totals` has no logged
+        effort (matches KippoProject.get_total_effort() returning None).
+        """
+        from accounts.models import PublicHoliday
+
+        project_ids = [project.id for project in projects]
+        if not project_ids:
+            return {}
+
+        # One grouped ProjectWeeklyEffort aggregate for the whole page.
+        project_user_efforts: dict = {}
+        project_effort_totals: dict = {}
+        effort_rows = (
+            ProjectWeeklyEffort.objects.filter(project_id__in=project_ids)
+            .values("project_id", "user__id", "user__username", "user__first_name", "user__last_name")
+            .annotate(user_hours=Sum("hours"))
+        )
+        for row in effort_rows:
+            project_id = row["project_id"]
+            project_user_efforts.setdefault(project_id, []).append(
+                {
+                    "user__id": row["user__id"],
+                    "user__username": row["user__username"],
+                    "user__first_name": row["user__first_name"],
+                    "user__last_name": row["user__last_name"],
+                    "user_hours": row["user_hours"],
+                }
+            )
+            project_effort_totals[project_id] = (project_effort_totals.get(project_id) or 0) + (row["user_hours"] or 0)
+
+        # Survey completions per project.
+        project_survey_completed_users: dict = {}
+        for project_id, created_by_id in KippoProjectUserStatisfactionResult.objects.filter(project_id__in=project_ids).values_list(
+            "project_id", "created_by_id"
+        ):
+            project_survey_completed_users.setdefault(project_id, set()).add(created_by_id)
+
+        # Org public holidays fetched once per distinct country.
+        country_ids = {project.organization.default_holiday_country_id for project in projects if project.organization.default_holiday_country_id}
+        public_holidays_by_country: dict = {}
+        if country_ids:
+            for country_id, day in PublicHoliday.objects.filter(country_id__in=country_ids).values_list("country_id", "day"):
+                public_holidays_by_country.setdefault(country_id, set()).add(day)
+
+        return {
+            "project_effort_totals": project_effort_totals,
+            "project_user_efforts": project_user_efforts,
+            "project_survey_completed_users": project_survey_completed_users,
+            "public_holidays_by_country": public_holidays_by_country,
+        }
 
     def get_queryset(self):
         """Filter queryset based on query parameters and user's organization membership.
@@ -180,6 +268,11 @@ class KippoProjectViewSet(viewsets.ModelViewSet):
         in organizations they belong to.
         """
         queryset = super().get_queryset()
+
+        # Annotate has_requirements via an Exists subquery instead of a per-row .exists() in the serializer.
+        from requirements.models import ProjectProblemDefinition
+
+        queryset = queryset.annotate(has_requirements_annotated=Exists(ProjectProblemDefinition.objects.filter(project=OuterRef("pk"))))
 
         # Filter by user's organization memberships (skip for superusers)
         user = self.request.user
@@ -735,7 +828,14 @@ class ProjectMonthlyAssignmentViewSet(viewsets.ModelViewSet):
 
     serializer_class = ProjectMonthlyAssignmentSerializer
     permission_classes = [IsAuthenticated]
-    queryset = ProjectMonthlyAssignment.objects.all().select_related("project", "user").order_by("project", "user", "-month")
+    queryset = (
+        ProjectMonthlyAssignment.objects.all()
+        .select_related("project", "user")
+        # memberships back the serializer's slack_username / slack_image_url fields — prefetched to
+        # avoid a per-row OrganizationMembership query (resolved from cache in the serializer).
+        .prefetch_related("user__organizationmembership_set")
+        .order_by("project", "user", "-month")
+    )
 
     @extend_schema(
         parameters=[

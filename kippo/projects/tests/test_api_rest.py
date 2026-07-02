@@ -13,7 +13,16 @@ from freezegun import freeze_time
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ..models import PHASE_CONFIDENCE, KippoProject, KippoProjectContract, KippoProjectOrganizationCategory, ProjectColumnSet, ProjectWeeklyEffort
+from ..models import (
+    PHASE_CONFIDENCE,
+    KippoProject,
+    KippoProjectContract,
+    KippoProjectOrganizationCategory,
+    KippoProjectStatus,
+    KippoProjectUserStatisfactionResult,
+    ProjectColumnSet,
+    ProjectWeeklyEffort,
+)
 
 
 def _registration_fields(organization: KippoOrganization, project_manager: KippoUser) -> dict:
@@ -1577,3 +1586,87 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         # same (contract, billing_date) → clean 400 (the unique constraint would otherwise 500)
         dup = self.client.post(url, {"billing_date": "2026-09-30", "amount": "5"}, format="json")
         self.assertEqual(dup.status_code, HTTPStatus.BAD_REQUEST)
+
+
+class KippoProjectListQueryCountTestCase(TestCase):
+    """Regression guard: the project list endpoint must run a constant number of queries
+    regardless of how many projects (and their related effort/status/requirement rows) exist.
+
+    Guards the N+1 elimination in KippoProjectSerializer / KippoProjectViewSet (has_requirements
+    Exists annotation, latest-status Prefetch, prefetched assignment_rates, and the per-page
+    effort/survey/holiday batch context).
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        from requirements.models import ProjectProblemDefinition
+
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+
+        # Build several projects, each with effort, a status comment, a problem definition and a
+        # survey result — the relations that previously produced per-row queries.
+        for index in range(3):
+            project = KippoProject.objects.create(
+                name=f"query-count-project-{index}",
+                organization=self.organization,
+                columnset=created["KippoProject"].columnset,
+                start_date=datetime.date(2024, 1, 1),
+                target_date=datetime.date(2024, 3, 31),
+                allocated_staff_days=60,
+                created_by=self.user,
+                updated_by=self.user,
+            )
+            ProjectWeeklyEffort.objects.create(
+                project=project, user=self.user, week_start=datetime.date(2024, 1, 1), hours=40, created_by=self.user, updated_by=self.user
+            )
+            KippoProjectStatus.objects.create(project=project, comment=f"status-{index}", created_by=self.user, updated_by=self.user)
+            ProjectProblemDefinition.objects.create(project=project, title=f"problem-{index}")
+            KippoProjectUserStatisfactionResult.objects.create(
+                project=project, fullfillment_score=5, growth_score=5, created_by=self.user, updated_by=self.user
+            )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _add_project_with_relations(self, index: int) -> None:
+        from requirements.models import ProjectProblemDefinition
+
+        project = KippoProject.objects.create(
+            name=f"query-count-extra-{index}",
+            organization=self.organization,
+            columnset=KippoProject.objects.first().columnset,
+            start_date=datetime.date(2024, 1, 1),
+            target_date=datetime.date(2024, 3, 31),
+            allocated_staff_days=60,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        ProjectWeeklyEffort.objects.create(
+            project=project, user=self.user, week_start=datetime.date(2024, 1, 1), hours=40, created_by=self.user, updated_by=self.user
+        )
+        KippoProjectStatus.objects.create(project=project, comment=f"extra-status-{index}", created_by=self.user, updated_by=self.user)
+        ProjectProblemDefinition.objects.create(project=project, title=f"extra-problem-{index}")
+        KippoProjectUserStatisfactionResult.objects.create(
+            project=project, fullfillment_score=5, growth_score=5, created_by=self.user, updated_by=self.user
+        )
+
+    def test_list_projects_constant_query_count(self):
+        """The list endpoint issues a fixed number of queries independent of project/related-row count."""
+        url = f"{settings.URL_PREFIX}/api/projects/?page_size=100"
+        # Exact count after the N+1 fix (org filter + count + page + prefetches + batch aggregates).
+        expected_queries = 7
+        with self.assertNumQueries(expected_queries):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertGreaterEqual(response.json()["count"], 3)
+
+        # Adding more projects (and their related rows) must NOT increase the query count.
+        for index in range(3):
+            self._add_project_with_relations(index)
+        with self.assertNumQueries(expected_queries):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertGreaterEqual(response.json()["count"], 6)
