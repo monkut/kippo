@@ -1,13 +1,15 @@
 from accounts.models import EmailDomain, KippoOrganization, KippoUser, OrganizationMembership
+from commons.github import (
+    get_github_issue_category_label,
+    get_github_issue_estimate_label,
+    get_github_issue_prefixed_labels,
+)
 from commons.tests import DEFAULT_COLUMNSET_PK
 from django.test import TestCase
 from django.utils import timezone
 from projects.models import KippoProject, ProjectColumnSet
 
 from ..functions import (
-    get_github_issue_category_label,
-    get_github_issue_estimate_label,
-    get_github_issue_prefixed_labels,
     get_projects_load,
     # prepare_project_engineering_load_plot_data,
 )
@@ -169,8 +171,10 @@ class TaskGithubLabelFunctionsTestCase(TestCase):
         label2_name = f"{prefix}other"
         issue = IssueMock(label_names=[label1_name, label2_name])
         issue.html_url = "https://www.someurl.com"
-        with self.assertRaises(ValueError):
-            get_github_issue_category_label(issue, prefix)
+        # Multiple category labels no longer abort processing: the first (initial) category is used
+        # and a warning is logged (reconciled to the more forgiving octocat behavior).
+        actual_category = get_github_issue_category_label(issue, prefix)
+        self.assertEqual(actual_category, "help")
 
 
 class GetKippoProjectLoadTestCase(TestCase):

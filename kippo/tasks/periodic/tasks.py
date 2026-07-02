@@ -5,6 +5,13 @@ from urllib.parse import urlsplit
 
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
+from commons.github import (
+    build_latest_comment,
+    get_github_issue_category_label,
+    get_github_issue_estimate_label,
+    get_github_issue_prefixed_labels,
+    get_tags_from_prefixedlabels,
+)
 from django.conf import settings
 from django.db.utils import IntegrityError
 from django.utils import timezone
@@ -14,13 +21,6 @@ from projects.models import ActiveKippoProject, CollectIssuesAction, CollectIssu
 from zappa.asynchronous import task
 
 from ..exceptions import GithubPullRequestUrlError, GithubRepositoryUrlError
-from ..functions import (
-    build_latest_comment,
-    get_github_issue_category_label,
-    get_github_issue_estimate_label,
-    get_github_issue_prefixed_labels,
-    get_tags_from_prefixedlabels,
-)
 from ..models import KippoTask, KippoTaskStatus
 
 logger = logging.getLogger(__name__)
