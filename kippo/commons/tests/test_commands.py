@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from commons.tests.utils import reset_buckets
-from kippo.awsclients import S3_CLIENT
+from kippo.awsclients import get_s3_client
 
 
 class S3CommandsTestCase(TestCase):
@@ -20,7 +20,7 @@ class S3CommandsTestCase(TestCase):
         assert KippoUser.objects.count() == expected_user_count
 
         # Pre-Check: Confirm that there is not data in the bucket
-        response = S3_CLIENT.list_objects_v2(
+        response = get_s3_client().list_objects_v2(
             Bucket=settings.DUMPDATA_S3_BUCKETNAME,
             Prefix=settings.DUMPDATA_S3_KEY_PREFIX,
         )
@@ -30,7 +30,7 @@ class S3CommandsTestCase(TestCase):
         call_command("dumpdata_to_s3", bucket=settings.DUMPDATA_S3_BUCKETNAME)
 
         # Confirm that file is generated in the bucket
-        response = S3_CLIENT.list_objects_v2(
+        response = get_s3_client().list_objects_v2(
             Bucket=settings.DUMPDATA_S3_BUCKETNAME,
             Prefix=settings.DUMPDATA_S3_KEY_PREFIX,
         )

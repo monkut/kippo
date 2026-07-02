@@ -7,7 +7,7 @@ from django.conf import settings
 from slack_sdk.web import SlackResponse
 from slack_sdk.webhook import WebhookResponse
 
-from kippo.awsclients import S3_RESOURCE
+from kippo.awsclients import get_s3_resource
 
 
 class MockRequest:
@@ -37,9 +37,9 @@ def reset_buckets(bucket_names: list | tuple | None = None) -> list[str]:
     created_buckets = []
     for bucket_name in bucket_names:
         with suppress(ClientError):
-            S3_RESOURCE.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": settings.TARGET_REGION})
+            get_s3_resource().create_bucket(Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": settings.TARGET_REGION})
             created_buckets.append(bucket_name)
-        S3_RESOURCE.Bucket(bucket_name).objects.all().delete()
+        get_s3_resource().Bucket(bucket_name).objects.all().delete()
     return created_buckets
 
 

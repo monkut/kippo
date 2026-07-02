@@ -7,7 +7,7 @@ from django.conf import settings
 from django.core.management import BaseCommand
 from django.utils.translation import gettext_lazy as _
 
-from kippo.awsclients import S3_CLIENT
+from kippo.awsclients import get_s3_client
 
 COMMANDS_DIR = Path(__file__).parent.resolve()
 REQUIRED_BUCKET_NAMES = (settings.DUMPDATA_S3_BUCKETNAME,)
@@ -23,7 +23,7 @@ class Command(BaseCommand):
         for bucket_name in REQUIRED_BUCKET_NAMES:
             self.stdout.write(f"Creating Bucket({bucket_name})...")
             try:
-                response = S3_CLIENT.create_bucket(
+                response = get_s3_client().create_bucket(
                     Bucket=bucket_name,
                     CreateBucketConfiguration={
                         "LocationConstraint": settings.TARGET_REGION,
@@ -41,5 +41,5 @@ class Command(BaseCommand):
             cors_config_raw = cors_config_filepath.read_text(encoding="utf8")
             cors_config_json = json.loads(cors_config_raw)
             self.stdout.write(f"settings CORS for Bucket({bucket_name}) ...")
-            S3_CLIENT.put_bucket_cors(Bucket=bucket_name, CORSConfiguration=cors_config_json)
+            get_s3_client().put_bucket_cors(Bucket=bucket_name, CORSConfiguration=cors_config_json)
             self.stdout.write(f"settings CORS for Bucket({bucket_name}) ... DONE!")

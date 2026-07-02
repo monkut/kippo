@@ -17,8 +17,10 @@ from customers.models import KippoCustomer
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
+from django.db import connection
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -41,7 +43,9 @@ from projects.models import (
     KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
+    KippoProjectUserStatisfactionResult,
     ProjectColumnSet,
+    ProjectWeeklyEffort,
 )
 
 
@@ -1973,3 +1977,71 @@ class ContractAdminBillingEntryReceivedByTestCase(KippoProjectAdminFixtureTestCa
         self.assertTrue(entry.is_received)
         self.assertEqual(entry.received_by, self.superuser_no_org)  # acting admin stamped as verifier
         self.assertIsNotNone(entry.received_datetime)
+
+
+class KippoProjectChangelistQueryCountTestCase(IsStaffModelAdminTestCaseBase):
+    """Guards the M4 changelist batching: the query count must not scale with row count.
+
+    Before batching, each row triggered an effort Sum, a latest-status `.latest()`, a
+    satisfaction-usernames query, and a per-org PublicHoliday query. After batching these
+    are folded into the list query (subqueries + prefetch + request-scoped holiday cache),
+    so rendering 3 vs 9 projects must issue the same number of queries.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        self.columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.current_date = timezone.now().date()
+        self.changelist_url = reverse("admin:projects_kippoproject_changelist")
+        self.client.force_login(self.superuser_no_org)
+
+    def _create_project_with_related(self, name: str) -> KippoProject:
+        project = KippoProject.objects.create(
+            organization=self.organization,
+            name=name,
+            category=_global_category("other"),
+            columnset=self.columnset,
+            start_date=self.current_date,
+            target_date=self.current_date + datetime.timedelta(days=90),
+            allocated_staff_days=30,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectStatus.objects.create(
+            project=project, comment=f"status for {name}", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        ProjectWeeklyEffort.objects.create(
+            project=project,
+            user=self.github_manager,
+            week_start=self.current_date,
+            hours=8,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectUserStatisfactionResult.objects.create(
+            project=project, fullfillment_score=3, growth_score=4, created_by=self.github_manager, updated_by=self.github_manager
+        )
+        return project
+
+    def test_changelist_query_count_is_bounded(self):
+        for i in range(3):
+            self._create_project_with_related(f"qc-project-{i}")
+        with CaptureQueriesContext(connection) as few_ctx:
+            response = self.client.get(self.changelist_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        few_query_count = len(few_ctx)
+
+        for i in range(3, 9):
+            self._create_project_with_related(f"qc-project-{i}")
+        with CaptureQueriesContext(connection) as many_ctx:
+            response = self.client.get(self.changelist_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        many_query_count = len(many_ctx)
+
+        self.assertEqual(
+            few_query_count,
+            many_query_count,
+            f"changelist query count scales with rows (3 rows: {few_query_count}, 9 rows: {many_query_count}) — N+1 regression",
+        )
