@@ -1491,6 +1491,7 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
 
     class Meta:
         unique_together = ("project", "user", "month")
+        indexes = [models.Index(fields=["month"])]
 
     def clean(self) -> None:
         super().clean()
