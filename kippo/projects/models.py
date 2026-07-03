@@ -165,13 +165,14 @@ class ProjectColumn(models.Model):
 # values are the sales/delivery status. `confidence` is derived from `phase` via PHASE_CONFIDENCE (no longer
 # user-editable). The old anon-project value is retired — non-projects are identified by category=="non-project".
 DEFAULT_PROJECT_PHASE = "proposing-low"
+PHASE_UNDER_CONTRACT = "under-contract"
 VALID_PROJECT_PHASES = (
     ("keep-in-touch", "KIT"),
     ("proposing-low", _("提案(低)")),
     ("proposing-mid", _("提案(中)")),
     ("proposing-high", _("提案(高)")),
     ("verbal-order", _("口頭受注")),
-    ("under-contract", _("契約(稼働中)")),
+    (PHASE_UNDER_CONTRACT, _("契約(稼働中)")),
     ("completed", _("完了")),
     ("lost", _("失注")),
 )
@@ -418,6 +419,14 @@ class KippoProject(UserCreatedBaseModel):
             raise ValidationError(_("Given date is in the future"))
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
+        # 契約(稼働中) requires the contract (with its period) to exist first: the project is created
+        # before the contract, but once on-going the contract period drives the project dates.
+        # Registration (add) is exempt — the admin add form creates the required contract inline in
+        # the same submit, after this validation runs.
+        if not self._state.adding and self.phase == PHASE_UNDER_CONTRACT:
+            contract = self.get_contract()
+            if not (contract and contract.start_date and contract.end_date):
+                raise ValidationError({"phase": _("A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中).")})
 
     def revenue_entries(
         self,
@@ -954,11 +963,29 @@ class KippoProjectContract(UserCreatedBaseModel):
             self.end_date = self.project.target_date
         is_initial_creation = self._state.adding
         super().save(*args, **kwargs)
+        self._sync_project_period()
         # Populate the billing ledger from the terms on initial creation so the user does not have to
         # run the generate_billing_entries admin action by hand. Idempotent and safe to re-run later
         # (as months elapse or effort accrues) via the still-available action / API.
         if is_initial_creation:
             self.generate_billing_entries(created_by=self.created_by)
+
+    def _sync_project_period(self) -> None:
+        """Once a contract exists its period is the single source of truth: mirror start_date/end_date
+        onto the project's start_date/target_date so every consumer of the project columns
+        (autoassign, forecast, changelist ordering, UI sorting) keeps working unchanged.
+        Never clears a project date — a blank contract date leaves the project value as-is.
+        """
+        project = self.project
+        update_fields = []
+        if self.start_date and project.start_date != self.start_date:
+            project.start_date = self.start_date
+            update_fields.append("start_date")
+        if self.end_date and project.target_date != self.end_date:
+            project.target_date = self.end_date
+            update_fields.append("target_date")
+        if update_fields:
+            project.save(update_fields=[*update_fields, "updated_datetime"])
 
     def _contract_months(self) -> list[datetime.date]:
         """First-of-month dates for each calendar month the contract period [start_date, end_date]

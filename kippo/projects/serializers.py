@@ -20,6 +20,7 @@ from .definitions import (
 )
 from .functions import previous_week_startdate
 from .models import (
+    PHASE_UNDER_CONTRACT,
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
@@ -426,7 +427,43 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             missing = {field: "This field is required at project registration." for field in required_at_registration if not attrs.get(field)}
             if missing:
                 raise serializers.ValidationError(missing)
+
+        self._validate_contract_synced_dates(attrs)
+        self._validate_under_contract_phase(attrs)
         return attrs
+
+    def _validate_contract_synced_dates(self, attrs: dict) -> None:
+        """Once a contract exists its period is the single source of truth — the project's
+        start_date/target_date are synced mirrors (KippoProjectContract._sync_project_period).
+        Reject a *changed* value here so date edits go through the contract endpoint; echoing the
+        stored values back (as the UI edit form does) stays valid.
+        """
+        if self.instance is None:
+            return
+        contract = self.instance.get_contract()
+        if contract is None:
+            return
+        errors = {}
+        for field, current in (("start_date", self.instance.start_date), ("target_date", self.instance.target_date)):
+            if field in attrs and attrs[field] != current:
+                errors[field] = "This project has a contract; its dates are managed by the contract period (update via the contract endpoint)."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+    def _validate_under_contract_phase(self, attrs: dict) -> None:
+        """契約(稼働中) requires the contract (with its period) to exist first — mirrors
+        KippoProject.clean(). The API cannot attach a contract at project-create, so a create
+        directly in this phase is rejected; create in an earlier phase, add the contract, then
+        update the phase.
+        """
+        phase = attrs.get("phase", getattr(self.instance, "phase", None))
+        if phase != PHASE_UNDER_CONTRACT:
+            return
+        contract = self.instance.get_contract() if self.instance is not None else None
+        if not (contract and contract.start_date and contract.end_date):
+            raise serializers.ValidationError(
+                {"phase": "A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中)."}
+            )
 
     def _validate_parent_project(self, attrs: dict, organization: "KippoOrganization | None") -> None:
         """parent_project (upsell) must be same-org and not the project itself (admin parity)."""

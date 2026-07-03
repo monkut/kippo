@@ -110,6 +110,71 @@ class ContractFieldsTestCase(TestCase):
                 end_date=datetime.date(2026, 12, 31),
             )
 
+    def test_contract_period_synced_to_project_on_create(self):
+        # once a contract exists its period is the single source of truth — the project's
+        # start_date/target_date mirror it (KippoProjectContract._sync_project_period)
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=Decimal("900000"),
+            start_date=datetime.date(2026, 3, 1),
+            end_date=datetime.date(2026, 5, 31),
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.start_date, datetime.date(2026, 3, 1))
+        self.assertEqual(self.project.target_date, datetime.date(2026, 5, 31))
+
+    def test_contract_period_synced_to_project_on_update(self):
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
+        self.project.save()
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=Decimal("1800000"),
+        )
+        contract.start_date = datetime.date(2026, 2, 1)
+        contract.end_date = datetime.date(2026, 8, 31)
+        contract.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.start_date, datetime.date(2026, 2, 1))
+        self.assertEqual(self.project.target_date, datetime.date(2026, 8, 31))
+
+    def test_blank_contract_period_does_not_clear_project_dates(self):
+        # a contract date that stays blank (project had no dates to backfill from) must not
+        # null-out anything on the project
+        self.project.start_date = None
+        self.project.target_date = None
+        self.project.save()
+        KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            total_amount=Decimal("500000"),
+        )
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.start_date)
+        self.assertIsNone(self.project.target_date)
+
+    def test_period_sync_preserves_manual_confidence(self):
+        # the sync-back is a partial save (update_fields) — it must not re-derive confidence
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
+        self.project.save()
+        KippoProject.objects.filter(pk=self.project.pk).update(confidence=55)
+        contract = KippoProjectContract.objects.create(
+            project=KippoProject.objects.get(pk=self.project.pk),
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=Decimal("600000"),
+        )
+        contract.end_date = datetime.date(2026, 9, 30)
+        contract.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 9, 30))
+        self.assertEqual(self.project.confidence, 55)
+
 
 class MonthlyContractGenerationTestCase(TestCase):
     """Ledger generation from monthly contracts (kippo#31 / T12)."""

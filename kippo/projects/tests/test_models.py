@@ -20,9 +20,11 @@ from projects.definitions import (
 from projects.models import (
     DEFAULT_PROJECT_PHASE,
     PHASE_CONFIDENCE,
+    PHASE_UNDER_CONTRACT,
     VALID_PROJECT_PHASES,
     KippoMilestone,
     KippoProject,
+    KippoProjectContract,
     KippoProjectOrganizationCategory,
 )
 
@@ -814,3 +816,55 @@ class KippoProjectPhaseStatusTestCase(TestCase):
     def test_only_contract_and_completed_reach_full_confidence(self):
         full = {phase for phase, conf in PHASE_CONFIDENCE.items() if conf == FULL_CONFIDENCE_PERCENTAGE}
         self.assertEqual(full, {"under-contract", "completed"})
+
+
+class KippoProjectUnderContractPhaseGateTestCase(TestCase):
+    """phase 契約(稼働中) requires an existing contract with a period — enforced in KippoProject.clean()
+    (admin change form) and mirrored in KippoProjectSerializer (API).
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project = created["KippoProject"]
+        self.user = created["KippoUser"]
+
+    def test_clean_rejects_under_contract_phase_without_contract(self):
+        self.project.phase = PHASE_UNDER_CONTRACT
+        with self.assertRaises(ValidationError) as context:
+            self.project.clean()
+        self.assertIn("phase", context.exception.message_dict)
+
+    def test_clean_allows_under_contract_phase_with_contract_period(self):
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
+        self.project.save()
+        # contract period backfills from the project dates on save
+        KippoProjectContract.objects.create(project=self.project, total_amount=100000)
+        project = KippoProject.objects.get(pk=self.project.pk)
+        project.phase = PHASE_UNDER_CONTRACT
+        project.clean()  # does not raise
+
+    def test_clean_rejects_under_contract_phase_when_contract_period_incomplete(self):
+        # no project dates -> the contract period stays blank -> the gate still rejects
+        self.project.start_date = None
+        self.project.target_date = None
+        self.project.save()
+        KippoProjectContract.objects.create(project=self.project, total_amount=100000)
+        project = KippoProject.objects.get(pk=self.project.pk)
+        project.phase = PHASE_UNDER_CONTRACT
+        with self.assertRaises(ValidationError) as context:
+            project.clean()
+        self.assertIn("phase", context.exception.message_dict)
+
+    def test_clean_exempts_registration(self):
+        # the admin add form creates the required contract inline in the same submit, after this
+        # validation runs — an unsaved (adding) instance is exempt
+        project = KippoProject(
+            organization=self.project.organization,
+            name="registration-under-contract",
+            phase=PHASE_UNDER_CONTRACT,
+            columnset=self.project.columnset,
+        )
+        project.clean()  # does not raise

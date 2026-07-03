@@ -1568,6 +1568,60 @@ class KippoProjectAddFormBehaviorTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertNotIsInstance(form.fields["customer"].widget, forms.HiddenInput)
 
 
+class KippoProjectAdminContractPeriodFieldsTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """start_date/target_date disappear from the project change form once a contract exists —
+    the contract period (synced onto the project) is the single editable input.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.existing_project = self.make_project("contract-period-project")
+
+    @staticmethod
+    def _all_fieldset_fields(fieldsets: list) -> list:
+        return [f for _label, opts in fieldsets for f in opts.get("fields", ())]
+
+    def test_dates_visible_without_contract(self):
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        fields = self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project))
+        self.assertIn("start_date", fields)
+        self.assertIn("target_date", fields)
+
+    def test_dates_hidden_with_contract(self):
+        KippoProjectContract.objects.create(
+            project=self.existing_project,
+            total_amount=100000,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        project = KippoProject.objects.get(pk=self.existing_project.pk)
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        fields = self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=project))
+        self.assertNotIn("start_date", fields)
+        self.assertNotIn("target_date", fields)
+
+    def test_add_form_keeps_dates(self):
+        # registration still collects the initial start/target dates (kippo#40 / T19)
+        modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        fields = self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=None))
+        self.assertIn("start_date", fields)
+        self.assertIn("target_date", fields)
+
+    def test_change_view_renders_with_contract(self):
+        KippoProjectContract.objects.create(
+            project=self.existing_project,
+            total_amount=100000,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoproject_change", args=[self.existing_project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form = response.context["adminform"].form
+        self.assertNotIn("start_date", form.fields)
+        self.assertNotIn("target_date", form.fields)
+
+
 class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
     """parent_project (kippo#41): absent from the flat /add/ form; exposed (hidden) only on the upsell
     close-wizard add; in the Details section (readonly) on change.

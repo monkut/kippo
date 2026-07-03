@@ -1066,6 +1066,13 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # in save_model (see below). Hidden from the form for every user.
         if "columnset" not in excluded:
             excluded.append("columnset")
+        # Once a contract exists its period is the single source of truth (synced onto the project
+        # by KippoProjectContract._sync_project_period) — hide the project's own date fields; the
+        # contract inline is the editable input.
+        if obj is not None and obj.get_contract() is not None:
+            for fieldname in ("start_date", "target_date"):
+                if fieldname not in excluded:
+                    excluded.append(fieldname)
         return tuple(excluded)
 
     @staticmethod
