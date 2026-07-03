@@ -25,19 +25,18 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
-    DEFAULT_ACTIVE_PROJECT_PHASES,
     ActiveKippoProjectAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
     KippoProjectAdminForm,
     KippoProjectBaseAdmin,
     KippoProjectContractInline,
-    PhaseMultiSelectListFilter,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     _next_upsell_project_name,
     _start_of_next_month,
 )
+from projects.filters import DEFAULT_ACTIVE_PROJECT_PHASES, PhaseMultiSelectListFilter
 from projects.models import (
     VALID_PROJECT_PHASES,
     ActiveKippoProject,
