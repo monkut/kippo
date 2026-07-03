@@ -912,7 +912,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "id",
         "get_customer_name",
         "name",
-        "get_problem_definition_display",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
@@ -1090,13 +1089,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
-
-    @admin.display(description=_("プロジェクト課題定義"))
-    def get_problem_definition_display(self, obj: KippoProject) -> str:
-        # truncated problem definition shown as the project intro in the changelist (kippo#29 / T07)
-        limit = 60
-        text = obj.problem_definition or ""
-        return f"{text[:limit]}…" if len(text) > limit else text
 
     @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
     def get_category_label(self, obj: KippoProject) -> str:
