@@ -54,6 +54,7 @@ from .definitions import (
     ProjectRoles,
 )
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
+from .filters import PhaseMultiSelectListFilter
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
@@ -932,7 +933,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "id",
         "get_customer_name",
         "name",
-        "get_problem_definition_display",
         "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
@@ -1110,13 +1110,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     @admin.display(description=KippoCustomer._meta.verbose_name, ordering="customer__name")
     def get_customer_name(self, obj: KippoProject) -> str:
         return obj.customer.name if obj.customer else ""
-
-    @admin.display(description=_("プロジェクト課題定義"))
-    def get_problem_definition_display(self, obj: KippoProject) -> str:
-        # truncated problem definition shown as the project intro in the changelist (kippo#29 / T07)
-        limit = 60
-        text = obj.problem_definition or ""
-        return f"{text[:limit]}…" if len(text) > limit else text
 
     @admin.display(description=_("カテゴリ"), ordering="category__sort_order")
     def get_category_label(self, obj: KippoProject) -> str:
@@ -1669,6 +1662,8 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
     # Identical to the base except the queryset: the ActiveKippoProjectManager (proxy default
     # manager) restricts it to open + display_as_active projects. The only form difference is
     # below — closure fields never apply to an active project.
+    # Multi-select フェーズ filter, defaulting to the two in-flight phases (kippo new filter).
+    list_filter = (PhaseMultiSelectListFilter,)
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: list[str] = list(super().get_exclude(request, obj) or ())

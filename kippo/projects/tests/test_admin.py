@@ -36,7 +36,10 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
+from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
+    DEFAULT_ACTIVE_PROJECT_PHASES,
+    VALID_PROJECT_PHASES,
     ActiveKippoProject,
     KippoMilestone,
     KippoProject,
@@ -194,17 +197,6 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         )
         self.assertEqual(contract.start_date, date(2026, 3, 15))
         self.assertEqual(contract.end_date, date(2026, 5, 15))
-
-    def test_problem_definition_display_truncates_long_text(self):
-        # changelist column shows a truncated problem_definition as the project intro (kippo#29 / T07)
-        modeladmin = KippoProjectAdmin(KippoProject, self.site)
-        self.project1.problem_definition = "x" * 100
-        self.assertEqual(modeladmin.get_problem_definition_display(self.project1), "x" * 60 + "…")
-
-    def test_problem_definition_display_short_text_untruncated(self):
-        modeladmin = KippoProjectAdmin(KippoProject, self.site)
-        self.project1.problem_definition = "short intro"
-        self.assertEqual(modeladmin.get_problem_definition_display(self.project1), "short intro")
 
     def test_contract_inline_extra_form_prefilled_with_project_period(self):
         # the blank "add contract" row shows the project's dates as initial values
@@ -2045,3 +2037,72 @@ class KippoProjectChangelistQueryCountTestCase(IsStaffModelAdminTestCaseBase):
             many_query_count,
             f"changelist query count scales with rows (3 rows: {few_query_count}, 9 rows: {many_query_count}) — N+1 regression",
         )
+
+
+class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
+    """PhaseMultiSelectListFilter on the ActiveKippoProject changelist (multi-select, default-selected phases)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        self.all_phases = ("verbal-order", "under-contract", "proposing-low", "completed")
+        # one active project per phase (display_as_active=True / is_closed=False by default => all active)
+        for phase in self.all_phases:
+            KippoProject.objects.create(
+                organization=self.organization,
+                name=f"project-{phase}",
+                phase=phase,
+                category=_global_category("other"),
+                columnset=columnset,
+                start_date=timezone.now().date(),
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+        self.modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+
+    def _changelist_phases(self, query: str = "") -> set:
+        request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
+        request.user = self.superuser_no_org
+        changelist = self.modeladmin.get_changelist_instance(request)
+        return set(changelist.queryset.values_list("phase", flat=True))
+
+    def _phase_filter_choices(self, query: str = "") -> list:
+        request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
+        request.user = self.superuser_no_org
+        changelist = self.modeladmin.get_changelist_instance(request)
+        spec = next(f for f in changelist.filter_specs if isinstance(f, PhaseMultiSelectListFilter))
+        return list(spec.choices(changelist))
+
+    def test_filter_registered_on_active_admin_only(self):
+        self.assertIn(PhaseMultiSelectListFilter, self.modeladmin.list_filter)
+        # the all-projects admin keeps the default (empty) list_filter — the filter is active-only
+        self.assertNotIn(PhaseMultiSelectListFilter, KippoProjectAdmin(KippoProject, self.site).list_filter)
+
+    def test_default_phases_preselected_when_no_param(self):
+        # no `phase` query param => only the two in-flight phases show
+        self.assertEqual(self._changelist_phases(), set(DEFAULT_ACTIVE_PROJECT_PHASES))
+
+    def test_single_phase_param_filters(self):
+        self.assertEqual(self._changelist_phases("?phase=completed"), {"completed"})
+
+    def test_multiple_phases_comma_separated(self):
+        self.assertEqual(self._changelist_phases("?phase=proposing-low,completed"), {"proposing-low", "completed"})
+
+    def test_empty_phase_param_shows_all_active(self):
+        # an explicit empty param (全て / all deselected) overrides the defaults and filters nothing
+        self.assertEqual(self._changelist_phases("?phase="), set(self.all_phases))
+
+    def test_default_phases_rendered_selected(self):
+        # the sidebar pre-highlights the two default phases when no param is present
+        phase_labels = dict(VALID_PROJECT_PHASES)
+        expected = {str(phase_labels[phase]) for phase in DEFAULT_ACTIVE_PROJECT_PHASES}
+        selected = {str(choice["display"]) for choice in self._phase_filter_choices() if choice["selected"]}
+        self.assertEqual(selected, expected)
+
+    def test_all_option_selected_when_param_empty(self):
+        choices = self._phase_filter_choices("?phase=")
+        self.assertEqual(str(choices[0]["display"]), "全て")
+        self.assertTrue(choices[0]["selected"])
+        self.assertFalse(any(choice["selected"] for choice in choices[1:]))
