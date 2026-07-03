@@ -58,6 +58,7 @@ from .functions import (
 from .models import (
     _COMPUTE,
     PHASE_CONFIDENCE,
+    VALID_PROJECT_PHASES,
     ActiveKippoProject,
     CollectIssuesAction,
     KippoMilestone,
@@ -78,6 +79,8 @@ from .models import (
 )
 
 if TYPE_CHECKING:
+    from django.contrib.admin.views.main import ChangeList
+
     from .services.forecast import ForecastResult
 
 CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
@@ -1636,11 +1639,63 @@ class KippoProjectAdmin(KippoProjectBaseAdmin):
     list_display = (*KippoProjectBaseAdmin.list_display, "display_as_active")
 
 
+# Phases pre-selected on the active-project changelist when the フェーズ filter has no query param —
+# the two "in-flight" phases (口頭受注 / 契約(稼働中)). An explicit (even empty) param overrides these,
+# so the "全て" option can still show every active project.
+DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", "under-contract")
+
+
+class PhaseMultiSelectListFilter(admin.SimpleListFilter):
+    """Multi-select フェーズ filter for the active-project changelist.
+
+    Django's built-in field filter is single-select; this renders each phase as a toggle so several
+    can be active at once. With no `phase` query param the two in-flight phases are pre-selected
+    (DEFAULT_ACTIVE_PROJECT_PHASES); the 全て option clears to an explicit empty param so the defaults
+    don't re-apply.
+    """
+
+    title = _("フェーズ")
+    parameter_name = "phase"
+
+    def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        return list(VALID_PROJECT_PHASES)
+
+    def selected_phases(self) -> list[str]:
+        # value() is None only when the param is absent -> fall back to the defaults; an empty string
+        # (user cleared the selection via 全て or by deselecting the last phase) means "no filter".
+        value = self.value()
+        if value is None:
+            return list(DEFAULT_ACTIVE_PROJECT_PHASES)
+        return [phase for phase in value.split(",") if phase]
+
+    def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
+        selected = self.selected_phases()
+        return queryset.filter(phase__in=selected) if selected else queryset
+
+    def choices(self, changelist: "ChangeList"):
+        selected = set(self.selected_phases())
+        yield {
+            "selected": not selected,
+            "query_string": changelist.get_query_string({self.parameter_name: ""}),
+            "display": _("全て"),
+        }
+        for lookup, title in self.lookup_choices:
+            phase = str(lookup)
+            toggled = selected ^ {phase}  # add if absent, remove if present
+            yield {
+                "selected": phase in selected,
+                "query_string": changelist.get_query_string({self.parameter_name: ",".join(sorted(toggled))}),
+                "display": title,
+            }
+
+
 @admin.register(ActiveKippoProject)
 class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
     # Identical to the base except the queryset: the ActiveKippoProjectManager (proxy default
     # manager) restricts it to open + display_as_active projects. The only form difference is
     # below — closure fields never apply to an active project.
+    # Multi-select フェーズ filter, defaulting to the two in-flight phases (kippo new filter).
+    list_filter = (PhaseMultiSelectListFilter,)
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: list[str] = list(super().get_exclude(request, obj) or ())
