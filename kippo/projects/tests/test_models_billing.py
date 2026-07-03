@@ -676,6 +676,151 @@ class EffortContractGenerationTestCase(TestCase):
         self.assertEqual(self.project.monthly_billing_schedule, [])
 
 
+class EffortProvisionalBillingTestCase(TestCase):
+    """Provisional (仮) monthly billing for effort contracts + true-up to actuals (実績) — kippo#46.
+
+    setup_basic_project() builds an org with day_workhours=8 and 'octocat' as a developer member.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+        self.user = created["KippoUser"]
+        self.organization = created["KippoOrganization"]
+        self.assertEqual(self.organization.day_workhours, 8)  # guards the test math below
+
+    def _log_effort(self, week_start: datetime.date, hours: int) -> None:
+        ProjectWeeklyEffort.objects.create(
+            project=self.project, user=self.user, week_start=week_start, hours=hours, created_by=self.user, updated_by=self.user
+        )
+
+    def _provisional_contract(self, start: datetime.date, end: datetime.date, monthly_amount: int = 500_000) -> KippoProjectContract:
+        return KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
+            estimated_monthly_amount=Decimal(monthly_amount),
+            start_date=start,
+            end_date=end,
+        )
+
+    def test_provisional_amount_bills_every_month_upfront(self):
+        # no effort logged at all — every contract month (future included) still gets the 仮月額,
+        # and a partial first month is NOT prorated
+        contract = self._provisional_contract(datetime.date(2026, 1, 15), datetime.date(2026, 3, 31))
+        self.assertEqual(
+            [(e.billing_date, e.amount) for e in contract.billing_entries.all()],
+            [
+                (datetime.date(2026, 1, 31), Decimal("500000")),
+                (datetime.date(2026, 2, 28), Decimal("500000")),
+                (datetime.date(2026, 3, 31), Decimal("500000")),
+            ],
+        )
+
+    def test_provisional_amount_overrides_logged_actuals_in_schedule(self):
+        # provisional-first: logged effort does not change generated amounts — true-up does
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        contract = self._provisional_contract(datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        self.assertEqual([e.amount for e in contract.billing_entries.all()], [Decimal("500000")])
+
+    def test_planned_schedule_uses_provisional_amounts(self):
+        contract = self._provisional_contract(datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
+        self.assertEqual(
+            contract.planned_billing_schedule(),
+            [(datetime.date(2026, 1, 31), Decimal("500000")), (datetime.date(2026, 2, 28), Decimal("500000"))],
+        )
+
+    def test_clean_rejects_provisional_amount_for_fixed_pricing(self):
+        contract = KippoProjectContract(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_FIXED,
+            total_amount=Decimal("1000000"),
+            estimated_monthly_amount=Decimal("500000"),
+        )
+        with self.assertRaises(ValidationError):
+            contract.clean()
+
+    def test_clean_rejects_provisional_amount_for_effort_delivery(self):
+        contract = KippoProjectContract(
+            project=self.project,
+            billing_type=BILLING_TYPE_DELIVERY,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            estimated_monthly_amount=Decimal("500000"),
+        )
+        with self.assertRaises(ValidationError):
+            contract.clean()
+
+    def test_clean_allows_provisional_amount_for_effort_monthly(self):
+        contract = KippoProjectContract(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            estimated_monthly_amount=Decimal("500000"),
+        )
+        contract.clean()  # no raise
+
+    def test_trueup_corrects_unreceived_entries_to_actuals(self):
+        # Jan: 5 days logged -> 900,000 at the default rate; Feb: nothing logged -> 0 (entry kept)
+        contract = self._provisional_contract(datetime.date(2026, 1, 1), datetime.date(2026, 2, 28))
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        updated_count = contract.trueup_billing_entries(updated_by=self.user)
+        self.assertEqual(updated_count, 2)
+        expected_january = Decimal(5 * settings.DEFAULT_PROJECT_DAILY_RATE)
+        self.assertEqual(
+            [(e.billing_date, e.amount) for e in contract.billing_entries.all()],
+            [(datetime.date(2026, 1, 31), expected_january), (datetime.date(2026, 2, 28), Decimal("0"))],
+        )
+
+    def test_trueup_skips_received_entries(self):
+        contract = self._provisional_contract(datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        entry = contract.billing_entries.get()
+        entry.is_received = True
+        entry.save()
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        self.assertEqual(contract.trueup_billing_entries(updated_by=self.user), 0)
+        entry.refresh_from_db()
+        self.assertEqual(entry.amount, Decimal("500000"))  # received = final
+
+    def test_trueup_stamps_updated_by(self):
+        contract = self._provisional_contract(datetime.date(2026, 1, 1), datetime.date(2026, 1, 31))
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        contract.trueup_billing_entries(updated_by=self.user)
+        self.assertEqual(contract.billing_entries.get().updated_by, self.user)
+
+    def test_trueup_noop_for_fixed_contract(self):
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_FIXED,
+            total_amount=Decimal("900000"),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 3, 31),
+        )
+        self.assertEqual(contract.trueup_billing_entries(updated_by=self.user), 0)
+        self.assertEqual([e.amount for e in contract.billing_entries.all()], [Decimal("300000")] * 3)
+
+    def test_blank_provisional_amount_keeps_actuals_generation(self):
+        # backwards compatible: without 仮月額 the effort contract bills logged actuals directly
+        self._log_effort(datetime.date(2026, 1, 5), 40)
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            pricing_basis=PRICING_BASIS_EFFORT,
+            total_amount=None,
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 2, 28),
+        )
+        expected_january = Decimal(5 * settings.DEFAULT_PROJECT_DAILY_RATE)
+        self.assertEqual(
+            [(e.billing_date, e.amount) for e in contract.billing_entries.all()],
+            [(datetime.date(2026, 1, 31), expected_january)],  # zero-effort Feb creates nothing
+        )
+
+
 class BillingEntryReceivedTrackingTestCase(TestCase):
     """is_received / received_datetime consistency on KippoProjectBillingEntry (mirrors
     KippoProject.is_closed / closed_datetime auto-management in save()).

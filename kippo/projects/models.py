@@ -882,6 +882,18 @@ class KippoProjectContract(UserCreatedBaseModel):
             "it is an optional cap (上限) and may be left blank."
         ),
     )
+    estimated_monthly_amount = models.DecimalField(
+        _("仮月額"),
+        max_digits=12,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text=_(
+            "JPY. Provisional (仮) monthly amount for effort + monthly contracts (kippo#46): every "
+            "contract month is billed this amount up front, then corrected to actuals (実績) via the "
+            "true-up admin action before the entry is received. Blank bills logged actuals directly."
+        ),
+    )
     start_date = models.DateField(
         _("契約開始日"),
         null=True,
@@ -924,6 +936,12 @@ class KippoProjectContract(UserCreatedBaseModel):
         # optional cap and may be left blank.
         if self.pricing_basis == PRICING_BASIS_FIXED and self.total_amount is None:
             raise ValidationError({"total_amount": _("Total amount is required for fixed-price contracts.")})
+        # the provisional amount only drives effort + monthly billing — anywhere else it would be
+        # silently ignored, so reject it as a likely mistake
+        if self.estimated_monthly_amount is not None and not (
+            self.pricing_basis == PRICING_BASIS_EFFORT and self.billing_type == BILLING_TYPE_MONTHLY
+        ):
+            raise ValidationError({"estimated_monthly_amount": _("Estimated monthly amount (仮月額) only applies to effort + monthly contracts.")})
 
     def save(self, *args, **kwargs):
         # auto-populate the contract period from the project when left blank
@@ -1011,6 +1029,33 @@ class KippoProjectContract(UserCreatedBaseModel):
             total += (Decimal(effort.hours) / Decimal(day_workhours)) * Decimal(rate)
         return total.quantize(Decimal("1"))
 
+    def effort_actual_amount(self, month: datetime.date) -> Decimal:
+        """Actual (実績) billed amount for the calendar month containing ``month`` — the logged
+        effort × role rate that a provisional (仮) entry is corrected to (kippo#46).
+        """
+        return self._effort_amount(first_of_month(month), last_of_month(month))
+
+    def trueup_billing_entries(self, updated_by: KippoUser | None = None) -> int:
+        """Correct provisional (仮) entries of an effort + monthly contract to actuals (実績) — kippo#46.
+
+        Recomputes each unreceived entry's amount from the effort logged in the calendar month of its
+        ``billing_date``. A zero-effort month sets the amount to 0 (the entry is kept, not deleted).
+        Received (入金済) entries are final and left untouched. No-op for any other contract shape.
+        Returns the number of entries updated.
+        """
+        if not (self.pricing_basis == PRICING_BASIS_EFFORT and self.billing_type == BILLING_TYPE_MONTHLY):
+            return 0
+        updated_count = 0
+        for entry in self.billing_entries.filter(is_received=False):
+            actual_amount = self.effort_actual_amount(entry.billing_date)
+            if entry.amount != actual_amount:
+                entry.amount = actual_amount
+                if updated_by:
+                    entry.updated_by = updated_by
+                entry.save()
+                updated_count += 1
+        return updated_count
+
     def _billing_schedule(self) -> list[tuple[datetime.date, Decimal]]:
         """``(billing_date, amount)`` pairs to bill, per the billing_type × pricing_basis matrix.
 
@@ -1020,7 +1065,15 @@ class KippoProjectContract(UserCreatedBaseModel):
         """
         if self.pricing_basis == PRICING_BASIS_EFFORT:
             if self.billing_type == BILLING_TYPE_MONTHLY:
-                return [(last_of_month(month), self._effort_amount(month, last_of_month(month))) for month in self._contract_months()]
+                # When the 仮月額 is set, bill it provisionally for every contract month (future months
+                # included, no proration for partial months) so entries and planned revenue exist before
+                # effort is logged; trueup_billing_entries() corrects to actuals later (kippo#46).
+                # Otherwise bill each month's logged actuals directly.
+                provisional = self.estimated_monthly_amount
+                return [
+                    (last_of_month(month), provisional if provisional is not None else self.effort_actual_amount(month))
+                    for month in self._contract_months()
+                ]
             # effort + delivery: settle the whole period's effort once at end_date
             if not (self.start_date and self.end_date):
                 return []

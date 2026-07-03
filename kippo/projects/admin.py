@@ -44,7 +44,15 @@ from slack_sdk.errors import SlackApiError
 from tasks.models import KippoTaskStatus
 from tasks.periodic.tasks import collect_github_project_issues
 
-from .definitions import NON_PROJECT_CATEGORY_VALUE, UPSELL_CATEGORY_VALUES, WEEKLY_EFFORT_CLOSED_MESSAGE, ProjectProgressStatus, ProjectRoles
+from .definitions import (
+    BILLING_TYPE_MONTHLY,
+    NON_PROJECT_CATEGORY_VALUE,
+    PRICING_BASIS_EFFORT,
+    UPSELL_CATEGORY_VALUES,
+    WEEKLY_EFFORT_CLOSED_MESSAGE,
+    ProjectProgressStatus,
+    ProjectRoles,
+)
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
@@ -175,17 +183,29 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, nested_admin.Nested
     # KippoProjectContractAdmin and nested under KippoProjectContractInline on the project page.
     model = KippoProjectBillingEntry
     extra = 0
-    fields = ("billing_date", "amount", "is_manual", "is_received", "received_datetime", "received_by", "note")
+    fields = ("billing_date", "amount", "effort_actual", "is_manual", "is_received", "received_datetime", "received_by", "note")
     # received_datetime / received_by are auto-managed (stamped when is_received is ticked, cleared
     # when unticked) — shown read-only so typed values can't be silently discarded.
-    readonly_fields = ("received_datetime", "received_by")
+    readonly_fields = ("effort_actual", "received_datetime", "received_by")
+
+    @admin.display(description=_("実績額"))
+    def effort_actual(self, obj: KippoProjectBillingEntry) -> str:
+        """Computed actual for the entry's billing month, shown beside the (possibly provisional 仮)
+        amount so the operator can compare and correct before receiving (kippo#46).
+        """
+        if not obj.pk:
+            return ""
+        contract = obj.contract
+        if not (contract.pricing_basis == PRICING_BASIS_EFFORT and contract.billing_type == BILLING_TYPE_MONTHLY):
+            return "-"
+        return f"¥{contract.effort_actual_amount(obj.billing_date):,}"
 
 
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedStackedInline):
     model = KippoProjectContract
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
-    fields = ("billing_type", "pricing_basis", "total_amount", "start_date", "end_date", "note")
+    fields = ("billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
     inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
 
     def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
@@ -1667,12 +1687,12 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModel
     # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
     # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
     # the project (KippoProjectContractInline); this page adds the billing-entries inline.
-    list_display = ("project", "billing_type", "pricing_basis", "total_amount", "start_date", "end_date")
+    list_display = ("project", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date")
     list_filter = ("billing_type", "pricing_basis")
     search_fields = ("project__name",)
     raw_id_fields = ("project",)
     inlines = [KippoProjectBillingEntryInline]
-    actions = ["generate_billing_entries"]
+    actions = ["generate_billing_entries", "trueup_billing_entries"]
 
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
         # Specializes the base created_by/updated_by stamping to also record received_by — the acting
@@ -1695,6 +1715,15 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModel
         for contract in queryset:
             created_count += len(contract.generate_billing_entries(created_by=request.user))
         self.message_user(request, _("%d billing entries created.") % created_count, level=messages.INFO)
+
+    @admin.action(description=_("請求エントリを実績に修正"))
+    def trueup_billing_entries(self, request: DjangoRequest, queryset: models.QuerySet):
+        # kippo#46: correct provisional (仮) effort+monthly entries to logged actuals (実績).
+        # Received entries are final and skipped (see KippoProjectContract.trueup_billing_entries).
+        updated_count = 0
+        for contract in queryset:
+            updated_count += contract.trueup_billing_entries(updated_by=request.user)
+        self.message_user(request, _("%d billing entries updated to actuals.") % updated_count, level=messages.INFO)
 
 
 @admin.register(KippoMilestone)
