@@ -36,8 +36,9 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
-from projects.filters import DEFAULT_ACTIVE_PROJECT_PHASES, PhaseMultiSelectListFilter
+from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
+    DEFAULT_ACTIVE_PROJECT_PHASES,
     VALID_PROJECT_PHASES,
     ActiveKippoProject,
     KippoMilestone,

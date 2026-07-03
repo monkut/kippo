@@ -175,6 +175,9 @@ VALID_PROJECT_PHASES = (
     ("completed", _("完了")),
     ("lost", _("失注")),
 )
+# Phases pre-selected on the active-project admin changelist when the フェーズ filter has no query
+# param — the two "in-flight" phases. See projects.filters.PhaseMultiSelectListFilter.
+DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", "under-contract")
 # phase -> confidence (確度). under-contract/completed == 100 keep the monthly-assignment confirm gate working.
 PHASE_CONFIDENCE = {
     "keep-in-touch": 0,  # KIT = "keep in touch": proposal did not succeed

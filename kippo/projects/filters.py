@@ -5,15 +5,10 @@ from django.db import models
 from django.http import request as DjangoRequest  # noqa: N812
 from django.utils.translation import gettext_lazy as _
 
-from .models import VALID_PROJECT_PHASES
+from .models import DEFAULT_ACTIVE_PROJECT_PHASES, VALID_PROJECT_PHASES
 
 if TYPE_CHECKING:
     from django.contrib.admin.views.main import ChangeList
-
-# Phases pre-selected on the active-project changelist when the フェーズ filter has no query param —
-# the two "in-flight" phases (口頭受注 / 契約(稼働中)). An explicit (even empty) param overrides these,
-# so the "全て" option can still show every active project.
-DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", "under-contract")
 
 
 class PhaseMultiSelectListFilter(admin.SimpleListFilter):
