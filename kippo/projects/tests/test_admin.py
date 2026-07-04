@@ -799,23 +799,23 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         form = KippoProjectAdminForm(data=self._form_data(category="other"))
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_registration_requires_customer_pm_and_dates(self):
-        # add-form missing the required registration fields is invalid (kippo#40 / T19)
+    def test_registration_requires_customer_and_start_date(self):
+        # add-form missing the slim required registration fields is invalid (kippo#40 / T19, slimmed)
         data = self._form_data(category="other")
-        for field in ("customer", "project_manager", "start_date", "target_date"):
+        for field in ("customer", "start_date"):
             del data[field]
         form = KippoProjectAdminForm(data=data)
         self.assertFalse(form.is_valid())
-        for field in ("customer", "project_manager", "start_date", "target_date"):
+        for field in ("customer", "start_date"):
             self.assertIn(field, form.errors)
 
-    def test_registration_requires_problem_definition(self):
-        # kippo#41: problem_definition is required at registration (allocated_staff_days is conditional)
+    def test_registration_does_not_require_pm_dates_or_problem_definition(self):
+        # slimmed registration: PM / target_date / problem_definition are added on a later edit
         data = self._form_data(category="other")
-        del data["problem_definition"]
+        for field in ("project_manager", "target_date", "problem_definition"):
+            del data[field]
         form = KippoProjectAdminForm(data=data)
-        self.assertFalse(form.is_valid())
-        self.assertIn("problem_definition", form.errors)
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_non_full_confidence_allows_zero_or_blank_allocated_staff_days(self):
         # phase proposing-low → confidence < 100 → allocated_staff_days need not be positive
@@ -904,11 +904,14 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         form = KippoProjectAdminForm(instance=existing, data=data)
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_contract_inline_required_on_add_optional_on_change(self):
-        # 請求方法 required at registration via the contract inline (kippo#40 / T19)
+    def test_contract_inline_not_required_and_hidden_on_add(self):
+        # the contract is added on a later edit — nothing contract-related at registration
         inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
-        self.assertEqual(inline.get_min_num(request=self.super_user_request, obj=None), 1)
-        self.assertEqual(inline.get_min_num(request=self.super_user_request, obj=self.parent), 0)
+        self.assertFalse(inline.get_min_num(request=self.super_user_request, obj=None))
+        self.assertFalse(inline.get_min_num(request=self.super_user_request, obj=self.parent))
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.assertNotIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=None))
+        self.assertIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=self.parent))
 
     def test_change_form_with_upsell_category_uses_persisted_parent_when_field_omitted(self):
         # change form: parent_project is readonly so it isn't submitted in POST data;
@@ -1600,12 +1603,13 @@ class KippoProjectAdminContractPeriodFieldsTestCase(KippoProjectAdminFixtureTest
         self.assertNotIn("start_date", fields)
         self.assertNotIn("target_date", fields)
 
-    def test_add_form_keeps_dates(self):
-        # registration still collects the initial start/target dates (kippo#40 / T19)
+    def test_add_form_keeps_start_date(self):
+        # slim registration still collects the initial start_date; target_date arrives with the
+        # contract (or a later edit)
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         fields = self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=None))
         self.assertIn("start_date", fields)
-        self.assertIn("target_date", fields)
+        self.assertNotIn("target_date", fields)
 
     def test_change_view_renders_with_contract(self):
         KippoProjectContract.objects.create(

@@ -417,13 +417,13 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         self._validate_parent_project(attrs, organization)
         self._validate_enable_cost_report(attrs)
 
-        # Required-field validation at project registration (kippo#40 / T19). Create-only — edits of
-        # existing rows (and existing data) are unaffected. category/phase always carry model defaults,
-        # so the enforced gaps are the genuinely-optional fields. 請求方法 (billing method) lives on
-        # KippoProjectContract since kippo#31; the API cannot attach a contract at project-create
-        # (no nested write), so that requirement is enforced on the admin registration form instead.
+        # Required-field validation at project registration (kippo#40 / T19; slimmed for the
+        # contract-driven flow). Create-only — edits of existing rows (and existing data) are
+        # unaffected. name/organization are NOT NULL and category/phase carry model defaults, so
+        # registration only additionally requires customer + start_date; everything else (PM,
+        # target_date, the contract, estimates) is added on a later edit.
         if self.instance is None:
-            required_at_registration = ("customer", "project_manager", "start_date", "target_date")
+            required_at_registration = ("customer", "start_date")
             missing = {field: "This field is required at project registration." for field in required_at_registration if not attrs.get(field)}
             if missing:
                 raise serializers.ValidationError(missing)

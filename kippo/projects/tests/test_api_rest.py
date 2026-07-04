@@ -1067,7 +1067,9 @@ class PermissionsTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
 
     def test_create_missing_required_registration_fields_rejected(self):
-        """Registration requires customer/PM/start_date/target_date (kippo#40 / T19)."""
+        """Registration requires customer + start_date (kippo#40 / T19, slimmed); PM / target_date /
+        the contract are added on a later edit.
+        """
         self.client.force_authenticate(user=self.superuser)
         url = f"{settings.URL_PREFIX}/api/projects/"
         data = {
@@ -1077,8 +1079,36 @@ class PermissionsTestCase(TestCase):
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
-        for field in ("customer", "project_manager", "start_date", "target_date"):
+        for field in ("customer", "start_date"):
             self.assertIn(field, response.json())
+        for field in ("project_manager", "target_date"):
+            self.assertNotIn(field, response.json())
+
+    def test_create_with_only_slim_registration_fields_succeeds(self):
+        """A create sending only the slim required set (customer, name, start_date + org/phase/category
+        defaults) is accepted — everything else is added on a later edit.
+        """
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="slim-reg-customer",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_authenticate(user=self.superuser)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Slim Registration Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "customer": str(customer.id),
+            "start_date": "2026-08-01",
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        created = KippoProject.objects.get(name="Slim Registration Project")
+        self.assertIsNone(created.project_manager)
 
     def test_edit_existing_project_not_blocked_by_registration_requirements(self):
         """The required-field validation is create-only; editing a contract-less / customer-less

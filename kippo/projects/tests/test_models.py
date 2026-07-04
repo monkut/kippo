@@ -858,13 +858,15 @@ class KippoProjectUnderContractPhaseGateTestCase(TestCase):
             project.clean()
         self.assertIn("phase", context.exception.message_dict)
 
-    def test_clean_exempts_registration(self):
-        # the admin add form creates the required contract inline in the same submit, after this
-        # validation runs — an unsaved (adding) instance is exempt
+    def test_clean_rejects_under_contract_phase_at_registration(self):
+        # registration collects only the slim required set (no contract inline on /add/), so an
+        # unsaved instance can never satisfy the gate — create first, add the contract, then flip
         project = KippoProject(
             organization=self.project.organization,
             name="registration-under-contract",
             phase=PHASE_UNDER_CONTRACT,
             columnset=self.project.columnset,
         )
-        project.clean()  # does not raise
+        with self.assertRaises(ValidationError) as context:
+            project.clean()
+        self.assertIn("phase", context.exception.message_dict)

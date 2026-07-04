@@ -420,10 +420,10 @@ class KippoProject(UserCreatedBaseModel):
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
         # 契約(稼働中) requires the contract (with its period) to exist first: the project is created
-        # before the contract, but once on-going the contract period drives the project dates.
-        # Registration (add) is exempt — the admin add form creates the required contract inline in
-        # the same submit, after this validation runs.
-        if not self._state.adding and self.phase == PHASE_UNDER_CONTRACT:
+        # (registration collects only the slim required set), the contract is added on a later edit,
+        # and only then can the phase move to under-contract — at which point the contract period
+        # drives the project dates.
+        if self.phase == PHASE_UNDER_CONTRACT:
             contract = self.get_contract()
             if not (contract and contract.start_date and contract.end_date):
                 raise ValidationError({"phase": _("A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中).")})
