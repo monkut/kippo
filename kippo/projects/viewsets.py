@@ -36,7 +36,7 @@ from .models import (
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
 )
-from .permissions import IsSuperuserOrOrgPMForCategory, IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
+from .permissions import IsSuperuserOrOrgMemberForCategory, IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
     KippoProjectBillingEntrySerializer,
     KippoProjectContractSerializer,
@@ -73,12 +73,12 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users).
-    - Write (POST/PUT/PATCH/DELETE) on an org-scoped category: superuser or a project manager of
-      that organization. Global defaults are superuser-only. See ``IsSuperuserOrOrgPMForCategory``.
+    - Write (POST/PUT/PATCH/DELETE) on an org-scoped category: superuser or any member of that
+      organization. Global defaults are superuser-only. See ``IsSuperuserOrOrgMemberForCategory``.
     """
 
     serializer_class = KippoProjectOrganizationCategorySerializer
-    permission_classes = [IsSuperuserOrOrgPMForCategory]
+    permission_classes = [IsSuperuserOrOrgMemberForCategory]
     queryset = KippoProjectOrganizationCategory.objects.all().order_by("sort_order", "label")
 
     @extend_schema(
@@ -118,7 +118,7 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
 
         Inactive rows are hidden from the default list (the picker only wants active categories),
         but are always included for detail actions (retrieve/update/destroy) and for the list when
-        ``include_inactive=true`` — so a PM can see and reactivate a category they deactivated.
+        ``include_inactive=true`` — so a member can see and reactivate a category they deactivated.
         """
         queryset = super().get_queryset()
         include_inactive = self.action != "list" or self.request.query_params.get("include_inactive", "").lower() in ("true", "1")

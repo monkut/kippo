@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.fields import CommaSeparatedField
-from commons.viewsets import pm_organization_ids_for_user
+from commons.viewsets import organization_ids_for_user
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
@@ -173,11 +173,11 @@ class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
 class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
     """Read/write serializer for KippoProjectOrganizationCategory.
 
-    Backs both the project category picker (read, kippo#43) and org-PM category management
-    (write, kippo#48). Write access is gated by ``IsSuperuserOrOrgPMForCategory``; this serializer
-    additionally (a) runs the model's cross-scope/uniqueness validation so duplicates surface as
-    400s (never a DB IntegrityError 500) and (b) rejects an ``organization`` the requester does not
-    manage as a PM (defence-in-depth alongside the permission class).
+    Backs both the project category picker (read, kippo#43) and org category management
+    (write, kippo#48). Write access is gated by ``IsSuperuserOrOrgMemberForCategory``; this
+    serializer additionally (a) runs the model's cross-scope/uniqueness validation so duplicates
+    surface as 400s (never a DB IntegrityError 500) and (b) rejects an ``organization`` the
+    requester is not a member of (defence-in-depth alongside the permission class).
     """
 
     class Meta:
@@ -190,11 +190,11 @@ class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None)
         if user is None or user.is_superuser:
             return value
-        # Non-superusers may only create/keep categories under an org they PM. A null org (global
-        # default) is superuser-only and already blocked by the permission class.
-        pm_org_ids = pm_organization_ids_for_user(user)
-        if value is None or value.pk not in pm_org_ids:
-            raise serializers.ValidationError(_("You may only manage categories for an organization you are a project manager of."))
+        # Non-superusers may only create/keep categories under an org they belong to. A null org
+        # (global default) is superuser-only and already blocked by the permission class.
+        member_org_ids = organization_ids_for_user(user)
+        if value is None or value.pk not in member_org_ids:
+            raise serializers.ValidationError(_("You may only manage categories for an organization you are a member of."))
         return value
 
     def validate(self, attrs: dict) -> dict:

@@ -33,23 +33,6 @@ def organization_ids_for_user(user: Any) -> set:  # noqa: ANN401
     return cached
 
 
-def pm_organization_ids_for_user(user: Any) -> set:  # noqa: ANN401
-    """Return the organization PKs where the user is a project manager (``is_project_manager=True``).
-
-    Same request-scoped memoization contract as :func:`organization_ids_for_user`; used to gate
-    org-admin actions (e.g. project-category management, kippo#48) to an org's PMs.
-    """
-    if not (user and user.is_authenticated):
-        return set()
-    if not hasattr(user, "organizationmembership_set"):
-        return set()
-    cached = getattr(user, "_pm_organization_ids_cache", None)
-    if cached is None:
-        cached = set(user.organizationmembership_set.filter(is_project_manager=True).values_list("organization", flat=True))
-        user._pm_organization_ids_cache = cached
-    return cached
-
-
 class OrganizationFilterMixin:
     """Filter a viewset queryset to the request user's organization memberships.
 

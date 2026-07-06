@@ -2,20 +2,20 @@
 
 from typing import Any
 
-from commons.viewsets import organization_ids_for_user, pm_organization_ids_for_user
+from commons.viewsets import organization_ids_for_user
 from rest_framework import permissions
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
 
-class IsSuperuserOrOrgPMForCategory(permissions.BasePermission):
+class IsSuperuserOrOrgMemberForCategory(permissions.BasePermission):
     """Org-scoped write permission for KippoProjectOrganizationCategory (kippo#48).
 
     - Read (GET/HEAD/OPTIONS): authenticated; queryset-level filtering scopes results to the
       user's orgs plus the global defaults.
-    - Write on an org-scoped category (create/update/delete): superuser, OR a project manager
-      (``OrganizationMembership.is_project_manager``) of that category's organization.
-    - Write on a global (``organization=null``) default: superuser only. An org PM may add
+    - Write on an org-scoped category (create/update/delete): superuser, OR any member
+      (``OrganizationMembership``) of that category's organization.
+    - Write on a global (``organization=null``) default: superuser only. An org member may add
       org-scoped categories alongside the globals but may not edit or delete a global default.
     """
 
@@ -32,8 +32,8 @@ class IsSuperuserOrOrgPMForCategory(permissions.BasePermission):
             target_org = request.data.get("organization") if hasattr(request, "data") else None
             if not target_org:
                 return False
-            return str(target_org) in {str(oid) for oid in pm_organization_ids_for_user(user)}
-        # PUT/PATCH/DELETE: object-level check enforces org-PM membership.
+            return str(target_org) in {str(oid) for oid in organization_ids_for_user(user)}
+        # PUT/PATCH/DELETE: object-level check enforces org membership.
         return request.method in ("PUT", "PATCH", "DELETE")
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:  # noqa: ANN401
@@ -47,7 +47,7 @@ class IsSuperuserOrOrgPMForCategory(permissions.BasePermission):
         # global default: superuser only
         if obj.organization_id is None:
             return False
-        return obj.organization_id in pm_organization_ids_for_user(user)
+        return obj.organization_id in organization_ids_for_user(user)
 
 
 class IsSuperuserOrOwnOrgReadUpdateCreate(permissions.BasePermission):
