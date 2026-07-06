@@ -7,9 +7,11 @@ from accounts.models import KippoUser
 from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from django.conf import settings
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet, Sum
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -34,7 +36,7 @@ from .models import (
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
 )
-from .permissions import IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
+from .permissions import IsSuperuserOrOrgPMForCategory, IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
     KippoProjectBillingEntrySerializer,
     KippoProjectContractSerializer,
@@ -54,11 +56,12 @@ from .services.forecast import ProjectAssignmentForecastManager
 from .services.suggest import ProjectAssignmentSuggestionManager
 
 
-class KippoProjectOrganizationCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
     """
-    Read-only list of selectable project categories (kippo#43).
+    Selectable project categories (kippo#43 read; kippo#48 org-PM management).
 
-    Backs the kippo-ui project create/edit form category picker.
+    Backs the kippo-ui project create/edit form category picker (read) and the org category
+    management screen (write).
 
     **Organization Scoping:**
     - Regular users see global default categories plus the categories of organizations they belong to.
@@ -70,23 +73,57 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users).
+    - Write (POST/PUT/PATCH/DELETE) on an org-scoped category: superuser or a project manager of
+      that organization. Global defaults are superuser-only. See ``IsSuperuserOrOrgPMForCategory``.
     """
 
     serializer_class = KippoProjectOrganizationCategorySerializer
-    permission_classes = [IsAuthenticated]
-    queryset = KippoProjectOrganizationCategory.objects.filter(is_active=True).order_by("sort_order", "label")
+    permission_classes = [IsSuperuserOrOrgPMForCategory]
+    queryset = KippoProjectOrganizationCategory.objects.all().order_by("sort_order", "label")
 
     @extend_schema(
         parameters=[
             OpenApiParameter(name="organization", description="Filter by organization UUID (globals always included)", required=False, type=str),
+            OpenApiParameter(
+                name="include_inactive",
+                description="Include inactive (is_active=false) categories in the list (management view). Default false.",
+                required=False,
+                type=bool,
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
         return super().list(request, *args, **kwargs)
 
+    def perform_create(self, serializer: KippoProjectOrganizationCategorySerializer) -> None:
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer: KippoProjectOrganizationCategorySerializer) -> None:
+        serializer.save(updated_by=self.request.user)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # noqa: ANN401
+        # category is referenced by KippoProject.category (on_delete=PROTECT); a hard delete of an
+        # in-use category would raise ProtectedError -> 500. Surface a 409 with guidance to
+        # deactivate (is_active=False) instead.
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": _("This category is assigned to one or more projects and cannot be deleted. Set it inactive (is_active=false) instead.")},
+                status=HTTPStatus.CONFLICT.value,
+            )
+
     def get_queryset(self):
-        """Globals + the user's organization categories; superusers see all active categories."""
+        """Globals + the user's organization categories; superusers see all such categories.
+
+        Inactive rows are hidden from the default list (the picker only wants active categories),
+        but are always included for detail actions (retrieve/update/destroy) and for the list when
+        ``include_inactive=true`` — so a PM can see and reactivate a category they deactivated.
+        """
         queryset = super().get_queryset()
+        include_inactive = self.action != "list" or self.request.query_params.get("include_inactive", "").lower() in ("true", "1")
+        if not include_inactive:
+            queryset = queryset.filter(is_active=True)
         user = self.request.user
         organization = self.request.query_params.get("organization", None)
 
