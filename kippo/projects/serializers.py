@@ -20,6 +20,8 @@ from .definitions import (
 )
 from .functions import previous_week_startdate
 from .models import (
+    PHASE_UNDER_CONTRACT,
+    UNDER_CONTRACT_REQUIRES_CONTRACT_MSG,
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
@@ -416,17 +418,60 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         self._validate_parent_project(attrs, organization)
         self._validate_enable_cost_report(attrs)
 
-        # Required-field validation at project registration (kippo#40 / T19). Create-only — edits of
-        # existing rows (and existing data) are unaffected. category/phase always carry model defaults,
-        # so the enforced gaps are the genuinely-optional fields. 請求方法 (billing method) lives on
-        # KippoProjectContract since kippo#31; the API cannot attach a contract at project-create
-        # (no nested write), so that requirement is enforced on the admin registration form instead.
+        # Required-field validation at project registration (kippo#40 / T19; slimmed for the
+        # contract-driven flow). Create-only — edits of existing rows (and existing data) are
+        # unaffected. name/organization are NOT NULL and category/phase carry model defaults, so
+        # registration only additionally requires customer + start_date; everything else (PM,
+        # target_date, the contract, estimates) is added on a later edit.
         if self.instance is None:
-            required_at_registration = ("customer", "project_manager", "start_date", "target_date")
+            required_at_registration = ("customer", "start_date")
             missing = {field: "This field is required at project registration." for field in required_at_registration if not attrs.get(field)}
             if missing:
                 raise serializers.ValidationError(missing)
+
+        self._validate_contract_synced_dates(attrs)
+        self._validate_under_contract_phase(attrs)
         return attrs
+
+    def _validate_contract_synced_dates(self, attrs: dict) -> None:
+        """Once a contract has a period, that period is the single source of truth — the project's
+        start_date/target_date are synced mirrors (KippoProjectContract._sync_project_period). Reject
+        a project-side value that diverges from the contract period so date edits go through the
+        contract endpoint; a value equal to the contract's is a no-op and stays valid.
+
+        Compared against the CONTRACT period (not the stored project value): a project whose stored
+        date drifted from the contract can still be reconciled to the contract value, and a value
+        matching a stale stored date is no longer wrongly accepted. A blank contract date is not
+        managed, so that project field stays directly editable (e.g. a blank-period contract).
+        """
+        if self.instance is None:
+            return
+        contract = self.instance.get_contract()
+        if contract is None:
+            return
+        errors = {}
+        for field, contract_value in (("start_date", contract.start_date), ("target_date", contract.end_date)):
+            if contract_value and field in attrs and attrs[field] != contract_value:
+                errors[field] = "This project has a contract; its dates are managed by the contract period (update via the contract endpoint)."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+    def _validate_under_contract_phase(self, attrs: dict) -> None:
+        """契約(稼働中) requires the contract (with its period) to exist first — mirrors
+        KippoProject.clean(). The API cannot attach a contract at project-create, so a create
+        directly in this phase is rejected; create in an earlier phase, add the contract, then
+        update the phase.
+        """
+        # Transition-only: gate only a *move into* 契約(稼働中). A row already persisted in the phase
+        # (e.g. legacy rows created before contracts existed) stays editable — otherwise any PATCH
+        # (even name-only, since the SPA always sends phase) would re-fire the gate and 400.
+        stored_phase = getattr(self.instance, "phase", None)
+        incoming_phase = attrs.get("phase", stored_phase)
+        if incoming_phase != PHASE_UNDER_CONTRACT or stored_phase == PHASE_UNDER_CONTRACT:
+            return
+        contract = self.instance.get_contract() if self.instance is not None else None
+        if not (contract and contract.has_complete_period()):
+            raise serializers.ValidationError({"phase": UNDER_CONTRACT_REQUIRES_CONTRACT_MSG})
 
     def _validate_parent_project(self, attrs: dict, organization: "KippoOrganization | None") -> None:
         """parent_project (upsell) must be same-org and not the project itself (admin parity)."""

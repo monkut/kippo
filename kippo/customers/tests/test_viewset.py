@@ -402,10 +402,11 @@ class KippoCustomerChangelistParityTestCase(TestCase):
         # customer A: a project ending this FY (qualifies for recent_ending) + a contract ending this FY
         ending = self._make_project("acme-ending", self.customer, date(self.today.year, 6, 30))
         self._make_contract(ending, "2000000", date(self.today.year, 6, 30))
-        # customer B (empty_customer): a contract ending this FY but its project ends far in the future
-        # → excluded by recent_ending, so its planned total drops out of the summary
+        # customer B (empty_customer): its contract — and therefore its project, since the contract
+        # period syncs onto the project dates — ends far in the future → excluded by recent_ending,
+        # so its planned total drops out of the summary
         far = self._make_project("zeta-far", self.empty_customer, date(self.today.year + 2, 6, 30))
-        self._make_contract(far, "5000000", date(self.today.year, 6, 30))
+        self._make_contract(far, "5000000", date(self.today.year + 2, 6, 30))
 
         self.client.force_authenticate(user=self.user)
         response = self.client.get(f"{settings.URL_PREFIX}/api/customers/fiscal-year-summary/?recent_ending=true")

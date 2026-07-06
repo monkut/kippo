@@ -732,14 +732,29 @@ class KippoProjectContractViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(project_id=project_pk)
         return queryset
 
+    @staticmethod
+    def _reject_if_project_closed(project: KippoProject) -> None:
+        # A closed project's dates are final; the contract save mirrors its period onto the project
+        # (KippoProjectContract._sync_project_period), so a contract write on a closed project would
+        # silently shift locked dates. The admin blocks this via LockWhenProjectClosedInlineMixin;
+        # mirror that here so the API cannot bypass the closed-project immutability.
+        if project.is_closed:
+            raise ValidationError("This project is closed; its contract cannot be modified.")
+
     def perform_create(self, serializer: KippoProjectContractSerializer) -> None:
         project = get_object_or_404(_user_accessible_projects(self.request.user), pk=self.kwargs.get("project_pk"))
+        self._reject_if_project_closed(project)
         if KippoProjectContract.objects.filter(project=project).exists():
             raise ValidationError("This project already has a contract; edit it via PUT/PATCH.")
         serializer.save(project=project, created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer: KippoProjectContractSerializer) -> None:
+        self._reject_if_project_closed(serializer.instance.project)
         serializer.save(updated_by=self.request.user)
+
+    def perform_destroy(self, instance: KippoProjectContract) -> None:
+        self._reject_if_project_closed(instance.project)
+        instance.delete()
 
 
 class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):

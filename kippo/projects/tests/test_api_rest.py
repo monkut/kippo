@@ -219,10 +219,23 @@ class KippoProjectViewSetTestCase(TestCase):
         response = self.client.patch(url, {"confidence": 150}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
 
+    def _create_contract(self, **kwargs) -> KippoProjectContract:
+        """Contract for self.project — its period backfills from the project dates set in setUp."""
+        from decimal import Decimal
+
+        defaults = {
+            "project": self.project,
+            "total_amount": Decimal("900000"),
+            "created_by": self.github_manager,
+            "updated_by": self.github_manager,
+        }
+        return KippoProjectContract.objects.create(**{**defaults, **kwargs})
+
     def test_confidence_follows_phase_when_both_changed(self):
         """When an update also changes phase, confidence is re-derived from the new phase and any
         sent confidence is ignored (documented last-writer behavior).
         """
+        self._create_contract()  # phase under-contract requires a contract with a period
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
         response = self.client.patch(url, {"phase": "under-contract", "confidence": 42}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.OK)
@@ -230,6 +243,60 @@ class KippoProjectViewSetTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.confidence, PHASE_CONFIDENCE["under-contract"])
         self.assertEqual(self.project.phase, "under-contract")
+
+    def test_patch_phase_under_contract_without_contract_rejected(self):
+        """契約(稼働中) requires an existing contract with a period."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"phase": "under-contract"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("phase", response.json())
+
+    def test_patch_existing_under_contract_without_contract_not_blocked(self):
+        """A legacy project already in 契約(稼働中) with no contract (predating contracts) stays editable:
+        the phase gate fires only on the transition INTO the phase, not on every edit. The SPA always
+        sends phase, so a name-only edit round-trips phase='under-contract'.
+        """
+        KippoProject.objects.filter(pk=self.project.pk).update(phase="under-contract")
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"name": "Legacy Renamed", "phase": "under-contract"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Legacy Renamed")
+        self.assertEqual(self.project.phase, "under-contract")
+
+    def test_patch_project_dates_rejected_when_contract_exists(self):
+        """Once a contract exists its period is the single source of truth — a *changed*
+        start_date/target_date on the project is rejected (update the contract instead).
+        """
+        self._create_contract()  # period backfills to 2024-01-01 .. 2024-03-31
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"start_date": "2024-02-01"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("start_date", response.json())
+        response = self.client.patch(url, {"target_date": "2024-06-30"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("target_date", response.json())
+
+    def test_patch_project_dates_echoing_stored_values_accepted_with_contract(self):
+        """A client that sends the unchanged dates back (as the UI edit form does) still saves."""
+        self._create_contract()
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(
+            url,
+            {"name": "Renamed With Contract", "start_date": "2024-01-01", "target_date": "2024-03-31"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["name"], "Renamed With Contract")
+
+    def test_patch_project_dates_editable_without_contract(self):
+        """Pre-contract, the project dates stay directly editable."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"start_date": "2024-02-01", "target_date": "2024-08-31"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.start_date, datetime.date(2024, 2, 1))
+        self.assertEqual(self.project.target_date, datetime.date(2024, 8, 31))
 
     def test_list_exposes_category_label_and_billing_types(self):
         """List/detail expose category_label + the contract billing_type (kippo#39 / T14)."""
@@ -952,6 +1019,23 @@ class PermissionsTestCase(TestCase):
         self.assertEqual(created.created_by, self.user)
         self.assertEqual(created.updated_by, self.user)
 
+    def test_create_project_in_under_contract_phase_rejected(self):
+        """The API cannot attach a contract at project-create, so a create directly in 契約(稼働中)
+        is rejected — create in an earlier phase, add the contract, then update the phase.
+        """
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Under Contract At Create",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "phase": "under-contract",
+            **_registration_fields(self.organization, self.user),
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("phase", response.json())
+
     def test_regular_user_cannot_create_project_in_other_org(self):
         """Org-member cannot POST /api/projects/ for an org they don't belong to (kippo#284)."""
         other_org = KippoOrganization.objects.create(
@@ -996,7 +1080,9 @@ class PermissionsTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.CREATED)
 
     def test_create_missing_required_registration_fields_rejected(self):
-        """Registration requires customer/PM/start_date/target_date (kippo#40 / T19)."""
+        """Registration requires customer + start_date (kippo#40 / T19, slimmed); PM / target_date /
+        the contract are added on a later edit.
+        """
         self.client.force_authenticate(user=self.superuser)
         url = f"{settings.URL_PREFIX}/api/projects/"
         data = {
@@ -1006,8 +1092,36 @@ class PermissionsTestCase(TestCase):
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
-        for field in ("customer", "project_manager", "start_date", "target_date"):
+        for field in ("customer", "start_date"):
             self.assertIn(field, response.json())
+        for field in ("project_manager", "target_date"):
+            self.assertNotIn(field, response.json())
+
+    def test_create_with_only_slim_registration_fields_succeeds(self):
+        """A create sending only the slim required set (customer, name, start_date + org/phase/category
+        defaults) is accepted — everything else is added on a later edit.
+        """
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="slim-reg-customer",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_authenticate(user=self.superuser)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Slim Registration Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "customer": str(customer.id),
+            "start_date": "2026-08-01",
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        created = KippoProject.objects.get(name="Slim Registration Project")
+        self.assertIsNone(created.project_manager)
 
     def test_edit_existing_project_not_blocked_by_registration_requirements(self):
         """The required-field validation is create-only; editing a contract-less / customer-less
@@ -1495,6 +1609,77 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         patch = self.client.patch(f"{url}{contract_id}/", {"total_amount": "2000000"}, format="json")
         self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
         self.assertEqual(self.project.contract.total_amount, 2000000)
+
+    def test_contract_period_update_syncs_project_dates(self):
+        """The contract endpoint is the write path for the period once a contract exists — a PATCH
+        of the contract dates mirrors onto the project's start_date/target_date.
+        """
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "start_date": "2026-01-01",
+                "end_date": "2026-09-30",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.start_date, datetime.date(2026, 1, 1))
+        self.assertEqual(self.project.target_date, datetime.date(2026, 9, 30))
+        contract_id = resp.json()["id"]
+        patch = self.client.patch(f"{url}{contract_id}/", {"end_date": "2026-12-31"}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 12, 31))
+
+    def test_contract_end_date_clearable_via_api_for_open_ended(self):
+        """The contract endpoint can clear end_date (→ null) to model an open-ended engagement; the
+        blank is honored rather than re-filled from the project on update.
+        """
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "start_date": "2026-01-01",
+                "end_date": "2026-09-30",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        contract_id = resp.json()["id"]
+        patch = self.client.patch(f"{url}{contract_id}/", {"end_date": None}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
+        self.assertIsNone(patch.json()["end_date"])
+
+    def test_contract_write_rejected_on_closed_project(self):
+        """A closed project's dates are final; the contract endpoint refuses update/delete so a
+        contract save cannot silently shift the locked project period (admin parity).
+        """
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1500000,
+            start_date="2026-01-01",
+            end_date="2026-09-30",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        KippoProject.objects.filter(pk=self.project.pk).update(is_closed=True)
+        url = f"{self.base}/{self.project.id}/contract/{contract.id}/"
+        resp = self.client.patch(url, {"end_date": "2026-12-31"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 9, 30))  # unchanged
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
 
     def test_second_contract_rejected(self):
         url = f"{self.base}/{self.project.id}/contract/"

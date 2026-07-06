@@ -206,13 +206,9 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     model = KippoProjectContract
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
+    min_num = 0  # the contract is added on a later edit, not at registration (the inline is hidden on /add/)
     fields = ("billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
     inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
-
-    def get_min_num(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
-        # 請求方法 is required at project registration (kippo#40 / T19): require the contract on /add/.
-        # Editing an existing project is unaffected (existing contract-less projects still save).
-        return 1 if obj is None else 0
 
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         """Pre-fill the new contract row's period with the project's dates so the admin user
@@ -803,18 +799,15 @@ add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calen
 
 
 class KippoProjectAdminForm(forms.ModelForm):
-    # Required at project registration (kippo#40 / T19; extended in kippo#41) — enforced create-only so
-    # existing rows/edits are unaffected. The model keeps these fields nullable; they are marked
-    # required on the add form (see __init__) so each renders with the required marker and is validated
-    # per-field. name/organization are NOT NULL and category/phase carry model defaults (already
-    # enforced by the model/ModelForm). allocated_staff_days is NOT here — it is conditionally required
-    # (see clean()). 請求方法 is enforced via the required contract inline (KippoProjectContractInline.get_min_num).
+    # Required at project registration (kippo#40 / T19; slimmed for the contract-driven flow) —
+    # enforced create-only so existing rows/edits are unaffected. The model keeps these fields
+    # nullable; they are marked required on the add form (see __init__) so each renders with the
+    # required marker and is validated per-field. name/organization are NOT NULL and category/phase
+    # carry model defaults (already enforced by the model/ModelForm). Everything else — PM,
+    # target_date, problem_definition, estimates, the contract — is added on a later edit.
     REQUIRED_AT_REGISTRATION = (
         "customer",
-        "project_manager",
         "start_date",
-        "target_date",
-        "problem_definition",
     )
 
     class Meta:
@@ -842,6 +835,10 @@ class KippoProjectAdminForm(forms.ModelForm):
         allocated_staff_days = cleaned_data.get("allocated_staff_days")
         is_non_project = getattr(category, "key", None) == NON_PROJECT_CATEGORY_VALUE
         needs_estimate = not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
+        # the slim /add/ form does not render allocated_staff_days — the estimate requirement is
+        # enforced on the later edit (add_error on an absent field would raise)
+        if "allocated_staff_days" not in self.fields:
+            needs_estimate = False
         if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
             self.add_error(
                 "allocated_staff_days",
@@ -903,29 +900,28 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     # attribute so tests and subclasses can reference the same source of truth.
     HIDDEN_ON_ADD_INLINES = (
         # Assignment rates use fixture defaults on /add/ (seeded in save_model); monthly assignments
-        # are managed after the project exists — both hidden on the add form.
+        # are managed after the project exists — both hidden on the add form. The contract is added
+        # on a later edit (registration collects only the slim ADD_FIELDS set).
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
+        KippoProjectContractInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     )
-    # /add/ form (kippo#41): flat, no sections — only these required fields, in this order. The upsell
-    # close-wizard add (?_upsell_source=close) instead gets the full sectioned form (see get_fieldsets)
-    # so its prefilled optional fields (parent_project, slack, …) render and save.
+    # /add/ form (kippo#41, slimmed for the contract-driven flow): flat, no sections — registration
+    # collects only these fields; everything else (contract, PM, estimates, …) is added on a later
+    # edit. The upsell close-wizard add (?_upsell_source=close) instead gets the full sectioned form
+    # (see get_fieldsets) so its prefilled optional fields (parent_project, slack, …) render and save.
     ADD_FIELDS = (
         "organization",
         "customer",
         "name",
         "start_date",
-        "target_date",
         "phase",
         "category",
-        "project_manager",
-        "allocated_staff_days",
-        "problem_definition",
     )
     # Shared base columns. KippoProjectAdmin appends display_as_active (it lists closed/inactive
     # projects too); the active admin uses this set as-is.
@@ -1066,6 +1062,13 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # in save_model (see below). Hidden from the form for every user.
         if "columnset" not in excluded:
             excluded.append("columnset")
+        # Once a contract exists its period is the single source of truth (synced onto the project
+        # by KippoProjectContract._sync_project_period) — hide the project's own date fields; the
+        # contract inline is the editable input.
+        if obj is not None and obj.get_contract() is not None:
+            for fieldname in ("start_date", "target_date"):
+                if fieldname not in excluded:
+                    excluded.append(fieldname)
         return tuple(excluded)
 
     @staticmethod
@@ -1332,7 +1335,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # closed projects: every field is readonly, so base_fields is empty — skip the editable-form tweaks
         if obj is not None and obj.is_closed:
             return form
-        form.base_fields["project_manager"].initial = request.user.id
+        # PM defaults to the acting user; the slim /add/ form doesn't render the field (added on edit)
+        if "project_manager" in form.base_fields:
+            form.base_fields["project_manager"].initial = request.user.id
         try:
             user_initial_organization, user_organizations = get_user_session_organization(request)
             user_memberships = request.user.memberships.all()

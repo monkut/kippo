@@ -165,13 +165,17 @@ class ProjectColumn(models.Model):
 # values are the sales/delivery status. `confidence` is derived from `phase` via PHASE_CONFIDENCE (no longer
 # user-editable). The old anon-project value is retired — non-projects are identified by category=="non-project".
 DEFAULT_PROJECT_PHASE = "proposing-low"
+PHASE_UNDER_CONTRACT = "under-contract"
+# Shared by KippoProject.clean() (admin) and KippoProjectSerializer (API) so the gate message stays
+# in one place (and translated) across both layers.
+UNDER_CONTRACT_REQUIRES_CONTRACT_MSG = _("A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中).")
 VALID_PROJECT_PHASES = (
     ("keep-in-touch", "KIT"),
     ("proposing-low", _("提案(低)")),
     ("proposing-mid", _("提案(中)")),
     ("proposing-high", _("提案(高)")),
     ("verbal-order", _("口頭受注")),
-    ("under-contract", _("契約(稼働中)")),
+    (PHASE_UNDER_CONTRACT, _("契約(稼働中)")),
     ("completed", _("完了")),
     ("lost", _("失注")),
 )
@@ -418,6 +422,23 @@ class KippoProject(UserCreatedBaseModel):
             raise ValidationError(_("Given date is in the future"))
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
+        # 契約(稼働中) requires the contract (with its period) to exist first: the project is created
+        # (registration collects only the slim required set), the contract is added on a later edit,
+        # and only then can the phase move to under-contract — at which point the contract period
+        # drives the project dates. Gated on the TRANSITION into the phase only, so rows already
+        # persisted in 契約(稼働中) (legacy projects predating contracts) stay editable/saveable.
+        if self._is_entering_under_contract():
+            contract = self.get_contract()
+            if not (contract and contract.has_complete_period()):
+                raise ValidationError({"phase": UNDER_CONTRACT_REQUIRES_CONTRACT_MSG})
+
+    def _is_entering_under_contract(self) -> bool:
+        """True only when this save MOVES the phase into 契約(稼働中) (including a create directly in
+        that phase). A row already persisted in the phase is not re-gated, so legacy projects that
+        reached 契約(稼働中) before contracts existed remain editable. Uses the persisted-phase
+        snapshot taken in ``from_db`` (absent on an unsaved instance → treated as entering).
+        """
+        return self.phase == PHASE_UNDER_CONTRACT and getattr(self, "_confidence_synced_phase", None) != PHASE_UNDER_CONTRACT
 
     def revenue_entries(
         self,
@@ -947,18 +968,51 @@ class KippoProjectContract(UserCreatedBaseModel):
             raise ValidationError({"estimated_monthly_amount": _("Estimated monthly amount (仮月額) only applies to effort + monthly contracts.")})
 
     def save(self, *args, **kwargs):
-        # auto-populate the contract period from the project when left blank
-        if not self.start_date:
-            self.start_date = self.project.start_date
-        if not self.end_date:
-            self.end_date = self.project.target_date
         is_initial_creation = self._state.adding
+        # auto-populate the contract period from the project when left blank AT CREATION only. On a
+        # later edit a blank date is honored (not re-filled), so end_date can be cleared to model an
+        # open-ended / retainer engagement with no fixed completion (T&M).
+        if is_initial_creation:
+            if not self.start_date:
+                self.start_date = self.project.start_date
+            if not self.end_date:
+                self.end_date = self.project.target_date
         super().save(*args, **kwargs)
+        self._sync_project_period()
         # Populate the billing ledger from the terms on initial creation so the user does not have to
         # run the generate_billing_entries admin action by hand. Idempotent and safe to re-run later
         # (as months elapse or effort accrues) via the still-available action / API.
         if is_initial_creation:
             self.generate_billing_entries(created_by=self.created_by)
+
+    def has_complete_period(self) -> bool:
+        """True when both period endpoints are set — the contract can drive the project dates and
+        satisfy the 契約(稼働中) phase gate. Shared by the model gate and the API serializer.
+        """
+        return bool(self.start_date and self.end_date)
+
+    def _sync_project_period(self) -> None:
+        """Once a contract exists its period is the single source of truth: mirror start_date/end_date
+        onto the project's start_date/target_date so every consumer of the project columns
+        (autoassign, forecast, changelist ordering, UI sorting) keeps working unchanged.
+        Never clears a project date — a blank contract date leaves the project value as-is.
+        """
+        project = self.project
+        update_fields = []
+        if self.start_date and project.start_date != self.start_date:
+            project.start_date = self.start_date
+            update_fields.append("start_date")
+        if self.end_date and project.target_date != self.end_date:
+            project.target_date = self.end_date
+            update_fields.append("target_date")
+        if update_fields:
+            # Attribute the date change to whoever edited the contract (set on the contract by the
+            # viewset/admin), not the project's previous editor. Skip when the contract has no editor
+            # so a good project.updated_by is never overwritten with NULL.
+            if self.updated_by_id:
+                project.updated_by = self.updated_by
+                update_fields.append("updated_by")
+            project.save(update_fields=[*update_fields, "updated_datetime"])
 
     def _contract_months(self) -> list[datetime.date]:
         """First-of-month dates for each calendar month the contract period [start_date, end_date]
