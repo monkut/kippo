@@ -422,11 +422,20 @@ class KippoProject(UserCreatedBaseModel):
         # 契約(稼働中) requires the contract (with its period) to exist first: the project is created
         # (registration collects only the slim required set), the contract is added on a later edit,
         # and only then can the phase move to under-contract — at which point the contract period
-        # drives the project dates.
-        if self.phase == PHASE_UNDER_CONTRACT:
+        # drives the project dates. Gated on the TRANSITION into the phase only, so rows already
+        # persisted in 契約(稼働中) (legacy projects predating contracts) stay editable/saveable.
+        if self._is_entering_under_contract():
             contract = self.get_contract()
             if not (contract and contract.start_date and contract.end_date):
                 raise ValidationError({"phase": _("A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中).")})
+
+    def _is_entering_under_contract(self) -> bool:
+        """True only when this save MOVES the phase into 契約(稼働中) (including a create directly in
+        that phase). A row already persisted in the phase is not re-gated, so legacy projects that
+        reached 契約(稼働中) before contracts existed remain editable. Uses the persisted-phase
+        snapshot taken in ``from_db`` (absent on an unsaved instance → treated as entering).
+        """
+        return self.phase == PHASE_UNDER_CONTRACT and getattr(self, "_confidence_synced_phase", None) != PHASE_UNDER_CONTRACT
 
     def revenue_entries(
         self,
@@ -985,6 +994,12 @@ class KippoProjectContract(UserCreatedBaseModel):
             project.target_date = self.end_date
             update_fields.append("target_date")
         if update_fields:
+            # Attribute the date change to whoever edited the contract (set on the contract by the
+            # viewset/admin), not the project's previous editor. Skip when the contract has no editor
+            # so a good project.updated_by is never overwritten with NULL.
+            if self.updated_by_id:
+                project.updated_by = self.updated_by
+                update_fields.append("updated_by")
             project.save(update_fields=[*update_fields, "updated_datetime"])
 
     def _contract_months(self) -> list[datetime.date]:

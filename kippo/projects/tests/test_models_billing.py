@@ -1,6 +1,7 @@
 import datetime
 from decimal import Decimal
 
+from accounts.models import KippoUser
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -142,6 +143,29 @@ class ContractFieldsTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.start_date, datetime.date(2026, 2, 1))
         self.assertEqual(self.project.target_date, datetime.date(2026, 8, 31))
+
+    def test_period_sync_attributes_update_to_contract_editor(self):
+        # a project-date change driven by a contract edit is attributed to the contract's editor
+        # (updated_by), not the project's previous direct editor
+        project_editor = self.user
+        contract_editor = KippoUser.objects.get(username="github-manager")
+        self.assertNotEqual(project_editor, contract_editor)
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
+        self.project.updated_by = project_editor
+        self.project.save()
+        KippoProjectContract.objects.create(
+            project=KippoProject.objects.get(pk=self.project.pk),
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=Decimal("600000"),
+            start_date=datetime.date(2026, 2, 1),
+            end_date=datetime.date(2026, 8, 31),
+            created_by=contract_editor,
+            updated_by=contract_editor,
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 8, 31))  # sync happened
+        self.assertEqual(self.project.updated_by, contract_editor)  # attributed to the contract editor
 
     def test_blank_contract_period_does_not_clear_project_dates(self):
         # a contract date that stays blank (project had no dates to backfill from) must not

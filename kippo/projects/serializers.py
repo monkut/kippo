@@ -433,10 +433,15 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         return attrs
 
     def _validate_contract_synced_dates(self, attrs: dict) -> None:
-        """Once a contract exists its period is the single source of truth — the project's
-        start_date/target_date are synced mirrors (KippoProjectContract._sync_project_period).
-        Reject a *changed* value here so date edits go through the contract endpoint; echoing the
-        stored values back (as the UI edit form does) stays valid.
+        """Once a contract has a period, that period is the single source of truth — the project's
+        start_date/target_date are synced mirrors (KippoProjectContract._sync_project_period). Reject
+        a project-side value that diverges from the contract period so date edits go through the
+        contract endpoint; a value equal to the contract's is a no-op and stays valid.
+
+        Compared against the CONTRACT period (not the stored project value): a project whose stored
+        date drifted from the contract can still be reconciled to the contract value, and a value
+        matching a stale stored date is no longer wrongly accepted. A blank contract date is not
+        managed, so that project field stays directly editable (e.g. a blank-period contract).
         """
         if self.instance is None:
             return
@@ -444,8 +449,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         if contract is None:
             return
         errors = {}
-        for field, current in (("start_date", self.instance.start_date), ("target_date", self.instance.target_date)):
-            if field in attrs and attrs[field] != current:
+        for field, contract_value in (("start_date", contract.start_date), ("target_date", contract.end_date)):
+            if contract_value and field in attrs and attrs[field] != contract_value:
                 errors[field] = "This project has a contract; its dates are managed by the contract period (update via the contract endpoint)."
         if errors:
             raise serializers.ValidationError(errors)
@@ -456,8 +461,14 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         directly in this phase is rejected; create in an earlier phase, add the contract, then
         update the phase.
         """
-        phase = attrs.get("phase", getattr(self.instance, "phase", None))
-        if phase != PHASE_UNDER_CONTRACT:
+        incoming_phase = attrs.get("phase", getattr(self.instance, "phase", None))
+        if incoming_phase != PHASE_UNDER_CONTRACT:
+            return
+        # Transition-only: a project already persisted in 契約(稼働中) (e.g. legacy rows created before
+        # contracts existed) stays editable — only a *move into* the phase is gated. Without this, any
+        # PATCH (even name-only, since the SPA always sends phase) would re-fire the gate and 400.
+        stored_phase = getattr(self.instance, "phase", None)
+        if self.instance is not None and stored_phase == PHASE_UNDER_CONTRACT:
             return
         contract = self.instance.get_contract() if self.instance is not None else None
         if not (contract and contract.start_date and contract.end_date):

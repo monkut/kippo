@@ -251,6 +251,19 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
         self.assertIn("phase", response.json())
 
+    def test_patch_existing_under_contract_without_contract_not_blocked(self):
+        """A legacy project already in 契約(稼働中) with no contract (predating contracts) stays editable:
+        the phase gate fires only on the transition INTO the phase, not on every edit. The SPA always
+        sends phase, so a name-only edit round-trips phase='under-contract'.
+        """
+        KippoProject.objects.filter(pk=self.project.pk).update(phase="under-contract")
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"name": "Legacy Renamed", "phase": "under-contract"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Legacy Renamed")
+        self.assertEqual(self.project.phase, "under-contract")
+
     def test_patch_project_dates_rejected_when_contract_exists(self):
         """Once a contract exists its period is the single source of truth — a *changed*
         start_date/target_date on the project is rejected (update the contract instead).
@@ -1622,6 +1635,29 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
         self.project.refresh_from_db()
         self.assertEqual(self.project.target_date, datetime.date(2026, 12, 31))
+
+    def test_contract_write_rejected_on_closed_project(self):
+        """A closed project's dates are final; the contract endpoint refuses update/delete so a
+        contract save cannot silently shift the locked project period (admin parity).
+        """
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=1500000,
+            start_date="2026-01-01",
+            end_date="2026-09-30",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        KippoProject.objects.filter(pk=self.project.pk).update(is_closed=True)
+        url = f"{self.base}/{self.project.id}/contract/{contract.id}/"
+        resp = self.client.patch(url, {"end_date": "2026-12-31"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 9, 30))  # unchanged
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
 
     def test_second_contract_rejected(self):
         url = f"{self.base}/{self.project.id}/contract/"
