@@ -8,6 +8,48 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 
 
+class IsSuperuserOrOrgMemberForCategory(permissions.BasePermission):
+    """Org-scoped write permission for KippoProjectOrganizationCategory (kippo#48).
+
+    - Read (GET/HEAD/OPTIONS): authenticated; queryset-level filtering scopes results to the
+      user's orgs plus the global defaults.
+    - Write on an org-scoped category (create/update/delete): superuser, OR any member
+      (``OrganizationMembership``) of that category's organization.
+    - Write on a global (``organization=null``) default: superuser only. An org member may add
+      org-scoped categories alongside the globals but may not edit or delete a global default.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if user.is_superuser:
+            return True
+        if request.method == "POST":
+            # A missing/blank organization means a global default -> superuser only (already returned above).
+            target_org = request.data.get("organization") if hasattr(request, "data") else None
+            if not target_org:
+                return False
+            return str(target_org) in {str(oid) for oid in organization_ids_for_user(user)}
+        # PUT/PATCH/DELETE: object-level check enforces org membership.
+        return request.method in ("PUT", "PATCH", "DELETE")
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:  # noqa: ANN401
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if user.is_superuser:
+            return True
+        # global default: superuser only
+        if obj.organization_id is None:
+            return False
+        return obj.organization_id in organization_ids_for_user(user)
+
+
 class IsSuperuserOrOwnOrgReadUpdateCreate(permissions.BasePermission):
     """
     Org-scoped permission for KippoProject (#284).

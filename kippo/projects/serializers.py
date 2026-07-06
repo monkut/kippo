@@ -3,7 +3,9 @@ from typing import TYPE_CHECKING
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.fields import CommaSeparatedField
+from commons.viewsets import organization_ids_for_user
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -169,12 +171,51 @@ class ProjectAssignmentRateSerializer(serializers.ModelSerializer):
 
 
 class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
-    """Read-only serializer for KippoProjectOrganizationCategory (project category picker)."""
+    """Read/write serializer for KippoProjectOrganizationCategory.
+
+    Backs both the project category picker (read, kippo#43) and org category management
+    (write, kippo#48). Write access is gated by ``IsSuperuserOrOrgMemberForCategory``; this
+    serializer additionally (a) runs the model's cross-scope/uniqueness validation so duplicates
+    surface as 400s (never a DB IntegrityError 500) and (b) rejects an ``organization`` the
+    requester is not a member of (defence-in-depth alongside the permission class).
+    """
 
     class Meta:
         model = KippoProjectOrganizationCategory
         fields = ["id", "key", "label", "organization", "sort_order", "is_active"]
-        read_only_fields = fields
+        read_only_fields = ["id"]
+
+    def validate_organization(self, value: KippoOrganization | None) -> KippoOrganization | None:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or user.is_superuser:
+            return value
+        # Non-superusers may only create/keep categories under an org they belong to. A null org
+        # (global default) is superuser-only and already blocked by the permission class.
+        member_org_ids = organization_ids_for_user(user)
+        if value is None or value.pk not in member_org_ids:
+            raise serializers.ValidationError(_("You may only manage categories for an organization you are a member of."))
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        # Merge incoming attrs over the existing instance (partial updates) and run the model's
+        # own validation: field checks, clean() (cross-scope label rule) and the unique constraints.
+        merged = {}
+        if self.instance is not None:
+            merged = {field: getattr(self.instance, field) for field in ("organization", "key", "label", "sort_order", "is_active")}
+        merged.update(attrs)
+        candidate = KippoProjectOrganizationCategory(**merged)
+        if self.instance is not None:
+            # Reflect the existing row so validate_unique/validate_constraints exclude self
+            # (otherwise the update trips the (organization, key)/(organization, label)/pk constraints).
+            candidate.pk = self.instance.pk
+            candidate._state.adding = False
+            candidate._state.db = self.instance._state.db
+        try:
+            candidate.full_clean(exclude=("created_by", "updated_by", "closed_datetime"))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages) from exc
+        return attrs
 
 
 class KippoProjectContractSerializer(serializers.ModelSerializer):
