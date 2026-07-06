@@ -1636,6 +1636,28 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.target_date, datetime.date(2026, 12, 31))
 
+    def test_contract_end_date_clearable_via_api_for_open_ended(self):
+        """The contract endpoint can clear end_date (→ null) to model an open-ended engagement; the
+        blank is honored rather than re-filled from the project on update.
+        """
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "start_date": "2026-01-01",
+                "end_date": "2026-09-30",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        contract_id = resp.json()["id"]
+        patch = self.client.patch(f"{url}{contract_id}/", {"end_date": None}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
+        self.assertIsNone(patch.json()["end_date"])
+
     def test_contract_write_rejected_on_closed_project(self):
         """A closed project's dates are final; the contract endpoint refuses update/delete so a
         contract save cannot silently shift the locked project period (admin parity).

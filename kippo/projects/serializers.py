@@ -21,6 +21,7 @@ from .definitions import (
 from .functions import previous_week_startdate
 from .models import (
     PHASE_UNDER_CONTRACT,
+    UNDER_CONTRACT_REQUIRES_CONTRACT_MSG,
     KippoProject,
     KippoProjectBillingEntry,
     KippoProjectContract,
@@ -461,20 +462,16 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         directly in this phase is rejected; create in an earlier phase, add the contract, then
         update the phase.
         """
-        incoming_phase = attrs.get("phase", getattr(self.instance, "phase", None))
-        if incoming_phase != PHASE_UNDER_CONTRACT:
-            return
-        # Transition-only: a project already persisted in 契約(稼働中) (e.g. legacy rows created before
-        # contracts existed) stays editable — only a *move into* the phase is gated. Without this, any
-        # PATCH (even name-only, since the SPA always sends phase) would re-fire the gate and 400.
+        # Transition-only: gate only a *move into* 契約(稼働中). A row already persisted in the phase
+        # (e.g. legacy rows created before contracts existed) stays editable — otherwise any PATCH
+        # (even name-only, since the SPA always sends phase) would re-fire the gate and 400.
         stored_phase = getattr(self.instance, "phase", None)
-        if self.instance is not None and stored_phase == PHASE_UNDER_CONTRACT:
+        incoming_phase = attrs.get("phase", stored_phase)
+        if incoming_phase != PHASE_UNDER_CONTRACT or stored_phase == PHASE_UNDER_CONTRACT:
             return
         contract = self.instance.get_contract() if self.instance is not None else None
-        if not (contract and contract.start_date and contract.end_date):
-            raise serializers.ValidationError(
-                {"phase": "A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中)."}
-            )
+        if not (contract and contract.has_complete_period()):
+            raise serializers.ValidationError({"phase": UNDER_CONTRACT_REQUIRES_CONTRACT_MSG})
 
     def _validate_parent_project(self, attrs: dict, organization: "KippoOrganization | None") -> None:
         """parent_project (upsell) must be same-org and not the project itself (admin parity)."""

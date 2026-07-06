@@ -82,6 +82,26 @@ class ContractFieldsTestCase(TestCase):
         self.assertEqual(contract.start_date, datetime.date(2026, 3, 1))
         self.assertEqual(contract.end_date, datetime.date(2026, 5, 31))
 
+    def test_contract_end_date_clearable_on_update_for_open_ended(self):
+        # open-ended / retainer engagement (T&M): after creation the contract end_date can be cleared
+        # and stays blank (not re-filled from the project), while the project keeps its planning
+        # target_date (the sync never clears a project date).
+        self.project.start_date = datetime.date(2026, 1, 1)
+        self.project.target_date = datetime.date(2026, 6, 30)
+        self.project.save()
+        contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=Decimal("1800000"),
+        )
+        self.assertEqual(contract.end_date, datetime.date(2026, 6, 30))  # backfilled at creation
+        contract.end_date = None
+        contract.save()  # update: blank is honored, not re-filled
+        contract.refresh_from_db()
+        self.assertIsNone(contract.end_date)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.target_date, datetime.date(2026, 6, 30))  # planning date preserved
+
     def test_clean_rejects_inverted_period(self):
         contract = KippoProjectContract(
             project=self.project,
