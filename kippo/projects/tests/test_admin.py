@@ -912,6 +912,27 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         form = KippoProjectAdminForm(instance=existing, data=data)
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_edit_full_confidence_project_not_blocked_by_blank_allocated_staff_days(self):
+        # create-only rule (kippo#41): a full-confidence EXISTING project with a blank estimate must
+        # still validate on /change/ — otherwise a project-status (KippoProjectStatus) comment can't
+        # be added until the estimate is filled. The requirement stays enforced on /add/ (see
+        # test_full_confidence_requires_positive_allocated_staff_days).
+        existing = KippoProject.objects.create(
+            organization=self.organization,
+            name="existing-full-confidence-no-estimate",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            phase="completed",  # confidence 100, not closed
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.assertFalse(existing.is_closed)
+        data = self._form_data(category="other")
+        data["phase"] = "completed"
+        del data["allocated_staff_days"]
+        form = KippoProjectAdminForm(instance=existing, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_edit_existing_project_not_blocked_by_registration_requirements(self):
         # editing an existing customer-less / PM-less project must still validate (create-only rule)
         existing = KippoProject.objects.create(
@@ -1953,6 +1974,53 @@ class GithubRepositoryInlineSaveTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertEqual(post_response.status_code, HTTPStatus.FOUND, post_response.content[:500])
         repo = GithubRepository.objects.get(name="new-repo", project=self.project)
         self.assertEqual(repo.organization_id, self.project.organization_id)
+
+
+class StatusCommentOnChangeWithBlankEstimateTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """A full-confidence project with a blank allocated_staff_days must still accept a new
+    KippoProjectStatus comment on /change/. The estimate requirement is create-only (kippo#41), so
+    adding a status comment on an existing project is not blocked by a missing estimate.
+    """
+
+    def test_change_view_post_adds_status_comment_when_estimate_blank(self):
+        from projects.admin import KippoProjectStatusAdminInline
+
+        project = KippoProject.objects.create(
+            organization=self.organization,
+            name="full-confidence-blank-estimate",
+            category=_global_category("other"),
+            columnset=self.columnset,
+            start_date=self.current_date,
+            phase="completed",  # confidence 100, not closed
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.assertFalse(project.is_closed)
+        self.assertIsNone(project.allocated_staff_days)
+
+        url = reverse("admin:projects_activekippoproject_change", args=[project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+        # Two inlines share the KippoProjectStatus model, so the editable one's prefix is
+        # disambiguated at runtime — resolve it from the rendered formsets rather than hardcoding.
+        status_prefix = next(
+            ifs.formset.prefix for ifs in response.context["inline_admin_formsets"] if isinstance(ifs.opts, KippoProjectStatusAdminInline)
+        )
+        comment = "status update while estimate is blank"
+        form_data = _extract_admin_form_post_data(response, project)
+        form_data.update(
+            {
+                f"{status_prefix}-TOTAL_FORMS": "1",
+                f"{status_prefix}-INITIAL_FORMS": "0",
+                f"{status_prefix}-0-comment": comment,
+                f"{status_prefix}-0-id": "",
+                f"{status_prefix}-0-project": str(project.id),
+            }
+        )
+        post_response = self.client.post(url, data=form_data, follow=False)
+        self.assertEqual(post_response.status_code, HTTPStatus.FOUND, post_response.content[:1000])
+        self.assertTrue(KippoProjectStatus.objects.filter(project=project, comment=comment).exists())
 
 
 def _extract_admin_form_post_data(get_response: HttpResponse, project: KippoProject) -> dict:

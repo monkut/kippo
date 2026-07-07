@@ -828,15 +828,20 @@ class KippoProjectAdminForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         category = cleaned_data.get("category")
-        # allocated_staff_days must be a positive estimate once a real, non-closed project is fully
-        # confident — confidence (確度) is derived from the submitted phase. Non-project categories
-        # (internal/overhead buckets) are exempt (kippo#41).
+        # allocated_staff_days must be a positive estimate when registering a real, non-closed project
+        # at full confidence — confidence (確度) is derived from the submitted phase. Non-project
+        # categories (internal/overhead buckets) are exempt (kippo#41). Create-only: editing an
+        # existing project must not be blocked by a missing estimate, so a later /change/ (e.g. adding
+        # a project-status comment) still saves even when allocated_staff_days is blank.
         phase = cleaned_data.get("phase")
         allocated_staff_days = cleaned_data.get("allocated_staff_days")
         is_non_project = getattr(category, "key", None) == NON_PROJECT_CATEGORY_VALUE
-        needs_estimate = not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
-        # the slim /add/ form does not render allocated_staff_days — the estimate requirement is
-        # enforced on the later edit (add_error on an absent field would raise)
+        needs_estimate = (
+            self.instance._state.adding and not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
+        )
+        # the slim /add/ form does not render allocated_staff_days, so the requirement can't apply
+        # there (add_error on an absent field would raise); the full add form (upsell close-wizard)
+        # does render it, so registration through that path is still validated.
         if "allocated_staff_days" not in self.fields:
             needs_estimate = False
         if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
