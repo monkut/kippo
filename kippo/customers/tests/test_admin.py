@@ -136,20 +136,24 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(inline.get_contract_total(project), "実績")
         self.assertEqual(inline.get_contract_type(project), "月額 / 実績")
 
-    def test_compliance_check_inline_registered_and_editable(self):
+    def test_compliance_check_inline_registered_and_read_only(self):
         from customers.admin import KippoCustomerComplianceCheckInline
 
         self.assertIn(KippoCustomerComplianceCheckInline, KippoCustomerAdmin.inlines)
         # the 反社チェック record is auto-created per customer (signal); the inline edits it (no add)
         inline = KippoCustomerComplianceCheckInline(KippoCustomer, self.site)
         self.assertFalse(inline.has_add_permission(self.staff_user_request))
-        self.assertIn("verified_datetime", inline.readonly_fields)  # auto-managed
+        # verified is set only via the changelist actions, so it and its stamps are read-only
+        self.assertIn("verified", inline.readonly_fields)
+        self.assertIn("verified_datetime", inline.readonly_fields)
         self.assertIn("verified_by", inline.readonly_fields)
-        # change view renders the compliance inline form for the auto-created record
+        # change view renders the inline form (notes stays editable) but not an editable verified input
         url = reverse("admin:customers_kippocustomer_change", args=[self.customer.id])
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertIn("compliance_check-0-verified", response.content.decode())
+        content = response.content.decode()
+        self.assertIn("compliance_check-0-notes", content)  # inline rendered; notes editable
+        self.assertNotIn('name="compliance_check-0-verified"', content)  # verified is not a form input
 
     def test_compliance_inline_shows_not_completed_notice_when_unverified(self):
         # The 反社チェック inline (add/change UI) shows the reminder while the check is not completed.
@@ -175,35 +179,18 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         content = self.client.get(url).content.decode()
         # the record is created on view, so the inline form and its completion notice now render
         self.assertTrue(KippoCustomerComplianceCheck.objects.filter(customer=self.customer).exists())
-        self.assertIn("compliance_check-0-verified", content)
+        self.assertIn("compliance_check-0-notes", content)  # inline form rendered
         self.assertIn("反社チェックが未完了です", content)
 
-    def test_compliance_inline_save_stamps_verified_by_and_datetime(self):
+    def test_compliance_inline_verified_not_an_editable_form_field(self):
+        # verified is read-only in the inline: the form has no editable 'verified' field, so it cannot
+        # be hand-toggled from the customer page — the changelist actions are the only way to set it.
         from customers.admin import KippoCustomerComplianceCheckInline
 
-        check = self.customer.compliance_check
-        self.assertFalse(check.verified)
-        admin_obj = KippoCustomerAdmin(KippoCustomer, self.site)
         inline = KippoCustomerComplianceCheckInline(KippoCustomer, self.site)
         formset_class = inline.get_formset(request=self.super_user_request, obj=self.customer)
-        prefix = "compliance_check"
-        data = {
-            f"{prefix}-TOTAL_FORMS": "1",
-            f"{prefix}-INITIAL_FORMS": "1",
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1",
-            f"{prefix}-0-id": str(check.id),
-            f"{prefix}-0-verified": "on",
-            f"{prefix}-0-notes": "",
-        }
-        formset = formset_class(data=data, instance=self.customer, prefix=prefix)
-        self.assertTrue(formset.is_valid(), formset.errors)
-        admin_obj.save_formset(self.super_user_request, form=None, formset=formset, change=True)
-
-        check.refresh_from_db()
-        self.assertTrue(check.verified)
-        self.assertEqual(check.verified_by, self.super_user_request.user)  # acting admin stamped
-        self.assertIsNotNone(check.verified_datetime)
+        self.assertNotIn("verified", formset_class.form.base_fields)
+        self.assertIn("notes", formset_class.form.base_fields)  # notes stays editable
 
     def test_change_view_lists_related_project_with_admin_link(self):
         project = self._make_customer_project("acme-alpha", self.customer, date(2026, 6, 1))
@@ -312,6 +299,26 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         # already-completed check is left untouched (original verifier/datetime preserved)
         self.assertEqual(check.verified_by, self.github_manager)
         self.assertEqual(check.verified_datetime, original_datetime)
+
+    def test_compliance_check_unverified_action_clears_verified_fields(self):
+        from django.utils import timezone
+
+        check = self.customer.compliance_check
+        check.verified = True
+        check.verified_datetime = timezone.now()
+        check.verified_by = self.github_manager
+        check.save()
+        url = reverse("admin:customers_kippocustomer_changelist")
+        response = self.client.post(
+            url,
+            {"action": "mark_compliance_check_unverified", "_selected_action": [str(self.customer.pk)]},
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        check.refresh_from_db()
+        # reversal clears verified and its stamps (model.save() nulls datetime/by when unverified)
+        self.assertFalse(check.verified)
+        self.assertIsNone(check.verified_datetime)
+        self.assertIsNone(check.verified_by)
 
     def test_active_project_count_zero_renders_plain(self):
         modeladmin = KippoCustomerAdmin(KippoCustomer, self.site)

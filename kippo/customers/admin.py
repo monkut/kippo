@@ -11,7 +11,7 @@ from django.contrib.admin.utils import unquote
 from django.contrib.admin.views.main import ChangeList
 from django.db import models
 from django.db.models import Prefetch
-from django.forms import BaseFormSet, Form
+from django.forms import Form
 from django.http import request as DjangoRequest  # noqa: N812
 from django.urls import reverse
 from django.utils import timezone
@@ -171,10 +171,11 @@ class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedIn
     max_num = 1
     can_delete = False
     fields = ("completion_notice", "verified", "verified_datetime", "verified_by", "notes")
-    # verified_datetime / verified_by are auto-managed (stamped when verified is ticked, cleared when
-    # unticked) — shown read-only so typed values can't be silently discarded. completion_notice is a
-    # read-only reminder rendered when the check is not yet completed.
-    readonly_fields = ("completion_notice", "verified_datetime", "verified_by")
+    # verified is set only via the changelist actions (反社チェック完了 / 取消), never hand-toggled here, so
+    # it and its auto-stamped verified_datetime / verified_by are read-only; the actions own who/when.
+    # completion_notice is a read-only reminder rendered when the check is not yet completed. notes stays
+    # editable.
+    readonly_fields = ("completion_notice", "verified", "verified_datetime", "verified_by")
 
     def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
         return False  # one is auto-created per customer via the post_save signal
@@ -195,7 +196,7 @@ class KippoCustomerComplianceCheckInline(AllowIsStaffAdminMixin, admin.StackedIn
 class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     list_display = ("name", "get_active_project_count", "get_compliance_verified", "updated_datetime")
     list_display_links = ("name",)
-    actions = ("mark_compliance_check_completed",)
+    actions = ("mark_compliance_check_completed", "mark_compliance_check_unverified")
     # organization is added conditionally in get_list_filter (only for multi-org members).
     list_filter = (CustomerEndingProjectsFilter,)
     search_fields = ("name", "email")
@@ -212,21 +213,6 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         # applies this admin's get_ordering(). Ordering by the annotation name would raise FieldError
         # there, and the `ordering` attribute would be rejected by admin check E033.
         return (ACTIVE_PROJECT_COUNT.desc(), "name")
-
-    def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
-        # Specializes the base created_by/updated_by stamping to also record the compliance check's
-        # verified_by — the acting admin who marked it verified (save() clears it when un-verified).
-        instances = formset.save(commit=False)
-        for obj in formset.deleted_objects:
-            obj.delete()
-        for instance in instances:
-            if instance.id is None:
-                instance.created_by = request.user
-            instance.updated_by = request.user
-            if isinstance(instance, KippoCustomerComplianceCheck) and instance.verified and not instance.verified_by:
-                instance.verified_by = request.user
-            instance.save()
-        formset.save_m2m()
 
     def get_list_display(self, request: DjangoRequest) -> tuple:
         # Show the organization column only for superusers who belong to more than one organization;
@@ -378,6 +364,21 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
             compliance_check.save()
             completed += 1
         self.message_user(request, _("反社チェックを完了にしました: %(count)d 件") % {"count": completed})
+
+    @admin.action(description=_("反社チェック取消（ComplianceCheck Unverified）"))
+    def mark_compliance_check_unverified(self, request: DjangoRequest, queryset: models.QuerySet) -> None:
+        # Reverse a completed 反社チェック: model.save() clears verified_datetime and verified_by when
+        # verified is unset. Not-yet-verified checks are skipped so the count reflects real reversals.
+        reverted = 0
+        for customer in queryset:
+            compliance_check = getattr(customer, "compliance_check", None)
+            if compliance_check is None or not compliance_check.verified:
+                continue
+            compliance_check.verified = False
+            compliance_check.updated_by = request.user
+            compliance_check.save()
+            reverted += 1
+        self.message_user(request, _("反社チェックを取消しました: %(count)d 件") % {"count": reverted})
 
     def change_view(self, request: DjangoRequest, object_id: str, form_url: str = "", extra_context: dict | None = None):
         # Surface an "プロジェクトを追加" button under the projects inline that sends the user to the
