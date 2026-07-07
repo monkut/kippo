@@ -346,10 +346,34 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertTemplateUsed(response, "admin/change_list.html")
 
-        # self.client.force_login(self.client_user)
-        # response = self.client.get(url)
-        # self.assertEqual(response.status_code, HTTPStatus.OK)
-        # self.assertTemplateUsed(response, "admin/change_list.html")
+    def test_contract_inline_renders_directly_after_dates_and_estimates(self):
+        # The change_form template pulls the 契約 inline out of the default inline block and emits it
+        # directly below the "Dates & Estimates" fieldset. Assert the rendered order:
+        #   Dates & Estimates (allocated_staff_days) < 契約 (billing_type) < Details (document_folder_url).
+        # Field names are used as markers because they are prefix-independent and absent from the <head>.
+        KippoProjectContract.objects.create(
+            project=self.project1,
+            billing_type="monthly",
+            pricing_basis="fixed",
+            total_amount=300000,
+            start_date=self.current_date,
+            end_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        dates_idx = content.index("allocated_staff_days")
+        contract_idx = content.index("billing_type")
+        details_idx = content.index("document_folder_url")
+        self.assertLess(dates_idx, contract_idx, "契約 inline should render after the Dates & Estimates fieldset")
+        self.assertLess(contract_idx, details_idx, "契約 inline should render before the Details fieldset")
+        # A contract exists, so the project's own start/target inputs are hidden (contract is the source of truth).
+        self.assertNotIn('name="start_date"', content)
+        self.assertNotIn('name="target_date"', content)
 
 
 class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
