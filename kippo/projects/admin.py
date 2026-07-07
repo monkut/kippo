@@ -1025,14 +1025,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                 "fields": (
                     "parent_project",
                     "document_folder_url",
-                ),
-            },
-        ),
-        (
-            _("Extra"),
-            {
-                "classes": ("collapse",),
-                "fields": (
                     "slack_channel_name",
                     "slack_notification_channel_name",
                     "enable_cost_report",
