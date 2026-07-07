@@ -882,7 +882,7 @@ class KippoProject(UserCreatedBaseModel):
     @property
     def display_label(self) -> str:
         """Project name prefixed with the customer name when a customer is set."""
-        return f"{self.customer.name}: {self.name}" if self.customer else self.name
+        return f"{self.customer.name} {self.name}" if self.customer else self.name
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.display_label})"
