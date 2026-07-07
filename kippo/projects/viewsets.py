@@ -6,7 +6,7 @@ from typing import Any
 from accounts.models import KippoUser
 from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from django.conf import settings
-from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet, Sum
+from django.db.models import Exists, OuterRef, Prefetch, QuerySet, Sum
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -63,18 +63,19 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
     Backs the kippo-ui project create/edit form category picker (read) and the org category
     management screen (write).
 
-    **Organization Scoping:**
-    - Regular users see global default categories plus the categories of organizations they belong to.
-    - Superusers see all active categories.
+    **Organization Scoping (copy-on-create, kippo#49):**
+    - Regular users see only the categories owned by organizations they belong to. Global
+      (organization=null) rows are the seed template and are NOT listed for members.
+    - Superusers see all categories (including the global template).
 
     **Filtering:**
-    - organization: UUID filter — narrows to that organization's categories (intersected with the
-      user's memberships) while still including the global defaults.
+    - organization: UUID filter — narrows to that organization's own categories (intersected with
+      the user's memberships).
 
     **Permissions:**
     - Read (GET): Authenticated users (organization-scoped for regular users).
     - Write (POST/PUT/PATCH/DELETE) on an org-scoped category: superuser or any member of that
-      organization. Global defaults are superuser-only. See ``IsSuperuserOrOrgMemberForCategory``.
+      organization. Global template rows are superuser-only. See ``IsSuperuserOrOrgMemberForCategory``.
     """
 
     serializer_class = KippoProjectOrganizationCategorySerializer
@@ -83,7 +84,9 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter(name="organization", description="Filter by organization UUID (globals always included)", required=False, type=str),
+            OpenApiParameter(
+                name="organization", description="Filter by organization UUID (that organization's own categories)", required=False, type=str
+            ),
             OpenApiParameter(
                 name="include_inactive",
                 description="Include inactive (is_active=false) categories in the list (management view). Default false.",
@@ -114,11 +117,13 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
             )
 
     def get_queryset(self):
-        """Globals + the user's organization categories; superusers see all such categories.
+        """The user's organizations' own categories; superusers see all (including the global template).
 
-        Inactive rows are hidden from the default list (the picker only wants active categories),
-        but are always included for detail actions (retrieve/update/destroy) and for the list when
-        ``include_inactive=true`` — so a member can see and reactivate a category they deactivated.
+        Under copy-on-create (kippo#49) globals are not inherited/listed for members — each org owns
+        its copy of the default set. Inactive rows are hidden from the default list (the picker only
+        wants active categories) but included for detail actions (retrieve/update/destroy) and for
+        the list when ``include_inactive=true`` — so a member can see and reactivate a category they
+        deactivated.
         """
         queryset = super().get_queryset()
         include_inactive = self.action != "list" or self.request.query_params.get("include_inactive", "").lower() in ("true", "1")
@@ -129,13 +134,13 @@ class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
 
         if user.is_superuser:
             if organization:
-                queryset = queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
+                queryset = queryset.filter(organization=organization)
             return queryset
 
         user_organizations = organization_ids_for_user(user)
         if organization and organization in {str(org_id) for org_id in user_organizations}:
-            return queryset.filter(Q(organization__isnull=True) | Q(organization=organization))
-        return queryset.filter(Q(organization__isnull=True) | Q(organization__in=user_organizations))
+            return queryset.filter(organization=organization)
+        return queryset.filter(organization__in=user_organizations)
 
 
 class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):

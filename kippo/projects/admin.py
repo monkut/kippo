@@ -20,7 +20,7 @@ from customers.models import KippoCustomer
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Case, JSONField, Model, OuterRef, Prefetch, QuerySet, Subquery, Sum, Value, When
 from django.forms import BaseFormSet, Form
@@ -881,10 +881,41 @@ def _format_estimated_completion(result: "ForecastResult") -> str:
 
 @admin.register(KippoProjectOrganizationCategory)
 class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
+    """Staff manage org-scoped categories; the global (organization=null) template is superuser-only.
+
+    Mirrors the API rule (``IsSuperuserOrOrgMemberForCategory``, kippo#48): a non-superuser staff
+    user may add/edit/delete org-scoped rows, but only a superuser may create or modify a global
+    template row. Non-superusers do not see globals in the changelist at all, so they cannot change,
+    delete, or bulk-delete them (kippo#49).
+    """
+
     list_display = ("key", "label", "organization", "sort_order", "is_active")
     list_filter = ("is_active", "organization")
     search_fields = ("key", "label", "organization__name")
     ordering = ("organization", "sort_order", "key")
+
+    def get_queryset(self, request: DjangoRequest):
+        queryset = super().get_queryset(request)
+        if not request.user.is_superuser:
+            # hide global template rows from non-superusers -> they cannot change/delete/bulk-delete them
+            queryset = queryset.filter(organization__isnull=False)
+        return queryset
+
+    def has_change_permission(self, request: DjangoRequest, obj: models.Model | None = None):
+        if obj is not None and obj.organization_id is None and not request.user.is_superuser:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request: DjangoRequest, obj: models.Model | None = None):
+        if obj is not None and obj.organization_id is None and not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def save_model(self, request: DjangoRequest, obj: KippoProjectOrganizationCategory, form: forms.ModelForm, change: bool) -> None:
+        # has_add_permission cannot see the object; block creating/turning a row into a global template here.
+        if obj.organization_id is None and not request.user.is_superuser:
+            raise PermissionDenied(_("Only a superuser may create or edit a global (template) category."))
+        super().save_model(request, obj, form, change)
 
 
 class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmin, UserCreatedBaseModelAdmin):

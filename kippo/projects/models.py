@@ -226,48 +226,72 @@ class KippoProjectOrganizationCategory(UserCreatedBaseModel):
         constraints = (
             models.UniqueConstraint(fields=("organization", "key"), name="uniq_org_category_key"),
             models.UniqueConstraint(fields=("key",), condition=models.Q(organization__isnull=True), name="uniq_global_category_key"),
-            # ラベル: unique within an organization (org↔org overlap is allowed, e.g. org1=label1 + org2=label1),
-            # and unique among the global defaults. The global↔org disjointness (a global label may not also be
-            # used by an organization, and vice versa) cannot be expressed as a UniqueConstraint — it is enforced
-            # in clean().
+            # ラベル: unique within an organization (and among the global defaults). Under copy-on-create
+            # (kippo#49) an org OWNS its copy of the defaults, so an org label equal to a global label is
+            # expected (globals are only the seed template, never shown alongside org rows) — there is no
+            # cross-scope disjointness rule.
             models.UniqueConstraint(fields=("organization", "label"), name="uniq_org_category_label"),
             models.UniqueConstraint(fields=("label",), condition=models.Q(organization__isnull=True), name="uniq_global_category_label"),
         )
-
-    def clean(self):
-        super().clean()
-        # A label is shared between only one scope: a global label and an organization label must not
-        # collide (org↔org overlap stays allowed). The UniqueConstraints above cover within-org and
-        # among-global uniqueness; this is the cross-scope half they cannot express.
-        if not self.label:
-            return
-        if self.organization_id is None:
-            # global default: no organization may already use this label
-            clashes = KippoProjectOrganizationCategory.objects.filter(label=self.label, organization__isnull=False).exclude(pk=self.pk)
-            if clashes.exists():
-                raise ValidationError({"label": _("このラベルは組織カテゴリで使用されているため、グローバルでは使用できません。")})
-        else:
-            # organization-scoped: no global default may use this label
-            clashes = KippoProjectOrganizationCategory.objects.filter(label=self.label, organization__isnull=True).exclude(pk=self.pk)
-            if clashes.exists():
-                raise ValidationError({"label": _("このラベルはグローバルカテゴリで使用されているため、組織では使用できません。")})
 
     def __str__(self) -> str:
         return self.label
 
     @classmethod
     def get_for_organization(cls, organization: KippoOrganization | None) -> QuerySet:
-        """Active categories available to an organization: its own rows plus the global defaults."""
-        return cls.objects.filter(is_active=True).filter(models.Q(organization=organization) | models.Q(organization__isnull=True))
+        """Active categories owned by an organization (org-scoped rows only).
+
+        Under copy-on-create (kippo#49) each org owns its own copy of the default set; the global
+        (organization=null) rows are only the seed template and are no longer inherited/shown here.
+        """
+        return cls.objects.filter(is_active=True, organization=organization)
+
+    @classmethod
+    def seed_for_organization(cls, organization: KippoOrganization, created_by: KippoUser | None = None) -> int:
+        """Copy the active global default categories into org-scoped rows for ``organization``.
+
+        Idempotent: a key already present for the org is skipped, so re-running never duplicates.
+        Returns the number of rows created.
+        """
+        existing_keys = set(cls.objects.filter(organization=organization).values_list("key", flat=True))
+        actor = created_by or getattr(organization, "created_by", None)
+        to_create = [
+            cls(
+                organization=organization,
+                key=default.key,
+                label=default.label,
+                sort_order=default.sort_order,
+                is_active=default.is_active,
+                created_by=actor,
+                updated_by=actor,
+            )
+            for default in cls.objects.filter(organization__isnull=True, is_active=True)
+            if default.key not in existing_keys
+        ]
+        cls.objects.bulk_create(to_create)
+        return len(to_create)
 
 
 def get_default_project_category():
-    """PK of the global (organization=null) fallback category, for KippoProject.category's default."""
+    """PK of the global (organization=null) template default, used as ``KippoProject.category``'s
+    field default at instantiation. On create, ``KippoProject.save()`` swaps this for the project's
+    own organization's copy of the same key (kippo#49).
+    """
     return (
         KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=DEFAULT_PROJECT_CATEGORY_VALUE)
         .values_list("pk", flat=True)
         .first()
     )
+
+
+@receiver(models.signals.post_save, sender=KippoOrganization)
+def seed_organization_project_categories(sender: type[KippoOrganization], instance: KippoOrganization, created: bool, raw: bool = False, **kwargs):  # noqa: ARG001, FBT001, FBT002
+    """On organization creation, copy the global default categories into org-scoped rows (kippo#49).
+
+    Skipped during fixture loading (``raw=True``) so loaddata controls the exact rows.
+    """
+    if created and not raw:
+        KippoProjectOrganizationCategory.seed_for_organization(instance)
 
 
 class KippoProject(UserCreatedBaseModel):
@@ -828,6 +852,19 @@ class KippoProject(UserCreatedBaseModel):
         if self._state.adding:  # created
             # perform initial creation tasks
             self.slug = slugify(self.name, allow_unicode=True)
+
+            # copy-on-create (kippo#49): a project references its ORG's category copy, never a global
+            # template row. If the category resolves to a global (e.g. the field default), swap it for
+            # the org's copy of the same key (fallback: the org's 'other').
+            if self.category_id and self.organization_id and self.category.organization_id is None:
+                org_category = (
+                    KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, key=self.category.key).first()
+                    or KippoProjectOrganizationCategory.objects.filter(
+                        organization_id=self.organization_id, key=DEFAULT_PROJECT_CATEGORY_VALUE
+                    ).first()
+                )
+                if org_category:
+                    self.category = org_category
 
         # Slack's slash-command payload sends "channel_name" without a leading "#",
         # so the slash-command project lookup ("...subcommands/projectstatus.py") does
