@@ -110,3 +110,29 @@
 })();
 </script>
 {% endblock %}
+
+{# Render the 契約 (contract) inline directly below the "Dates & Estimates" fieldset. Django renders
+   ALL fieldsets before ANY inline, so the inlines list order alone cannot place an inline between two
+   fieldsets — we pull the contract inline out of the default inline loop and emit it here instead.
+   Match by the inline's verbose_name (KippoProjectContract.Meta.verbose_name = 契約); if the verbose_name
+   ever changes, both blocks fall back to Django's default (contract renders at the top of the inline
+   block), so the worst case is the old position, never a broken form.
+   Invariant: the contract inline only appears on the change form, where the "Dates & Estimates" fieldset
+   is always present (allocated_staff_days is never excluded). If that ever changes, the anchor below must
+   change too, or the contract inline — skipped in the inline loop — would render nowhere. #}
+{% block field_sets %}
+{% for fieldset in adminform %}
+  {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+  {% if fieldset.name == "Dates & Estimates" %}
+    {% for inline_admin_formset in inline_admin_formsets %}
+      {% if inline_admin_formset.opts.verbose_name == "契約" %}{% include inline_admin_formset.opts.template %}{% endif %}
+    {% endfor %}
+  {% endif %}
+{% endfor %}
+{% endblock %}
+
+{% block inline_field_sets %}
+{% for inline_admin_formset in inline_admin_formsets %}
+  {% if inline_admin_formset.opts.verbose_name != "契約" %}{% include inline_admin_formset.opts.template %}{% endif %}
+{% endfor %}
+{% endblock %}
