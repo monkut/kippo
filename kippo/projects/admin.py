@@ -1050,9 +1050,11 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # Milestones not used atm, commenting out.
         # KippoMilestoneReadOnlyInline,
         # KippoMilestoneAdminInline,
+        # 契約 first: it sits directly below the "Dates & Estimates" fieldset (its period is the
+        # source of truth for the project's start/target dates — see get_exclude / _sync_project_period).
+        KippoProjectContractInline,
         ProjectAssignmentRateInline,
         ProjectMonthlyAssignmentInline,
-        KippoProjectContractInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
