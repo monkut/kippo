@@ -667,14 +667,23 @@ class KippoProjectOrganizationCategoryTestCase(TestCase):
         self.user = created["KippoUser"]
         self.project = created["KippoProject"]
 
-    def test_get_for_organization_includes_globals_and_org_specific(self):
+    def test_get_for_organization_returns_only_org_rows_not_globals(self):
+        # copy-on-create (kippo#49): the org owns its copy of the defaults; globals are not inherited.
         KippoProjectOrganizationCategory.objects.create(
             organization=self.organization, key="org-special", label="Org Special", sort_order=5, created_by=self.user, updated_by=self.user
         )
-        keys = set(KippoProjectOrganizationCategory.get_for_organization(self.organization).values_list("key", flat=True))
+        global_only = KippoProjectOrganizationCategory.objects.create(
+            organization=None, key="global-only", label="Global Only", sort_order=99, created_by=self.user, updated_by=self.user
+        )
+        qs = KippoProjectOrganizationCategory.get_for_organization(self.organization)
+        keys = set(qs.values_list("key", flat=True))
         self.assertIn("org-special", keys)
+        # org's seeded copies of the defaults are present (own rows)...
         self.assertIn(DEFAULT_PROJECT_CATEGORY_VALUE, keys)
         self.assertIn(NON_PROJECT_CATEGORY_VALUE, keys)
+        # ...but every returned row is org-scoped, and a global-only row is excluded.
+        self.assertTrue(all(row.organization_id == self.organization.id for row in qs))
+        self.assertNotIn(global_only.key, keys)
 
     def test_get_for_organization_excludes_inactive(self):
         KippoProjectOrganizationCategory.objects.create(
@@ -687,9 +696,52 @@ class KippoProjectOrganizationCategoryTestCase(TestCase):
         # setup_basic_project creates projects without an explicit category — they take the model default.
         self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)
 
+    # --- copy-on-create (kippo#49) ---
+    def test_new_organization_seeds_category_copies(self):
+        org = KippoOrganization.objects.create(
+            name="seed-test-org", github_organization_name="seedtestorg", created_by=self.user, updated_by=self.user
+        )
+        global_keys = set(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, is_active=True).values_list("key", flat=True))
+        org_keys = set(KippoProjectOrganizationCategory.objects.filter(organization=org).values_list("key", flat=True))
+        self.assertTrue(global_keys)
+        self.assertEqual(global_keys, org_keys)
+
+    def test_seed_for_organization_is_idempotent(self):
+        before = KippoProjectOrganizationCategory.objects.filter(organization=self.organization).count()
+        created = KippoProjectOrganizationCategory.seed_for_organization(self.organization)
+        after = KippoProjectOrganizationCategory.objects.filter(organization=self.organization).count()
+        self.assertEqual(created, 0)
+        self.assertEqual(before, after)
+
+    def test_new_project_category_is_org_scoped_copy_not_global(self):
+        # the model default resolves to a global template row; save() must repoint it to the org's copy.
+        self.assertEqual(self.project.category.organization_id, self.organization.id)
+        self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)
+
+    def test_backfill_migration_remaps_project_off_global(self):
+        import importlib
+
+        from django.apps import apps as real_apps
+
+        migration = importlib.import_module("projects.migrations.0048_seed_org_categories_and_remap_projects")
+        global_other = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key=DEFAULT_PROJECT_CATEGORY_VALUE)
+        # simulate a legacy project still pointing at the global template (bypass save() remap via update)
+        KippoProject.objects.filter(pk=self.project.pk).update(category=global_other)
+
+        migration.seed_and_remap(real_apps, None)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.category.organization_id, self.organization.id)
+        self.assertEqual(self.project.category.key, DEFAULT_PROJECT_CATEGORY_VALUE)
+
 
 class KippoProjectCategoryLabelUniquenessTestCase(TestCase):
-    """ラベル uniqueness: global↔org labels must not repeat; org↔org labels may overlap."""
+    """ラベル uniqueness: unique within one org and among globals; org↔org and org↔global labels may overlap.
+
+    Under copy-on-create (kippo#49) an org owns its copy of the defaults, so an org label equal to a
+    global label is expected (globals are the seed template, never shown alongside org rows) — there
+    is no cross-scope disjointness rule.
+    """
 
     fixtures = DEFAULT_FIXTURES
 
@@ -716,21 +768,15 @@ class KippoProjectCategoryLabelUniquenessTestCase(TestCase):
         labels = KippoProjectOrganizationCategory.objects.filter(label="共有ラベル").count()
         self.assertEqual(labels, 2)
 
-    def test_global_label_cannot_be_reused_by_an_organization(self):
-        # NG: global=label1 already exists → org1=label1 is rejected by clean()
-        self._make(None, key="g1", label="グローバル限定")
+    def test_organization_may_reuse_a_global_label(self):
+        # copy-on-create (kippo#49): an org label equal to a global label is allowed (no cross-scope rule).
+        self._make(None, key="g1", label="グローバルと同じ")
         category = KippoProjectOrganizationCategory(
-            organization=self.org1, key="g1-org", label="グローバル限定", created_by=self.user, updated_by=self.user
+            organization=self.org1, key="g1-org", label="グローバルと同じ", created_by=self.user, updated_by=self.user
         )
-        with self.assertRaises(ValidationError):
-            category.full_clean()
-
-    def test_organization_label_cannot_be_reused_globally(self):
-        # NG (symmetric): org label already exists → adding the same global label is rejected by clean()
-        self._make(self.org1, key="o1", label="組織限定")
-        category = KippoProjectOrganizationCategory(organization=None, key="o1-global", label="組織限定", created_by=self.user, updated_by=self.user)
-        with self.assertRaises(ValidationError):
-            category.full_clean()
+        category.full_clean()  # must not raise
+        category.save()
+        self.assertEqual(KippoProjectOrganizationCategory.objects.filter(label="グローバルと同じ").count(), 2)
 
     def test_duplicate_global_label_rejected(self):
         self._make(None, key="g1", label="重複グローバル")

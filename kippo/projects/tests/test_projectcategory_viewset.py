@@ -247,8 +247,9 @@ class ProjectCategoryWriteViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
     def test_member_cannot_update_global_category(self):
+        # global template rows are outside a member's queryset (copy-on-create) -> 404, not leaked as 403
         response = self.client.patch(self._detail_url(self.global_category), {"label": "Hijack Global"}, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
     # --- delete ---
     def test_member_can_delete_unused_own_org_category(self):
@@ -266,8 +267,9 @@ class ProjectCategoryWriteViewSetTestCase(TestCase):
         self.assertTrue(KippoProjectOrganizationCategory.objects.filter(pk=self.own_category.pk).exists())
 
     def test_member_cannot_delete_global_category(self):
+        # global template rows are outside a member's queryset (copy-on-create) -> 404
         response = self.client.delete(self._detail_url(self.global_category))
-        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
     # --- inactive visibility (soft-delete / reactivation) ---
     def test_default_list_hides_inactive_but_include_inactive_shows_it(self):
