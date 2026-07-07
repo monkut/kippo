@@ -25,7 +25,7 @@ class KippoTaskAdmin(OrganizationTaskQuerysetModelAdminMixin, UserCreatedBaseMod
     def get_kippoproject_name(self, obj: KippoTask | None = None) -> str:
         result = ""
         if obj and obj.project and obj.project.name:
-            result = obj.project.name
+            result = obj.project.display_label
         return result
 
     get_kippoproject_name.short_description = "KippoProject"

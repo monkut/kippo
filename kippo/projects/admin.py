@@ -1775,7 +1775,7 @@ class KippoMilestoneAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     ordering = ("project", "target_date")
 
     def get_project_name(self, obj: KippoMilestone):
-        return obj.project.name
+        return obj.project.display_label
 
     get_project_name.short_description = _("Project")
 

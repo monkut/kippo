@@ -879,8 +879,13 @@ class KippoProject(UserCreatedBaseModel):
         if phase_persisted:
             self._confidence_synced_phase = self.phase
 
+    @property
+    def display_label(self) -> str:
+        """Project name prefixed with the customer name when a customer is set."""
+        return f"{self.customer.name}: {self.name}" if self.customer else self.name
+
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.name})"
+        return f"{self.__class__.__name__}({self.display_label})"
 
 
 class ActiveKippoProjectManager(models.Manager):
@@ -981,7 +986,7 @@ class KippoProjectContract(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         amount = f"¥{self.total_amount}" if self.total_amount is not None else "実績"
-        return f"KippoProjectContract({self.project.name} {self.billing_type}/{self.pricing_basis} {amount})"
+        return f"KippoProjectContract({self.project.display_label} {self.billing_type}/{self.pricing_basis} {amount})"
 
     @property
     def requires_estimate(self) -> bool:
@@ -1289,7 +1294,7 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
         constraints = (models.UniqueConstraint(fields=("contract", "billing_date"), name="unique_billingentry_contract_billing_date"),)
 
     def __str__(self) -> str:
-        return f"KippoProjectBillingEntry({self.contract.project.name} {self.billing_date} ¥{self.amount})"
+        return f"KippoProjectBillingEntry({self.contract.project.display_label} {self.billing_date} ¥{self.amount})"
 
     def save(self, *args, **kwargs):
         # keep the receipt fields consistent (mirrors KippoProject is_closed/closed_datetime).
@@ -1307,7 +1312,7 @@ class KippoProjectStatus(UserCreatedBaseModel):
     comment = models.TextField(help_text=_("Current Status"))
 
     def __str__(self) -> str:
-        return f"ProjectStatus({self.project.name} {self.created_datetime})"
+        return f"ProjectStatus({self.project.display_label} {self.created_datetime})"
 
 
 class KippoMilestone(UserCreatedBaseModel):
@@ -1855,7 +1860,7 @@ class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
         unique_together = ("project", "created_by")
 
     def __str__(self, *args, **kwargs) -> str:
-        return f"{self._meta.verbose_name} {self.project.name} {self.created_by.display_name}"
+        return f"{self._meta.verbose_name} {self.project.display_label} {self.created_by.display_name}"
 
 
 def get_current_month() -> datetime.date:
@@ -1875,7 +1880,7 @@ class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):
         unique_together = ("created_by", "project", "date")
 
     def __str__(self, *args, **kwargs) -> str:
-        return f"{self._meta.verbose_name} {self.project.name} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"
+        return f"{self._meta.verbose_name} {self.project.display_label} ({self.date.strftime('%Y-%m')}) {self.created_by.display_name}"
 
 
 class ProjectAssignmentRate(UserCreatedBaseModel):
@@ -1891,7 +1896,7 @@ class ProjectAssignmentRate(UserCreatedBaseModel):
         unique_together = ("project", "role")
 
     def __str__(self) -> str:
-        return f"{self.project.name} - {self.role}: {self.rate_per_day}"
+        return f"{self.project.display_label} - {self.role}: {self.rate_per_day}"
 
 
 class ProjectMonthlyCost(TimestampedModel):
@@ -1904,4 +1909,4 @@ class ProjectMonthlyCost(TimestampedModel):
 
     def __str__(self) -> str:
         display_month = self.month.strftime("%Y-%m")
-        return f"{self.project.name}({self.project.id}) [{display_month}]"
+        return f"{self.project.display_label}({self.project.id}) [{display_month}]"
