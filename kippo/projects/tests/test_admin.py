@@ -1505,7 +1505,7 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         collapsed = [opts for _label, opts in fieldsets if "collapse" in opts.get("classes", ())]
-        # Details (document_folder_url) + Extra stay collapsed on change (kippo#41)
+        # Details (document_folder_url + merged Extra fields) stays collapsed on change (kippo#41)
         self.assertTrue(any("document_folder_url" in opts.get("fields", ()) for opts in collapsed), "Details should stay collapsed on change")
 
     def test_columnset_not_in_add_or_change_fieldsets(self):
@@ -1673,17 +1673,19 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertEqual(tuple(opts["fields"]), KippoProjectBaseAdmin.ADD_FIELDS)
         self.assertNotIn("parent_project", opts["fields"])
 
-    def test_change_fieldsets_have_four_sections_with_parent_in_details(self):
+    def test_change_fieldsets_have_three_sections_with_parent_in_details(self):
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         labels = [str(label) if label is not None else None for label, _opts in fieldsets]
         self.assertIn(None, labels)
-        for section in ("Dates & Estimates", "Details", "Extra"):
+        for section in ("Dates & Estimates", "Details"):
             self.assertIn(section, labels)
-        # category sits in the top section; parent_project in Details (readonly on change)
+        self.assertNotIn("Extra", labels)  # Extra was merged into Details
+        # category sits in the top section; parent_project + former-Extra fields in Details (readonly on change)
         self.assertIn("category", fieldsets[0][1]["fields"])
         details = next(opts["fields"] for label, opts in fieldsets if str(label) == "Details")
         self.assertIn("parent_project", details)
+        self.assertIn("slack_channel_name", details)  # merged in from the removed Extra section
 
     def test_active_admin_change_omits_parent_project(self):
         # ActiveKippoProjectAdmin excludes parent_project on change (active projects aren't upsell-edited)
