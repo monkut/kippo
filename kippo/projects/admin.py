@@ -1004,6 +1004,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                     "category",
                     "project_manager",
                     "problem_definition",
+                    # computed readonly MTG-calendar displays (kippo#13) — surfaced at the top, below the
+                    # problem definition. Excluded on /add/ (only meaningful once the project exists).
+                    "meeting_calendar_url_field",
+                    "meeting_description_tag_field",
                 )
             },
         ),
@@ -1031,9 +1035,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                     "docbase_tag",
                     "github_project_html_url",
                     "github_project_api_nodeid",
-                    # computed readonly MTG-calendar displays (kippo#13) — optional, secondary info
-                    "meeting_calendar_url_field",
-                    "meeting_description_tag_field",
                 ),
             },
         ),

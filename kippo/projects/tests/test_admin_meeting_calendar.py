@@ -71,6 +71,22 @@ class MeetingCalendarAdminFieldTestCase(TestCase):
         assert "meeting_calendar_url_field" in excluded
         assert "meeting_description_tag_field" in excluded
 
+    def test_meeting_fields_in_top_section_after_problem_definition_on_change(self):
+        # The MTG-calendar readonly displays are surfaced at the top, directly below problem_definition,
+        # not in the collapsed Details section.
+        request = MockRequest()
+        request.user = self.user
+        fieldsets = self.admin.get_fieldsets(request, self.project)
+        label, opts = fieldsets[0]
+        top_fields = opts["fields"]
+        assert label is None
+        assert "meeting_calendar_url_field" in top_fields
+        assert "meeting_description_tag_field" in top_fields
+        assert top_fields.index("meeting_calendar_url_field") > top_fields.index("problem_definition")
+        details = next(opts["fields"] for lbl, opts in fieldsets if str(lbl) == "Details")
+        assert "meeting_calendar_url_field" not in details
+        assert "meeting_description_tag_field" not in details
+
 
 class AddCalendarLinksActionTestCase(TestCase):
     fixtures = DEFAULT_FIXTURES
