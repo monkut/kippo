@@ -13,7 +13,7 @@ from django.test import TestCase
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
-from projects.models import KippoProjectOrganizationCategory
+from projects.models import KippoProject, KippoProjectOrganizationCategory
 
 
 class ProjectCategoryViewSetTestCase(TestCase):
@@ -300,3 +300,84 @@ class ProjectCategoryWriteViewSetTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
         inactive.refresh_from_db()
         self.assertTrue(inactive.is_active)
+
+
+class ProjectCategoryDefaultTestCase(TestCase):
+    """Per-organization default category mechanism — kippo#50.
+
+    A category flagged ``is_default`` is auto-selected for new projects in that org, at most one per
+    org (setting a new default demotes the previous one), and drives ``KippoProject.category`` when
+    the caller makes no explicit choice.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        self.created = setup_basic_project()
+        self.organization = self.created["KippoOrganization"]
+        self.user = self.created["KippoUser"]  # a member (is_developer) of self.organization
+        self.project = self.created["KippoProject"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.url = f"{settings.URL_PREFIX}/api/project-categories/"
+
+    def _cat(self, key: str, label: str, **kwargs) -> KippoProjectOrganizationCategory:
+        return KippoProjectOrganizationCategory.objects.create(
+            organization=self.organization,
+            key=key,
+            label=label,
+            sort_order=kwargs.pop("sort_order", 10),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+            **kwargs,
+        )
+
+    def _new_project(self, name: str) -> KippoProject:
+        # No category argument -> the field default (global 'other') is swapped for the org's category on save.
+        return KippoProject.objects.create(
+            organization=self.organization,
+            name=name,
+            columnset=self.project.columnset,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+    def test_set_default_via_patch(self):
+        cat = self._cat("lead-sunx", "SUNX経由")
+        response = self.client.patch(f"{self.url}{cat.id}/", {"is_default": True}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        self.assertTrue(response.json()["is_default"])
+        cat.refresh_from_db()
+        self.assertTrue(cat.is_default)
+
+    def test_setting_default_demotes_previous_default(self):
+        first = self._cat("lead-a", "A", is_default=True)
+        second = self._cat("lead-b", "B")
+        response = self.client.patch(f"{self.url}{second.id}/", {"is_default": True}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertFalse(first.is_default)
+        self.assertTrue(second.is_default)
+        self.assertEqual(
+            KippoProjectOrganizationCategory.objects.filter(organization=self.organization, is_default=True).count(),
+            1,
+        )
+
+    def test_default_must_be_active(self):
+        cat = self._cat("lead-inactive", "Inactive", is_active=False)
+        response = self.client.patch(f"{self.url}{cat.id}/", {"is_default": True}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        cat.refresh_from_db()
+        self.assertFalse(cat.is_default)
+
+    def test_new_project_uses_org_default(self):
+        default_cat = self._cat("lead-sunx", "SUNX経由", is_default=True)
+        project = self._new_project("uses-org-default-project")
+        self.assertEqual(project.category_id, default_cat.id)
+
+    def test_new_project_without_default_falls_back_to_other(self):
+        project = self._new_project("uses-other-fallback-project")
+        self.assertEqual(project.category.key, "other")
+        self.assertEqual(project.category.organization_id, self.organization.id)

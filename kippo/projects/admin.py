@@ -889,8 +889,8 @@ class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedB
     delete, or bulk-delete them (kippo#49).
     """
 
-    list_display = ("key", "label", "organization", "sort_order", "is_active")
-    list_filter = ("is_active", "organization")
+    list_display = ("key", "label", "organization", "sort_order", "is_active", "is_default")
+    list_filter = ("is_active", "is_default", "organization")
     search_fields = ("key", "label", "organization__name")
     ordering = ("organization", "sort_order", "key")
 

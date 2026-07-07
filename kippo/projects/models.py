@@ -218,6 +218,11 @@ class KippoProjectOrganizationCategory(UserCreatedBaseModel):
     label = models.CharField(max_length=128, verbose_name=_("ラベル"))
     sort_order = models.PositiveSmallIntegerField(default=0, verbose_name=_("表示順"))
     is_active = models.BooleanField(default=True, verbose_name=_("有効"))
+    is_default = models.BooleanField(
+        default=False,
+        verbose_name=_("デフォルト"),
+        help_text=_("Auto-selected category for new projects in this organization (at most one per organization)"),
+    )
 
     class Meta:
         verbose_name = _("プロジェクトカテゴリ")
@@ -236,6 +241,32 @@ class KippoProjectOrganizationCategory(UserCreatedBaseModel):
 
     def __str__(self) -> str:
         return self.label
+
+    def clean(self) -> None:
+        super().clean()
+        if self.is_default:
+            if self.organization_id is None:
+                raise ValidationError({"is_default": _("Only an organization category can be the default.")})
+            if not self.is_active:
+                raise ValidationError({"is_default": _("A default category must be active.")})
+
+    def save(self, *args, **kwargs):
+        # Enforce a single default per organization in application code (writes funnel through save()
+        # from both the API serializer and admin). Setting is_default on one row demotes the others,
+        # so the org default can be reassigned with a single PATCH (kippo#50).
+        if self.is_default and self.organization_id:
+            KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, is_default=True).exclude(pk=self.pk).update(
+                is_default=False
+            )
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_default_for_organization(cls, organization_id: "uuid.UUID | str") -> "KippoProjectOrganizationCategory | None":
+        """The organization's default category: its explicit ``is_default`` row, else its ``other`` copy."""
+        return (
+            cls.objects.filter(organization_id=organization_id, is_default=True, is_active=True).first()
+            or cls.objects.filter(organization_id=organization_id, key=DEFAULT_PROJECT_CATEGORY_VALUE).first()
+        )
 
     @classmethod
     def get_for_organization(cls, organization: KippoOrganization | None) -> QuerySet:
@@ -854,11 +885,13 @@ class KippoProject(UserCreatedBaseModel):
             self.slug = slugify(self.name, allow_unicode=True)
 
             # copy-on-create (kippo#49): a project references its ORG's category copy, never a global
-            # template row. If the category resolves to a global (e.g. the field default), swap it for
-            # the org's copy of the same key (fallback: the org's 'other').
+            # template row. The category resolves to a global only when the caller made no explicit
+            # choice (the field default), so prefer the org's configured default (kippo#50), then the
+            # org's copy of the same key, then the org's 'other'.
             if self.category_id and self.organization_id and self.category.organization_id is None:
                 org_category = (
-                    KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, key=self.category.key).first()
+                    KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, is_default=True, is_active=True).first()
+                    or KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, key=self.category.key).first()
                     or KippoProjectOrganizationCategory.objects.filter(
                         organization_id=self.organization_id, key=DEFAULT_PROJECT_CATEGORY_VALUE
                     ).first()

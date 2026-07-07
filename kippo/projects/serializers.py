@@ -182,7 +182,7 @@ class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KippoProjectOrganizationCategory
-        fields = ["id", "key", "label", "organization", "sort_order", "is_active"]
+        fields = ["id", "key", "label", "organization", "sort_order", "is_active", "is_default"]
         read_only_fields = ["id"]
 
     def validate_organization(self, value: KippoOrganization | None) -> KippoOrganization | None:
@@ -202,7 +202,7 @@ class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
         # own validation: field checks, clean() (cross-scope label rule) and the unique constraints.
         merged = {}
         if self.instance is not None:
-            merged = {field: getattr(self.instance, field) for field in ("organization", "key", "label", "sort_order", "is_active")}
+            merged = {field: getattr(self.instance, field) for field in ("organization", "key", "label", "sort_order", "is_active", "is_default")}
         merged.update(attrs)
         candidate = KippoProjectOrganizationCategory(**merged)
         if self.instance is not None:
