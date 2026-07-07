@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -280,6 +281,27 @@ class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "contract", "received_datetime", "received_by", "created_datetime", "updated_datetime"]
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class ProjectCategoryKeyField(serializers.Field):
+    """Read/write the KippoProject.category as its KEY string.
+
+    Read → the FK's key. Write → passes the raw key string through unresolved; the FK is resolved
+    against the project's own organization in ``KippoProjectSerializer.validate`` (kippo#49
+    copy-on-create — each org owns its category set, so a key can't be resolved against the global
+    template alone).
+    """
+
+    default_error_messages = {"invalid": _("A category key must be a string.")}
+
+    def to_representation(self, value: "KippoProjectOrganizationCategory | None") -> "str | None":
+        return value.key if value else None
+
+    def to_internal_value(self, data: object) -> str:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        return data
+
+
 class KippoProjectSerializer(serializers.ModelSerializer):
     """Serializer for KippoProject model."""
 
@@ -296,11 +318,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     # A set value is preserved by KippoProject.save() until phase changes; changing phase in the same
     # update re-derives confidence from the new phase and ignores any confidence sent (kippo#36 / T09).
     confidence = serializers.IntegerField(min_value=0, max_value=100, required=False)
-    # category is a FK to KippoProjectOrganizationCategory; expose it as the category key string for
-    # API backward-compatibility. Writes resolve against the global default categories (kippo#30 / T08, T20).
-    category = serializers.SlugRelatedField(
-        slug_field="key",
-        queryset=KippoProjectOrganizationCategory.objects.filter(organization__isnull=True),
+    # category is a FK to KippoProjectOrganizationCategory; expose/accept it as the category key
+    # string for API backward-compatibility. Writes resolve against the project's OWN organization's
+    # categories in validate() (kippo#49 copy-on-create), falling back to the global template.
+    category = ProjectCategoryKeyField(
         required=False,
         help_text="Project category key (e.g. 'ai-development', 'other', 'non-project').",
     )
@@ -437,6 +458,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         """
         attrs = super().validate(attrs)
         organization = attrs.get("organization") or getattr(self.instance, "organization", None)
+        self._resolve_category(attrs, organization)
         columnset = attrs.get("columnset")
         # Re-parenting (organization changes) without a new columnset must re-check the
         # project's *existing* columnset against the new org — otherwise a stale cross-org
@@ -473,6 +495,27 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         self._validate_contract_synced_dates(attrs)
         self._validate_under_contract_phase(attrs)
         return attrs
+
+    def _resolve_category(self, attrs: dict, organization: "KippoOrganization | None") -> None:
+        """Resolve the incoming category KEY string to the project's org category FK (kippo#49).
+
+        Prefer the project organization's OWN category with that key (copy-on-create means each org
+        owns its set, including org-custom keys like 'sunx'); fall back to the global template row so
+        a pre-copy org / global-only key still resolves (KippoProject.save() then remaps a resolved
+        global to the org's copy — a project never references a global). An unresolvable key is a 400,
+        not a 500. Omitted category (not in attrs) leaves the model default untouched.
+        """
+        category_key = attrs.get("category")
+        if not isinstance(category_key, str):
+            return
+        category = None
+        if organization is not None:
+            category = KippoProjectOrganizationCategory.objects.filter(organization=organization, key=category_key).first()
+        if category is None:
+            category = KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=category_key).first()
+        if category is None:
+            raise serializers.ValidationError({"category": _("Unknown category key '%(key)s' for this organization.") % {"key": category_key}})
+        attrs["category"] = category
 
     def _validate_contract_synced_dates(self, attrs: dict) -> None:
         """Once a contract has a period, that period is the single source of truth — the project's

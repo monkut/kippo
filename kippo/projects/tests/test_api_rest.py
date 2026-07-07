@@ -2,6 +2,7 @@
 
 import datetime
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 from unittest import mock
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
@@ -23,6 +24,9 @@ from ..models import (
     ProjectColumnSet,
     ProjectWeeklyEffort,
 )
+
+if TYPE_CHECKING:
+    from customers.models import KippoCustomer
 
 
 def _registration_fields(organization: KippoOrganization, project_manager: KippoUser) -> dict:
@@ -1122,6 +1126,93 @@ class PermissionsTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
         created = KippoProject.objects.get(name="Slim Registration Project")
         self.assertIsNone(created.project_manager)
+
+    def _create_project_customer(self, name: str = "cat-test-customer") -> "KippoCustomer":
+        from customers.models import KippoCustomer
+
+        return KippoCustomer.objects.create(
+            organization=self.organization,
+            name=name,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_create_resolves_org_specific_category_key(self):
+        """A category key that exists only as the org's OWN category (kippo#49 copy-on-create) resolves
+        to that org row — org-custom keys are no longer rejected as non-global (kippo#40 category picker).
+        """
+        org_category = KippoProjectOrganizationCategory.objects.create(
+            organization=self.organization,
+            key="sunx",
+            label="SUNX",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        customer = self._create_project_customer()
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Org Category Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "customer": str(customer.id),
+            "start_date": "2026-08-01",
+            "category": "sunx",
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        self.assertEqual(response.json()["category"], "sunx")
+        created = KippoProject.objects.get(name="Org Category Project")
+        self.assertEqual(created.category_id, org_category.id)
+
+    def test_create_global_only_key_resolves_and_remaps_to_org_category(self):
+        """A global-template key with no org copy is not rejected (kippo#49): the serializer resolves it
+        to the global, then KippoProject.save() remaps it to the org's copy — a project never references
+        a global. Asserts no 400 and that the persisted category belongs to the org.
+        """
+        # global-only key with no org copy — the seeded org owns copies of the default keys, so a fresh
+        # global-only key is needed to exercise the fallback branch.
+        KippoProjectOrganizationCategory.objects.create(
+            organization=None,
+            key="global-only-key",
+            label="Global Only",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.assertFalse(KippoProjectOrganizationCategory.objects.filter(organization=self.organization, key="global-only-key").exists())
+        customer = self._create_project_customer("global-cat-customer")
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Global Category Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "customer": str(customer.id),
+            "start_date": "2026-08-01",
+            "category": "global-only-key",
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        created = KippoProject.objects.get(name="Global Category Project")
+        # save() remaps the resolved global to an org-owned category (never a global template row).
+        self.assertEqual(created.category.organization_id, self.organization.id)
+
+    def test_create_unknown_category_key_returns_400(self):
+        """An unresolvable category key is a 400 (not a 500), scoped to the project's organization."""
+        customer = self._create_project_customer("bad-cat-customer")
+        self.client.force_authenticate(user=self.user)
+        url = f"{settings.URL_PREFIX}/api/projects/"
+        data = {
+            "name": "Bad Category Project",
+            "organization": str(self.organization.id),
+            "columnset": self.project.columnset.id,
+            "customer": str(customer.id),
+            "start_date": "2026-08-01",
+            "category": "does-not-exist",
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("category", response.json())
 
     def test_edit_existing_project_not_blocked_by_registration_requirements(self):
         """The required-field validation is create-only; editing a contract-less / customer-less
