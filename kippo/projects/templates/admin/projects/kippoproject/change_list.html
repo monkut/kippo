@@ -1,0 +1,13 @@
+{% extends "admin/change_list.html" %}
+{% block extrahead %}{{ block.super }}
+{# Keep the 顧客(customer) and フェーズ(phase) columns on a single line so their values are not wrapped
+   across rows. Inline here rather than a static file because this app's static/ dirs are gitignored. #}
+<style>
+  #result_list th.column-get_customer_name,
+  #result_list td.field-get_customer_name,
+  #result_list th.column-phase,
+  #result_list td.field-phase {
+    white-space: nowrap;
+  }
+</style>
+{% endblock %}

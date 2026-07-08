@@ -91,6 +91,11 @@ if TYPE_CHECKING:
 
 CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 
+# Shown on the contract inline (not the phase field) when a project is moved into 契約(稼働中) without a
+# contract that carries both period dates. The message is attached to the inline formset so Django
+# renders that 契約 component in its error state (highlighted), instead of a message on the phase field.
+CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _("A contract with both a start date and an end date is required to set the phase to 契約(稼働中).")
+
 # GET/POST param carrying the admin URL to return to after a project add/change. Set by callers
 # that send the user into the project add form from elsewhere (e.g. the customer admin's
 # "プロジェクトを追加" button) so the save redirects back to where they came from.
@@ -202,6 +207,51 @@ class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, nested_admin.Nested
         return f"¥{contract.effort_actual_amount(obj.billing_date):,}"
 
 
+def _validate_under_contract_gate(formset: BaseFormSet) -> None:
+    """Raise on the contract inline when its project is being moved into 契約(稼働中) without a contract
+    that carries both period dates.
+
+    Validated against the contract submitted in the SAME request (the inline forms) — not just the
+    persisted contract — so filling the inline and flipping the phase in one save is allowed. The error
+    is attached to the formset (non-form error) so Django highlights this 契約 component; the matching
+    model-level gate is deferred on the admin change form (see ``KippoProject.clean``).
+    """
+    if any(formset.errors):  # per-row field errors already flag the inline; don't stack another error
+        return
+    project = formset.instance
+    if project is None or not project._is_entering_under_contract():
+        return
+
+    def _effective_period_complete(form: Form) -> bool:
+        """Whether the contract this form persists ends up with BOTH period dates after save.
+
+        A form flagged for deletion removes the contract (no period). For a NEW contract a blank date is
+        backfilled from the project (KippoProjectContract.save, creation only), so a blank period counts
+        as complete when the project supplies both dates; on an edit a blank date is honored as-is.
+        """
+        cleaned = getattr(form, "cleaned_data", None)
+        if not cleaned or formset._should_delete_form(form):
+            return False
+        start = cleaned.get("start_date")
+        end = cleaned.get("end_date")
+        if form.instance._state.adding:  # new contract -> a blank period backfills from the project on save
+            start = start or project.start_date
+            end = end or project.target_date
+        return bool(start and end)
+
+    # The inline is a OneToOne (max_num=1); its submitted rows ARE the post-save contract state — so a
+    # same-request delete or period-clear is judged on the effective result, not the stale DB row. Only
+    # when no contract row is submitted at all do we fall back to the persisted contract.
+    contract_forms = [form for form in formset.forms if getattr(form, "cleaned_data", None)]
+    if contract_forms:
+        gate_satisfied = any(_effective_period_complete(form) for form in contract_forms)
+    else:
+        existing = project.get_contract()
+        gate_satisfied = bool(existing and existing.has_complete_period())
+    if not gate_satisfied:
+        raise ValidationError(CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG)
+
+
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedStackedInline):
     model = KippoProjectContract
     extra = 1
@@ -214,18 +264,24 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
         """Pre-fill the new contract row's period with the project's dates so the admin user
         sees the defaults before saving (the model still backfills them on save if cleared).
         An untouched pre-filled row is skipped by the formset, so it never creates a contract.
+
+        Also enforces the 契約(稼働中) phase gate here (see ``clean``) so the requirement is surfaced on
+        this contract component rather than on the parent's phase field.
         """
         formset = super().get_formset(request, obj, **kwargs)
-        if obj is None or not (obj.start_date or obj.target_date):
-            return formset
-        period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}]
+        period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}] if obj and (obj.start_date or obj.target_date) else None
 
-        class PeriodPrefilledFormSet(formset):
+        class KippoProjectContractInlineFormSet(formset):
             def __init__(self, *args, **inner_kwargs) -> None:
-                inner_kwargs.setdefault("initial", period_initial)
+                if period_initial is not None:
+                    inner_kwargs.setdefault("initial", period_initial)
                 super().__init__(*args, **inner_kwargs)
 
-        return PeriodPrefilledFormSet
+            def clean(self) -> None:
+                super().clean()
+                _validate_under_contract_gate(self)
+
+        return KippoProjectContractInlineFormSet
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -824,6 +880,12 @@ class KippoProjectAdminForm(forms.ModelForm):
             for field in self.REQUIRED_AT_REGISTRATION:
                 if field in self.fields:
                     self.fields[field].required = True
+        else:
+            # On the change form the 契約(稼働中) gate is enforced on the contract inline (validated against
+            # the contract submitted in the same request), so defer the model-level phase gate to avoid a
+            # duplicate message on the phase field and to allow supplying the contract in the same save.
+            # The contract inline is hidden on /add/, so the model gate still applies there.
+            self.instance._admin_defers_contract_gate = True
 
     def clean(self):
         cleaned_data = super().clean()
@@ -932,6 +994,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     """
 
     form = KippoProjectAdminForm
+    # Changelist override adds inline CSS widening the 顧客(customer) and フェーズ(phase) columns so each
+    # renders on a single line. Set explicitly (not auto-discovered) so the ActiveKippoProject proxy admin
+    # uses the same template too. (App static/ dirs are gitignored here, so an external CSS file can't ship.)
+    change_list_template = "admin/projects/kippoproject/change_list.html"
     # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
     # attribute so tests and subclasses can reference the same source of truth.
     HIDDEN_ON_ADD_INLINES = (
@@ -1348,10 +1414,12 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
     @admin.display(description=_("GITHUBプロジェクト"))
     def show_github_project_html_url(self, obj: KippoProject) -> str:
-        url = ""
-        if obj.github_project_html_url:
-            url = format_html('<a href="{url}">{url}</a>', url=obj.github_project_html_url)
-        return url
+        if not obj.github_project_html_url:
+            return ""
+        # Display only the last path component (text after the final "/"), e.g. the project number,
+        # while still linking to the full URL.
+        label = obj.github_project_html_url.rstrip("/").rsplit("/", 1)[-1]
+        return format_html('<a href="{url}">{label}</a>', url=obj.github_project_html_url, label=label)
 
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool) -> None:
         instances = formset.save(commit=False)
@@ -1412,6 +1480,19 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
 
+        # category: scope to the project's organization (on change) or the user's orgs (on add) so the
+        # select never lists other organizations' categories.
+        self._scope_category_queryset(form, obj, user_memberships)
+
+        # On /add/ the model default is a GLOBAL template row, which the org-scoped queryset above drops;
+        # pre-select the initial organization's OWN default category so the required field renders selected
+        # and validates without the user opening the dropdown. A ?category= GET prefill (upsell wizard)
+        # still wins via the form's initial data.
+        if obj is None and user_initial_organization and "category" in form.base_fields:
+            default_category = KippoProjectOrganizationCategory.get_default_for_organization(user_initial_organization.id)
+            if default_category:
+                form.base_fields["category"].initial = default_category.pk
+
         # Arriving from the customer admin's "プロジェクトを追加" button (?customer=<pk>): the customer is
         # already chosen, so hide the field. The value is still prefilled (get_changeform_initial_data)
         # and POSTed; the scoped queryset validates it server-side.
@@ -1431,6 +1512,23 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         else:
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
+
+    @staticmethod
+    def _scope_category_queryset(form: Form, obj: KippoProject | None, user_memberships: models.QuerySet) -> None:
+        """Scope the category select to the project's organization (or the user's orgs on /add/).
+
+        Narrows the queryset already built by formfield_for_foreignkey (which drops upsell categories
+        on the plain add form) so that exclusion is preserved. On the change form the currently-selected
+        category is always kept selectable — even a legacy global (organization=null) row — so an edit
+        can never silently drop it.
+        """
+        if "category" not in form.base_fields:
+            return
+        queryset = form.base_fields["category"].queryset
+        if obj is not None and obj.organization_id:
+            form.base_fields["category"].queryset = queryset.filter(models.Q(organization=obj.organization) | models.Q(pk=obj.category_id))
+        else:
+            form.base_fields["category"].queryset = queryset.filter(organization__in=user_memberships)
 
     @staticmethod
     def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:

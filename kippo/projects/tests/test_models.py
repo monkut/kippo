@@ -904,6 +904,13 @@ class KippoProjectUnderContractPhaseGateTestCase(TestCase):
             project.clean()
         self.assertIn("phase", context.exception.message_dict)
 
+    def test_clean_defers_gate_when_admin_flag_set(self):
+        # the admin change form relocates this gate to the contract inline (validated against the contract
+        # submitted in the same request); when it sets the defer flag, model.clean() must not raise here.
+        self.project.phase = PHASE_UNDER_CONTRACT
+        self.project._admin_defers_contract_gate = True
+        self.project.clean()  # does not raise despite having no contract
+
     def test_clean_allows_legacy_under_contract_row_without_contract(self):
         # a row already persisted in 契約(稼働中) with no contract (legacy data predating contracts) is
         # NOT re-gated: the gate fires only on the TRANSITION into the phase, so the row stays editable
