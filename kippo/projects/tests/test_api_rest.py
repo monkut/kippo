@@ -1845,6 +1845,35 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         )
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
 
+    def test_estimated_monthly_amount_round_trips_for_effort_monthly(self):
+        """仮月額 (kippo#46) is settable/readable on the contract endpoint for effort + monthly terms."""
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {"billing_type": "monthly", "pricing_basis": "effort", "estimated_monthly_amount": "500000", "end_date": "2026-09-30"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.assertEqual(resp.json()["estimated_monthly_amount"], "500000")
+        self.assertEqual(self.project.contract.estimated_monthly_amount, 500000)
+
+    def test_estimated_monthly_amount_rejected_off_effort_monthly(self):
+        """Mirror KippoProjectContract.clean(): 仮月額 anywhere but effort + monthly → 400."""
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1",
+                "estimated_monthly_amount": "500000",
+                "end_date": "2026-09-30",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("estimated_monthly_amount", resp.json())
+
     def test_duplicate_billing_entry_rejected_cleanly(self):
         # effort/no-effort -> empty ledger on creation, so the first POST below is the only entry
         KippoProjectContract.objects.create(
