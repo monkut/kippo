@@ -532,10 +532,11 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.client.force_login(self.superuser_no_org)
 
     def test_changelist_includes_single_line_column_style(self):
-        # the changelist template widens the 顧客(customer) + フェーズ(phase) columns to a single line
+        # the changelist template widens the プロジェクト名(name) + 顧客(customer) + フェーズ(phase) columns to a single line
         response = self.client.get(self.changelist_url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode()
+        self.assertIn("td.field-name", content)
         self.assertIn("td.field-get_customer_name", content)
         self.assertIn("td.field-phase", content)
         self.assertIn("white-space: nowrap", content)
