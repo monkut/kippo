@@ -1,5 +1,6 @@
 import datetime
 from datetime import date
+from html.parser import HTMLParser
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from unittest import TestCase
@@ -532,10 +533,11 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.client.force_login(self.superuser_no_org)
 
     def test_changelist_includes_single_line_column_style(self):
-        # the changelist template widens the 顧客(customer) + フェーズ(phase) columns to a single line
+        # the changelist template widens the プロジェクト名(name) + 顧客(customer) + フェーズ(phase) columns to a single line
         response = self.client.get(self.changelist_url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode()
+        self.assertIn("td.field-name", content)
         self.assertIn("td.field-get_customer_name", content)
         self.assertIn("td.field-phase", content)
         self.assertIn("white-space: nowrap", content)
@@ -2471,3 +2473,127 @@ class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(str(choices[0]["display"]), "全て")
         self.assertTrue(choices[0]["selected"])
         self.assertFalse(any(choice["selected"] for choice in choices[1:]))
+
+
+class _AdminFormFieldParser(HTMLParser):
+    """Extract name->value for every submittable input/select/textarea in a rendered admin form,
+    reproducing what a browser would POST (so an untouched change form round-trips faithfully).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.data: dict[str, str] = {}
+        self._select_name: str | None = None
+        self._select_value: str | None = None
+        self._select_first: str | None = None
+        self._textarea_name: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        a = dict(attrs)
+        if tag == "input":
+            name = a.get("name")
+            itype = (a.get("type") or "text").lower()
+            if not name or itype in ("submit", "button", "image", "file"):
+                return
+            if itype in ("checkbox", "radio"):
+                if "checked" in a:
+                    self.data[name] = a.get("value", "on")
+            else:
+                self.data[name] = a.get("value", "")
+        elif tag == "select":
+            self._select_name = a.get("name")
+            self._select_value = None
+            self._select_first = None
+        elif tag == "option" and self._select_name:
+            value = a.get("value", "")
+            if self._select_first is None:
+                self._select_first = value
+            if "selected" in a:
+                self._select_value = value
+        elif tag == "textarea":
+            self._textarea_name = a.get("name")
+            if self._textarea_name:
+                self.data[self._textarea_name] = ""
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "select" and self._select_name:
+            chosen = self._select_value if self._select_value is not None else (self._select_first or "")
+            self.data[self._select_name] = chosen
+            self._select_name = None
+        elif tag == "textarea":
+            self._textarea_name = None
+
+    def handle_data(self, data: str) -> None:
+        if self._textarea_name:
+            self.data[self._textarea_name] = self.data.get(self._textarea_name, "") + data
+
+
+class KippoProjectAdminUnderContractChangeViewTestCase(IsStaffModelAdminTestCaseBase):
+    """Full change-view POST: flipping the phase to 契約(稼働中) with the default (pre-filled) contract
+    must save (the contract is created from its defaults) rather than raising the phase gate.
+    """
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        OrganizationMembership.objects.get_or_create(
+            user=self.superuser_no_org,
+            organization=self.organization,
+            defaults={"created_by": self.github_manager, "updated_by": self.github_manager},
+        )
+        self.project = KippoProject.objects.create(
+            organization=self.organization,
+            name="under-contract-target",
+            category=_global_category("other"),
+            columnset=columnset,
+            start_date=datetime.date(2026, 1, 1),
+            target_date=datetime.date(2026, 6, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_login(self.superuser_no_org)
+        self.change_url = reverse("admin:projects_kippoproject_change", args=[self.project.id])
+
+    def _rendered_post_data(self) -> dict:
+        response = self.client.get(self.change_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        parser = _AdminFormFieldParser()
+        parser.feed(response.content.decode())
+        return parser.data
+
+    def test_change_phase_to_under_contract_with_default_contract_saves(self):
+        data = self._rendered_post_data()
+        # sanity: the contract inline is pre-filled with the project's dates
+        self.assertEqual(data.get("contract-0-start_date"), "2026-01-01")
+        self.assertEqual(data.get("contract-0-end_date"), "2026-06-30")
+        data["phase"] = PHASE_UNDER_CONTRACT
+        data["contract-0-total_amount"] = "1000000"  # fixed pricing requires an amount; keep the default dates
+        response = self.client.post(self.change_url, data)
+        self.assertEqual(response.status_code, HTTPStatus.FOUND, self._formset_errors(response))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, PHASE_UNDER_CONTRACT)
+        self.assertIsNotNone(self.project.get_contract())
+
+    def test_change_phase_to_under_contract_with_empty_contract_shows_actionable_message(self):
+        # the pre-filled dates alone do not save a contract (no 契約金額 -> the row is skipped): the phase
+        # change is blocked with an ACCURATE message on the contract inline, not the misleading dates one.
+        data = self._rendered_post_data()
+        data["phase"] = PHASE_UNDER_CONTRACT  # leave the contract row at its pre-filled defaults (no amount)
+        response = self.client.post(self.change_url, data)
+        self.assertEqual(response.status_code, HTTPStatus.OK)  # re-rendered, not saved
+        self.assertIn(str(CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG), self._formset_errors(response))
+        self.project.refresh_from_db()
+        self.assertNotEqual(self.project.phase, PHASE_UNDER_CONTRACT)
+        self.assertIsNone(self.project.get_contract())
+
+    @staticmethod
+    def _formset_errors(response: HttpResponse) -> str:
+        """Collect inline formset errors from a re-rendered (non-redirect) change response, for assert messages."""
+        parts = []
+        for inline in response.context.get("inline_admin_formsets", []) if response.context else []:
+            nonform = inline.formset.non_form_errors()
+            if nonform:
+                parts.append(f"{inline.formset.prefix}: {nonform.as_text()}")
+        return " | ".join(parts)
