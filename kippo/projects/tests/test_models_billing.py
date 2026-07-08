@@ -817,7 +817,7 @@ class EffortProvisionalBillingTestCase(TestCase):
         )
 
     def test_provisional_amount_bills_every_month_upfront(self):
-        # no effort logged at all — every contract month (future included) still gets the 仮月額,
+        # no effort logged at all — every contract month (future included) still gets the 月額,
         # and a partial first month is NOT prorated
         contract = self._provisional_contract(datetime.date(2026, 1, 15), datetime.date(2026, 3, 31))
         self.assertEqual(
@@ -913,7 +913,7 @@ class EffortProvisionalBillingTestCase(TestCase):
         self.assertEqual([e.amount for e in contract.billing_entries.all()], [Decimal("300000")] * 3)
 
     def test_blank_provisional_amount_keeps_actuals_generation(self):
-        # backwards compatible: without 仮月額 the effort contract bills logged actuals directly
+        # backwards compatible: without 月額 the effort contract bills logged actuals directly
         self._log_effort(datetime.date(2026, 1, 5), 40)
         contract = KippoProjectContract.objects.create(
             project=self.project,

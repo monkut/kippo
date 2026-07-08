@@ -1016,7 +1016,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         ),
     )
     estimated_monthly_amount = models.DecimalField(
-        _("仮月額"),
+        _("月額"),
         max_digits=12,
         decimal_places=0,
         null=True,
@@ -1074,7 +1074,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         if self.estimated_monthly_amount is not None and not (
             self.pricing_basis == PRICING_BASIS_EFFORT and self.billing_type == BILLING_TYPE_MONTHLY
         ):
-            raise ValidationError({"estimated_monthly_amount": _("Estimated monthly amount (仮月額) only applies to effort + monthly contracts.")})
+            raise ValidationError({"estimated_monthly_amount": _("Estimated monthly amount (月額) only applies to effort + monthly contracts.")})
 
     def save(self, *args, **kwargs):
         is_initial_creation = self._state.adding
@@ -1231,7 +1231,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         """
         if self.pricing_basis == PRICING_BASIS_EFFORT:
             if self.billing_type == BILLING_TYPE_MONTHLY:
-                # When the 仮月額 is set, bill it provisionally for every contract month (future months
+                # When the 月額 is set, bill it provisionally for every contract month (future months
                 # included, no proration for partial months) so entries and planned revenue exist before
                 # effort is logged; trueup_billing_entries() corrects to actuals later (kippo#46).
                 # Otherwise bill each month's logged actuals directly.

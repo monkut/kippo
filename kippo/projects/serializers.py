@@ -260,10 +260,10 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"end_date": _("Contract start_date is after end_date")})
         if pricing_basis == PRICING_BASIS_FIXED and total_amount is None:
             raise serializers.ValidationError({"total_amount": _("Total amount is required for fixed-price contracts.")})
-        # 仮月額 (kippo#46) only drives effort + monthly billing — reject it elsewhere as a likely mistake.
+        # 月額 (kippo#46) only drives effort + monthly billing — reject it elsewhere as a likely mistake.
         if estimated_monthly_amount is not None and not (pricing_basis == PRICING_BASIS_EFFORT and billing_type == BILLING_TYPE_MONTHLY):
             raise serializers.ValidationError(
-                {"estimated_monthly_amount": _("Estimated monthly amount (仮月額) only applies to effort + monthly contracts.")}
+                {"estimated_monthly_amount": _("Estimated monthly amount (月額) only applies to effort + monthly contracts.")}
             )
         return attrs
 
