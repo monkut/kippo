@@ -363,14 +363,14 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         required=False,
         help_text="ProjectColumnSet for this project. Defaults to the organization's default columnset when omitted.",
     )
-    # parent_project (親プロジェクト) — original project for upsell projects (admin parity). Writable
+    # parent_project (親プロジェクト) — original project for continuation projects (admin parity). Writable
     # FK; a cross-org or self-referencing parent is rejected in validate(). parent_project_name is the
     # read-only label so clients can render the selection without a second lookup.
     parent_project = serializers.PrimaryKeyRelatedField(
         queryset=KippoProject.objects.all(),
         required=False,
         allow_null=True,
-        help_text="Original (parent) project for upsell projects.",
+        help_text="Original (parent) project for continuation projects.",
     )
     parent_project_name = serializers.CharField(source="parent_project.name", read_only=True, allow_null=True)
     # MTG calendar template URL + dsearch tag — read-only, mirroring the admin's
@@ -572,7 +572,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"phase": UNDER_CONTRACT_REQUIRES_CONTRACT_MSG})
 
     def _validate_parent_project(self, attrs: dict, organization: "KippoOrganization | None") -> None:
-        """parent_project (upsell) must be same-org and not the project itself (admin parity)."""
+        """parent_project (continuation) must be same-org and not the project itself (admin parity)."""
         parent_project = attrs.get("parent_project")
         if parent_project is None:
             return

@@ -483,7 +483,7 @@ class KippoProjectViewSetTestCase(TestCase):
 
     def test_filter_by_category(self):
         """Test filtering projects by the category query parameter (exact match on the category key)."""
-        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="system-development")
         ai_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="ai-development")
         self.project.category = si_category
         self.project.save()
@@ -498,7 +498,7 @@ class KippoProjectViewSetTestCase(TestCase):
         )
 
         # Filter to si — only the si project should be returned.
-        url = f"{settings.URL_PREFIX}/api/projects/?category=si"
+        url = f"{settings.URL_PREFIX}/api/projects/?category=system-development"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         category_ids = [result["id"] for result in response.json()["results"]]
@@ -514,7 +514,7 @@ class KippoProjectViewSetTestCase(TestCase):
 
     def test_exclude_by_category(self):
         """Test excluding projects by the exclude_category query parameter (exact match on the category key)."""
-        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="system-development")
         non_project_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="non-project")
         self.project.category = si_category
         self.project.save()

@@ -14,7 +14,6 @@ from projects.definitions import (
     FULL_CONFIDENCE_PERCENTAGE,
     KIPPOPROJECT_CATEGORY_CHOICES,
     NON_PROJECT_CATEGORY_VALUE,
-    UPSELL_CATEGORY_VALUES,
     VALID_KIPPOPROJECT_CATEGORY_VALUES,
 )
 from projects.models import (
@@ -641,9 +640,10 @@ class KippoProjectCategoryChoicesTestCase(TestCase):
         self.assertEqual(field.default(), other.pk)
         self.assertEqual(settings.DEFAULT_KIPPOPROJECT_CATEGORY, DEFAULT_PROJECT_CATEGORY_VALUE)
 
-    def test_upsell_category_values_present_as_global_categories(self):
-        for value in UPSELL_CATEGORY_VALUES:
-            self.assertIn(value, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+    def test_default_category_values_present_as_global_categories(self):
+        expected = {"ai-development", "system-development", "consulting", "other", "non-project"}
+        self.assertEqual(set(VALID_KIPPOPROJECT_CATEGORY_VALUES), expected)
+        for value in expected:
             self.assertTrue(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=value).exists())
 
     def test_close_comment_field_defaults(self):

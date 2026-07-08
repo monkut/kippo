@@ -30,34 +30,26 @@ WEEKLY_EFFORT_CLOSED_MESSAGE = _("締め日時を過ぎているため編集で�
 # Default (global, organization=null) project categories seeded as KippoProjectOrganizationCategory rows.
 # (key, label, sort_order). KippoProject.category is a FK to KippoProjectOrganizationCategory; these are the
 # org-agnostic defaults an organization inherits until it defines its own categories (kippo#30 / T08, T20).
-# The upsell-* values are retained here — the close→follow-up workflow still depends on them; they are
-# dropped together with that workflow's rework in kippo#27 / #35.
+# category = project TYPE; how a project was sourced lives on KippoProject.lead_source (see VALID_LEAD_SOURCES).
 DEFAULT_KIPPOPROJECT_CATEGORIES = (
     ("ai-development", _("AI開発"), 10),
-    ("mathematical-optimization", _("数理最適化"), 20),
-    ("si", "SI", 30),
-    ("consulting", _("コンサルティング"), 40),
-    ("advisory", _("アドバイザリー"), 50),
-    ("other", _("その他"), 60),
-    ("non-project", _("非案件"), 70),
-    ("upsell-improvement", _("(Upsell) 追加改善・拡張"), 80),
-    ("upsell-new-proposal", _("(Upsell) 新規提案"), 90),
-    ("upsell-new-department", _("(Upsell) 別部署紹介"), 100),
+    ("system-development", _("システム開発"), 20),
+    ("consulting", _("コンサルティング"), 30),
+    ("other", _("その他"), 40),
+    ("non-project", _("非案件"), 50),
 )
 KIPPOPROJECT_CATEGORY_CHOICES = tuple((key, label) for key, label, _sort in DEFAULT_KIPPOPROJECT_CATEGORIES)
 # Identifies "non-project" KippoProjects (replaces the retired phase=="anon-project"; consumed by kippo#37 / T10).
 NON_PROJECT_CATEGORY_VALUE = "non-project"
 # Fallback category for KippoProjects whose pre-migration category had no equivalent in the new taxonomy.
 DEFAULT_PROJECT_CATEGORY_VALUE = "other"
-UPSELL_CATEGORY_VALUES = ("upsell-improvement", "upsell-new-proposal", "upsell-new-department")
 KIPPOPROJECT_CATEGORY_MAX_LENGTH = 32
 VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_CATEGORY_CHOICES)
 
-# KippoProject.lead_source (リード) — how the project/opportunity was sourced. A static (key, label)
-# choices set snapshotted from the kiconiaworks organization's currently-active project categories.
+# KippoProject.lead_source (リード) — the acquisition channel a project/opportunity came in through.
+# A static (key, label) choices set. "continuation" (継続) is stamped by the close→follow-up wizard on a
+# follow-up project; the others are manual acquisition channels.
 VALID_LEAD_SOURCES = (
-    ("ai-development", _("AI開発")),
-    ("non-project", _("非案件")),
     ("sunx", _("SUNX経由")),
     ("info", "info"),
     ("employee-referral", _("社員紹介")),
@@ -65,6 +57,8 @@ VALID_LEAD_SOURCES = (
     ("continuation", _("継続")),
 )
 LEAD_SOURCE_MAX_LENGTH = 32
+# lead_source stamped on a follow-up project created by the close→continuation wizard (requires parent_project).
+CONTINUATION_LEAD_SOURCE_VALUE = "continuation"
 
 # KippoProjectContract billing type (請求方法) — kippo#31 / T11,T12.
 # "delivery" (納品): the contract amount is billed once at the contract's billing_date.

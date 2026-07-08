@@ -14,25 +14,12 @@
     },
     {
         "model": "projects.kippoprojectorganizationcategory",
-        "pk": "e74e1243-8d5b-56f3-9bf8-90ccf6fa4ae6",
+        "pk": "ea83a629-4bba-5ad8-90d6-75b1986f394e",
         "fields": {
             "organization": null,
-            "key": "mathematical-optimization",
-            "label": "数理最適化",
+            "key": "system-development",
+            "label": "システム開発",
             "sort_order": 20,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "3b767180-9593-5a15-a929-7c98fbfd3566",
-        "fields": {
-            "organization": null,
-            "key": "si",
-            "label": "SI",
-            "sort_order": 30,
             "is_active": true,
             "created_datetime": "2026-06-09T00:00:00Z",
             "updated_datetime": "2026-06-09T00:00:00Z"
@@ -45,20 +32,7 @@
             "organization": null,
             "key": "consulting",
             "label": "コンサルティング",
-            "sort_order": 40,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "d20f3c46-919f-59e9-80ed-f5c79f25f5f4",
-        "fields": {
-            "organization": null,
-            "key": "advisory",
-            "label": "アドバイザリー",
-            "sort_order": 50,
+            "sort_order": 30,
             "is_active": true,
             "created_datetime": "2026-06-09T00:00:00Z",
             "updated_datetime": "2026-06-09T00:00:00Z"
@@ -71,7 +45,7 @@
             "organization": null,
             "key": "other",
             "label": "その他",
-            "sort_order": 60,
+            "sort_order": 40,
             "is_active": true,
             "created_datetime": "2026-06-09T00:00:00Z",
             "updated_datetime": "2026-06-09T00:00:00Z"
@@ -84,46 +58,7 @@
             "organization": null,
             "key": "non-project",
             "label": "非案件",
-            "sort_order": 70,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "231a96f4-c247-5f58-90ca-ab0f0445037a",
-        "fields": {
-            "organization": null,
-            "key": "upsell-improvement",
-            "label": "(Upsell) 追加改善・拡張",
-            "sort_order": 80,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "2fedd0b4-f774-5fd0-a65f-f90336baa3c2",
-        "fields": {
-            "organization": null,
-            "key": "upsell-new-proposal",
-            "label": "(Upsell) 新規提案",
-            "sort_order": 90,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "f620cbaf-3cb7-5d61-a28e-a55ffe26660a",
-        "fields": {
-            "organization": null,
-            "key": "upsell-new-department",
-            "label": "(Upsell) 別部署紹介",
-            "sort_order": 100,
+            "sort_order": 50,
             "is_active": true,
             "created_datetime": "2026-06-09T00:00:00Z",
             "updated_datetime": "2026-06-09T00:00:00Z"

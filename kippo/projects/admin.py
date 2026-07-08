@@ -47,9 +47,9 @@ from tasks.periodic.tasks import collect_github_project_issues
 
 from .definitions import (
     BILLING_TYPE_MONTHLY,
+    CONTINUATION_LEAD_SOURCE_VALUE,
     NON_PROJECT_CATEGORY_VALUE,
     PRICING_BASIS_EFFORT,
-    UPSELL_CATEGORY_VALUES,
     WEEKLY_EFFORT_CLOSED_MESSAGE,
     ProjectProgressStatus,
     ProjectRoles,
@@ -91,7 +91,7 @@ from .models import (
 if TYPE_CHECKING:
     from .services.forecast import ForecastResult
 
-CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
+CLOSE_PROJECT_NO_CONTINUATION_VALUE = "__no_continuation__"
 
 # Shown on the contract inline (not the phase field) when a project is moved into 契約(稼働中) but the 契約
 # inline is empty. The period is pre-filled from the project, so the actionable gap for the user is the
@@ -110,11 +110,11 @@ RETURN_TO_PARAM = "_return_to"
 # stay in sync instead of repeating the literal tuple.
 PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 
-# GET marker the close-action upsell wizard adds to the /add/ URL (kippo#41). When present, the admin
-# keeps the full sectioned add form (so the prefilled parent_project + inherited fields render and
-# save) and the upsell categories stay selectable, instead of the flat required-only plain add.
-UPSELL_SOURCE_PARAM = "_upsell_source"
-UPSELL_SOURCE_VALUE = "close"
+# GET marker the close-action continuation wizard adds to the /add/ URL (kippo#41). When present, the
+# admin keeps the full sectioned add form (so the prefilled parent_project + lead_source + inherited
+# fields render and save), instead of the flat required-only plain add.
+CONTINUATION_SOURCE_PARAM = "_continuation_source"
+CONTINUATION_SOURCE_VALUE = "close"
 
 # confidence (%, derived from phase via PHASE_CONFIDENCE) at which a non-closed project must carry a
 # positive allocated_staff_days estimate (kippo#41).
@@ -659,18 +659,16 @@ collect_project_github_repositories_action.short_description = _("Collect Projec
 
 
 class CloseProjectActionForm(forms.Form):
-    CATEGORY_CHOICES = (
-        ("upsell-improvement", _("(Upsell) 追加改善・拡張")),
-        ("upsell-new-proposal", _("(Upsell) 新規提案")),
-        ("upsell-new-department", _("(Upsell) 別部署紹介")),
-        (CLOSE_PROJECT_NO_UPSELL_VALUE, _("upsellなし")),
+    FOLLOW_UP_CHOICES = (
+        (CONTINUATION_LEAD_SOURCE_VALUE, _("継続")),
+        (CLOSE_PROJECT_NO_CONTINUATION_VALUE, _("継続なし")),
     )
 
-    category = forms.ChoiceField(
-        label=_("Category"),
+    follow_up = forms.ChoiceField(
+        label=_("継続"),
         widget=forms.Select,
-        choices=CATEGORY_CHOICES,
-        initial=CLOSE_PROJECT_NO_UPSELL_VALUE,
+        choices=FOLLOW_UP_CHOICES,
+        initial=CLOSE_PROJECT_NO_CONTINUATION_VALUE,
     )
     close_comment = forms.CharField(
         label=_("Close Comment"),
@@ -680,14 +678,14 @@ class CloseProjectActionForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        category = cleaned_data.get("category")
+        follow_up = cleaned_data.get("follow_up")
         close_comment = cleaned_data.get("close_comment", "").strip()
-        if category == CLOSE_PROJECT_NO_UPSELL_VALUE and not close_comment:
-            raise ValidationError({"close_comment": _("Close Comment is required when upsellなし is selected.")})
+        if follow_up == CLOSE_PROJECT_NO_CONTINUATION_VALUE and not close_comment:
+            raise ValidationError({"close_comment": _("Close Comment is required when 継続なし is selected.")})
         return cleaned_data
 
 
-def _next_upsell_project_name(name: str) -> str:
+def _next_continuation_project_name(name: str) -> str:
     match = re.match(r"(.*) Phase (\d+)$", name)
     if match:
         return f"{match.group(1)} Phase {int(match.group(2)) + 1}"
@@ -698,18 +696,16 @@ def _start_of_next_month(today: datetime.date) -> datetime.date:
     return (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
 
 
-def _build_upsell_prefill_params(project: KippoProject, selected_category: str) -> dict[str, str]:
+def _build_continuation_prefill_params(project: KippoProject) -> dict[str, str]:
     today = timezone.now().date()
-    # category is now a FK — the add-form prefill needs the global category's PK, not its key string.
-    upsell_category_pk = (
-        KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=selected_category).values_list("pk", flat=True).first()
-    )
+    # The follow-up is a 継続 (continuation) project: stamp lead_source, link the parent, and inherit
+    # the parent's sourcing/context. category is left to the add form's default (その他).
     params = {
-        "category": str(upsell_category_pk) if upsell_category_pk else "",
+        "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
         "parent_project": str(project.id),
         "organization": str(project.organization_id),
-        UPSELL_SOURCE_PARAM: UPSELL_SOURCE_VALUE,
-        "name": _next_upsell_project_name(project.name),
+        CONTINUATION_SOURCE_PARAM: CONTINUATION_SOURCE_VALUE,
+        "name": _next_continuation_project_name(project.name),
         "start_date": _start_of_next_month(today).isoformat(),
         "slack_channel_name": project.slack_channel_name,
         "slack_notification_channel_name": project.slack_notification_channel_name,
@@ -724,7 +720,7 @@ def _build_upsell_prefill_params(project: KippoProject, selected_category: str) 
 
 
 def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
-    """Close a KippoProject with an optional upsell follow-up project."""
+    """Close a KippoProject with an optional 継続 (continuation) follow-up project."""
     if queryset.count() != 1:
         modeladmin.message_user(request, _("Select exactly one project to close."), level=messages.ERROR)
         return None
@@ -741,7 +737,7 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
     if request.POST.get("post") == "yes":
         form = CloseProjectActionForm(request.POST)
         if form.is_valid():
-            selected_category = form.cleaned_data["category"]
+            follow_up = form.cleaned_data["follow_up"]
             project.close_comment = form.cleaned_data["close_comment"]
             project.is_closed = True
             project.actual_date = timezone.now().date()
@@ -752,8 +748,8 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
 
             modeladmin.message_user(request, _("Project '%s' closed.") % project.name, level=messages.INFO)
 
-            if selected_category in UPSELL_CATEGORY_VALUES:
-                params = urllib.parse.urlencode(_build_upsell_prefill_params(project, selected_category))
+            if follow_up == CONTINUATION_LEAD_SOURCE_VALUE:
+                params = urllib.parse.urlencode(_build_continuation_prefill_params(project))
                 return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/add/?{params}")
             return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
     else:
@@ -766,7 +762,7 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
         "form": form,
         "action": "close_kippoproject_action",
         "opts": modeladmin.model._meta,
-        "no_upsell_value": CLOSE_PROJECT_NO_UPSELL_VALUE,
+        "no_continuation_value": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
     }
     return TemplateResponse(request, "admin/projects/close_project_action.html", context)
 
@@ -906,7 +902,7 @@ class KippoProjectAdminForm(forms.ModelForm):
             self.instance._state.adding and not self.instance.is_closed and not is_non_project and PHASE_CONFIDENCE.get(phase) == FULL_CONFIDENCE
         )
         # the slim /add/ form does not render allocated_staff_days, so the requirement can't apply
-        # there (add_error on an absent field would raise); the full add form (upsell close-wizard)
+        # there (add_error on an absent field would raise); the full add form (continuation close-wizard)
         # does render it, so registration through that path is still validated.
         if "allocated_staff_days" not in self.fields:
             needs_estimate = False
@@ -918,12 +914,14 @@ class KippoProjectAdminForm(forms.ModelForm):
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
         # parent_project is readonly on the change form, so it won't appear in cleaned_data there
-        # — fall back to the persisted instance value so existing upsell projects keep validating.
+        # — fall back to the persisted instance value so existing continuation projects keep validating.
         parent_project = submitted_parent_project or getattr(self.instance, "parent_project", None)
-        if getattr(category, "key", None) in UPSELL_CATEGORY_VALUES and not parent_project:
+        # A 継続 (continuation) project continues a prior engagement, so it must reference its parent.
+        lead_source = cleaned_data.get("lead_source")
+        if lead_source == CONTINUATION_LEAD_SOURCE_VALUE and not parent_project:
             self.add_error(
                 "parent_project",
-                _("アップセルカテゴリを選択した場合は親プロジェクトが必須です。"),
+                _("リードが継続の場合は親プロジェクトが必須です。"),
             )
         # On /add/, parent_project must belong to the same organization as the new project.
         # (On /change/, parent_project is readonly so it isn't in submitted data — skip this check.)
@@ -1036,8 +1034,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     )
     # /add/ form (kippo#41, slimmed for the contract-driven flow): flat, no sections — registration
     # collects only these fields; everything else (contract, PM, estimates, …) is added on a later
-    # edit. The upsell close-wizard add (?_upsell_source=close) instead gets the full sectioned form
-    # (see get_fieldsets) so its prefilled optional fields (parent_project, slack, …) render and save.
+    # edit. The continuation close-wizard add (?_continuation_source=close) instead gets the full sectioned
+    # form (see get_fieldsets) so its prefilled optional fields (parent_project, lead_source, slack, …) render.
     ADD_FIELDS = (
         "organization",
         "customer",
@@ -1196,23 +1194,23 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         return tuple(excluded)
 
     @staticmethod
-    def _is_upsell_add(request: DjangoRequest, obj: KippoProject | None) -> bool:
-        """True on the upsell close-wizard /add/ (kippo#41): it keeps the full sectioned form so the
-        prefilled parent_project + inherited fields render and save, unlike the flat plain add.
+    def _is_continuation_add(request: DjangoRequest, obj: KippoProject | None) -> bool:
+        """True on the continuation close-wizard /add/ (kippo#41): it keeps the full sectioned form so the
+        prefilled parent_project + lead_source + inherited fields render and save, unlike the flat plain add.
         """
-        return obj is None and request.GET.get(UPSELL_SOURCE_PARAM) == UPSELL_SOURCE_VALUE
+        return obj is None and request.GET.get(CONTINUATION_SOURCE_PARAM) == CONTINUATION_SOURCE_VALUE
 
     def get_fieldsets(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: set[str] = set(self.get_exclude(request, obj) or ())
         # estimated_completion_date is a computed readonly field, only surfaced for open projects on edit
         if obj is None or obj.is_closed:
             excluded.add("estimated_completion_date")
-        # /add/ (kippo#41): flat, required-only, in spec order — EXCEPT the upsell close-wizard add,
-        # which prefills optional fields (parent_project, slack, …) that must render to be saved, so it
-        # gets the full sectioned form below.
-        if obj is None and not self._is_upsell_add(request, obj):
+        # /add/ (kippo#41): flat, required-only, in spec order — EXCEPT the continuation close-wizard add,
+        # which prefills optional fields (parent_project, lead_source, slack, …) that must render to be
+        # saved, so it gets the full sectioned form below.
+        if obj is None and not self._is_continuation_add(request, obj):
             return [(None, {"fields": tuple(f for f in self.ADD_FIELDS if f not in excluded)})]
-        # Change form (and upsell-wizard add): the full sectioned layout minus excluded fields. Build a
+        # Change form (and continuation-wizard add): the full sectioned layout minus excluded fields. Build a
         # fresh list (never mutate the class attribute); drop now-empty sections; expand collapsed
         # sections on the add path so prefilled fields are visible.
         rebuilt = []
@@ -1245,16 +1243,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     def formfield_for_foreignkey(self, db_field: models.Field, request: DjangoRequest, **kwargs):
         # Limit the category select to active categories (global defaults + any organization's custom categories).
         if db_field.name == "category":
-            queryset = KippoProjectOrganizationCategory.objects.filter(is_active=True)
-            # On the plain /add/ form (kippo#41) upsell categories are hidden: they require a
-            # parent_project, which only the upsell close-wizard add exposes. Manual upsell creation
-            # goes through the close wizard (?_upsell_source=close), where they remain available.
-            # Detect the add view via the resolved url_name (…_add) rather than a path substring.
-            url_name = getattr(request.resolver_match, "url_name", "") or ""
-            is_plain_add = url_name.endswith("_add") and request.GET.get(UPSELL_SOURCE_PARAM) != UPSELL_SOURCE_VALUE
-            if is_plain_add:
-                queryset = queryset.exclude(key__in=UPSELL_CATEGORY_VALUES)
-            kwargs["queryset"] = queryset
+            kwargs["queryset"] = KippoProjectOrganizationCategory.objects.filter(is_active=True)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description=_("請求方法"), ordering="contract__billing_type")
@@ -1496,8 +1485,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             form.base_fields[fieldname].widget.can_delete_related = False
 
         # parent_project: readonly on the change form (handled in get_readonly_fields). On /add/ it only
-        # appears via the upsell close-wizard (kippo#41), where _apply_upsell_source_widgets scopes its
-        # queryset; required when category is an upsell value — enforced by KippoProjectAdminForm.clean().
+        # appears via the continuation close-wizard (kippo#41), where _apply_continuation_source_widgets scopes
+        # its queryset; required when lead_source is 継続 — enforced by KippoProjectAdminForm.clean().
 
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
@@ -1508,7 +1497,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
         # On /add/ the model default is a GLOBAL template row, which the org-scoped queryset above drops;
         # pre-select the initial organization's OWN default category so the required field renders selected
-        # and validates without the user opening the dropdown. A ?category= GET prefill (upsell wizard)
+        # and validates without the user opening the dropdown. A ?category= GET prefill
         # still wins via the form's initial data.
         if obj is None and user_initial_organization and "category" in form.base_fields:
             default_category = KippoProjectOrganizationCategory.get_default_for_organization(user_initial_organization.id)
@@ -1521,8 +1510,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         if obj is None and request.GET.get("customer") and "customer" in form.base_fields:
             form.base_fields["customer"].widget = forms.HiddenInput()
 
-        if self._is_upsell_add(request, obj):
-            self._apply_upsell_source_widgets(form, user_memberships)
+        if self._is_continuation_add(request, obj):
+            self._apply_continuation_source_widgets(form, user_memberships)
         return form
 
     @staticmethod
@@ -1539,10 +1528,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     def _scope_category_queryset(form: Form, obj: KippoProject | None, user_memberships: models.QuerySet) -> None:
         """Scope the category select to the project's organization (or the user's orgs on /add/).
 
-        Narrows the queryset already built by formfield_for_foreignkey (which drops upsell categories
-        on the plain add form) so that exclusion is preserved. On the change form the currently-selected
-        category is always kept selectable — even a legacy global (organization=null) row — so an edit
-        can never silently drop it.
+        Narrows the queryset already built by formfield_for_foreignkey. On the change form the currently-
+        selected category is always kept selectable — even a legacy global (organization=null) row — so an
+        edit can never silently drop it.
         """
         if "category" not in form.base_fields:
             return
@@ -1553,8 +1541,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             form.base_fields["category"].queryset = queryset.filter(organization__in=user_memberships)
 
     @staticmethod
-    def _apply_upsell_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:
-        """Hide parent_project + organization on the upsell close-action redirect.
+    def _apply_continuation_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:
+        """Hide parent_project + organization on the continuation close-action redirect.
 
         Values still POST and the existing validator runs; only the widgets are swapped to hidden.
         parent_project queryset is widened to all of the user's orgs because the default scope
@@ -1568,7 +1556,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
     def get_readonly_fields(self, request: DjangoRequest, obj: KippoProject | None = None) -> tuple[str, ...]:
         readonly_fields = tuple(super().get_readonly_fields(request, obj))
-        # show parent_project as readonly on the change form so admins can see the upsell parent
+        # show parent_project as readonly on the change form so admins can see the continuation parent
         if obj is not None and "parent_project" not in readonly_fields:
             readonly_fields = (*readonly_fields, "parent_project")
         # MTG calendar link fields are computed displays — readonly on the change form (kippo#13)
@@ -1718,7 +1706,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         """Create the default per-role assignment rates for a newly registered project.
 
         Idempotent against the (project, role) unique_together — only roles not already present are
-        created, so a re-save or an upsell copy never duplicates a rate.
+        created, so a re-save or a continuation copy never duplicates a rate.
         """
         existing_roles = set(project.assignment_rates.values_list("role", flat=True))
         for default in _default_assignment_rate_initial():
@@ -1837,7 +1825,7 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
         for field in PROJECT_CLOSURE_FIELDS:
             if field not in excluded:
                 excluded.append(field)
-        # parent_project is only relevant on add (manual upsell creation); hide on change
+        # parent_project is only relevant on add (manual continuation creation); hide on change
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)

@@ -402,9 +402,9 @@ class KippoProject(UserCreatedBaseModel):
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="upsell_children",
+        related_name="continuation_children",
         verbose_name=_("親プロジェクト"),
-        help_text=_("アップセルプロジェクトの元（親）プロジェクト"),
+        help_text=_("継続プロジェクトの元（親）プロジェクト"),
     )
     customer = models.ForeignKey(
         "customers.KippoCustomer",
