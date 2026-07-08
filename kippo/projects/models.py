@@ -168,7 +168,7 @@ DEFAULT_PROJECT_PHASE = "proposing-low"
 PHASE_UNDER_CONTRACT = "under-contract"
 # Shared by KippoProject.clean() (admin) and KippoProjectSerializer (API) so the gate message stays
 # in one place (and translated) across both layers.
-UNDER_CONTRACT_REQUIRES_CONTRACT_MSG = _("A contract (契約) with start/end dates must be saved before setting the phase to 契約(稼働中).")
+UNDER_CONTRACT_REQUIRES_CONTRACT_MSG = _("フェーズを契約(稼働中)にするには、開始日・終了日のある契約を保存してください。")
 VALID_PROJECT_PHASES = (
     ("keep-in-touch", "KIT"),
     ("proposing-low", _("提案(低)")),
@@ -328,21 +328,21 @@ def seed_organization_project_categories(sender: type[KippoOrganization], instan
 class KippoProject(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, verbose_name=_("組織"))
-    name = models.CharField(max_length=256, unique=True, verbose_name=_("プロジェクト名"), help_text=_("Name of the project"))
+    name = models.CharField(max_length=256, unique=True, verbose_name=_("プロジェクト名"), help_text=_("プロジェクトの名称"))
     slug = models.CharField(max_length=300, unique=True, editable=False)
     phase = models.CharField(
         max_length=150,
         default=DEFAULT_PROJECT_PHASE,
         choices=VALID_PROJECT_PHASES,
         verbose_name=_("フェーズ"),
-        help_text=_("State or phase of the project"),
+        help_text=_("プロジェクトの状態（フェーズ）"),
     )
     confidence = models.PositiveSmallIntegerField(
         default=PHASE_CONFIDENCE[DEFAULT_PROJECT_PHASE],
         editable=False,
         validators=(MaxValueValidator(100), MinValueValidator(0)),
         verbose_name=_("確度"),
-        help_text=_("0-100, auto-derived from phase (read-only)"),
+        help_text=_("0〜100。フェーズから自動算出されます（読み取り専用）"),
     )
     category = models.ForeignKey(
         "projects.KippoProjectOrganizationCategory",
@@ -356,25 +356,25 @@ class KippoProject(UserCreatedBaseModel):
         blank=True,
         default="",
         verbose_name=_("Slack会話チャンネル名"),
-        help_text=_("Conversation Channel — invite the organization's slack bot to enable channel notification"),
+        help_text=_("会話用チャンネル。組織のSlackボットを招待するとチャンネル通知が有効になります"),
     )
     slack_notification_channel_name = models.CharField(
         max_length=80,
         blank=True,
         default="",
         verbose_name=_("Slack通知チャンネル名"),
-        help_text=_("Notification Channel for crawler / batch / development notifications (separate from the conversation channel)"),
+        help_text=_("クローラー・バッチ・開発通知用のチャンネル（会話用チャンネルとは別）"),
     )
     enable_cost_report = models.BooleanField(
         default=False,
         verbose_name=_("コストレポート有効化"),
-        help_text=_("Set to True if you want to enable cost reporting to the configured slack channel"),
+        help_text=_("設定済みのSlackチャンネルへコストレポートを送信する場合はTrueに設定します"),
     )
     columnset = models.ForeignKey(
         ProjectColumnSet,
         on_delete=models.DO_NOTHING,
         verbose_name=_("カラムセット"),
-        help_text=_("ProjectColumnSet to use if/when a related Github project is created through Kippo"),
+        help_text=_("Kippoを通じて関連するGitHubプロジェクトを作成する際に使用するProjectColumnSet"),
     )
     project_manager = models.ForeignKey(
         "accounts.KippoUser",
@@ -382,7 +382,7 @@ class KippoProject(UserCreatedBaseModel):
         null=True,
         blank=True,
         verbose_name=_("プロジェクトマネージャー"),
-        help_text=_("Project Manager assigned to the project"),
+        help_text=_("プロジェクトに割り当てるプロジェクトマネージャー"),
     )
     parent_project = models.ForeignKey(
         "self",
@@ -391,7 +391,7 @@ class KippoProject(UserCreatedBaseModel):
         on_delete=models.SET_NULL,
         related_name="upsell_children",
         verbose_name=_("親プロジェクト"),
-        help_text=_("Original (parent) project for upsell projects"),
+        help_text=_("アップセルプロジェクトの元（親）プロジェクト"),
     )
     customer = models.ForeignKey(
         "customers.KippoCustomer",
@@ -400,19 +400,19 @@ class KippoProject(UserCreatedBaseModel):
         on_delete=models.SET_NULL,
         related_name="projects",
         verbose_name=_("顧客"),
-        help_text=_("Customer this project is delivered for (optional)"),
+        help_text=_("このプロジェクトの納品先となる顧客（任意）"),
     )
-    is_closed = models.BooleanField(_("プロジェクト終了済み"), default=False, help_text=_("Manually set when project is complete"))
+    is_closed = models.BooleanField(_("プロジェクト終了済み"), default=False, help_text=_("プロジェクト完了時に手動で設定します"))
     close_comment = models.TextField(_("終了コメント"), blank=True, default="")
     display_as_active = models.BooleanField(
         _("アクティブとして表示"),
         default=True,
-        help_text=_("If True, project will be included in the ActiveKippoProject List"),
+        help_text=_("Trueの場合、アクティブプロジェクト一覧に表示されます"),
     )
     display_in_project_report = models.BooleanField(
         _("プロジェクトレポートサマリ(Slack)に表示"),
         default=True,
-        help_text=_("If True, project will be included in the Project Report Summary"),
+        help_text=_("Trueの場合、プロジェクトレポートサマリに表示されます"),
     )
     github_project_html_url = models.URLField(_("GitHubプロジェクトのHTML URL"), blank=True, default="")
     github_project_api_nodeid = models.CharField(
@@ -425,47 +425,47 @@ class KippoProject(UserCreatedBaseModel):
         null=True,
         blank=True,
         verbose_name=_("割当工数(人日)"),
-        help_text=_("Estimated Staff Days needed for Project Completion"),
+        help_text=_("プロジェクト完了に必要な見積工数（人日）"),
     )
-    start_date = models.DateField(_("開始日"), null=True, blank=True, help_text=_("Date the Project requires engineering resources"))
+    start_date = models.DateField(_("開始日"), null=True, blank=True, help_text=_("プロジェクトがエンジニアリングリソースを必要とする日"))
     target_date = models.DateField(
         _("完了予定日"),
         null=True,
         blank=True,
         default=get_target_date_default,
-        help_text=_("Date the Project is planned to be completed by."),
+        help_text=_("プロジェクトの完了予定日"),
     )
     actual_date = models.DateField(
         _("完了日"),
         null=True,
         blank=True,
-        help_text=_("The date the project was actually completed on (not the initial target)"),
+        help_text=_("プロジェクトが実際に完了した日（当初の予定日ではありません）"),
     )
     document_folder_url = models.URLField(
         _("ドキュメント保管URL"),
         blank=True,
         default="",
-        help_text=_("URL of where documents for the projects are maintained"),
+        help_text=_("プロジェクトのドキュメントを保管しているURL"),
     )
     docbase_tag = CommaSeparatedCharField(
         _("DocBaseタグ"),
         max_length=255,
         blank=True,
         default="",
-        help_text=_("Comma-separated DocBase tags used by the crawler to fetch matching posts (e.g. 'foo,bar')"),
+        help_text=_("クローラーが該当する投稿を取得するために使用するカンマ区切りのDocBaseタグ（例: 'foo,bar'）"),
     )
     problem_definition = models.TextField(
         _("プロジェクト紹介"),
         blank=True,
         default="",
-        help_text=_("Define the problem that the project is set out to solve."),
+        help_text=_("このプロジェクトが解決しようとする課題を定義します"),
     )
-    survey_issued = models.BooleanField(default=False, verbose_name=_("アンケート発行済み"), help_text=_("Update when survey is issued!"))
+    survey_issued = models.BooleanField(default=False, verbose_name=_("アンケート発行済み"), help_text=_("アンケートを発行したら更新してください"))
     survey_issued_datetime = models.DateTimeField(
         null=True,
         editable=False,
         verbose_name=_("アンケート発行日時"),
-        help_text=_('Updated when "survey_issued" flag is set'),
+        help_text=_("「アンケート発行済み」フラグが設定されたときに更新されます"),
     )
 
     class Meta:
@@ -474,9 +474,9 @@ class KippoProject(UserCreatedBaseModel):
 
     def clean(self):
         if self.actual_date and self.actual_date > timezone.now().date():
-            raise ValidationError(_("Given date is in the future"))
+            raise ValidationError(_("指定された日付が未来の日付です"))
         if self.enable_cost_report and not self.slack_channel_name:
-            raise ValidationError(_("slack_channel_name is required when enable_cost_report is True!"))
+            raise ValidationError(_("コストレポートを有効にする場合はSlack会話チャンネル名が必須です"))
         # 契約(稼働中) requires the contract (with its period) to exist first: the project is created
         # (registration collects only the slim required set), the contract is added on a later edit,
         # and only then can the phase move to under-contract — at which point the contract period
