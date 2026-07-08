@@ -972,9 +972,15 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "get_kippoprojectuserstatisfactionresult_usernames",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
+        "phase",
+        "category",
+        "get_contract_billing_type_display",
+        "get_contract_total_amount_display",
     )
     list_display_links = ("id", "name")
-    list_select_related = ("customer", "category", "organization")
+    # Reverse OneToOne 'contract' pulled in the same query so the contract columns above don't
+    # cost a query per changelist row.
+    list_select_related = ("customer", "category", "organization", "contract")
     search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
@@ -1162,6 +1168,18 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                 queryset = queryset.exclude(key__in=UPSELL_CATEGORY_VALUES)
             kwargs["queryset"] = queryset
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    @admin.display(description=_("請求方法"), ordering="contract__billing_type")
+    def get_contract_billing_type_display(self, obj: KippoProject) -> str:
+        contract = obj.get_contract()
+        return contract.get_billing_type_display() if contract else ""
+
+    @admin.display(description=_("契約金額"), ordering="contract__total_amount")
+    def get_contract_total_amount_display(self, obj: KippoProject) -> str:
+        contract = obj.get_contract()
+        if contract and contract.total_amount is not None:
+            return f"¥{contract.total_amount:,}"
+        return ""
 
     @admin.display(description=_("アンケート完了ユーザ"))
     def get_kippoprojectuserstatisfactionresult_usernames(self, obj: KippoProject | None = None) -> str:
@@ -1680,31 +1698,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
 @admin.register(KippoProject)
 class KippoProjectAdmin(KippoProjectBaseAdmin):
-    # All projects, including closed/inactive — keep display_as_active so the active/closed state
-    # is visible at a glance. Also add phase, category, and the related-contract 請求方法 / 契約金額 columns.
-    list_display = (
-        *KippoProjectBaseAdmin.list_display,
-        "phase",
-        "category",
-        "get_contract_billing_type_display",
-        "get_contract_total_amount_display",
-        "display_as_active",
-    )
-    # Reverse OneToOne 'contract' pulled in the same query so the two contract columns above don't
-    # cost a query per row.
-    list_select_related = (*KippoProjectBaseAdmin.list_select_related, "contract")
-
-    @admin.display(description=_("請求方法"), ordering="contract__billing_type")
-    def get_contract_billing_type_display(self, obj: KippoProject) -> str:
-        contract = obj.get_contract()
-        return contract.get_billing_type_display() if contract else ""
-
-    @admin.display(description=_("契約金額"), ordering="contract__total_amount")
-    def get_contract_total_amount_display(self, obj: KippoProject) -> str:
-        contract = obj.get_contract()
-        if contract and contract.total_amount is not None:
-            return f"¥{contract.total_amount:,}"
-        return ""
+    # All projects, including closed/inactive — display_as_active is the only column beyond the
+    # shared base (it exposes the active/closed state that the active admin filters on).
+    list_display = (*KippoProjectBaseAdmin.list_display, "display_as_active")
 
 
 @admin.register(ActiveKippoProject)

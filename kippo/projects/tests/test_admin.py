@@ -1185,13 +1185,13 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
             self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited from the base")
         self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectBaseAdmin.list_display)
 
-    def test_all_projects_admin_keeps_display_as_active_column(self):
-        # list_display differences on the all-projects admin vs the base/active admin: it appends
-        # display_as_active plus phase, category, and the related-contract 請求方法 / 契約金額 columns.
-        self.assertIn("display_as_active", KippoProjectAdmin.list_display)
+    def test_display_as_active_is_only_all_projects_column(self):
+        # display_as_active is the ONLY column the all-projects admin adds over the shared base;
+        # every other column (including phase, category, and the contract columns) lives on the base.
+        self.assertEqual(KippoProjectAdmin.list_display, (*KippoProjectBaseAdmin.list_display, "display_as_active"))
         self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
         for column in ("phase", "category", "get_contract_billing_type_display", "get_contract_total_amount_display"):
-            self.assertIn(column, KippoProjectAdmin.list_display)
+            self.assertIn(column, KippoProjectBaseAdmin.list_display)
 
     def test_confidence_column_retired_from_both_admins(self):
         # confidence is no longer a changelist column on either admin (kept as a model field for
