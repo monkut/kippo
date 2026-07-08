@@ -15,6 +15,7 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
 from commons.functions import get_current_month_date_range
+from commons.viewsets import organization_ids_for_user
 from commons.widgets import MonthYearWidget
 from customers.models import KippoCustomer
 from django import forms
@@ -950,12 +951,13 @@ def _format_estimated_completion(result: "ForecastResult") -> str:
 
 @admin.register(KippoProjectOrganizationCategory)
 class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
-    """Staff manage org-scoped categories; the global (organization=null) template is superuser-only.
+    """Staff manage their own organizations' categories; the global (organization=null) template is superuser-only.
 
-    Mirrors the API rule (``IsSuperuserOrOrgMemberForCategory``, kippo#48): a non-superuser staff
-    user may add/edit/delete org-scoped rows, but only a superuser may create or modify a global
-    template row. Non-superusers do not see globals in the changelist at all, so they cannot change,
-    delete, or bulk-delete them (kippo#49).
+    Mirrors the API rule (``IsSuperuserOrOrgMemberForCategory``, kippo#48): a non-superuser staff user
+    may add/edit/delete rows only for organizations they are a member of (``organization_ids_for_user``);
+    only a superuser may create or modify a global template row or another organization's rows.
+    Non-superusers see only their own organizations' categories in the changelist — never the global
+    template, never another organization's rows — so they cannot change, delete, or bulk-delete them (kippo#49).
     """
 
     list_display = ("key", "label", "organization", "sort_order", "is_active", "is_default")
@@ -966,24 +968,40 @@ class KippoProjectOrganizationCategoryAdmin(AllowIsStaffAdminMixin, UserCreatedB
     def get_queryset(self, request: DjangoRequest):
         queryset = super().get_queryset(request)
         if not request.user.is_superuser:
-            # hide global template rows from non-superusers -> they cannot change/delete/bulk-delete them
-            queryset = queryset.filter(organization__isnull=False)
+            # scope to the user's organizations -> also excludes global (organization=null) template rows,
+            # so non-superusers cannot see/change/delete/bulk-delete them or other orgs' rows
+            queryset = queryset.filter(organization__in=organization_ids_for_user(request.user))
         return queryset
 
+    def _manageable_by(self, request: DjangoRequest, obj: models.Model | None) -> bool:
+        """Non-superusers may only manage rows for organizations they belong to (globals excluded)."""
+        if request.user.is_superuser or obj is None:
+            return True
+        return obj.organization_id in organization_ids_for_user(request.user)
+
     def has_change_permission(self, request: DjangoRequest, obj: models.Model | None = None):
-        if obj is not None and obj.organization_id is None and not request.user.is_superuser:
+        if not self._manageable_by(request, obj):
             return False
         return super().has_change_permission(request, obj)
 
     def has_delete_permission(self, request: DjangoRequest, obj: models.Model | None = None):
-        if obj is not None and obj.organization_id is None and not request.user.is_superuser:
+        if not self._manageable_by(request, obj):
             return False
         return super().has_delete_permission(request, obj)
 
+    def formfield_for_foreignkey(self, db_field: models.ForeignKey, request: DjangoRequest, **kwargs):
+        # limit the organization picker to the user's organizations (superusers keep the full list)
+        if db_field.name == "organization" and not request.user.is_superuser:
+            kwargs["queryset"] = KippoOrganization.objects.filter(pk__in=organization_ids_for_user(request.user))
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
     def save_model(self, request: DjangoRequest, obj: KippoProjectOrganizationCategory, form: forms.ModelForm, change: bool) -> None:
-        # has_add_permission cannot see the object; block creating/turning a row into a global template here.
-        if obj.organization_id is None and not request.user.is_superuser:
-            raise PermissionDenied(_("Only a superuser may create or edit a global (template) category."))
+        # has_add_permission cannot see the object; block creating/moving a row into a global template or an
+        # organization the user does not belong to here.
+        if not self._manageable_by(request, obj):
+            raise PermissionDenied(
+                _("You may only create or edit categories for your own organizations; global (template) categories are superuser-only.")
+            )
         super().save_model(request, obj, form, change)
 
 
