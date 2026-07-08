@@ -965,6 +965,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "id",
         "get_customer_name",
         "name",
+        "phase",
+        "category",
+        "get_contract_billing_type_display",
+        "get_contract_total_amount_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
@@ -972,10 +976,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "get_kippoprojectuserstatisfactionresult_usernames",
         "get_projectsurvey_display_url",
         "show_github_project_html_url",
-        "phase",
-        "category",
-        "get_contract_billing_type_display",
-        "get_contract_total_amount_display",
     )
     list_display_links = ("id", "name")
     # Reverse OneToOne 'contract' pulled in the same query so the contract columns above don't
