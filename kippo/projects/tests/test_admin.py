@@ -1185,11 +1185,19 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
             self.assertNotIn(attr, ActiveKippoProjectAdmin.__dict__, f"{attr} should be inherited from the base")
         self.assertEqual(ActiveKippoProjectAdmin.list_display, KippoProjectBaseAdmin.list_display)
 
-    def test_all_projects_admin_keeps_display_as_active_column(self):
-        # the only list_display difference: the all-projects admin appends display_as_active
-        self.assertIn("display_as_active", KippoProjectAdmin.list_display)
-        self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
+    def test_display_as_active_is_only_all_projects_column(self):
+        # display_as_active is the ONLY column the all-projects admin adds over the shared base;
+        # every other column (including phase, category, and the contract columns) lives on the base.
         self.assertEqual(KippoProjectAdmin.list_display, (*KippoProjectBaseAdmin.list_display, "display_as_active"))
+        self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
+        for column in ("phase", "category", "get_contract_billing_type_display", "get_contract_total_amount_display"):
+            self.assertIn(column, KippoProjectBaseAdmin.list_display)
+
+    def test_confidence_column_retired_from_both_admins(self):
+        # confidence is no longer a changelist column on either admin (kept as a model field for
+        # ordering/forms, but the get_confidence_display column was retired)
+        self.assertNotIn("get_confidence_display", KippoProjectBaseAdmin.list_display)
+        self.assertNotIn("get_confidence_display", KippoProjectAdmin.list_display)
 
     def test_change_page_hides_delete_button_but_changelist_keeps_it(self):
         project = self.make_project("delete-lock")
@@ -1230,6 +1238,47 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
         self.assertEqual(response.status_code, HTTPStatus.OK)
         names = [p.name for p in response.context["cl"].result_list]
         self.assertLess(names.index(anon.name), names.index(real.name))
+
+
+class KippoProjectAdminContractColumnsTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """The all-projects admin surfaces the related contract's 請求方法 / 契約金額 as changelist columns."""
+
+    def setUp(self):
+        super().setUp()
+        self.modeladmin = KippoProjectAdmin(KippoProject, self.site)
+
+    def test_columns_blank_when_no_contract(self):
+        project = self.make_project("no-contract")
+        self.assertEqual(self.modeladmin.get_contract_billing_type_display(project), "")
+        self.assertEqual(self.modeladmin.get_contract_total_amount_display(project), "")
+
+    def test_columns_render_contract_values(self):
+        from projects.definitions import BILLING_TYPE_MONTHLY
+
+        project = self.make_project("with-contract")
+        KippoProjectContract.objects.create(
+            project=project,
+            billing_type=BILLING_TYPE_MONTHLY,
+            total_amount=1500000,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        project.refresh_from_db()
+        # billing_type shows the human choice label (月額), not the raw 'monthly'
+        self.assertEqual(self.modeladmin.get_contract_billing_type_display(project), "月額")
+        self.assertEqual(self.modeladmin.get_contract_total_amount_display(project), "¥1,500,000")
+
+    def test_total_amount_blank_when_unset(self):
+        # effort contracts may leave total_amount blank -> column renders empty, not "¥None"
+        project = self.make_project("effort-no-total")
+        KippoProjectContract.objects.create(
+            project=project,
+            total_amount=None,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        project.refresh_from_db()
+        self.assertEqual(self.modeladmin.get_contract_total_amount_display(project), "")
 
 
 class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):
