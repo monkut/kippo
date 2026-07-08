@@ -1845,19 +1845,19 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
 @admin.register(SalesKippoProject)
 class SalesKippoProjectAdmin(KippoProjectBaseAdmin):
     # Pre-contract sales pipeline (SalesKippoProjectManager: open + proposing/verbal phases). Same
-    # config as the active admin except the survey/github columns — those only matter post-delivery,
-    # so アンケート完了ユーザ / 顧客アンケートURL / GITHUBプロジェクト are dropped from list_display.
+    # config as the active admin except the survey/github columns dropped in get_list_display below.
     list_filter = (PhaseMultiSelectListFilter,)
-    list_display = tuple(
-        column
-        for column in KippoProjectBaseAdmin.list_display
-        if column
-        not in (
-            "get_kippoprojectuserstatisfactionresult_usernames",
-            "get_projectsurvey_display_url",
-            "show_github_project_html_url",
-        )
+    # Post-delivery columns hidden on the sales changelist — they only carry data once a project ships.
+    HIDDEN_LIST_DISPLAY_COLUMNS = (
+        "get_kippoprojectuserstatisfactionresult_usernames",  # アンケート完了ユーザ
+        "get_projectsurvey_display_url",  # 顧客アンケートURL
+        "show_github_project_html_url",  # GITHUBプロジェクト
     )
+
+    def get_list_display(self, request: DjangoRequest):
+        # Filter the shared base columns (base binds get_projectstatus_display to the request first).
+        columns = super().get_list_display(request)
+        return tuple(column for column in columns if column not in self.HIDDEN_LIST_DISPLAY_COLUMNS)
 
 
 @admin.register(KippoProjectContract)

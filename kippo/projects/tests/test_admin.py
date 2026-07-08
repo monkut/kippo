@@ -1423,13 +1423,22 @@ class SalesKippoProjectAdminTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertEqual(str(SalesKippoProject._meta.verbose_name), "プロジェクト(営業中)")
 
     def test_list_display_drops_survey_and_github_columns(self):
-        # Same columns as the shared base minus the three post-delivery columns.
+        # get_list_display filters the shared base columns down to the sales set (three post-delivery
+        # columns removed). The active admin renders the base columns unchanged, so compare against it.
+        # The base binds get_projectstatus_display to a fresh per-request callable — normalize it back.
+        request = RequestFactory().get("/")
+        request.user = self.superuser_no_org
+
+        def names(columns: tuple) -> tuple:
+            return tuple("get_projectstatus_display" if callable(column) else column for column in columns)
+
+        sales_columns = names(SalesKippoProjectAdmin(SalesKippoProject, self.site).get_list_display(request))
+        active_columns = names(ActiveKippoProjectAdmin(ActiveKippoProject, self.site).get_list_display(request))
         dropped = ("get_kippoprojectuserstatisfactionresult_usernames", "get_projectsurvey_display_url", "show_github_project_html_url")
-        expected = tuple(column for column in KippoProjectBaseAdmin.list_display if column not in dropped)
-        self.assertEqual(SalesKippoProjectAdmin.list_display, expected)
+        self.assertEqual(sales_columns, tuple(column for column in active_columns if column not in dropped))
         for column in dropped:
-            self.assertIn(column, KippoProjectBaseAdmin.list_display)
-            self.assertNotIn(column, SalesKippoProjectAdmin.list_display)
+            self.assertIn(column, active_columns)
+            self.assertNotIn(column, sales_columns)
 
     def test_manager_filters_to_open_proposing_phases(self):
         in_pipeline = [self.make_phase_project(f"sales-{phase}", phase) for phase in SALES_PROJECT_PHASES]
