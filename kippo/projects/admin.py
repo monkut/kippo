@@ -92,9 +92,13 @@ if TYPE_CHECKING:
 CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 
 # Shown on the contract inline (not the phase field) when a project is moved into 契約(稼働中) without a
-# contract that carries both period dates. The message is attached to the inline formset so Django
-# renders that 契約 component in its error state (highlighted), instead of a message on the phase field.
-CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _("A contract with both a start date and an end date is required to set the phase to 契約(稼働中).")
+# SAVED contract. The 契約 period is pre-filled from the project dates, so the misleading part is that the
+# dates look present — the real gap is that the row was not saved as a contract (a 契約金額 is needed to
+# create one). Attached to the inline formset so Django renders that 契約 component in its error state.
+CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _(
+    "A saved 契約 is required to set the phase to 契約(稼働中): enter the 契約金額 (and confirm the "
+    "start/end dates) so the contract is created — the pre-filled dates alone do not save a contract."
+)
 
 # GET/POST param carrying the admin URL to return to after a project add/change. Set by callers
 # that send the user into the project add form from elsewhere (e.g. the customer admin's
