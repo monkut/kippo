@@ -58,7 +58,7 @@
           {{ form.close_comment.label }}:
           <span id="close-comment-required-indicator"
                 class="required-indicator"
-                data-no-upsell-value="{{ no_upsell_value }}"
+                data-no-continuation-value="{{ no_continuation_value }}"
                 data-comment-target="{{ form.close_comment.id_for_label }}"
                 aria-live="polite">{% trans "(required)" %}</span>
         </label>
@@ -75,11 +75,11 @@
   (function () {
     var indicator = document.getElementById("close-comment-required-indicator");
     if (!indicator) { return; }
-    var noUpsellValue = indicator.getAttribute("data-no-upsell-value");
+    var noContinuationValue = indicator.getAttribute("data-no-continuation-value");
     var commentInput = document.getElementById(indicator.getAttribute("data-comment-target"));
     var categorySelect = document.querySelector('select[name="category"]');
     function update() {
-      var isRequired = !!(categorySelect && categorySelect.value === noUpsellValue);
+      var isRequired = !!(categorySelect && categorySelect.value === noContinuationValue);
       indicator.classList.toggle("is-visible", isRequired);
       if (commentInput) {
         if (isRequired) {

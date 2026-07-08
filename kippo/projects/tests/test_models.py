@@ -10,11 +10,11 @@ from django.utils import timezone
 from tasks.models import KippoTask, KippoTaskStatus
 
 from projects.definitions import (
+    CONTINUATION_CATEGORY_VALUE,
     DEFAULT_PROJECT_CATEGORY_VALUE,
     FULL_CONFIDENCE_PERCENTAGE,
     KIPPOPROJECT_CATEGORY_CHOICES,
     NON_PROJECT_CATEGORY_VALUE,
-    UPSELL_CATEGORY_VALUES,
     VALID_KIPPOPROJECT_CATEGORY_VALUES,
 )
 from projects.models import (
@@ -641,10 +641,9 @@ class KippoProjectCategoryChoicesTestCase(TestCase):
         self.assertEqual(field.default(), other.pk)
         self.assertEqual(settings.DEFAULT_KIPPOPROJECT_CATEGORY, DEFAULT_PROJECT_CATEGORY_VALUE)
 
-    def test_upsell_category_values_present_as_global_categories(self):
-        for value in UPSELL_CATEGORY_VALUES:
-            self.assertIn(value, VALID_KIPPOPROJECT_CATEGORY_VALUES)
-            self.assertTrue(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=value).exists())
+    def test_continuation_category_value_present_as_global_category(self):
+        self.assertIn(CONTINUATION_CATEGORY_VALUE, VALID_KIPPOPROJECT_CATEGORY_VALUES)
+        self.assertTrue(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=CONTINUATION_CATEGORY_VALUE).exists())
 
     def test_close_comment_field_defaults(self):
         field = KippoProject._meta.get_field("close_comment")

@@ -1846,7 +1846,7 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
 
     def test_estimated_monthly_amount_round_trips_for_effort_monthly(self):
-        """仮月額 (kippo#46) is settable/readable on the contract endpoint for effort + monthly terms."""
+        """月額 (kippo#46) is settable/readable on the contract endpoint for effort + monthly terms."""
         url = f"{self.base}/{self.project.id}/contract/"
         resp = self.client.post(
             url,
@@ -1858,7 +1858,7 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(self.project.contract.estimated_monthly_amount, 500000)
 
     def test_estimated_monthly_amount_rejected_off_effort_monthly(self):
-        """Mirror KippoProjectContract.clean(): 仮月額 anywhere but effort + monthly → 400."""
+        """Mirror KippoProjectContract.clean(): 月額 anywhere but effort + monthly → 400."""
         url = f"{self.base}/{self.project.id}/contract/"
         resp = self.client.post(
             url,

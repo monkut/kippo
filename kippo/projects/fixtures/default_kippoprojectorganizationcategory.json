@@ -95,35 +95,9 @@
         "pk": "231a96f4-c247-5f58-90ca-ab0f0445037a",
         "fields": {
             "organization": null,
-            "key": "upsell-improvement",
-            "label": "(Upsell) 追加改善・拡張",
+            "key": "continuation",
+            "label": "継続",
             "sort_order": 80,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "2fedd0b4-f774-5fd0-a65f-f90336baa3c2",
-        "fields": {
-            "organization": null,
-            "key": "upsell-new-proposal",
-            "label": "(Upsell) 新規提案",
-            "sort_order": 90,
-            "is_active": true,
-            "created_datetime": "2026-06-09T00:00:00Z",
-            "updated_datetime": "2026-06-09T00:00:00Z"
-        }
-    },
-    {
-        "model": "projects.kippoprojectorganizationcategory",
-        "pk": "f620cbaf-3cb7-5d61-a28e-a55ffe26660a",
-        "fields": {
-            "organization": null,
-            "key": "upsell-new-department",
-            "label": "(Upsell) 別部署紹介",
-            "sort_order": 100,
             "is_active": true,
             "created_datetime": "2026-06-09T00:00:00Z",
             "updated_datetime": "2026-06-09T00:00:00Z"
