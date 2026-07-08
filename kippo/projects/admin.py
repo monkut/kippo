@@ -1099,6 +1099,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                     "name",
                     "phase",
                     "category",
+                    "lead_source",
                     "project_manager",
                     "problem_definition",
                     # computed readonly MTG-calendar displays (kippo#13) — surfaced at the top, below the

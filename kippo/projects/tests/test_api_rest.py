@@ -223,6 +223,28 @@ class KippoProjectViewSetTestCase(TestCase):
         response = self.client.patch(url, {"confidence": 150}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
 
+    def test_lead_source_defaults_to_blank(self):
+        """A new project has no lead_source (リード) until one is set."""
+        self.assertEqual(self.project.lead_source, "")
+
+    def test_lead_source_round_trips_via_api(self):
+        """lead_source is writable as its key and read back with its display label."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"lead_source": "customer-referral"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["lead_source"], "customer-referral")
+        self.assertEqual(data["lead_source_display"], "顧客紹介")
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.lead_source, "customer-referral")
+
+    def test_lead_source_invalid_choice_rejected(self):
+        """A lead_source outside VALID_LEAD_SOURCES is rejected with a 400."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"lead_source": "not-a-source"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("lead_source", response.json())
+
     def _create_contract(self, **kwargs) -> KippoProjectContract:
         """Contract for self.project — its period backfills from the project dates set in setUp."""
         from decimal import Decimal

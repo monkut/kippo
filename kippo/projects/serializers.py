@@ -337,6 +337,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     )
     # Human-readable category label for the list/detail view (kippo#39 / T14); `category` stays the key.
     category_label = serializers.CharField(source="category.label", read_only=True, allow_null=True)
+    # Human-readable lead_source (リード) label; `lead_source` stays the editable key. Blank when unset.
+    lead_source_display = serializers.CharField(source="get_lead_source_display", read_only=True)
     # 請求方法 — the project's billing type as a one-element list (kippo#39 / T14). Read-only;
     # the billing method lives on KippoProjectContract (OneToOne) since kippo#31.
     billing_types = serializers.ListField(child=serializers.CharField(), read_only=True)
@@ -393,6 +395,8 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "confidence",
             "category",
             "category_label",
+            "lead_source",
+            "lead_source_display",
             "billing_types",
             "monthly_billing_schedule",
             "slack_channel_name",

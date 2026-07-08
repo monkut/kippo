@@ -29,9 +29,11 @@ from .definitions import (
     DEFAULT_PRICING_BASIS,
     DEFAULT_PROJECT_CATEGORY_VALUE,
     KIPPOPROJECT_CATEGORY_MAX_LENGTH,
+    LEAD_SOURCE_MAX_LENGTH,
     PRICING_BASIS_EFFORT,
     PRICING_BASIS_FIXED,
     VALID_BILLING_TYPES,
+    VALID_LEAD_SOURCES,
     VALID_PRICING_BASES,
     ProjectProgressStatus,
     ProjectRoles,
@@ -353,6 +355,14 @@ class KippoProject(UserCreatedBaseModel):
         related_name="projects",
         default=get_default_project_category,
         verbose_name=_("カテゴリ"),
+    )
+    lead_source = models.CharField(
+        max_length=LEAD_SOURCE_MAX_LENGTH,
+        blank=True,
+        default="",
+        choices=VALID_LEAD_SOURCES,
+        verbose_name=_("リード"),
+        help_text=_("案件のリード獲得元（任意）"),
     )
     slack_channel_name = models.CharField(
         max_length=80,
