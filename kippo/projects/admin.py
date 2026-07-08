@@ -965,7 +965,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "id",
         "get_customer_name",
         "name",
-        "get_confidence_display",
         "get_projectstatus_display",
         "get_latest_kippoprojectstatus_comment",
         "start_date",
@@ -1163,13 +1162,6 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
                 queryset = queryset.exclude(key__in=UPSELL_CATEGORY_VALUES)
             kwargs["queryset"] = queryset
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-    @admin.display(description=_("confidence"), ordering="confidence")
-    def get_confidence_display(self, obj: KippoProject):
-        result = ""
-        if obj.confidence:
-            result = f"{obj.confidence} %"
-        return result
 
     @admin.display(description=_("アンケート完了ユーザ"))
     def get_kippoprojectuserstatisfactionresult_usernames(self, obj: KippoProject | None = None) -> str:
@@ -1689,11 +1681,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 @admin.register(KippoProject)
 class KippoProjectAdmin(KippoProjectBaseAdmin):
     # All projects, including closed/inactive — keep display_as_active so the active/closed state
-    # is visible at a glance (the only column that differs from the active admin).
-    # Drop the confidence column (kept on the active admin, dropped here); add phase, category, and
-    # the related-contract 請求方法 / 契約金額 columns.
+    # is visible at a glance. Also add phase, category, and the related-contract 請求方法 / 契約金額 columns.
     list_display = (
-        *(column for column in KippoProjectBaseAdmin.list_display if column != "get_confidence_display"),
+        *KippoProjectBaseAdmin.list_display,
         "phase",
         "category",
         "get_contract_billing_type_display",

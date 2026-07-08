@@ -1187,14 +1187,17 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
 
     def test_all_projects_admin_keeps_display_as_active_column(self):
         # list_display differences on the all-projects admin vs the base/active admin: it appends
-        # display_as_active plus phase, category, and the related-contract 請求方法 / 契約金額 columns,
-        # and drops the confidence column (get_confidence_display), which the base/active admin keeps.
+        # display_as_active plus phase, category, and the related-contract 請求方法 / 契約金額 columns.
         self.assertIn("display_as_active", KippoProjectAdmin.list_display)
         self.assertNotIn("display_as_active", ActiveKippoProjectAdmin.list_display)
-        self.assertNotIn("get_confidence_display", KippoProjectAdmin.list_display)
-        self.assertIn("get_confidence_display", KippoProjectBaseAdmin.list_display)
         for column in ("phase", "category", "get_contract_billing_type_display", "get_contract_total_amount_display"):
             self.assertIn(column, KippoProjectAdmin.list_display)
+
+    def test_confidence_column_retired_from_both_admins(self):
+        # confidence is no longer a changelist column on either admin (kept as a model field for
+        # ordering/forms, but the get_confidence_display column was retired)
+        self.assertNotIn("get_confidence_display", KippoProjectBaseAdmin.list_display)
+        self.assertNotIn("get_confidence_display", KippoProjectAdmin.list_display)
 
     def test_change_page_hides_delete_button_but_changelist_keeps_it(self):
         project = self.make_project("delete-lock")
