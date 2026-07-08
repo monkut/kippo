@@ -14,7 +14,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .definitions import (
+    BILLING_TYPE_MONTHLY,
     FULL_CONFIDENCE_PERCENTAGE,
+    PRICING_BASIS_EFFORT,
     PRICING_BASIS_FIXED,
     SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
     WEEKLY_EFFORT_CLOSED_MESSAGE,
@@ -233,6 +235,7 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             "billing_type",
             "pricing_basis",
             "total_amount",
+            "estimated_monthly_amount",
             "start_date",
             "end_date",
             "note",
@@ -247,14 +250,21 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
         # same invariants as the admin (a fixed-price contract without total_amount otherwise breaks
         # billing generation: total_amount // len(months)). For PATCH, fall back to the stored values.
         instance = self.instance
+        billing_type = attrs.get("billing_type", getattr(instance, "billing_type", None))
         pricing_basis = attrs.get("pricing_basis", getattr(instance, "pricing_basis", None))
         total_amount = attrs.get("total_amount", getattr(instance, "total_amount", None))
+        estimated_monthly_amount = attrs.get("estimated_monthly_amount", getattr(instance, "estimated_monthly_amount", None))
         start_date = attrs.get("start_date", getattr(instance, "start_date", None))
         end_date = attrs.get("end_date", getattr(instance, "end_date", None))
         if start_date and end_date and start_date > end_date:
             raise serializers.ValidationError({"end_date": _("Contract start_date is after end_date")})
         if pricing_basis == PRICING_BASIS_FIXED and total_amount is None:
             raise serializers.ValidationError({"total_amount": _("Total amount is required for fixed-price contracts.")})
+        # 仮月額 (kippo#46) only drives effort + monthly billing — reject it elsewhere as a likely mistake.
+        if estimated_monthly_amount is not None and not (pricing_basis == PRICING_BASIS_EFFORT and billing_type == BILLING_TYPE_MONTHLY):
+            raise serializers.ValidationError(
+                {"estimated_monthly_amount": _("Estimated monthly amount (仮月額) only applies to effort + monthly contracts.")}
+            )
         return attrs
 
 
