@@ -96,8 +96,7 @@ CLOSE_PROJECT_NO_UPSELL_VALUE = "__no_upsell__"
 # dates look present — the real gap is that the row was not saved as a contract (a 契約金額 is needed to
 # create one). Attached to the inline formset so Django renders that 契約 component in its error state.
 CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _(
-    "A saved 契約 is required to set the phase to 契約(稼働中): enter the 契約金額 (and confirm the "
-    "start/end dates) so the contract is created — the pre-filled dates alone do not save a contract."
+    "フェーズを契約(稼働中)にするには、保存済みの契約が必要です。契約金額を入力し（開始日・終了日を確認のうえ）契約を作成してください。"
 )
 
 # GET/POST param carrying the admin URL to return to after a project add/change. Set by callers
@@ -913,7 +912,7 @@ class KippoProjectAdminForm(forms.ModelForm):
         if needs_estimate and (allocated_staff_days is None or allocated_staff_days <= 0):
             self.add_error(
                 "allocated_staff_days",
-                _("A positive value is required when confidence is 100% (phase 契約(稼働中) / 完了)."),
+                _("確度が100%（フェーズ 契約(稼働中) / 完了）の場合は正の値が必須です。"),
             )
         organization = cleaned_data.get("organization")
         submitted_parent_project = cleaned_data.get("parent_project")
@@ -923,14 +922,14 @@ class KippoProjectAdminForm(forms.ModelForm):
         if getattr(category, "key", None) in UPSELL_CATEGORY_VALUES and not parent_project:
             self.add_error(
                 "parent_project",
-                _("Parent Project is required when an upsell category is selected."),
+                _("アップセルカテゴリを選択した場合は親プロジェクトが必須です。"),
             )
         # On /add/, parent_project must belong to the same organization as the new project.
         # (On /change/, parent_project is readonly so it isn't in submitted data — skip this check.)
         if submitted_parent_project and organization and submitted_parent_project.organization_id != organization.id:
             self.add_error(
                 "parent_project",
-                _("Parent Project must belong to the same organization as this project."),
+                _("親プロジェクトはこのプロジェクトと同じ組織に属している必要があります。"),
             )
         return cleaned_data
 
