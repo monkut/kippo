@@ -482,7 +482,11 @@ class KippoProject(UserCreatedBaseModel):
         # and only then can the phase move to under-contract — at which point the contract period
         # drives the project dates. Gated on the TRANSITION into the phase only, so rows already
         # persisted in 契約(稼働中) (legacy projects predating contracts) stay editable/saveable.
-        if self._is_entering_under_contract():
+        # The admin change form defers this gate to the contract inline (``_admin_defers_contract_gate``):
+        # it is surfaced on the 契約 component and validated against the contract submitted in the SAME
+        # request, so filling the inline and flipping the phase in one save works. Every other caller
+        # (API model validation, direct full_clean, shell) still enforces it here.
+        if self._is_entering_under_contract() and not getattr(self, "_admin_defers_contract_gate", False):
             contract = self.get_contract()
             if not (contract and contract.has_complete_period()):
                 raise ValidationError({"phase": UNDER_CONTRACT_REQUIRES_CONTRACT_MSG})

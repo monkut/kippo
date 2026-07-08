@@ -18,6 +18,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.db import connection
+from django.forms.models import BaseInlineFormSet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -25,6 +26,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
+    CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG,
     ActiveKippoProjectAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
@@ -36,9 +38,11 @@ from projects.admin import (
     _next_upsell_project_name,
     _start_of_next_month,
 )
+from projects.definitions import DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS
 from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
+    PHASE_UNDER_CONTRACT,
     VALID_PROJECT_PHASES,
     ActiveKippoProject,
     KippoMilestone,
@@ -239,6 +243,121 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         formset.save()
         self.assertIsNone(getattr(self.project1, "contract", None))
 
+    def _contract_gate_formset(self, project: KippoProject, form_data: dict | None) -> BaseInlineFormSet:
+        """Build the contract inline formset (no period prefill) bound to ``project`` as its parent."""
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=None)  # obj=None -> no period prefill
+        prefix = "contract"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1",
+        }
+        # a browser always posts the billing_type / pricing_basis selects at their rendered defaults even
+        # when the operator enters nothing else; mirror that so an otherwise-empty row is treated as
+        # unchanged (creates no contract) rather than raising required-field errors.
+        row = {"billing_type": DEFAULT_BILLING_TYPE, "pricing_basis": DEFAULT_PRICING_BASIS}
+        if form_data:
+            row.update(form_data)
+        data.update({f"{prefix}-0-{field}": value for field, value in row.items()})
+        return formset_class(data=data, instance=project, prefix=prefix)
+
+    def _entering_under_contract_project(self) -> KippoProject:
+        project = KippoProject.objects.get(pk=self.project1.pk)  # snapshot persisted phase (proposing-low)
+        project.phase = PHASE_UNDER_CONTRACT  # transition -> entering
+        self.assertTrue(project._is_entering_under_contract())
+        return project
+
+    def test_under_contract_gate_flags_inline_not_phase_when_contract_missing(self):
+        # entering 契約(稼働中) with an empty contract inline: the requirement is surfaced on the contract
+        # component (formset non-form error, so Django highlights it), NOT on the phase field, and blocks the save.
+        project = self._entering_under_contract_project()
+        formset = self._contract_gate_formset(project, form_data=None)
+        self.assertFalse(formset.is_valid())
+        self.assertTrue(formset.non_form_errors())
+        self.assertIn(str(CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG), formset.non_form_errors())
+
+    def test_under_contract_gate_passes_when_contract_period_submitted_same_request(self):
+        # supplying a complete contract period in the SAME request satisfies the gate (the fix: previously
+        # the model-level check queried the DB and rejected the contract-and-phase-in-one-save flow).
+        project = self._entering_under_contract_project()
+        formset = self._contract_gate_formset(
+            project,
+            form_data={
+                "billing_type": DEFAULT_BILLING_TYPE,
+                "pricing_basis": DEFAULT_PRICING_BASIS,
+                "total_amount": "500000",
+                "start_date": "2026-01-01",
+                "end_date": "2026-06-30",
+            },
+        )
+        self.assertTrue(formset.is_valid(), formset.non_form_errors() or formset.errors)
+
+    def test_under_contract_gate_ignores_non_entering_edit(self):
+        # a normal edit that does not transition into 契約(稼働中) is not gated, even with an empty inline
+        project = KippoProject.objects.get(pk=self.project1.pk)  # phase stays proposing-low
+        self.assertFalse(project._is_entering_under_contract())
+        formset = self._contract_gate_formset(project, form_data=None)
+        self.assertTrue(formset.is_valid(), formset.non_form_errors())
+
+    def test_under_contract_gate_passes_when_new_contract_period_backfills(self):
+        # a NEW contract row left blank still satisfies the gate: KippoProjectContract.save() backfills the
+        # period from the project's start_date / target_date on creation, so the saved contract is complete.
+        project = KippoProject.objects.get(pk=self.project1.pk)
+        project.start_date = date(2026, 1, 1)
+        project.target_date = date(2026, 6, 30)
+        project.save()
+        entering = KippoProject.objects.get(pk=project.pk)
+        entering.phase = PHASE_UNDER_CONTRACT
+        formset = self._contract_gate_formset(entering, form_data={"total_amount": "500000", "start_date": "", "end_date": ""})
+        self.assertTrue(formset.is_valid(), formset.non_form_errors() or formset.errors)
+
+    def test_under_contract_gate_blocks_when_contract_deleted_same_request(self):
+        # entering 契約(稼働中) while DELETING the only contract in the same save must be blocked — the gate
+        # judges the post-save state, not the still-persisted DB row.
+        project = KippoProject.objects.get(pk=self.project1.pk)
+        project.start_date = date(2026, 1, 1)
+        project.target_date = date(2026, 6, 30)
+        project.save()
+        contract = KippoProjectContract.objects.create(project=project, total_amount=100000)  # period backfills
+        self.assertTrue(contract.has_complete_period())
+        entering = KippoProject.objects.get(pk=project.pk)
+        entering.phase = PHASE_UNDER_CONTRACT
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset_class = inline.get_formset(request=self.super_user_request, obj=entering)
+        prefix = "contract"
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "1",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1",
+            f"{prefix}-0-id": str(contract.pk),
+            f"{prefix}-0-billing_type": contract.billing_type,
+            f"{prefix}-0-pricing_basis": contract.pricing_basis,
+            f"{prefix}-0-total_amount": str(contract.total_amount),
+            f"{prefix}-0-start_date": contract.start_date.isoformat(),
+            f"{prefix}-0-end_date": contract.end_date.isoformat(),
+            f"{prefix}-0-DELETE": "on",
+        }
+        formset = formset_class(data=data, instance=entering, prefix=prefix)
+        self.assertFalse(formset.is_valid())
+        self.assertIn(str(CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG), formset.non_form_errors())
+
+    def test_show_github_project_html_url_displays_last_path_component(self):
+        # the changelist GITHUBプロジェクト cell links to the full URL but shows only the trailing component
+        admin_instance = KippoProjectAdmin(KippoProject, self.site)
+        self.project1.github_project_html_url = "https://github.com/orgs/acme/projects/42"
+        html = admin_instance.show_github_project_html_url(self.project1)
+        self.assertIn('href="https://github.com/orgs/acme/projects/42"', html)
+        self.assertIn(">42<", html)
+        self.assertNotIn(">https://github.com", html)
+
+    def test_show_github_project_html_url_blank_when_unset(self):
+        admin_instance = KippoProjectAdmin(KippoProject, self.site)
+        self.project1.github_project_html_url = ""
+        self.assertEqual(admin_instance.show_github_project_html_url(self.project1), "")
+
 
 class IsStaffOrganizationKippoMilestoneAdminTestCase(IsStaffModelAdminTestCaseBase):
     fixtures = DEFAULT_FIXTURES
@@ -411,6 +530,15 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         )
         self.changelist_url = reverse("admin:projects_kippoproject_changelist")
         self.client.force_login(self.superuser_no_org)
+
+    def test_changelist_includes_single_line_column_style(self):
+        # the changelist template widens the 顧客(customer) + フェーズ(phase) columns to a single line
+        response = self.client.get(self.changelist_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        self.assertIn("td.field-get_customer_name", content)
+        self.assertIn("td.field-phase", content)
+        self.assertIn("white-space: nowrap", content)
 
     def test_multiple_projects_selected_rejected(self):
         response = self.client.post(
@@ -683,6 +811,42 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         keys = set(response.context["adminform"].form.fields["category"].queryset.values_list("key", flat=True))
         self.assertFalse(keys.isdisjoint(UPSELL_CATEGORY_VALUES), "wizard add must keep upsell categories available")
+
+    def test_add_form_category_scoped_to_user_organizations(self):
+        # the category select must list only the user's organizations' categories, never another org's
+        other_org_category = KippoProjectOrganizationCategory.objects.filter(organization=self.other_organization).first()
+        self.assertIsNotNone(other_org_category, "fixture should have seeded the other org's categories")
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        queryset = response.context["adminform"].form.fields["category"].queryset
+        org_ids = set(queryset.values_list("organization_id", flat=True))
+        self.assertEqual(org_ids, {self.organization.id}, f"category select leaked non-member org categories: {org_ids}")
+        self.assertNotIn(other_org_category.pk, set(queryset.values_list("pk", flat=True)))
+
+    def test_add_form_preselects_org_default_category(self):
+        # the model default is a GLOBAL row the org-scoped queryset drops; the add form must still
+        # pre-select the org's OWN default category (and keep it selectable) so a plain registration
+        # validates without opening the カテゴリ dropdown.
+        default_category = KippoProjectOrganizationCategory.get_default_for_organization(self.organization.id)
+        self.assertIsNotNone(default_category)
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        field = response.context["adminform"].form.fields["category"]
+        self.assertEqual(str(field.initial), str(default_category.pk))
+        self.assertIn(default_category.pk, set(field.queryset.values_list("pk", flat=True)))
+
+    def test_change_form_category_scoped_to_project_organization(self):
+        # editing a project must only offer that project's organization's categories
+        other_org_category = KippoProjectOrganizationCategory.objects.filter(organization=self.other_organization).first()
+        url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        queryset = response.context["adminform"].form.fields["category"].queryset
+        org_ids = set(queryset.values_list("organization_id", flat=True))
+        self.assertEqual(org_ids, {self.organization.id}, f"category select leaked non-project org categories: {org_ids}")
+        self.assertNotIn(other_org_category.pk, set(queryset.values_list("pk", flat=True)))
 
     def test_upsell_redirect_hides_parent_project_and_organization(self):
         # close-action upsell redirect: parent_project and organization must render as hidden inputs
