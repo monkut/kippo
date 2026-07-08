@@ -1690,7 +1690,31 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 class KippoProjectAdmin(KippoProjectBaseAdmin):
     # All projects, including closed/inactive — keep display_as_active so the active/closed state
     # is visible at a glance (the only column that differs from the active admin).
-    list_display = (*KippoProjectBaseAdmin.list_display, "display_as_active")
+    # Drop the confidence column (kept on the active admin, dropped here); add phase, category, and
+    # the related-contract 請求方法 / 契約金額 columns.
+    list_display = (
+        *(column for column in KippoProjectBaseAdmin.list_display if column != "get_confidence_display"),
+        "phase",
+        "category",
+        "get_contract_billing_type_display",
+        "get_contract_total_amount_display",
+        "display_as_active",
+    )
+    # Reverse OneToOne 'contract' pulled in the same query so the two contract columns above don't
+    # cost a query per row.
+    list_select_related = (*KippoProjectBaseAdmin.list_select_related, "contract")
+
+    @admin.display(description=_("請求方法"), ordering="contract__billing_type")
+    def get_contract_billing_type_display(self, obj: KippoProject) -> str:
+        contract = obj.get_contract()
+        return contract.get_billing_type_display() if contract else ""
+
+    @admin.display(description=_("契約金額"), ordering="contract__total_amount")
+    def get_contract_total_amount_display(self, obj: KippoProject) -> str:
+        contract = obj.get_contract()
+        if contract and contract.total_amount is not None:
+            return f"¥{contract.total_amount:,}"
+        return ""
 
 
 @admin.register(ActiveKippoProject)
