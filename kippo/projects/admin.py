@@ -85,6 +85,7 @@ from .models import (
     ProjectMonthlyCost,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
+    SalesKippoProject,
 )
 
 if TYPE_CHECKING:
@@ -1839,6 +1840,24 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
         if obj is not None and "parent_project" not in excluded:
             excluded.append("parent_project")
         return tuple(excluded)
+
+
+@admin.register(SalesKippoProject)
+class SalesKippoProjectAdmin(KippoProjectBaseAdmin):
+    # Pre-contract sales pipeline (SalesKippoProjectManager: open + proposing/verbal phases). Same
+    # config as the active admin except the survey/github columns — those only matter post-delivery,
+    # so アンケート完了ユーザ / 顧客アンケートURL / GITHUBプロジェクト are dropped from list_display.
+    list_filter = (PhaseMultiSelectListFilter,)
+    list_display = tuple(
+        column
+        for column in KippoProjectBaseAdmin.list_display
+        if column
+        not in (
+            "get_kippoprojectuserstatisfactionresult_usernames",
+            "get_projectsurvey_display_url",
+            "show_github_project_html_url",
+        )
+    )
 
 
 @admin.register(KippoProjectContract)

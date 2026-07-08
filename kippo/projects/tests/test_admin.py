@@ -36,6 +36,7 @@ from projects.admin import (
     KippoProjectContractInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
+    SalesKippoProjectAdmin,
     _next_upsell_project_name,
     _start_of_next_month,
 )
@@ -44,6 +45,7 @@ from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
     PHASE_UNDER_CONTRACT,
+    SALES_PROJECT_PHASES,
     VALID_PROJECT_PHASES,
     ActiveKippoProject,
     KippoMilestone,
@@ -54,6 +56,7 @@ from projects.models import (
     KippoProjectUserStatisfactionResult,
     ProjectColumnSet,
     ProjectWeeklyEffort,
+    SalesKippoProject,
 )
 
 
@@ -1404,6 +1407,45 @@ class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase
         self.assertEqual(response.status_code, HTTPStatus.OK)
         names = [p.name for p in response.context["cl"].result_list]
         self.assertLess(names.index(anon.name), names.index(real.name))
+
+
+class SalesKippoProjectAdminTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """プロジェクト(営業中): the pre-contract sales pipeline admin (SalesKippoProject proxy)."""
+
+    def make_phase_project(self, name: str, phase: str, *, is_closed: bool = False) -> KippoProject:
+        project = self.make_project(name)
+        project.phase = phase
+        project.is_closed = is_closed
+        project.save()
+        return project
+
+    def test_verbose_name(self):
+        self.assertEqual(str(SalesKippoProject._meta.verbose_name), "プロジェクト(営業中)")
+
+    def test_list_display_drops_survey_and_github_columns(self):
+        # Same columns as the shared base minus the three post-delivery columns.
+        dropped = ("get_kippoprojectuserstatisfactionresult_usernames", "get_projectsurvey_display_url", "show_github_project_html_url")
+        expected = tuple(column for column in KippoProjectBaseAdmin.list_display if column not in dropped)
+        self.assertEqual(SalesKippoProjectAdmin.list_display, expected)
+        for column in dropped:
+            self.assertIn(column, KippoProjectBaseAdmin.list_display)
+            self.assertNotIn(column, SalesKippoProjectAdmin.list_display)
+
+    def test_manager_filters_to_open_proposing_phases(self):
+        in_pipeline = [self.make_phase_project(f"sales-{phase}", phase) for phase in SALES_PROJECT_PHASES]
+        under_contract = self.make_phase_project("delivery", PHASE_UNDER_CONTRACT)
+        completed = self.make_phase_project("done", "completed")
+        closed_proposal = self.make_phase_project("closed-proposal", "proposing-high", is_closed=True)
+
+        visible = set(SalesKippoProject.objects.values_list("id", flat=True))
+        self.assertEqual(visible, {project.id for project in in_pipeline})
+        for excluded in (under_contract, completed, closed_proposal):
+            self.assertNotIn(excluded.id, visible)
+
+    def test_changelist_renders(self):
+        self.make_phase_project("sales-visible", "proposing-mid")
+        response = self.client.get(reverse("admin:projects_saleskippoproject_changelist"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
 
 
 class KippoProjectAdminContractColumnsTestCase(KippoProjectAdminFixtureTestCaseBase):

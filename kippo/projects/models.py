@@ -182,6 +182,9 @@ VALID_PROJECT_PHASES = (
 # Phases pre-selected on the active-project admin changelist when the フェーズ filter has no query
 # param — the two "in-flight" phases. See projects.filters.PhaseMultiSelectListFilter.
 DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", "under-contract")
+# Pre-contract sales-pipeline phases — everything before delivery (under-contract) and before a
+# terminal outcome (completed/lost). Consumed by SalesKippoProjectManager (プロジェクト(営業中)).
+SALES_PROJECT_PHASES = ("keep-in-touch", "proposing-low", "proposing-mid", "proposing-high", "verbal-order")
 # phase -> confidence (確度). under-contract/completed == 100 keep the monthly-assignment confirm gate working.
 PHASE_CONFIDENCE = {
     "keep-in-touch": 0,  # KIT = "keep in touch": proposal did not succeed
@@ -940,6 +943,23 @@ class ActiveKippoProject(KippoProject):
     class Meta:
         proxy = True
         verbose_name = _("プロジェクト(実行中)")
+        verbose_name_plural = verbose_name
+
+
+class SalesKippoProjectManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Open projects still in the pre-contract sales pipeline (proposing/verbal, KIT).
+        qs = qs.filter(is_closed=False, phase__in=SALES_PROJECT_PHASES)
+        return qs
+
+
+class SalesKippoProject(KippoProject):
+    objects = SalesKippoProjectManager()
+
+    class Meta:
+        proxy = True
+        verbose_name = _("プロジェクト(営業中)")
         verbose_name_plural = verbose_name
 
 
