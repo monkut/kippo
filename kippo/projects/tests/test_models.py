@@ -641,7 +641,7 @@ class KippoProjectCategoryChoicesTestCase(TestCase):
         self.assertEqual(settings.DEFAULT_KIPPOPROJECT_CATEGORY, DEFAULT_PROJECT_CATEGORY_VALUE)
 
     def test_default_category_values_present_as_global_categories(self):
-        expected = {"ai-development", "system-development", "consulting", "other", "non-project"}
+        expected = {"ai-development", "system-development", "consulting", DEFAULT_PROJECT_CATEGORY_VALUE, NON_PROJECT_CATEGORY_VALUE}
         self.assertEqual(set(VALID_KIPPOPROJECT_CATEGORY_VALUES), expected)
         for value in expected:
             self.assertTrue(KippoProjectOrganizationCategory.objects.filter(organization__isnull=True, key=value).exists())

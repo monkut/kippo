@@ -917,12 +917,14 @@ class KippoProjectAdminForm(forms.ModelForm):
         # — fall back to the persisted instance value so existing continuation projects keep validating.
         parent_project = submitted_parent_project or getattr(self.instance, "parent_project", None)
         # A 継続 (continuation) project continues a prior engagement, so it must reference its parent.
+        # parent_project is readonly on the change form (absent from self.fields there), so attach the
+        # error to it only when it is an editable field; otherwise raise a non-field error. Using
+        # add_error("parent_project", …) unconditionally would raise ValueError (→ HTTP 500) on the
+        # change form when リード=継続 is set on a parentless project.
         lead_source = cleaned_data.get("lead_source")
         if lead_source == CONTINUATION_LEAD_SOURCE_VALUE and not parent_project:
-            self.add_error(
-                "parent_project",
-                _("リードが継続の場合は親プロジェクトが必須です。"),
-            )
+            message = _("リードが継続の場合は親プロジェクトが必須です。")
+            self.add_error("parent_project" if "parent_project" in self.fields else None, message)
         # On /add/, parent_project must belong to the same organization as the new project.
         # (On /change/, parent_project is readonly so it isn't in submitted data — skip this check.)
         if submitted_parent_project and organization and submitted_parent_project.organization_id != organization.id:

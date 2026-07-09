@@ -979,6 +979,14 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         )
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_continuation_without_parent_on_readonly_form_uses_nonfield_error(self):
+        # regression: parent_project is readonly on the change form (removed from self.fields); setting
+        # リード=継続 on a parentless project must add a non-field error, not raise ValueError (HTTP 500).
+        form = KippoProjectAdminForm(data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE))
+        form.fields.pop("parent_project", None)  # mimic the readonly change-form state
+        self.assertFalse(form.is_valid())  # must not raise
+        self.assertIn("__all__", form.errors)
+
     def test_blank_lead_source_does_not_require_parent_project(self):
         form = KippoProjectAdminForm(data=self._form_data(category="other"))
         self.assertTrue(form.is_valid(), form.errors)

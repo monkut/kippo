@@ -56,8 +56,13 @@ def reconcile(apps, schema_editor):
 
     # 2. Per-org system-development copy for every org that already copied the default set.
     for organization in organization_model.objects.all():
-        existing_keys = set(category_model.objects.filter(organization=organization).values_list("key", flat=True))
-        if not existing_keys or SYSTEM_DEV_KEY in existing_keys:
+        org_categories = category_model.objects.filter(organization=organization)
+        existing_keys = set(org_categories.values_list("key", flat=True))
+        existing_labels = set(org_categories.values_list("label", flat=True))
+        # skip orgs that never copied the defaults, already have the key, or already use the label under
+        # a different key (a renamed category, kippo#50) — the (organization, label) unique constraint
+        # would otherwise raise IntegrityError and abort the migration.
+        if not existing_keys or SYSTEM_DEV_KEY in existing_keys or SYSTEM_DEV_LABEL in existing_labels:
             continue
         actor_id = getattr(organization, "created_by_id", None)
         category_model.objects.create(
@@ -74,7 +79,9 @@ def reconcile(apps, schema_editor):
     upsell_projects = project_model.objects.filter(category__key__in=UPSELL_KEYS).select_related("category", "parent_project__category")
     for project in upsell_projects:
         parent = project.parent_project
-        target = parent.category if (parent and parent.category_id and parent.category.key not in UPSELL_KEYS) else None
+        # only inherit the parent's category if it survives into the new taxonomy — a parent on a
+        # retired category (si/advisory/…/upsell) would leave the child on a soon-deactivated row.
+        target = parent.category if (parent and parent.category_id and parent.category.key not in RETIRED_KEYS) else None
         if target is None:
             target = _org_other_category(category_model, project.organization_id)
         project.lead_source = CONTINUATION_LEAD_SOURCE

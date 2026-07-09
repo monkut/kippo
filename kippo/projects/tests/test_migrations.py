@@ -15,6 +15,7 @@ SYSTEM_DEV_KEY = reconcile_module.SYSTEM_DEV_KEY
 UPSELL_KEYS = reconcile_module.UPSELL_KEYS
 RETIRED_KEYS = reconcile_module.RETIRED_KEYS
 CONTINUATION_LEAD_SOURCE = reconcile_module.CONTINUATION_LEAD_SOURCE
+OTHER_KEY = reconcile_module.OTHER_KEY
 AI_DEVELOPMENT_KEY = "ai-development"
 
 
@@ -111,12 +112,34 @@ class ReconcileCategoryTaxonomyTestCase(TestCase):
         # force the child onto the retired upsell category (bypass KippoProject.save() category logic)
         KippoProject.objects.filter(id=child.id).update(category=upsell_copy)
 
+        # a second child whose parent sits on a RETIRED (non-upsell) category must fall back to その他,
+        # not inherit the soon-deactivated retired category.
+        retired_copy = category.objects.get(organization=org, key=RETIRED_KEYS[0])
+        other_copy = category.objects.get(organization=org, key=OTHER_KEY)
+        parent_on_retired = KippoProject.objects.create(
+            organization=org, name="parent-retired", category=retired_copy, columnset=columnset, created_by=manager, updated_by=manager
+        )
+        child2 = KippoProject.objects.create(
+            organization=org,
+            name="child2-proj",
+            category=ai_copy,
+            columnset=columnset,
+            parent_project=parent_on_retired,
+            created_by=manager,
+            updated_by=manager,
+        )
+        KippoProject.objects.filter(id=child2.id).update(category=upsell_copy)
+
         reconcile(django_apps, schema_editor=None)
 
         child.refresh_from_db()
         # the upsell-categorized child is stamped 継続 and repointed to its parent's category
         self.assertEqual(child.lead_source, CONTINUATION_LEAD_SOURCE)
         self.assertEqual(child.category_id, ai_copy.id)
+        # child2's parent was on a retired category → child2 falls back to その他, not the retired row
+        child2.refresh_from_db()
+        self.assertEqual(child2.lead_source, CONTINUATION_LEAD_SOURCE)
+        self.assertEqual(child2.category_id, other_copy.id)
         # system-development is seeded globally and per-org, active
         self.assertTrue(category.objects.filter(organization__isnull=True, key=SYSTEM_DEV_KEY, is_active=True).exists())
         self.assertTrue(category.objects.filter(organization=org, key=SYSTEM_DEV_KEY, is_active=True).exists())
