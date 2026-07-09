@@ -223,6 +223,28 @@ class KippoProjectViewSetTestCase(TestCase):
         response = self.client.patch(url, {"confidence": 150}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
 
+    def test_lead_source_defaults_to_blank(self):
+        """A new project has no lead_source (リード) until one is set."""
+        self.assertEqual(self.project.lead_source, "")
+
+    def test_lead_source_round_trips_via_api(self):
+        """lead_source is writable as its key and read back with its display label."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"lead_source": "customer-referral"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["lead_source"], "customer-referral")
+        self.assertEqual(data["lead_source_display"], "顧客紹介")
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.lead_source, "customer-referral")
+
+    def test_lead_source_invalid_choice_rejected(self):
+        """A lead_source outside VALID_LEAD_SOURCES is rejected with a 400."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"lead_source": "not-a-source"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("lead_source", response.json())
+
     def _create_contract(self, **kwargs) -> KippoProjectContract:
         """Contract for self.project — its period backfills from the project dates set in setUp."""
         from decimal import Decimal
@@ -461,7 +483,7 @@ class KippoProjectViewSetTestCase(TestCase):
 
     def test_filter_by_category(self):
         """Test filtering projects by the category query parameter (exact match on the category key)."""
-        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="system-development")
         ai_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="ai-development")
         self.project.category = si_category
         self.project.save()
@@ -476,7 +498,7 @@ class KippoProjectViewSetTestCase(TestCase):
         )
 
         # Filter to si — only the si project should be returned.
-        url = f"{settings.URL_PREFIX}/api/projects/?category=si"
+        url = f"{settings.URL_PREFIX}/api/projects/?category=system-development"
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         category_ids = [result["id"] for result in response.json()["results"]]
@@ -492,7 +514,7 @@ class KippoProjectViewSetTestCase(TestCase):
 
     def test_exclude_by_category(self):
         """Test excluding projects by the exclude_category query parameter (exact match on the category key)."""
-        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="si")
+        si_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="system-development")
         non_project_category = KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key="non-project")
         self.project.category = si_category
         self.project.save()
@@ -1846,7 +1868,7 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
 
     def test_estimated_monthly_amount_round_trips_for_effort_monthly(self):
-        """仮月額 (kippo#46) is settable/readable on the contract endpoint for effort + monthly terms."""
+        """月額 (kippo#46) is settable/readable on the contract endpoint for effort + monthly terms."""
         url = f"{self.base}/{self.project.id}/contract/"
         resp = self.client.post(
             url,
@@ -1858,7 +1880,7 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         self.assertEqual(self.project.contract.estimated_monthly_amount, 500000)
 
     def test_estimated_monthly_amount_rejected_off_effort_monthly(self):
-        """Mirror KippoProjectContract.clean(): 仮月額 anywhere but effort + monthly → 400."""
+        """Mirror KippoProjectContract.clean(): 月額 anywhere but effort + monthly → 400."""
         url = f"{self.base}/{self.project.id}/contract/"
         resp = self.client.post(
             url,

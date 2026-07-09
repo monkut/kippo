@@ -27,6 +27,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
+    CLOSE_PROJECT_NO_CONTINUATION_VALUE,
+    CONTINUATION_SOURCE_PARAM,
+    CONTINUATION_SOURCE_VALUE,
     CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG,
     ActiveKippoProjectAdmin,
     KippoMilestoneAdmin,
@@ -37,10 +40,10 @@ from projects.admin import (
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     SalesKippoProjectAdmin,
-    _next_upsell_project_name,
+    _next_continuation_project_name,
     _start_of_next_month,
 )
-from projects.definitions import DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS
+from projects.definitions import CONTINUATION_LEAD_SOURCE_VALUE, DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS
 from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
@@ -578,14 +581,14 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         messages_list = [str(m) for m in response.context["messages"]]
         self.assertTrue(any("re-open" in m.lower() for m in messages_list), messages_list)
 
-    def test_no_upsell_requires_close_comment(self):
+    def test_no_continuation_requires_close_comment(self):
         response = self.client.post(
             self.changelist_url,
             data={
                 "action": "close_kippoproject_action",
                 ACTION_CHECKBOX_NAME: [str(self.project1.id)],
                 "post": "yes",
-                "category": "__no_upsell__",
+                "follow_up": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
                 "close_comment": "",
             },
         )
@@ -598,20 +601,20 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIsNotNone(form)
         self.assertIn("close_comment", form.errors)
 
-    def test_no_upsell_flow_closes_project(self):
+    def test_no_continuation_flow_closes_project(self):
         response = self.client.post(
             self.changelist_url,
             data={
                 "action": "close_kippoproject_action",
                 ACTION_CHECKBOX_NAME: [str(self.project1.id)],
                 "post": "yes",
-                "category": "__no_upsell__",
+                "follow_up": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
                 "close_comment": "Project completed successfully.",
             },
         )
         self.assertEqual(response.status_code, HTTPStatus.FOUND)
         self.assertIn("/admin/projects/kippoproject/", response["Location"])
-        # ensure no add page is requested for upsell-none
+        # ensure no add page is requested when no continuation follow-up was chosen
         self.assertNotIn("/add/", response["Location"])
 
         self.project1.refresh_from_db()
@@ -625,14 +628,14 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # confirm no new project was created
         self.assertEqual(KippoProject.objects.count(), 2)
 
-    def test_upsell_flow_closes_and_redirects(self):
+    def test_continuation_flow_closes_and_redirects(self):
         response = self.client.post(
             self.changelist_url,
             data={
                 "action": "close_kippoproject_action",
                 ACTION_CHECKBOX_NAME: [str(self.project1.id)],
                 "post": "yes",
-                "category": "upsell-improvement",
+                "follow_up": CONTINUATION_LEAD_SOURCE_VALUE,
                 "close_comment": "",
             },
         )
@@ -640,12 +643,14 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIn("/admin/projects/kippoproject/add/", response["Location"])
         parsed = urlparse(response["Location"])
         params = parse_qs(parsed.query)
-        self.assertEqual(params.get("category"), [str(_global_category("upsell-improvement").pk)])
+        # the follow-up is stamped as a 継続 lead_source (category is left to the add form default)
+        self.assertEqual(params.get("lead_source"), [CONTINUATION_LEAD_SOURCE_VALUE])
+        self.assertNotIn("category", params)
         self.assertEqual(params.get("parent_project"), [str(self.project1.id)])
-        # close-action upsell redirect must include the parent's organization and the upsell marker
-        # so the add form can derive the org server-side and detect the entry point.
+        # the redirect must include the parent's organization and the continuation marker so the add
+        # form can derive the org server-side and detect the entry point.
         self.assertEqual(params.get("organization"), [str(self.project1.organization_id)])
-        self.assertEqual(params.get("_upsell_source"), ["close"])
+        self.assertEqual(params.get(CONTINUATION_SOURCE_PARAM), [CONTINUATION_SOURCE_VALUE])
 
         self.project1.refresh_from_db()
         self.assertTrue(self.project1.is_closed)
@@ -654,8 +659,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         # category on the closing project is unchanged
         self.assertEqual(self.project1.category.key, "other")
 
-    def test_upsell_redirect_prefills_new_project_fields(self):
-        # populate source-project fields that should propagate to the upsell child
+    def test_continuation_redirect_prefills_new_project_fields(self):
+        # populate source-project fields that should propagate to the continuation child
         self.project1.slack_channel_name = "proj1"
         self.project1.slack_notification_channel_name = "proj1-notify"
         self.project1.document_folder_url = "https://docs.example.com/proj1"
@@ -670,12 +675,13 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "action": "close_kippoproject_action",
                 ACTION_CHECKBOX_NAME: [str(self.project1.id)],
                 "post": "yes",
-                "category": "upsell-new-proposal",
+                "follow_up": CONTINUATION_LEAD_SOURCE_VALUE,
                 "close_comment": "",
             },
         )
         self.assertEqual(response.status_code, HTTPStatus.FOUND)
         params = parse_qs(urlparse(response["Location"]).query)
+        self.assertEqual(params.get("lead_source"), [CONTINUATION_LEAD_SOURCE_VALUE])
         self.assertEqual(params.get("name"), ["project1 Phase 2"])
         self.assertEqual(params.get("slack_channel_name"), ["proj1"])
         self.assertEqual(params.get("slack_notification_channel_name"), ["proj1-notify"])
@@ -689,7 +695,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         expected_start = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
         self.assertEqual(params.get("start_date"), [expected_start.isoformat()])
 
-    def test_upsell_redirect_omits_blank_source_fields(self):
+    def test_continuation_redirect_omits_blank_source_fields(self):
         # leave optional source fields blank: prefill params should not include empty values
         response = self.client.post(
             self.changelist_url,
@@ -697,7 +703,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "action": "close_kippoproject_action",
                 ACTION_CHECKBOX_NAME: [str(self.project1.id)],
                 "post": "yes",
-                "category": "upsell-improvement",
+                "follow_up": CONTINUATION_LEAD_SOURCE_VALUE,
                 "close_comment": "",
             },
         )
@@ -713,7 +719,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
             with self.subTest(field=blank_field):
                 self.assertNotIn(blank_field, params)
 
-    def test_close_form_category_dropdown_default_is_no_upsell(self):
+    def test_close_form_follow_up_dropdown_default_is_no_continuation(self):
         response = self.client.post(
             self.changelist_url,
             data={
@@ -723,8 +729,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
         form = response.context["form"]
-        self.assertEqual(form.fields["category"].widget.__class__.__name__, "Select")
-        self.assertEqual(form.fields["category"].initial, "__no_upsell__")
+        self.assertEqual(form.fields["follow_up"].widget.__class__.__name__, "Select")
+        self.assertEqual(form.fields["follow_up"].initial, CLOSE_PROJECT_NO_CONTINUATION_VALUE)
 
     def test_add_form_hides_close_comment_field(self):
         url = reverse("admin:projects_kippoproject_add")
@@ -746,14 +752,14 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertContains(response, "project1")
 
     def test_add_form_prefills_from_get_params(self):
-        # the close-wizard opens /add/?_upsell_source=close&... and prefills the new project's fields;
-        # parent_project is present (hidden) on this wizard add (kippo#41).
+        # the close-wizard opens /add/?_continuation_source=close&... and prefills the new project's
+        # fields; parent_project is present (hidden) on this wizard add (kippo#41).
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(
             url,
             {
-                "_upsell_source": "close",
-                "category": "upsell-improvement",
+                CONTINUATION_SOURCE_PARAM: CONTINUATION_SOURCE_VALUE,
+                "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
                 "parent_project": str(self.project1.id),
                 "name": "prefilled-name",
             },
@@ -775,8 +781,9 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
     def test_change_form_shows_parent_project_readonly(self):
         child = KippoProject.objects.create(
             organization=self.organization,
-            name="upsell-child",
-            category=_global_category("upsell-improvement"),
+            name="continuation-child",
+            category=_global_category("other"),
+            lead_source=CONTINUATION_LEAD_SOURCE_VALUE,
             columnset=ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK),
             parent_project=self.project1,
             start_date=self.current_date,
@@ -791,31 +798,11 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertContains(response, self.project1.name)
 
     def test_manual_add_form_omits_parent_project(self):
-        # kippo#41: the flat /add/ form no longer exposes parent_project (upsell creation is wizard-only)
+        # kippo#41: the flat /add/ form no longer exposes parent_project (continuation creation is wizard-only)
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertNotIn("parent_project", response.context["adminform"].form.fields)
-
-    def test_plain_add_excludes_upsell_categories(self):
-        # kippo#41: upsell categories are hidden on the plain add form (they need a parent_project)
-        from projects.definitions import UPSELL_CATEGORY_VALUES
-
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        keys = set(response.context["adminform"].form.fields["category"].queryset.values_list("key", flat=True))
-        self.assertTrue(keys.isdisjoint(UPSELL_CATEGORY_VALUES), f"upsell categories leaked onto plain add: {keys & set(UPSELL_CATEGORY_VALUES)}")
-
-    def test_upsell_wizard_add_keeps_upsell_categories(self):
-        # the close-wizard add (?_upsell_source=close) keeps upsell categories selectable
-        from projects.definitions import UPSELL_CATEGORY_VALUES
-
-        url = reverse("admin:projects_kippoproject_add")
-        response = self.client.get(url, {"_upsell_source": "close"})
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        keys = set(response.context["adminform"].form.fields["category"].queryset.values_list("key", flat=True))
-        self.assertFalse(keys.isdisjoint(UPSELL_CATEGORY_VALUES), "wizard add must keep upsell categories available")
 
     def test_add_form_category_scoped_to_user_organizations(self):
         # the category select must list only the user's organizations' categories, never another org's
@@ -853,15 +840,15 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(org_ids, {self.organization.id}, f"category select leaked non-project org categories: {org_ids}")
         self.assertNotIn(other_org_category.pk, set(queryset.values_list("pk", flat=True)))
 
-    def test_upsell_redirect_hides_parent_project_and_organization(self):
-        # close-action upsell redirect: parent_project and organization must render as hidden inputs
+    def test_continuation_redirect_hides_parent_project_and_organization(self):
+        # close-action continuation redirect: parent_project and organization must render as hidden inputs
         # so the user cannot edit them; the values still POST so the existing validator runs.
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(
             url,
             {
-                "_upsell_source": "close",
-                "category": "upsell-improvement",
+                CONTINUATION_SOURCE_PARAM: CONTINUATION_SOURCE_VALUE,
+                "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
                 "parent_project": str(self.project1.id),
                 "organization": str(self.project1.organization_id),
             },
@@ -877,12 +864,12 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertIn('type="hidden" name="parent_project"', content)
         self.assertIn('type="hidden" name="organization"', content)
 
-    def test_upsell_form_with_derived_organization_is_valid_and_saves_parent(self):
-        # the upsell prefill always sets organization = parent_project.organization, so the form
+    def test_continuation_form_with_derived_organization_is_valid_and_saves_parent(self):
+        # the continuation prefill always sets organization = parent_project.organization, so the form
         # validator's parent-org invariant is satisfied by construction. Save and verify the result.
         customer = KippoCustomer.objects.create(
             organization=self.project1.organization,
-            name="upsell-form-customer",
+            name="continuation-form-customer",
             created_by=self.superuser_no_org,
             updated_by=self.superuser_no_org,
         )
@@ -893,7 +880,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "name": "project1 Phase 2",
                 "phase": "proposing-low",
                 "confidence": "80",
-                "category": str(_global_category("upsell-improvement").pk),
+                "category": str(_global_category("other").pk),
+                "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
                 "columnset": str(self.project1.columnset_id),
                 # required at registration (kippo#40 / T19, extended kippo#41)
                 "customer": str(customer.id),
@@ -901,7 +889,7 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "start_date": self.current_date.isoformat(),
                 "target_date": self.current_date.isoformat(),
                 "allocated_staff_days": "10",
-                "problem_definition": "upsell problem",
+                "problem_definition": "continuation problem",
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
@@ -911,8 +899,9 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         new_project.save()
         self.assertEqual(new_project.parent_project_id, self.project1.id)
         self.assertEqual(new_project.organization_id, self.project1.organization_id)
+        self.assertEqual(new_project.lead_source, CONTINUATION_LEAD_SOURCE_VALUE)
 
-    def test_upsell_form_with_mismatched_organization_is_rejected(self):
+    def test_continuation_form_with_mismatched_organization_is_rejected(self):
         # tampered POST: hidden organization differs from parent_project.organization — the existing
         # validator must catch the mismatch (no validator changes were made for this issue).
         form = KippoProjectAdminForm(
@@ -923,7 +912,8 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
                 "name": "tampered-project",
                 "phase": "proposing-low",
                 "confidence": "80",
-                "category": str(_global_category("upsell-improvement").pk),
+                "category": str(_global_category("other").pk),
+                "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
                 "columnset": str(self.project1.columnset_id),
                 "start_date": self.current_date.isoformat(),
             },
@@ -955,7 +945,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
 
-    def _form_data(self, *, category: str, parent_project_id: str | None = None) -> dict:
+    def _form_data(self, *, category: str, parent_project_id: str | None = None, lead_source: str = "") -> dict:
         # category is a FK ModelChoiceField — submit the category's PK, resolved from its key.
         # customer / project_manager / dates / allocated_staff_days / problem_definition are all
         # required at registration (kippo#40 / T19, extended in kippo#41).
@@ -965,6 +955,7 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             "phase": "proposing-low",
             "confidence": "80",
             "category": str(_global_category(category).pk),
+            "lead_source": lead_source,
             "columnset": str(self.columnset.pk),
             "customer": str(self.customer.id),
             "project_manager": str(self.github_manager.id),
@@ -977,18 +968,26 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             data["parent_project"] = parent_project_id
         return data
 
-    def test_upsell_category_without_parent_project_is_invalid(self):
-        form = KippoProjectAdminForm(data=self._form_data(category="upsell-improvement"))
+    def test_continuation_lead_source_without_parent_project_is_invalid(self):
+        form = KippoProjectAdminForm(data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE))
         self.assertFalse(form.is_valid())
         self.assertIn("parent_project", form.errors)
 
-    def test_upsell_category_with_parent_project_is_valid(self):
+    def test_continuation_lead_source_with_parent_project_is_valid(self):
         form = KippoProjectAdminForm(
-            data=self._form_data(category="upsell-improvement", parent_project_id=str(self.parent.id)),
+            data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE, parent_project_id=str(self.parent.id)),
         )
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_non_upsell_category_does_not_require_parent_project(self):
+    def test_continuation_without_parent_on_readonly_form_uses_nonfield_error(self):
+        # regression: parent_project is readonly on the change form (removed from self.fields); setting
+        # リード=継続 on a parentless project must add a non-field error, not raise ValueError (HTTP 500).
+        form = KippoProjectAdminForm(data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE))
+        form.fields.pop("parent_project", None)  # mimic the readonly change-form state
+        self.assertFalse(form.is_valid())  # must not raise
+        self.assertIn("__all__", form.errors)
+
+    def test_blank_lead_source_does_not_require_parent_project(self):
         form = KippoProjectAdminForm(data=self._form_data(category="other"))
         self.assertTrue(form.is_valid(), form.errors)
 
@@ -1127,13 +1126,14 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.assertNotIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=None))
         self.assertIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=self.parent))
 
-    def test_change_form_with_upsell_category_uses_persisted_parent_when_field_omitted(self):
+    def test_change_form_with_continuation_uses_persisted_parent_when_field_omitted(self):
         # change form: parent_project is readonly so it isn't submitted in POST data;
         # validation must fall back to the persisted instance value to avoid a false-positive error.
-        existing_upsell = KippoProject.objects.create(
+        existing_continuation = KippoProject.objects.create(
             organization=self.organization,
-            name="existing-upsell",
-            category=_global_category("upsell-improvement"),
+            name="existing-continuation",
+            category=_global_category("other"),
+            lead_source=CONTINUATION_LEAD_SOURCE_VALUE,
             columnset=self.columnset,
             parent_project=self.parent,
             start_date=self.current_date,
@@ -1141,8 +1141,8 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
         form = KippoProjectAdminForm(
-            instance=existing_upsell,
-            data=self._form_data(category="upsell-improvement"),  # no parent_project key
+            instance=existing_continuation,
+            data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE),  # no parent_project key
         )
         self.assertTrue(form.is_valid(), form.errors)
 
@@ -1158,21 +1158,21 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
         form = KippoProjectAdminForm(
-            data=self._form_data(category="upsell-improvement", parent_project_id=str(cross_org_parent.id)),
+            data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE, parent_project_id=str(cross_org_parent.id)),
         )
         self.assertFalse(form.is_valid())
         self.assertIn("parent_project", form.errors)
 
 
-class UpsellPrefillHelpersTestCase(TestCase):
-    def test_next_upsell_project_name_appends_phase_2_when_no_existing_suffix(self):
-        self.assertEqual(_next_upsell_project_name("Foo"), "Foo Phase 2")
-        self.assertEqual(_next_upsell_project_name("Foo Bar"), "Foo Bar Phase 2")
+class ContinuationPrefillHelpersTestCase(TestCase):
+    def test_next_continuation_project_name_appends_phase_2_when_no_existing_suffix(self):
+        self.assertEqual(_next_continuation_project_name("Foo"), "Foo Phase 2")
+        self.assertEqual(_next_continuation_project_name("Foo Bar"), "Foo Bar Phase 2")
 
-    def test_next_upsell_project_name_increments_existing_phase_number(self):
-        self.assertEqual(_next_upsell_project_name("Foo Phase 2"), "Foo Phase 3")
-        self.assertEqual(_next_upsell_project_name("Foo Phase 9"), "Foo Phase 10")
-        self.assertEqual(_next_upsell_project_name("Foo Bar Phase 11"), "Foo Bar Phase 12")
+    def test_next_continuation_project_name_increments_existing_phase_number(self):
+        self.assertEqual(_next_continuation_project_name("Foo Phase 2"), "Foo Phase 3")
+        self.assertEqual(_next_continuation_project_name("Foo Phase 9"), "Foo Phase 10")
+        self.assertEqual(_next_continuation_project_name("Foo Bar Phase 11"), "Foo Bar Phase 12")
 
     def test_start_of_next_month(self):
         self.assertEqual(_start_of_next_month(datetime.date(2026, 1, 15)), datetime.date(2026, 2, 1))
@@ -1938,7 +1938,7 @@ class KippoProjectAdminContractPeriodFieldsTestCase(KippoProjectAdminFixtureTest
 
 
 class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixtureTestCaseBase):
-    """parent_project (kippo#41): absent from the flat /add/ form; exposed (hidden) only on the upsell
+    """parent_project (kippo#41): absent from the flat /add/ form; exposed (hidden) only on the continuation
     close-wizard add; in the Details section (readonly) on change.
     """
 
@@ -1975,7 +1975,7 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertIn("slack_channel_name", details)  # merged in from the removed Extra section
 
     def test_active_admin_change_omits_parent_project(self):
-        # ActiveKippoProjectAdmin excludes parent_project on change (active projects aren't upsell-edited)
+        # ActiveKippoProjectAdmin excludes parent_project on change (active projects aren't continuation-edited)
         modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
         fieldsets = modeladmin.get_fieldsets(self.super_user_request, obj=self.existing_project)
         self.assertNotIn("parent_project", self._all_fieldset_fields(fieldsets))
@@ -1997,13 +1997,17 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertNotIn("parent_project", response.context["adminform"].form.fields)
 
-    def test_upsell_wizard_add_view_exposes_parent_project_hidden(self):
-        # the close-wizard add (?_upsell_source=close) keeps the full sectioned form so parent_project
+    def test_continuation_wizard_add_view_exposes_parent_project_hidden(self):
+        # the close-wizard add (?_continuation_source=close) keeps the full sectioned form so parent_project
         # renders (hidden) and POSTs — see KippoProjectBaseAdmin.get_fieldsets.
         url = reverse("admin:projects_kippoproject_add")
         response = self.client.get(
             url,
-            {"_upsell_source": "close", "category": "upsell-improvement", "parent_project": str(self.existing_project.id)},
+            {
+                CONTINUATION_SOURCE_PARAM: CONTINUATION_SOURCE_VALUE,
+                "lead_source": CONTINUATION_LEAD_SOURCE_VALUE,
+                "parent_project": str(self.existing_project.id),
+            },
         )
         self.assertEqual(response.status_code, HTTPStatus.OK)
         adminform = response.context["adminform"]
@@ -2012,11 +2016,11 @@ class ActiveKippoProjectAdminParentProjectFieldTestCase(KippoProjectAdminFixture
         inner_widget = getattr(widget, "widget", widget)
         self.assertIsInstance(inner_widget, forms.HiddenInput)
 
-    def test_upsell_wizard_add_post_preserves_parent_project_field(self):
-        # form action="" posts to the same URL incl. its query string, so _upsell_source survives the
+    def test_continuation_wizard_add_post_preserves_parent_project_field(self):
+        # form action="" posts to the same URL incl. its query string, so _continuation_source survives the
         # POST and get_fieldsets rebuilds the full form — an invalid submit still re-renders parent_project.
-        url = reverse("admin:projects_kippoproject_add") + "?_upsell_source=close"
-        response = self.client.post(url, {"name": "incomplete-upsell"})  # intentionally invalid
+        url = reverse("admin:projects_kippoproject_add") + f"?{CONTINUATION_SOURCE_PARAM}={CONTINUATION_SOURCE_VALUE}"
+        response = self.client.post(url, {"name": "incomplete-continuation"})  # intentionally invalid
         self.assertEqual(response.status_code, HTTPStatus.OK)  # re-rendered with errors, not a redirect
         self.assertIn("parent_project", response.context["adminform"].form.fields)
 
