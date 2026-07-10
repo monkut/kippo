@@ -354,8 +354,9 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                         "month": row["month"],
                         "amount_display": _yen(row["amount"]),
                         # Deep-link into the kippo-ui プロジェクト請求一覧, pre-filtered to this month
-                        # (row["month"] is "YYYY/MM"; the UI's ?month= expects "YYYY-MM").
-                        "url": f"{settings.URL_PREFIX}/ui/billing?month={row['month'].replace('/', '-')}",
+                        # (row["month"] is "YYYY/MM"; the UI's ?month= expects "YYYY-MM"). UI_BASE_URL is
+                        # empty in prod (same-origin) and the Vite dev server origin in local dev.
+                        "url": f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/billing?month={row['month'].replace('/', '-')}",
                     }
                     for row in summary["monthly_planned_breakdown"]
                 ],

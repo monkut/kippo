@@ -426,7 +426,7 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         from django.conf import settings
 
         march_row = next(row for row in summary["monthly_planned_breakdown"] if row["month"] == f"{today.year}/03")
-        self.assertEqual(march_row["url"], f"{settings.URL_PREFIX}/ui/billing?month={today.year}-03")
+        self.assertEqual(march_row["url"], f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/billing?month={today.year}-03")
         self.assertIn(f"/ui/billing?month={today.year}-03", response.content.decode())  # link rendered in the chart
 
     def test_changelist_active_project_detail_effort_contract_no_total(self):
