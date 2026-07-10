@@ -437,6 +437,37 @@ class KippoProjectViewSetTestCase(TestCase):
         customer.refresh_from_db()
         self.assertEqual(customer.document_url, "https://drive.example.com/beta")  # unchanged
 
+    def test_patch_project_customer_from_non_member_org_rejected(self):
+        # requirement 2: a user cannot set the project's customer to one in an org they don't belong to.
+        from customers.models import KippoCustomer
+
+        foreign_customer = KippoCustomer.objects.create(
+            organization=self.other_organization, name="ForeignCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"customer": str(foreign_customer.id)}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("customer", response.json())
+
+    def test_patch_project_customer_from_other_member_org_rejected(self):
+        # requirement 1: 顧客 must belong to the project's OWN organization — a customer in another org
+        # the user does belong to is still rejected.
+        from customers.models import KippoCustomer
+
+        second_org = KippoOrganization.objects.create(
+            name="proj-second-org", github_organization_name="proj-second-org", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        OrganizationMembership.objects.create(
+            user=self.user, organization=second_org, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+        )
+        second_org_customer = KippoCustomer.objects.create(
+            organization=second_org, name="SecondCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"customer": str(second_org_customer.id)}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("customer", response.json())
+
     def test_filter_by_is_active(self):
         """Test filtering projects by is_active parameter.
 
@@ -1722,6 +1753,79 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         patch = self.client.patch(f"{url}{contract_id}/", {"total_amount": "2000000"}, format="json")
         self.assertEqual(patch.status_code, HTTPStatus.OK, patch.content)
         self.assertEqual(self.project.contract.total_amount, 2000000)
+
+    def test_contract_billed_to_in_project_org_accepted(self):
+        from customers.models import KippoCustomer
+
+        customer = KippoCustomer.objects.create(
+            organization=self.organization, name="BillCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "end_date": "2026-09-30",
+                "billed_to": str(customer.id),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.assertEqual(resp.json()["billed_to"], str(customer.id))
+
+    def test_contract_billed_to_from_non_member_org_rejected(self):
+        # requirement 2: a customer in an org the user does not belong to is not assignable (the field
+        # queryset is scoped to the user's organizations).
+        from customers.models import KippoCustomer
+
+        foreign_customer = KippoCustomer.objects.create(
+            organization=self.other_org, name="ForeignCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "end_date": "2026-09-30",
+                "billed_to": str(foreign_customer.id),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.assertIn("billed_to", resp.json())
+
+    def test_contract_billed_to_from_other_member_org_rejected(self):
+        # requirement 1: 請求先 must belong to the project's organization — a customer in another org the
+        # user does belong to is still rejected.
+        from customers.models import KippoCustomer
+
+        second_org = KippoOrganization.objects.create(
+            name="contract-second-org", github_organization_name="contract-second-org", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        OrganizationMembership.objects.create(
+            user=self.user, organization=second_org, created_by=self.github_manager, updated_by=self.github_manager, is_developer=True
+        )
+        second_org_customer = KippoCustomer.objects.create(
+            organization=second_org, name="SecondCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url,
+            {
+                "billing_type": "delivery",
+                "pricing_basis": "fixed",
+                "total_amount": "1500000",
+                "end_date": "2026-09-30",
+                "billed_to": str(second_org_customer.id),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.assertIn("billed_to", resp.json())
 
     def test_contract_period_update_syncs_project_dates(self):
         """The contract endpoint is the write path for the period once a contract exists — a PATCH
