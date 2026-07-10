@@ -1774,6 +1774,18 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         )
         self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
         self.assertEqual(resp.json()["billed_to"], str(customer.id))
+        # billed_to_name is exposed read-only for display (parity with project_name / customer_name)
+        self.assertEqual(resp.json()["billed_to_name"], "BillCo")
+
+    def test_contract_billed_to_name_null_when_unset(self):
+        # no billed_to (project has no customer to default from) → billed_to_name is null.
+        url = f"{self.base}/{self.project.id}/contract/"
+        resp = self.client.post(
+            url, {"billing_type": "delivery", "pricing_basis": "fixed", "total_amount": "1500000", "end_date": "2026-09-30"}, format="json"
+        )
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.assertIsNone(resp.json()["billed_to"])
+        self.assertIsNone(resp.json()["billed_to_name"])
 
     def test_contract_billed_to_from_non_member_org_rejected(self):
         # requirement 2: a customer in an org the user does not belong to is not assignable (the field
