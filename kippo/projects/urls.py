@@ -15,6 +15,7 @@ from .views import (
     WeeklyEffortMissingWeeksView,
 )
 from .viewsets import (
+    BillingEntryListViewSet,
     KippoProjectBillingEntryViewSet,
     KippoProjectContractViewSet,
     KippoProjectOrganizationCategoryViewSet,
@@ -39,6 +40,9 @@ router.register(r"personal-holidays", PersonalHolidayViewSet, basename="personal
 router.register(r"public-holidays", PublicHolidayViewSet, basename="publicholiday")
 router.register(r"organizations", OrganizationViewSet, basename="kippoorganization")
 router.register(r"weekly-effort-unlocks", ProjectWeeklyEffortUnlockViewSet, basename="projectweeklyeffortunlock")
+# Flat cross-project billing ledger for the 請求一覧 (billing list) UI — read-only, org-scoped.
+# /api/billing/  (per-project ledger writes stay on projects/{pk}/billing-entries/)
+router.register(r"billing", BillingEntryListViewSet, basename="billing")
 
 # Contract + billing-entries nested under projects/ (kippo#31) — read+write, org-scoped.
 # /api/projects/{project_pk}/contract/ and /api/projects/{project_pk}/billing-entries/

@@ -38,6 +38,7 @@ from .models import (
 )
 from .permissions import IsSuperuserOrOrgMemberForCategory, IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
+    BillingListEntrySerializer,
     KippoProjectBillingEntrySerializer,
     KippoProjectContractSerializer,
     KippoProjectOrganizationCategorySerializer,
@@ -843,6 +844,67 @@ class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):
         is_received = serializer.validated_data.get("is_received", serializer.instance.is_received)
         received_by = self.request.user if is_received and not serializer.instance.received_by else serializer.instance.received_by
         serializer.save(received_by=received_by, updated_by=self.request.user)
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter("month", str, description="Filter to a single billing month, format YYYY-MM (e.g. 2026-07)."),
+        OpenApiParameter("from", str, description="Filter to billing_date on/after this date, format YYYY-MM-DD."),
+        OpenApiParameter("to", str, description="Filter to billing_date on/before this date, format YYYY-MM-DD."),
+        OpenApiParameter("project", str, description="Filter to a single project (UUID)."),
+    ]
+)
+class BillingEntryListViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Flat, cross-project billing ledger for the 請求一覧 (billing list) UI — read-only.
+
+    One row per ``KippoProjectBillingEntry`` across the request user's accessible projects
+    (superusers see all), denormalized with its project / contract / customer display fields via
+    ``BillingListEntrySerializer``. Org-scoped through the contract's project organization. Supports
+    ``month`` / ``from`` / ``to`` / ``project`` server-side filtering to bound the window; the UI does
+    its own free-text search, 完了 toggle and summation client-side over the returned rows.
+    """
+
+    serializer_class = BillingListEntrySerializer
+    permission_classes = [IsAuthenticated]
+    organization_lookup = "contract__project__organization"
+    queryset = (
+        KippoProjectBillingEntry.objects.all()
+        .select_related(
+            "contract__project__organization",
+            "contract__project__customer",
+            "contract__billed_to",
+            "received_by",
+        )
+        .order_by("-billing_date", "contract__project__name")
+    )
+
+    @staticmethod
+    def _parse_date(value: str, field: str) -> datetime.date:
+        try:
+            return datetime.date.fromisoformat(value)
+        except ValueError as e:
+            raise ValidationError({field: "Expected date format YYYY-MM-DD."}) from e
+
+    def get_queryset(self):
+        queryset = self.filter_by_organization(super().get_queryset())
+        params = self.request.query_params
+        month = params.get("month")
+        if month:
+            try:
+                month_start = datetime.datetime.strptime(month, "%Y-%m").date()  # noqa: DTZ007
+            except ValueError as e:
+                raise ValidationError({"month": "Expected format YYYY-MM."}) from e
+            queryset = queryset.filter(billing_date__year=month_start.year, billing_date__month=month_start.month)
+        date_from = params.get("from")
+        if date_from:
+            queryset = queryset.filter(billing_date__gte=self._parse_date(date_from, "from"))
+        date_to = params.get("to")
+        if date_to:
+            queryset = queryset.filter(billing_date__lte=self._parse_date(date_to, "to"))
+        project_id = params.get("project")
+        if project_id:
+            queryset = queryset.filter(contract__project_id=project_id)
+        return queryset
 
 
 class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):

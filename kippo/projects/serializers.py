@@ -340,6 +340,53 @@ class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "contract", "received_datetime", "received_by", "created_datetime", "updated_datetime"]
 
 
+class BillingListEntrySerializer(serializers.ModelSerializer):
+    """Flat, read-only billing-ledger row for the cross-project 請求一覧 (billing list) UI.
+
+    One row per ``KippoProjectBillingEntry``, denormalized with the project / contract / customer
+    display fields the 請求一覧 needs so the UI can render, filter and sum without a second lookup
+    per row. Read-only — the ledger is edited through the nested per-project billing-entries endpoint.
+    """
+
+    project_id = serializers.UUIDField(source="contract.project.id", read_only=True)
+    project_name = serializers.CharField(source="contract.project.name", read_only=True)
+    organization_name = serializers.CharField(source="contract.project.organization.name", read_only=True)
+    project_phase = serializers.CharField(source="contract.project.phase", read_only=True)
+    project_actual_date = serializers.DateField(source="contract.project.actual_date", read_only=True, allow_null=True)
+    # 請求先: the contract's billed_to (may be null if later cleared); customer_name is the project's
+    # 顧客 fallback so the UI can render a 請求先 even when billed_to is unset.
+    billed_to_name = serializers.CharField(source="contract.billed_to.name", read_only=True, allow_null=True)
+    customer_name = serializers.CharField(source="contract.project.customer.name", read_only=True, allow_null=True)
+    billing_type = serializers.CharField(source="contract.billing_type", read_only=True)
+    pricing_basis = serializers.CharField(source="contract.pricing_basis", read_only=True)
+    contract_total_amount = serializers.DecimalField(source="contract.total_amount", max_digits=12, decimal_places=0, read_only=True, allow_null=True)
+    received_by_username = serializers.CharField(source="received_by.username", read_only=True, allow_null=True)
+
+    class Meta:
+        model = KippoProjectBillingEntry
+        fields = [
+            "id",
+            "billing_date",
+            "amount",
+            "is_manual",
+            "is_received",
+            "received_datetime",
+            "received_by_username",
+            "note",
+            "project_id",
+            "project_name",
+            "organization_name",
+            "project_phase",
+            "project_actual_date",
+            "billed_to_name",
+            "customer_name",
+            "billing_type",
+            "pricing_basis",
+            "contract_total_amount",
+        ]
+        read_only_fields = fields
+
+
 @extend_schema_field(OpenApiTypes.STR)
 class ProjectCategoryKeyField(serializers.Field):
     """Read/write the KippoProject.category as its KEY string.
