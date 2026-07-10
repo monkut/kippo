@@ -44,6 +44,10 @@ def _visible_organizations(user: KippoUser) -> models.QuerySet:
 
 
 def _yen(amount: object) -> str:
+    # None → "-" (e.g. an effort-priced contract has no fixed total_amount / 契約金額); mirrors the
+    # kippo-ui formatJpy convention and keeps the changelist from crashing on a NoneType format.
+    if amount is None:
+        return "-"
     return f"¥{amount:,.0f}"
 
 

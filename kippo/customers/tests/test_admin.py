@@ -429,6 +429,32 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(march_row["url"], f"{settings.URL_PREFIX}/ui/billing?month={today.year}-03")
         self.assertIn(f"/ui/billing?month={today.year}-03", response.content.decode())  # link rendered in the chart
 
+    def test_changelist_active_project_detail_effort_contract_no_total(self):
+        # Regression: an effort-priced contract has total_amount=None; the active-project detail row
+        # (get_active_project_count → _active_project_row) must render "-" for 契約金額 instead of
+        # crashing on a NoneType format ("unsupported format string passed to NoneType.__format__").
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        today = timezone.localdate()
+        project = self._make_customer_project("effort-tm", self.customer, date(today.year, 9, 30))
+        KippoProjectContract.objects.create(
+            project=project,
+            billing_type="monthly",
+            pricing_basis="effort",
+            total_amount=None,
+            estimated_monthly_amount=Decimal("500000"),
+            start_date=date(today.year, 7, 1),
+            end_date=date(today.year, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        self.assertEqual(response.status_code, 200)  # no NoneType-format crash
+        self.assertIn("effort-tm", response.content.decode())
+
     def test_fiscal_year_summary_is_filter_aware(self):
         from decimal import Decimal
 
