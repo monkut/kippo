@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from accounts.models import KippoUser
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
+from customers.models import KippoCustomer
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -101,6 +102,49 @@ class ContractFieldsTestCase(TestCase):
         self.assertIsNone(contract.end_date)
         self.project.refresh_from_db()
         self.assertEqual(self.project.target_date, datetime.date(2026, 6, 30))  # planning date preserved
+
+    def test_billed_to_defaults_to_project_customer_on_create(self):
+        # 請求先 defaults to the project's assigned customer (顧客) when left blank at creation.
+        customer = KippoCustomer.objects.create(organization=self.project.organization, name="Acme", created_by=self.user, updated_by=self.user)
+        self.project.customer = customer
+        self.project.save()
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"))
+        contract.refresh_from_db()
+        self.assertEqual(contract.billed_to, customer)
+
+    def test_billed_to_explicit_customer_preserved_on_create(self):
+        # a different KippoCustomer may be billed than the project's customer.
+        project_customer = KippoCustomer.objects.create(
+            organization=self.project.organization, name="Acme", created_by=self.user, updated_by=self.user
+        )
+        billed_customer = KippoCustomer.objects.create(
+            organization=self.project.organization, name="Holdings", created_by=self.user, updated_by=self.user
+        )
+        self.project.customer = project_customer
+        self.project.save()
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"), billed_to=billed_customer)
+        contract.refresh_from_db()
+        self.assertEqual(contract.billed_to, billed_customer)
+
+    def test_billed_to_stays_blank_when_project_has_no_customer(self):
+        # no project customer → nothing to default from; billed_to remains blank.
+        self.assertIsNone(self.project.customer)
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"))
+        contract.refresh_from_db()
+        self.assertIsNone(contract.billed_to)
+
+    def test_billed_to_not_re_defaulted_on_update(self):
+        # backfill is creation-only: once set, an edit does not re-derive it from the project customer.
+        customer_a = KippoCustomer.objects.create(organization=self.project.organization, name="Acme", created_by=self.user, updated_by=self.user)
+        customer_b = KippoCustomer.objects.create(organization=self.project.organization, name="Holdings", created_by=self.user, updated_by=self.user)
+        self.project.customer = customer_a
+        self.project.save()
+        contract = KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1000000"))
+        self.assertEqual(contract.billed_to, customer_a)  # defaulted at creation
+        contract.billed_to = customer_b
+        contract.save()
+        contract.refresh_from_db()
+        self.assertEqual(contract.billed_to, customer_b)  # manual override honored, not reset to customer_a
 
     def test_clean_rejects_inverted_period(self):
         contract = KippoProjectContract(

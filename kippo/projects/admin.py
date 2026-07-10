@@ -261,7 +261,10 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
     min_num = 0  # the contract is added on a later edit, not at registration (the inline is hidden on /add/)
-    fields = ("billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
+    fields = ("billed_to", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
+    # 請求先 (billed_to) uses the same searchable autocomplete as the project's 顧客 field instead of an
+    # unbounded all-organizations <select>; get_formset scopes it to the project's organization.
+    autocomplete_fields = ("billed_to",)
     inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
 
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
@@ -273,6 +276,10 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
         this contract component rather than on the parent's phase field.
         """
         formset = super().get_formset(request, obj, **kwargs)
+        # Scope 請求先 to the project's organization (parity with KippoProjectAdmin._scope_customer_queryset
+        # for 顧客). The inline is only rendered on the change form, so the project's org is always known.
+        if "billed_to" in formset.form.base_fields and obj is not None and obj.organization_id:
+            formset.form.base_fields["billed_to"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}] if obj and (obj.start_date or obj.target_date) else None
 
         class KippoProjectContractInlineFormSet(formset):
@@ -1856,10 +1863,12 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModel
     # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
     # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
     # the project (KippoProjectContractInline); this page adds the billing-entries inline.
-    list_display = ("project", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date")
+    list_display = ("project", "billed_to", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date")
     list_filter = ("billing_type", "pricing_basis")
+    list_select_related = ("project", "billed_to")
     search_fields = ("project__name",)
     raw_id_fields = ("project",)
+    autocomplete_fields = ("billed_to",)  # searchable 請求先 select instead of an all-organizations <select>
     inlines = [KippoProjectBillingEntryInline]
     actions = ["generate_billing_entries", "trueup_billing_entries"]
 

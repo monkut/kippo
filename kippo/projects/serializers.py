@@ -232,6 +232,7 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             "id",
             "project",
             "project_name",
+            "billed_to",
             "billing_type",
             "pricing_basis",
             "total_amount",

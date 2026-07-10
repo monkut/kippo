@@ -163,6 +163,21 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         actual = set(u.id for u in formset.form.base_fields["user"].queryset)
         self.assertEqual(actual, set(self.organization_users))
 
+    def test_contract_inline_billed_to_scoped_to_project_organization(self):
+        # 請求先 (billed_to) is scoped to the project's org, matching how 顧客 is scoped on the project form —
+        # another organization's customer must not be selectable on this project's contract.
+        own_customer = KippoCustomer.objects.create(
+            organization=self.organization, name="OwnCustomer", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        other_customer = KippoCustomer.objects.create(
+            organization=self.other_organization, name="OtherCustomer", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        formset = inline.get_formset(request=self.super_user_request, obj=self.project1)
+        billed_to_ids = set(formset.form.base_fields["billed_to"].queryset.values_list("id", flat=True))
+        self.assertIn(own_customer.id, billed_to_ids)
+        self.assertNotIn(other_customer.id, billed_to_ids)
+
     def _save_contract_inline(self, project: KippoProject, form_data: dict) -> KippoProjectContract:
         """Drive the contract inline formset the way the admin does, returning the saved contract."""
         inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
