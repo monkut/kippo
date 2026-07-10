@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import urllib.parse
+import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from pathlib import Path
@@ -21,6 +22,7 @@ from customers.models import KippoCustomer
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
+from django.contrib.admin.widgets import AutocompleteSelect
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Case, JSONField, Model, OuterRef, Prefetch, QuerySet, Subquery, Sum, Value, When
@@ -126,6 +128,41 @@ logger = logging.getLogger(__name__)
 # Edit the values in fixtures/default_projectassignmentrates.json — no code change needed.
 # Keep the roles in this file aligned with ProjectRoles (rows with an unknown role are skipped).
 DEFAULT_ASSIGNMENT_RATES_FIXTURE = Path(__file__).parent / "fixtures" / "default_projectassignmentrates.json"
+
+# Query param the org-scoped KippoCustomer autocomplete pins on its AJAX endpoint; KippoCustomerAdmin.
+# get_search_results reads it to narrow the dropdown to a single organization's customers.
+CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM = "organization"
+
+
+class OrganizationScopedAutocompleteSelect(AutocompleteSelect):
+    """AutocompleteSelect that pins the KippoCustomer autocomplete AJAX request to one organization.
+
+    Django's autocomplete dropdown is served by KippoCustomerAdmin and does not know which project is
+    being edited, so it otherwise lists every customer the editor may see (all their orgs; all orgs for
+    a superuser). Appending ``?organization=<id>`` to the endpoint URL lets KippoCustomerAdmin.
+    get_search_results narrow the dropdown to the project's organization's customers only (顧客 on the
+    project, 請求先 on its contract). Select2 appends its own term/page params with ``&``, preserving this.
+    """
+
+    def __init__(self, *args, organization_id: uuid.UUID | None = None, **kwargs) -> None:
+        self.organization_id = organization_id
+        super().__init__(*args, **kwargs)
+
+    def get_url(self) -> str:
+        url = super().get_url()
+        if self.organization_id:
+            url = f"{url}?{urllib.parse.urlencode({CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM: self.organization_id})}"
+        return url
+
+
+def _customer_autocomplete_widget(
+    model_admin: admin.options.BaseModelAdmin, db_field: models.ForeignKey, organization_id: uuid.UUID | None, using: str | None
+) -> OrganizationScopedAutocompleteSelect:
+    """A KippoCustomer autocomplete widget whose dropdown is pinned to ``organization_id`` (or unscoped
+    when it is None, e.g. on /add/ before a project organization exists). Shared by the project's 顧客
+    field and the contract inline's 請求先 field.
+    """
+    return OrganizationScopedAutocompleteSelect(db_field, model_admin.admin_site, using=using, organization_id=organization_id)
 
 
 def _default_assignment_rate_initial() -> tuple[dict, ...]:
@@ -261,7 +298,10 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
     min_num = 0  # the contract is added on a later edit, not at registration (the inline is hidden on /add/)
-    fields = ("billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
+    fields = ("billed_to", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date", "note")
+    # 請求先 (billed_to) uses the same searchable autocomplete as the project's 顧客 field instead of an
+    # unbounded all-organizations <select>; get_formset scopes it to the project's organization.
+    autocomplete_fields = ("billed_to",)
     inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
 
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
@@ -272,7 +312,15 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
         Also enforces the 契約(稼働中) phase gate here (see ``clean``) so the requirement is surfaced on
         this contract component rather than on the parent's phase field.
         """
+        # Stash the project's org BEFORE super() builds the form so formfield_for_foreignkey can pin the
+        # 請求先 autocomplete dropdown to it. The inline is only rendered on the change form, so obj is set.
+        request._billed_to_autocomplete_organization_id = obj.organization_id if obj is not None else None
         formset = super().get_formset(request, obj, **kwargs)
+        # Scope 請求先 validation to the project's organization (parity with KippoProjectAdmin.
+        # _scope_customer_queryset for 顧客): rejects a tampered cross-org submission even though the
+        # dropdown is already narrowed. The inline is only rendered on the change form, so obj is set.
+        if "billed_to" in formset.form.base_fields and obj is not None and obj.organization_id:
+            formset.form.base_fields["billed_to"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         period_initial = [{"start_date": obj.start_date, "end_date": obj.target_date}] if obj and (obj.start_date or obj.target_date) else None
 
         class KippoProjectContractInlineFormSet(formset):
@@ -286,6 +334,14 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
                 _validate_under_contract_gate(self)
 
         return KippoProjectContractInlineFormSet
+
+    def formfield_for_foreignkey(self, db_field: models.ForeignKey, request: DjangoRequest, **kwargs):
+        # Pin the 請求先 autocomplete dropdown to the project's organization (stashed in get_formset).
+        if db_field.name == "billed_to" and "billed_to" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _customer_autocomplete_widget(
+                self, db_field, getattr(request, "_billed_to_autocomplete_organization_id", None), kwargs.get("using")
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class KippoMilestoneReadOnlyInline(AllowIsStaffAdminMixin, admin.TabularInline):
@@ -1246,6 +1302,11 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # Limit the category select to active categories (global defaults + any organization's custom categories).
         if db_field.name == "category":
             kwargs["queryset"] = KippoProjectOrganizationCategory.objects.filter(is_active=True)
+        # Pin the 顧客 autocomplete dropdown to the project's organization (stashed in get_form).
+        if db_field.name == "customer" and "customer" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _customer_autocomplete_widget(
+                self, db_field, getattr(request, "_customer_autocomplete_organization_id", None), kwargs.get("using")
+            )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description=_("請求方法"), ordering="contract__billing_type")
@@ -1452,6 +1513,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
 
     def get_form(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs) -> Form:
         """Set defaults based on request user"""
+        # Stash the project's org BEFORE super() builds the form so formfield_for_foreignkey can pin the
+        # 顧客 autocomplete dropdown to it (None on /add/ — no project org yet, dropdown stays user-scoped).
+        request._customer_autocomplete_organization_id = obj.organization_id if obj is not None else None
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
         # closed projects: every field is readonly, so base_fields is empty — skip the editable-form tweaks
@@ -1856,12 +1920,35 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModel
     # Standalone admin so the contract's billing ledger (which belongs to the contract, not the
     # project — kippo#31) can be edited here. The contract itself is also editable as an inline on
     # the project (KippoProjectContractInline); this page adds the billing-entries inline.
-    list_display = ("project", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date")
+    list_display = ("project", "billed_to", "billing_type", "pricing_basis", "total_amount", "estimated_monthly_amount", "start_date", "end_date")
     list_filter = ("billing_type", "pricing_basis")
+    list_select_related = ("project", "billed_to")
     search_fields = ("project__name",)
     raw_id_fields = ("project",)
+    autocomplete_fields = ("billed_to",)  # searchable 請求先 select, pinned to the project's org in get_form
     inlines = [KippoProjectBillingEntryInline]
     actions = ["generate_billing_entries", "trueup_billing_entries"]
+
+    def get_form(self, request: DjangoRequest, obj: KippoProjectContract | None = None, **kwargs):
+        # Stash the contract's project org BEFORE super() builds the form so formfield_for_foreignkey can
+        # pin the 請求先 autocomplete dropdown to it (parity with KippoProjectContractInline). On /add/ the
+        # project is not yet chosen (raw_id), so the org is unknown → the dropdown falls back to the user's
+        # orgs (KippoCustomerAdmin.get_queryset) rather than being project-pinned.
+        organization_id = obj.project.organization_id if obj is not None and obj.project_id else None
+        request._billed_to_autocomplete_organization_id = organization_id
+        form = super().get_form(request, obj, **kwargs)
+        # Scope validation to the project's org too, so a tampered cross-org submission is rejected.
+        if organization_id and "billed_to" in form.base_fields:
+            form.base_fields["billed_to"].queryset = KippoCustomer.objects.filter(organization=organization_id)
+        return form
+
+    def formfield_for_foreignkey(self, db_field: models.ForeignKey, request: DjangoRequest, **kwargs):
+        # Pin the 請求先 autocomplete dropdown to the contract's project org (stashed in get_form).
+        if db_field.name == "billed_to" and "billed_to" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _customer_autocomplete_widget(
+                self, db_field, getattr(request, "_billed_to_autocomplete_organization_id", None), kwargs.get("using")
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
         # Specializes the base created_by/updated_by stamping to also record received_by — the acting

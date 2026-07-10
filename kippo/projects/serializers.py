@@ -221,10 +221,37 @@ class KippoProjectOrganizationCategorySerializer(serializers.ModelSerializer):
         return attrs
 
 
+def _restrict_customer_field_to_user_organizations(serializer: serializers.ModelSerializer, field_name: str) -> None:
+    """Restrict a KippoCustomer FK field's choices to the request user's member organizations
+    (superusers: all). Bounds write validation AND the browsable-API/OPTIONS enumeration so a user can
+    neither view nor assign a customer outside their organizations. The stricter "must belong to the
+    project's organization" rule is enforced in each serializer's validate().
+    """
+    field = serializer.fields.get(field_name)
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if field is None or user is None or getattr(user, "is_superuser", False) or not hasattr(user, "organizationmembership_set"):
+        return
+    # Reuse the request-scoped org-id cache when warm, else the LAZY membership queryset so Django
+    # inlines it as a subquery (mirrors OrganizationFilterMixin.filter_by_organization). The field
+    # queryset is only evaluated for write validation / browsable-API choices — never on a JSON GET —
+    # so this adds no query to list/detail reads.
+    user_organizations = getattr(user, "_organization_ids_cache", None)
+    if user_organizations is None:
+        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+    field.queryset = field.queryset.filter(organization__in=user_organizations)
+
+
 class KippoProjectContractSerializer(serializers.ModelSerializer):
     """The project's contract (kippo#31) — billing terms. project is set from the nested route."""
 
     project_name = serializers.CharField(source="project.name", read_only=True)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # 請求先 choices: only the request user's organizations' customers (gap #1). The exact
+        # project-organization match is enforced in validate().
+        _restrict_customer_field_to_user_organizations(self, "billed_to")
 
     class Meta:
         model = KippoProjectContract
@@ -232,6 +259,7 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             "id",
             "project",
             "project_name",
+            "billed_to",
             "billing_type",
             "pricing_basis",
             "total_amount",
@@ -265,7 +293,24 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"estimated_monthly_amount": _("Estimated monthly amount (月額) only applies to effort + monthly contracts.")}
             )
+        # 請求先 must belong to the contract's project's organization (the project comes from the URL).
+        billed_to = attrs.get("billed_to")
+        project = self._project_for_validation()
+        if billed_to is not None and project is not None and billed_to.organization_id != project.organization_id:
+            raise serializers.ValidationError({"billed_to": _("請求先 must belong to the project's organization.")})
         return attrs
+
+    def _project_for_validation(self) -> "KippoProject | None":
+        """The contract's project: the instance's on update, else resolved from the nested-route
+        ``project_pk`` on create (the payload never carries ``project``).
+        """
+        if self.instance is not None:
+            return self.instance.project
+        view = self.context.get("view")
+        project_pk = getattr(view, "kwargs", {}).get("project_pk") if view else None
+        if project_pk:
+            return KippoProject.objects.filter(pk=project_pk).select_related("organization").first()
+        return None
 
 
 class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
@@ -378,6 +423,12 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     meeting_calendar_url = serializers.SerializerMethodField()
     meeting_description_tag = serializers.SerializerMethodField()
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # 顧客 choices: only the request user's organizations' customers (gap #1). The stricter
+        # "must belong to the project's organization" rule is enforced in validate().
+        _restrict_customer_field_to_user_organizations(self, "customer")
+
     class Meta:
         model = KippoProject
         fields = [
@@ -472,6 +523,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         """
         attrs = super().validate(attrs)
         organization = attrs.get("organization") or getattr(self.instance, "organization", None)
+        self._validate_customer_organization(attrs, organization)
         self._resolve_category(attrs, organization)
         columnset = attrs.get("columnset")
         # Re-parenting (organization changes) without a new columnset must re-check the
@@ -509,6 +561,15 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         self._validate_contract_synced_dates(attrs)
         self._validate_under_contract_phase(attrs)
         return attrs
+
+    def _validate_customer_organization(self, attrs: dict, organization: "KippoOrganization | None") -> None:
+        """顧客 must belong to the project's organization (requirement: a project's customer is one of
+        its own org's customers). A blank/omitted customer is left alone. The field queryset is already
+        bounded to the user's organizations (__init__); this enforces the exact project-org match.
+        """
+        customer = attrs.get("customer")
+        if customer is not None and organization is not None and customer.organization_id != organization.id:
+            raise serializers.ValidationError({"customer": _("Customer must belong to the project's organization.")})
 
     def _resolve_category(self, attrs: dict, organization: "KippoOrganization | None") -> None:
         """Resolve the incoming category KEY string to the project's org category FK (kippo#49).

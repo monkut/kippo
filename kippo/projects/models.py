@@ -983,6 +983,18 @@ class KippoProjectContract(UserCreatedBaseModel):
     """
 
     project = models.OneToOneField(KippoProject, on_delete=models.CASCADE, related_name="contract")
+    billed_to = models.ForeignKey(
+        "customers.KippoCustomer",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="billed_contracts",
+        verbose_name=_("請求先"),
+        help_text=_(
+            "Customer invoiced for this contract. Defaults to the project's customer (顧客); "
+            "set explicitly when billing goes to a different customer."
+        ),
+    )
     billing_type = models.CharField(
         _("請求方法"),
         max_length=20,
@@ -1086,6 +1098,10 @@ class KippoProjectContract(UserCreatedBaseModel):
                 self.start_date = self.project.start_date
             if not self.end_date:
                 self.end_date = self.project.target_date
+            # default the billed customer (請求先) to the project's assigned customer; a later edit can
+            # point it at a different KippoCustomer when billing goes elsewhere.
+            if self.billed_to_id is None:
+                self.billed_to = self.project.customer
         super().save(*args, **kwargs)
         self._sync_project_period()
         # Populate the billing ledger from the terms on initial creation so the user does not have to
