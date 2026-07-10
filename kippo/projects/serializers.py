@@ -246,6 +246,9 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
     """The project's contract (kippo#31) — billing terms. project is set from the nested route."""
 
     project_name = serializers.CharField(source="project.name", read_only=True)
+    # Human-readable 請求先 name for display (parity with project_name / KippoProject.customer_name), so a
+    # client can render the billed customer without a second lookup. Null when billed_to is unset.
+    billed_to_name = serializers.CharField(source="billed_to.name", read_only=True, allow_null=True)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -260,6 +263,7 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             "project",
             "project_name",
             "billed_to",
+            "billed_to_name",
             "billing_type",
             "pricing_basis",
             "total_amount",
@@ -271,7 +275,7 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
             "updated_datetime",
         ]
         # project comes from the URL (nested under projects/) — set in the viewset, not the payload.
-        read_only_fields = ["id", "project", "project_name", "created_datetime", "updated_datetime"]
+        read_only_fields = ["id", "project", "project_name", "billed_to_name", "created_datetime", "updated_datetime"]
 
     def validate(self, attrs: dict) -> dict:
         # DRF does not run model.clean(); mirror KippoProjectContract.clean() so the API enforces the
