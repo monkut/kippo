@@ -17,7 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
-from projects.admin import RETURN_TO_PARAM
+from projects.admin import CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM, RETURN_TO_PARAM
 from projects.functions import get_user_session_organization
 from projects.models import KippoProject, KippoProjectBillingEntry
 
@@ -258,6 +258,17 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(organization__in=request.user.organizations).distinct()
+
+    def get_search_results(self, request: DjangoRequest, queryset: models.QuerySet, search_term: str):
+        # The org-scoped customer autocomplete (顧客 on projects, 請求先 on contracts) pins its AJAX endpoint
+        # to one organization via ?organization=<id> (OrganizationScopedAutocompleteSelect). Narrow the
+        # dropdown to that org so it lists only the project's organization's customers. get_queryset already
+        # restricts non-superusers to their own orgs, so this can only narrow the visible set (no leak).
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        organization_id = request.GET.get(CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM)
+        if organization_id:
+            queryset = queryset.filter(organization_id=organization_id)
+        return queryset, may_have_duplicates
 
     @admin.display(description=_("アクティブプロジェクト"), ordering="active_project_count")
     def get_active_project_count(self, obj: KippoCustomer) -> int | str:

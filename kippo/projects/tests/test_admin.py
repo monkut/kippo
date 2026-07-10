@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from accounts.models import KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
+from customers.admin import KippoCustomerAdmin
 from customers.models import KippoCustomer
 from django import forms
 from django.contrib import admin
@@ -177,6 +178,43 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         billed_to_ids = set(formset.form.base_fields["billed_to"].queryset.values_list("id", flat=True))
         self.assertIn(own_customer.id, billed_to_ids)
         self.assertNotIn(other_customer.id, billed_to_ids)
+
+    def test_contract_inline_billed_to_autocomplete_pinned_to_project_organization(self):
+        # the 請求先 autocomplete dropdown endpoint is pinned to the project's org (?organization=<id>) so
+        # KippoCustomerAdmin.get_search_results lists only that org's customers, not every org the editor sees.
+        inline = KippoProjectContractInline(parent_model=KippoProject, admin_site=self.site)
+        request = self.super_user_request
+        request._billed_to_autocomplete_organization_id = self.organization.id
+        billed_to_field = KippoProjectContract._meta.get_field("billed_to")
+        formfield = inline.formfield_for_foreignkey(billed_to_field, request)
+        self.assertIn(f"organization={self.organization.id}", formfield.widget.get_url())
+
+    def test_project_customer_autocomplete_pinned_to_project_organization(self):
+        # the 顧客 autocomplete dropdown endpoint is likewise pinned to the project's org.
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        request = self.super_user_request
+        request._customer_autocomplete_organization_id = self.organization.id
+        customer_field = KippoProject._meta.get_field("customer")
+        formfield = modeladmin.formfield_for_foreignkey(customer_field, request)
+        self.assertIn(f"organization={self.organization.id}", formfield.widget.get_url())
+
+    def test_customer_autocomplete_search_results_filtered_by_organization_param(self):
+        # the AJAX endpoint honoring ?organization=<id> is what actually narrows the dropdown: a customer
+        # from another organization is excluded even for a superuser (whose base queryset spans all orgs).
+        own = KippoCustomer.objects.create(
+            organization=self.organization, name="OwnCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        other = KippoCustomer.objects.create(
+            organization=self.other_organization, name="OtherCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        customer_admin = KippoCustomerAdmin(KippoCustomer, self.site)
+        request = MockRequest()
+        request.user = self.super_user_request.user
+        request.GET = {"organization": str(self.organization.id)}
+        results, _ = customer_admin.get_search_results(request, KippoCustomer.objects.all(), "")
+        result_ids = set(results.values_list("id", flat=True))
+        self.assertIn(own.id, result_ids)
+        self.assertNotIn(other.id, result_ids)
 
     def _save_contract_inline(self, project: KippoProject, form_data: dict) -> KippoProjectContract:
         """Drive the contract inline formset the way the admin does, returning the saved contract."""
