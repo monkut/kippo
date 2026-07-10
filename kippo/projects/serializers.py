@@ -360,6 +360,7 @@ class BillingListEntrySerializer(serializers.ModelSerializer):
     billing_type = serializers.CharField(source="contract.billing_type", read_only=True)
     pricing_basis = serializers.CharField(source="contract.pricing_basis", read_only=True)
     contract_total_amount = serializers.DecimalField(source="contract.total_amount", max_digits=12, decimal_places=0, read_only=True, allow_null=True)
+    contract_end_date = serializers.DateField(source="contract.end_date", read_only=True, allow_null=True)
     received_by_username = serializers.CharField(source="received_by.username", read_only=True, allow_null=True)
 
     class Meta:
@@ -383,6 +384,7 @@ class BillingListEntrySerializer(serializers.ModelSerializer):
             "billing_type",
             "pricing_basis",
             "contract_total_amount",
+            "contract_end_date",
         ]
         read_only_fields = fields
 

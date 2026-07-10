@@ -2110,6 +2110,7 @@ class BillingListAPITestCase(TestCase):
         self.assertEqual(row["billing_type"], "monthly")
         self.assertEqual(row["pricing_basis"], "fixed")
         self.assertEqual(row["organization_name"], self.organization.name)
+        self.assertEqual(row["contract_end_date"], "2026-09-30")
         self.assertIn("amount", row)
 
     def test_month_filter(self):
