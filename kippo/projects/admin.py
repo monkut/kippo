@@ -1925,9 +1925,30 @@ class KippoProjectContractAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModel
     list_select_related = ("project", "billed_to")
     search_fields = ("project__name",)
     raw_id_fields = ("project",)
-    autocomplete_fields = ("billed_to",)  # searchable 請求先 select instead of an all-organizations <select>
+    autocomplete_fields = ("billed_to",)  # searchable 請求先 select, pinned to the project's org in get_form
     inlines = [KippoProjectBillingEntryInline]
     actions = ["generate_billing_entries", "trueup_billing_entries"]
+
+    def get_form(self, request: DjangoRequest, obj: KippoProjectContract | None = None, **kwargs):
+        # Stash the contract's project org BEFORE super() builds the form so formfield_for_foreignkey can
+        # pin the 請求先 autocomplete dropdown to it (parity with KippoProjectContractInline). On /add/ the
+        # project is not yet chosen (raw_id), so the org is unknown → the dropdown falls back to the user's
+        # orgs (KippoCustomerAdmin.get_queryset) rather than being project-pinned.
+        organization_id = obj.project.organization_id if obj is not None and obj.project_id else None
+        request._billed_to_autocomplete_organization_id = organization_id
+        form = super().get_form(request, obj, **kwargs)
+        # Scope validation to the project's org too, so a tampered cross-org submission is rejected.
+        if organization_id and "billed_to" in form.base_fields:
+            form.base_fields["billed_to"].queryset = KippoCustomer.objects.filter(organization=organization_id)
+        return form
+
+    def formfield_for_foreignkey(self, db_field: models.ForeignKey, request: DjangoRequest, **kwargs):
+        # Pin the 請求先 autocomplete dropdown to the contract's project org (stashed in get_form).
+        if db_field.name == "billed_to" and "billed_to" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _customer_autocomplete_widget(
+                self, db_field, getattr(request, "_billed_to_autocomplete_organization_id", None), kwargs.get("using")
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool):
         # Specializes the base created_by/updated_by stamping to also record received_by — the acting

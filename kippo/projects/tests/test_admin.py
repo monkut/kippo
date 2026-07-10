@@ -37,6 +37,7 @@ from projects.admin import (
     KippoProjectAdmin,
     KippoProjectAdminForm,
     KippoProjectBaseAdmin,
+    KippoProjectContractAdmin,
     KippoProjectContractInline,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
@@ -188,6 +189,31 @@ class IsStaffOrganizationKippoProjectAdminTestCase(IsStaffModelAdminTestCaseBase
         billed_to_field = KippoProjectContract._meta.get_field("billed_to")
         formfield = inline.formfield_for_foreignkey(billed_to_field, request)
         self.assertIn(f"organization={self.organization.id}", formfield.widget.get_url())
+
+    def test_standalone_contract_admin_billed_to_autocomplete_pinned_to_project_organization(self):
+        # the standalone KippoProjectContractAdmin pins its 請求先 autocomplete to the contract's project
+        # org too (parity with the inline / project admin).
+        modeladmin = KippoProjectContractAdmin(KippoProjectContract, self.site)
+        request = self.super_user_request
+        request._billed_to_autocomplete_organization_id = self.organization.id
+        billed_to_field = KippoProjectContract._meta.get_field("billed_to")
+        formfield = modeladmin.formfield_for_foreignkey(billed_to_field, request)
+        self.assertIn(f"organization={self.organization.id}", formfield.widget.get_url())
+
+    def test_standalone_contract_admin_billed_to_queryset_scoped_to_project_organization(self):
+        # get_form scopes the 請求先 validation queryset to the contract's project org (rejects cross-org).
+        own = KippoCustomer.objects.create(
+            organization=self.organization, name="OwnCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        other = KippoCustomer.objects.create(
+            organization=self.other_organization, name="OtherCo", created_by=self.github_manager, updated_by=self.github_manager
+        )
+        contract = KippoProjectContract.objects.create(project=self.project1, total_amount=1000000)
+        modeladmin = KippoProjectContractAdmin(KippoProjectContract, self.site)
+        form = modeladmin.get_form(self.super_user_request, obj=contract)
+        billed_to_ids = set(form.base_fields["billed_to"].queryset.values_list("id", flat=True))
+        self.assertIn(own.id, billed_to_ids)
+        self.assertNotIn(other.id, billed_to_ids)
 
     def test_project_customer_autocomplete_pinned_to_project_organization(self):
         # the 顧客 autocomplete dropdown endpoint is likewise pinned to the project's org.
