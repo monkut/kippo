@@ -2,6 +2,7 @@ import datetime
 import uuid
 from calendar import monthrange
 
+from django.conf import settings
 from django.utils import timezone
 
 DECEMBER = 12
@@ -14,6 +15,16 @@ def is_uuid(value: str) -> bool:
     except (ValueError, TypeError):
         return False
     return True
+
+
+def ui_url(path: str) -> str:
+    """Absolute-or-relative URL to a kippo-ui SPA route, e.g. ``ui_url("billing?month=2026-04")``.
+
+    Prefixes ``settings.UI_BASE_URL`` (empty in production → same-origin; the Vite dev server origin
+    in local dev) + ``settings.URL_PREFIX`` + ``/ui/``. Use for every admin→UI deep-link so the
+    local-dev origin fix applies uniformly.
+    """
+    return f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/{path.lstrip('/')}"
 
 
 def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime]:

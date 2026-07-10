@@ -4,9 +4,8 @@ from collections.abc import Iterator
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
-from commons.functions import is_uuid
+from commons.functions import is_uuid, ui_url
 from django import forms
-from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.contrib.admin.views.main import ChangeList
@@ -44,10 +43,6 @@ def _visible_organizations(user: KippoUser) -> models.QuerySet:
 
 
 def _yen(amount: object) -> str:
-    # None → "-" (e.g. an effort-priced contract has no fixed total_amount / 契約金額); mirrors the
-    # kippo-ui formatJpy convention and keeps the changelist from crashing on a NoneType format.
-    if amount is None:
-        return "-"
     return f"¥{amount:,.0f}"
 
 
@@ -321,7 +316,13 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
         contract = getattr(project, "contract", None)
         received = project_received_total_current_fy(project, fiscal_year_start)
         name_link = format_html('<a href="{}">{}</a>', project.get_admin_url(), project.name)
-        total_display = _yen(contract.total_amount) if contract else "-"
+        # Mirror get_contract_total: no contract → "-"; effort pricing (total_amount None) → 実績.
+        if not contract:
+            total_display = "-"
+        elif contract.total_amount is not None:
+            total_display = _yen(contract.total_amount)
+        else:
+            total_display = _("実績")
         end_display = contract.end_date.isoformat() if contract and contract.end_date else "-"
         return (name_link, _yen(received), total_display, end_display)
 
@@ -354,9 +355,8 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                         "month": row["month"],
                         "amount_display": _yen(row["amount"]),
                         # Deep-link into the kippo-ui プロジェクト請求一覧, pre-filtered to this month
-                        # (row["month"] is "YYYY/MM"; the UI's ?month= expects "YYYY-MM"). UI_BASE_URL is
-                        # empty in prod (same-origin) and the Vite dev server origin in local dev.
-                        "url": f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/billing?month={row['month'].replace('/', '-')}",
+                        # (row["month"] is "YYYY/MM"; the UI's ?month= expects "YYYY-MM").
+                        "url": ui_url(f"billing?month={row['month'].replace('/', '-')}"),
                     }
                     for row in summary["monthly_planned_breakdown"]
                 ],

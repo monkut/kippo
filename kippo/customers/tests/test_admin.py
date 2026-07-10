@@ -452,8 +452,11 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
             updated_by=self.github_manager,
         )
         response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        content = response.content.decode()
         self.assertEqual(response.status_code, 200)  # no NoneType-format crash
-        self.assertIn("effort-tm", response.content.decode())
+        self.assertIn("effort-tm", content)
+        # effort contract → 契約金額 renders 実績 (matching get_contract_total), not "-"
+        self.assertIn("実績", content)
 
     def test_fiscal_year_summary_is_filter_aware(self):
         from decimal import Decimal

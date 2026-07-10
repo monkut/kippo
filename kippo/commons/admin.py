@@ -8,6 +8,8 @@ from django.db.models import Model, QuerySet
 from django.forms import BaseFormSet, Form, widgets
 from django.http import request as DjangoRequest  # noqa: N812
 
+from commons.functions import ui_url
+
 if TYPE_CHECKING:
     from accounts.models import KippoUser
 
@@ -129,7 +131,7 @@ class KippoAdminSite(admin.AdminSite):
     # update displayed header/title
     site_header = settings.SITE_HEADER
     site_title = settings.SITE_TITLE
-    site_url = f"{settings.URL_PREFIX}/ui/weekly-effort"
+    site_url = ui_url("weekly-effort")
 
     # apps pinned to the top of the admin index, in this order; remaining apps keep Django's default order
     APP_PRIORITY = ("customers", "projects")

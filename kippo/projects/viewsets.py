@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
+from commons.functions import is_uuid
 from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from django.conf import settings
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet, Sum
@@ -903,6 +904,8 @@ class BillingEntryListViewSet(OrganizationFilterMixin, viewsets.ReadOnlyModelVie
             queryset = queryset.filter(billing_date__lte=self._parse_date(date_to, "to"))
         project_id = params.get("project")
         if project_id:
+            if not is_uuid(project_id):
+                raise ValidationError({"project": "Expected a project UUID."})
             queryset = queryset.filter(contract__project_id=project_id)
         return queryset
 

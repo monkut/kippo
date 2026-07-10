@@ -2136,6 +2136,12 @@ class BillingListAPITestCase(TestCase):
         self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
         self.assertIn("from", resp.json())
 
+    def test_bad_project_format_rejected(self):
+        # a malformed project UUID must 400 (like month/from/to), not 500 on the UUIDField lookup
+        resp = self.client.get(self.base, {"project": "notauuid"})
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("project", resp.json())
+
     def test_superuser_sees_all_orgs(self):
         self.user.is_superuser = True
         self.user.save()
