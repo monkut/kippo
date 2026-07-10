@@ -422,6 +422,13 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(breakdown[f"{today.year}/01"], "¥0")  # months with no billing → 0
         self.assertIn("月別契約予定合計", response.content.decode())  # monthly header block rendered
 
+        # each month cell deep-links into the kippo-ui プロジェクト請求一覧 filtered to that month (?month=YYYY-MM)
+        from django.conf import settings
+
+        march_row = next(row for row in summary["monthly_planned_breakdown"] if row["month"] == f"{today.year}/03")
+        self.assertEqual(march_row["url"], f"{settings.URL_PREFIX}/ui/billing?month={today.year}-03")
+        self.assertIn(f"/ui/billing?month={today.year}-03", response.content.decode())  # link rendered in the chart
+
     def test_fiscal_year_summary_is_filter_aware(self):
         from decimal import Decimal
 

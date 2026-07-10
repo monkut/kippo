@@ -6,6 +6,7 @@ from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 from commons.functions import is_uuid
 from django import forms
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.utils import unquote
 from django.contrib.admin.views.main import ChangeList
@@ -345,7 +346,14 @@ class KippoCustomerAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
                 "received_total_display": _yen(summary["received_total"]),
                 "planned_total_display": _yen(summary["planned_total"]),
                 "monthly_planned_breakdown": [
-                    {"month": row["month"], "amount_display": _yen(row["amount"])} for row in summary["monthly_planned_breakdown"]
+                    {
+                        "month": row["month"],
+                        "amount_display": _yen(row["amount"]),
+                        # Deep-link into the kippo-ui プロジェクト請求一覧, pre-filtered to this month
+                        # (row["month"] is "YYYY/MM"; the UI's ?month= expects "YYYY-MM").
+                        "url": f"{settings.URL_PREFIX}/ui/billing?month={row['month'].replace('/', '-')}",
+                    }
+                    for row in summary["monthly_planned_breakdown"]
                 ],
             }
             for summary in fiscal_year_org_summaries(customers)

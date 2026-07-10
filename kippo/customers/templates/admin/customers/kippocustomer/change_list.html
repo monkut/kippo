@@ -36,13 +36,13 @@
     <thead>
       <tr>
         <th>{{ summary.organization }}</th>
-        {% for month in summary.monthly_planned_breakdown %}<th style="text-align:right">{{ month.month }}</th>{% endfor %}
+        {% for month in summary.monthly_planned_breakdown %}<th style="text-align:right"><a href="{{ month.url }}" title="{{ month.month }} のプロジェクト請求一覧を開く">{{ month.month }}</a></th>{% endfor %}
       </tr>
     </thead>
     <tbody>
       <tr>
         <td>契約予定</td>
-        {% for month in summary.monthly_planned_breakdown %}<td style="text-align:right">{{ month.amount_display }}</td>{% endfor %}
+        {% for month in summary.monthly_planned_breakdown %}<td style="text-align:right"><a href="{{ month.url }}" title="{{ month.month }} のプロジェクト請求一覧を開く">{{ month.amount_display }}</a></td>{% endfor %}
       </tr>
     </tbody>
   </table>
