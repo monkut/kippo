@@ -1557,9 +1557,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
 
-        # category: scope to the project's organization (on change) or the user's orgs (on add) so the
-        # select never lists other organizations' categories.
-        self._scope_category_queryset(form, obj, user_memberships)
+        # category: scope to the project's organization (on change) or the preselected session
+        # organization (on add) so the select never lists other organizations' categories.
+        self._scope_category_queryset(form, obj, user_initial_organization)
 
         # On /add/ the model default is a GLOBAL template row, which the org-scoped queryset above drops;
         # pre-select the initial organization's OWN default category so the required field renders selected
@@ -1591,20 +1591,25 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
 
     @staticmethod
-    def _scope_category_queryset(form: Form, obj: KippoProject | None, user_memberships: models.QuerySet) -> None:
-        """Scope the category select to the project's organization (or the user's orgs on /add/).
+    def _scope_category_queryset(form: Form, obj: KippoProject | None, add_organization: "KippoOrganization | None") -> None:
+        """Scope the category select to the project's organization (change) or the preselected /add/ org.
 
         Narrows the queryset already built by formfield_for_foreignkey. On the change form the currently-
         selected category is always kept selectable — even a legacy global (organization=null) row — so an
-        edit can never silently drop it.
+        edit can never silently drop it. On /add/ the select is scoped to the single session organization
+        (the one preselected in the 組織 field), NOT to every organization the user belongs to: each org
+        owns its own identical-label copy of the default category set (kippo#49), so scoping to all
+        memberships rendered the same labels once per org — the duplicates in the カテゴリ dropdown.
         """
         if "category" not in form.base_fields:
             return
         queryset = form.base_fields["category"].queryset
         if obj is not None and obj.organization_id:
             form.base_fields["category"].queryset = queryset.filter(models.Q(organization=obj.organization) | models.Q(pk=obj.category_id))
+        elif add_organization is not None:
+            form.base_fields["category"].queryset = queryset.filter(organization=add_organization)
         else:
-            form.base_fields["category"].queryset = queryset.filter(organization__in=user_memberships)
+            form.base_fields["category"].queryset = queryset.none()
 
     @staticmethod
     def _apply_continuation_source_widgets(form: Form, user_memberships: models.QuerySet) -> None:

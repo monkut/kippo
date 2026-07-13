@@ -908,6 +908,28 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(str(field.initial), str(default_category.pk))
         self.assertIn(default_category.pk, set(field.queryset.values_list("pk", flat=True)))
 
+    def test_add_form_category_scoped_to_session_org_not_all_memberships(self):
+        # regression: a user in multiple orgs must see ONLY the session org's categories on /add/.
+        # Each org owns an identical-label copy of the default set (kippo#49), so scoping to every
+        # membership rendered the same labels once per org — duplicates in the カテゴリ dropdown.
+        OrganizationMembership.objects.create(
+            user=self.superuser_no_org,
+            organization=self.other_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        session = self.client.session
+        session["organization_id"] = str(self.organization.id)
+        session.save()
+        url = reverse("admin:projects_kippoproject_add")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        queryset = response.context["adminform"].form.fields["category"].queryset
+        org_ids = set(queryset.values_list("organization_id", flat=True))
+        self.assertEqual(org_ids, {self.organization.id}, f"category select leaked other membership orgs: {org_ids}")
+        labels = list(queryset.values_list("label", flat=True))
+        self.assertEqual(len(labels), len(set(labels)), f"duplicate category labels in select: {labels}")
+
     def test_change_form_category_scoped_to_project_organization(self):
         # editing a project must only offer that project's organization's categories
         other_org_category = KippoProjectOrganizationCategory.objects.filter(organization=self.other_organization).first()
