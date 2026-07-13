@@ -240,6 +240,17 @@ class KippoProjectViewSetTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.lead_source, "customer-referral")
 
+    def test_lead_source_partner_introduction_round_trips_via_api(self):
+        """パートナー紹介 (partner-introduction) is a valid lead_source choice."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.patch(url, {"lead_source": "partner-introduction"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        data = response.json()
+        self.assertEqual(data["lead_source"], "partner-introduction")
+        self.assertEqual(data["lead_source_display"], "パートナー紹介")
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.lead_source, "partner-introduction")
+
     def test_lead_source_invalid_choice_rejected(self):
         """A lead_source outside VALID_LEAD_SOURCES is rejected with a 400."""
         url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"

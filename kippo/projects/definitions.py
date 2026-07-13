@@ -57,6 +57,7 @@ VALID_LEAD_SOURCES = (
     ("info", "info"),
     ("employee-referral", _("社員紹介")),
     ("customer-referral", _("顧客紹介")),
+    ("partner-introduction", _("パートナー紹介")),
     (CONTINUATION_LEAD_SOURCE_VALUE, _("継続")),
 )
 LEAD_SOURCE_MAX_LENGTH = 32
