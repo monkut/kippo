@@ -17,6 +17,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from ..models import (
     PHASE_CONFIDENCE,
     KippoProject,
+    KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
@@ -27,6 +28,7 @@ from ..models import (
 
 if TYPE_CHECKING:
     from customers.models import KippoCustomer
+    from rest_framework.response import Response
 
 
 def _registration_fields(organization: KippoOrganization, project_manager: KippoUser) -> dict:
@@ -2029,6 +2031,131 @@ class ContractAndBillingEntryAPITestCase(TestCase):
         # same (contract, billing_date) → clean 400 (the unique constraint would otherwise 500)
         dup = self.client.post(url, {"billing_date": "2026-09-30", "amount": "5"}, format="json")
         self.assertEqual(dup.status_code, HTTPStatus.BAD_REQUEST)
+
+
+class BillingListAPITestCase(TestCase):
+    """Flat cross-project billing list endpoint (/api/billing/) backing the 請求一覧 UI."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        from customers.models import KippoCustomer
+
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+
+        self.customer = KippoCustomer.objects.create(organization=self.organization, name="BillCo", created_by=self.user, updated_by=self.user)
+        # fixed + monthly over 2026-07..2026-09 → auto-generates 3 month-end entries (7/31, 8/31, 9/30).
+        self.contract = KippoProjectContract.objects.create(
+            project=self.project,
+            billed_to=self.customer,
+            billing_type="monthly",
+            pricing_basis="fixed",
+            total_amount=3000000,
+            start_date=datetime.date(2026, 7, 1),
+            end_date=datetime.date(2026, 9, 30),
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        # project + contract in an org the user does NOT belong to (scoping check). delivery+fixed →
+        # a single entry at end_date (2026-08-31).
+        self.other_org = KippoOrganization.objects.create(
+            name="billing-other-org",
+            github_organization_name="billing-other-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.other_project = KippoProject.objects.create(
+            name="Other Project",
+            organization=self.other_org,
+            columnset=self.project.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        KippoProjectContract.objects.create(
+            project=self.other_project,
+            billing_type="delivery",
+            pricing_basis="fixed",
+            total_amount=9000000,
+            start_date=datetime.date(2026, 7, 1),
+            end_date=datetime.date(2026, 8, 31),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.base = f"{settings.URL_PREFIX}/api/billing/"
+
+    @staticmethod
+    def _results(resp: "Response") -> list:
+        data = resp.json()
+        return data["results"] if isinstance(data, dict) else data
+
+    def test_lists_accessible_rows_denormalized(self):
+        # sanity: 3 (self.project monthly) + 1 (other_project delivery) exist in the DB
+        self.assertEqual(KippoProjectBillingEntry.objects.count(), 4)
+        resp = self.client.get(self.base)
+        self.assertEqual(resp.status_code, HTTPStatus.OK, resp.content)
+        results = self._results(resp)
+        # only self.project's 3 entries — the other org's entry is filtered out (org-scoped)
+        self.assertEqual(len(results), 3)
+        self.assertTrue(all(r["project_name"] == self.project.name for r in results))
+        row = results[0]
+        self.assertEqual(row["billed_to_name"], "BillCo")
+        self.assertEqual(row["billing_type"], "monthly")
+        self.assertEqual(row["pricing_basis"], "fixed")
+        self.assertEqual(row["organization_name"], self.organization.name)
+        self.assertEqual(row["contract_end_date"], "2026-09-30")
+        self.assertIn("amount", row)
+
+    def test_month_filter(self):
+        results = self._results(self.client.get(self.base, {"month": "2026-08"}))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["billing_date"], "2026-08-31")
+
+    def test_date_range_filter(self):
+        results = self._results(self.client.get(self.base, {"from": "2026-08-01", "to": "2026-09-30"}))
+        self.assertEqual({r["billing_date"] for r in results}, {"2026-08-31", "2026-09-30"})
+
+    def test_project_filter(self):
+        results = self._results(self.client.get(self.base, {"project": str(self.project.id)}))
+        self.assertEqual(len(results), 3)
+
+    def test_bad_month_format_rejected(self):
+        resp = self.client.get(self.base, {"month": "2026/07"})
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("month", resp.json())
+
+    def test_bad_date_format_rejected(self):
+        resp = self.client.get(self.base, {"from": "07-01-2026"})
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("from", resp.json())
+
+    def test_bad_project_format_rejected(self):
+        # a malformed project UUID must 400 (like month/from/to), not 500 on the UUIDField lookup
+        resp = self.client.get(self.base, {"project": "notauuid"})
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST)
+        self.assertIn("project", resp.json())
+
+    def test_superuser_sees_all_orgs(self):
+        self.user.is_superuser = True
+        self.user.save()
+        results = self._results(self.client.get(self.base))
+        self.assertEqual(len(results), 4)
+
+    def test_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        resp = self.client.get(self.base)
+        self.assertIn(resp.status_code, (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN))
+
+    def test_is_read_only(self):
+        resp = self.client.post(self.base, {}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.METHOD_NOT_ALLOWED)
 
 
 class KippoProjectListQueryCountTestCase(TestCase):

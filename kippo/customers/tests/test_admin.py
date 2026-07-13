@@ -422,6 +422,42 @@ class KippoCustomerAdminProjectsInlineTestCase(KippoProjectAdminFixtureTestCaseB
         self.assertEqual(breakdown[f"{today.year}/01"], "¥0")  # months with no billing → 0
         self.assertIn("月別契約予定合計", response.content.decode())  # monthly header block rendered
 
+        # each month cell deep-links into the kippo-ui プロジェクト請求一覧 filtered to that month (?month=YYYY-MM)
+        from django.conf import settings
+
+        march_row = next(row for row in summary["monthly_planned_breakdown"] if row["month"] == f"{today.year}/03")
+        self.assertEqual(march_row["url"], f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/billing?month={today.year}-03")
+        self.assertIn(f"/ui/billing?month={today.year}-03", response.content.decode())  # link rendered in the chart
+
+    def test_changelist_active_project_detail_effort_contract_no_total(self):
+        # Regression: an effort-priced contract has total_amount=None; the active-project detail row
+        # (get_active_project_count → _active_project_row) must render "-" for 契約金額 instead of
+        # crashing on a NoneType format ("unsupported format string passed to NoneType.__format__").
+        from decimal import Decimal
+
+        from django.utils import timezone
+        from projects.models import KippoProjectContract
+
+        today = timezone.localdate()
+        project = self._make_customer_project("effort-tm", self.customer, date(today.year, 9, 30))
+        KippoProjectContract.objects.create(
+            project=project,
+            billing_type="monthly",
+            pricing_basis="effort",
+            total_amount=None,
+            estimated_monthly_amount=Decimal("500000"),
+            start_date=date(today.year, 7, 1),
+            end_date=date(today.year, 9, 30),
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        response = self.client.get(reverse("admin:customers_kippocustomer_changelist"))
+        content = response.content.decode()
+        self.assertEqual(response.status_code, 200)  # no NoneType-format crash
+        self.assertIn("effort-tm", content)
+        # effort contract → 契約金額 renders 実績 (matching get_contract_total), not "-"
+        self.assertIn("実績", content)
+
     def test_fiscal_year_summary_is_filter_aware(self):
         from decimal import Decimal
 

@@ -217,6 +217,13 @@ URL_PREFIX = os.getenv("URL_PREFIX", DEFAULT_URL_PREFIX)
 if URL_PREFIX and not URL_PREFIX.startswith("/"):
     URL_PREFIX = f"/{URL_PREFIX}"
 STATIC_URL = f"{URL_PREFIX}/static/"
+
+# Absolute origin of the kippo-ui SPA, used to build admin→UI deep-links (e.g. the KippoCustomerAdmin
+# per-month chart → プロジェクト請求一覧). Empty in production, where the SPA is same-origin under
+# {URL_PREFIX}/ui/ (a relative link is correct). For local development set UI_BASE_URL to the Vite dev
+# server (http://localhost:5173) — Django's own /ui/ serves a *production* bundle whose assets 404
+# locally, so a same-origin link would hang on the loading shell.
+UI_BASE_URL = os.getenv("UI_BASE_URL", "").rstrip("/")
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # UI static files source directory (populated by 'update_ui' management command)
