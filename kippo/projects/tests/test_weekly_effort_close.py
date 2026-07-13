@@ -490,6 +490,14 @@ class WeeklyEffortCloseReminderTestCase(WeeklyEffortCloseTestCaseBase):
         self.assertNotIn(datetime.date(2024, 4, 8), missing_map[self.user.pk])
 
     @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__excludes_unassigned_user(self):
+        # the org's auto-created (unassigned) sentinel is is_developer=True but must not be reminded
+        unassigned = self.organization.get_unassigned_kippouser()
+        user_ids = {m.user_id for m, _ in self._manager().get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertIn(self.user.pk, user_ids)
+        self.assertNotIn(unassigned.pk, user_ids)
+
+    @freeze_time(WITHIN_WINDOW)
     def test_post__mentions_missing_member_in_org_channel(self):
         manager = self._manager()
         blocks = manager.post()
@@ -500,6 +508,7 @@ class WeeklyEffortCloseReminderTestCase(WeeklyEffortCloseTestCaseBase):
         text = json.dumps(blocks, ensure_ascii=False)
         self.assertIn("<@U12345678>", text)  # @-mention via slack_user_id
         self.assertIn("4月1日週", text)  # per-week gap listed
+        self.assertIn(f"{settings.HOST_URL}{settings.URL_PREFIX}/ui/weekly-effort", text)  # entry-UI deep link
 
     @freeze_time(OUTSIDE_WINDOW)
     def test_post__no_post_outside_window(self):
