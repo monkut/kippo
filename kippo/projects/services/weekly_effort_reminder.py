@@ -69,7 +69,11 @@ class WeeklyEffortCloseReminderManager:
                 "user_id", "week_start"
             )
         )
-        memberships = OrganizationMembership.objects.filter(organization=self.organization, is_developer=True).select_related("user")
+        memberships = (
+            OrganizationMembership.objects.filter(organization=self.organization, is_developer=True)
+            .exclude(user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)  # 組織の (unassigned) 番人ユーザは対象外
+            .select_related("user")
+        )
         results = []
         for membership in memberships:
             missing = [week_start for week_start in week_starts if (membership.user_id, week_start) not in logged]
@@ -98,9 +102,12 @@ class WeeklyEffortCloseReminderManager:
         for membership, missing in missing_by_member:
             weeks = "、".join(week_start.strftime("%-m月%-d日週") for week_start in missing)
             lines.append(f"• {self._mention(membership)}: {weeks}")
+        # 入力画面への絶対URL。Slack はリンクを解決できないため HOST_URL (デプロイ先オリジン) を使う (ui_url は prod で相対パス)。
+        weekly_effort_url = f"{settings.HOST_URL}{settings.URL_PREFIX}/ui/weekly-effort"
         return [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f":memo: <{weekly_effort_url}|週間稼働の入力はこちら>"}},
         ]
 
     def post(self, within: datetime.timedelta = DEFAULT_REMINDER_WINDOW) -> list[dict] | None:
