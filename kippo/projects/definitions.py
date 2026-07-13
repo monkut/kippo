@@ -49,7 +49,8 @@ VALID_KIPPOPROJECT_CATEGORY_VALUES = tuple(choice[0] for choice in KIPPOPROJECT_
 # KippoProject.lead_source (リード) — the acquisition channel a project/opportunity came in through.
 # A static (key, label) choices set. "continuation" (継続) is stamped by the close→follow-up wizard on a
 # follow-up project; the others are manual acquisition channels.
-# lead_source stamped on a follow-up project created by the close→continuation wizard (requires parent_project).
+# lead_source stamped on a follow-up project created by the close→continuation wizard, which auto-populates
+# parent_project; parent_project is optional (not required) when 継続 is set manually.
 CONTINUATION_LEAD_SOURCE_VALUE = "continuation"
 VALID_LEAD_SOURCES = (
     ("sunx", _("SUNX経由")),

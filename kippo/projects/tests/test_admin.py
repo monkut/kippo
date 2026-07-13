@@ -1069,10 +1069,12 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
             data["parent_project"] = parent_project_id
         return data
 
-    def test_continuation_lead_source_without_parent_project_is_invalid(self):
+    def test_continuation_lead_source_without_parent_project_is_valid(self):
+        # parent_project is optional for 継続: the close/upsell wizard auto-populates it, and a manual
+        # add with リード=継続 but no parent must still validate (requirement removed).
         form = KippoProjectAdminForm(data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE))
-        self.assertFalse(form.is_valid())
-        self.assertIn("parent_project", form.errors)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertNotIn("parent_project", form.errors)
 
     def test_continuation_lead_source_with_parent_project_is_valid(self):
         form = KippoProjectAdminForm(
@@ -1080,13 +1082,12 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         )
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_continuation_without_parent_on_readonly_form_uses_nonfield_error(self):
-        # regression: parent_project is readonly on the change form (removed from self.fields); setting
-        # リード=継続 on a parentless project must add a non-field error, not raise ValueError (HTTP 500).
+    def test_continuation_without_parent_on_readonly_form_is_valid(self):
+        # 継続 on a parentless project (parent_project readonly / absent from self.fields on the change
+        # form) must validate — the parent is no longer required, and clean() must not raise.
         form = KippoProjectAdminForm(data=self._form_data(category="other", lead_source=CONTINUATION_LEAD_SOURCE_VALUE))
         form.fields.pop("parent_project", None)  # mimic the readonly change-form state
-        self.assertFalse(form.is_valid())  # must not raise
-        self.assertIn("__all__", form.errors)
+        self.assertTrue(form.is_valid(), form.errors)  # must not raise
 
     def test_blank_lead_source_does_not_require_parent_project(self):
         form = KippoProjectAdminForm(data=self._form_data(category="other"))
@@ -1227,9 +1228,9 @@ class KippoProjectAdminFormValidationTestCase(IsStaffModelAdminTestCaseBase):
         self.assertNotIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=None))
         self.assertIn(KippoProjectContractInline, modeladmin.get_inlines(self.super_user_request, obj=self.parent))
 
-    def test_change_form_with_continuation_uses_persisted_parent_when_field_omitted(self):
-        # change form: parent_project is readonly so it isn't submitted in POST data;
-        # validation must fall back to the persisted instance value to avoid a false-positive error.
+    def test_change_form_with_continuation_omitting_readonly_parent_is_valid(self):
+        # change form: parent_project is readonly so it isn't submitted in POST data; a 継続 project
+        # must still validate (parent_project is optional, and clean() must not error on its absence).
         existing_continuation = KippoProject.objects.create(
             organization=self.organization,
             name="existing-continuation",
