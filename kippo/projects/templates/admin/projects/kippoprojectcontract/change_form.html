@@ -1,0 +1,7 @@
+{% extends "admin/change_form.html" %}
+{# 月額 is only valid for a 実績 × 月額 contract; the shared toggle hides it for every other combination
+   so the value cannot be entered where KippoProjectContract.clean() would reject it. The same include
+   drives the 契約 inline on the KippoProject change form. #}
+{% block extrahead %}{{ block.super }}
+{% include "admin/projects/contract_monthly_amount_toggle.html" %}
+{% endblock %}

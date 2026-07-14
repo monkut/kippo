@@ -1,0 +1,66 @@
+<script id="contract-monthly-amount-toggle">
+'use strict';
+// 月額 (estimated_monthly_amount) only applies to a 実績(effort) × 月額(monthly) contract — every other
+// combination rejects it (KippoProjectContract.clean). Show the field only for that combination so the
+// value cannot be entered where it would be rejected; clear it when the combination no longer applies,
+// so a stale value is never submitted.
+//
+// Included by both 契約 edit surfaces: the inline on the KippoProject change form (fields carry the
+// formset prefix, contract-0-…) and the standalone KippoProjectContract change form (no prefix) — hence
+// every selector matches the bare name as well as the -suffixed one.
+(function () {
+    var EFFORT = 'effort';
+    var MONTHLY = 'monthly';
+
+    function fieldIn(scope, tag, name) {
+        return scope.querySelector(tag + '[name="' + name + '"], ' + tag + '[name$="-' + name + '"]');
+    }
+
+    function sync(scope) {
+        var pricingBasis = fieldIn(scope, 'select', 'pricing_basis');
+        var billingType = fieldIn(scope, 'select', 'billing_type');
+        var monthlyAmount = fieldIn(scope, 'input', 'estimated_monthly_amount');
+        if (!pricingBasis || !billingType || !monthlyAmount) {
+            return;  // not a 契約 row (e.g. a billing-entry inline row)
+        }
+        var applies = pricingBasis.value === EFFORT && billingType.value === MONTHLY;
+        var container = monthlyAmount.closest('.form-row') || monthlyAmount.parentNode;
+        container.style.display = applies ? '' : 'none';
+        if (!applies) {
+            monthlyAmount.value = '';
+        }
+    }
+
+    function scopeOf(element) {
+        // the inline repeats the contract fields per row, so a row is the scope there; the standalone
+        // change form has a single set of them, so the <form> is
+        return element.closest('.inline-related') || element.form || document;
+    }
+
+    document.addEventListener('change', function (event) {
+        var target = event.target;
+        if (!target.name || !/(^|-)(pricing_basis|billing_type)$/.test(target.name)) {
+            return;
+        }
+        sync(scopeOf(target));
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // the empty (__prefix__) template row nested_admin keeps for cloning is skipped — syncing it
+        // would clear/hide the template every row is cloned from; a row added later is synced below
+        document.querySelectorAll('.inline-related:not(.empty-form)').forEach(sync);
+        var standalonePricingBasis = document.querySelector('select[name="pricing_basis"]');
+        if (standalonePricingBasis) {  // the standalone 契約 change form — its fields sit outside any inline row
+            sync(scopeOf(standalonePricingBasis));
+        }
+        if (window.django && django.jQuery) {
+            django.jQuery(document).on('formset:added', function (event, $row) {
+                var row = ($row && $row[0]) || event.target;
+                if (row && row.querySelector) {
+                    sync(row);
+                }
+            });
+        }
+    });
+})();
+</script>

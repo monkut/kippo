@@ -95,12 +95,17 @@ if TYPE_CHECKING:
 
 CLOSE_PROJECT_NO_CONTINUATION_VALUE = "__no_continuation__"
 
-# Shown on the contract inline (not the phase field) when a project is moved into 契約(稼働中) but the 契約
-# inline is empty. The period is pre-filled from the project, so the actionable gap for the user is the
-# 契約金額 (an untouched row with no amount is not registered). Phrased from the admin user's perspective
-# (fill in the 契約) since the contract saves together with the project. Attached to the inline formset so
-# Django renders that 契約 component in its error state.
-CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _("フェーズを契約(稼働中)にするには、契約金額を入力してください。")
+# Shown on the contract inline (not the phase field) when a project is moved into 契約(稼働中) but no 契約
+# with a period is submitted. What the gate checks is the period (see _validate_under_contract_gate), and
+# the period is pre-filled from the project — so what the user must actually do is fill the 契約 terms:
+# an untouched row registers no contract, and the terms are what makes the row register (契約金額 for 固定,
+# 料金体系=実績 for an effort contract, whose 契約金額 stays blank). Naming 契約金額 alone was wrong: it is not
+# required for an effort contract. Phrased from the admin user's perspective (fill in the 契約) since the
+# contract saves together with the project. Attached to the inline formset so Django renders that 契約
+# component in its error state.
+CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG = _(
+    "フェーズを契約(稼働中)にするには、契約(開始日・終了日は必須。固定の場合は契約金額も必須)を入力してください。"
+)
 
 # GET/POST param carrying the admin URL to return to after a project add/change. Set by callers
 # that send the user into the project add form from elsewhere (e.g. the customer admin's
