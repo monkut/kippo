@@ -990,30 +990,21 @@ class KippoProjectContract(UserCreatedBaseModel):
         on_delete=models.SET_NULL,
         related_name="billed_contracts",
         verbose_name=_("請求先"),
-        help_text=_(
-            "Customer invoiced for this contract. Defaults to the project's customer (顧客); "
-            "set explicitly when billing goes to a different customer."
-        ),
+        help_text=_("請求先の顧客。未入力の場合はプロジェクトの顧客。"),
     )
     billing_type = models.CharField(
         _("請求方法"),
         max_length=20,
         choices=VALID_BILLING_TYPES,
         default=DEFAULT_BILLING_TYPE,
-        help_text=_(
-            "When revenue is billed: 'delivery' (納品, once at the contract end_date) or 'monthly' (月額, each month-end across the contract period)."
-        ),
+        help_text=_("請求するタイミング。納品: 契約終了日に一括。月額: 契約期間の各月末。"),
     )
     pricing_basis = models.CharField(
         _("料金体系"),
         max_length=20,
         choices=VALID_PRICING_BASES,
         default=DEFAULT_PRICING_BASIS,
-        help_text=_(
-            "How each billed amount is computed: 'fixed' (固定, the contract total_amount) or "
-            "'effort' (実績, actual logged effort × role rate — time-&-materials). When 'effort', "
-            "total_amount is an optional cap (上限) and may be left blank."
-        ),
+        help_text=_("請求額の算出方法。固定: 契約金額。実績: 実績工数 × ロール単価。"),
     )
     total_amount = models.DecimalField(
         _("契約金額"),
@@ -1021,11 +1012,7 @@ class KippoProjectContract(UserCreatedBaseModel):
         decimal_places=0,
         null=True,
         blank=True,
-        help_text=_(
-            "JPY. Contract total for 'fixed' pricing (required; for 'monthly' it is split evenly "
-            "across the contract months with the remainder on the final month). For 'effort' pricing "
-            "it is an optional cap (上限) and may be left blank."
-        ),
+        help_text=_("契約総額(円)。固定の場合は必須(月額請求では各月に均等配分し、端数は最終月)。実績の場合は任意(上限)。"),
     )
     estimated_monthly_amount = models.DecimalField(
         _("月額"),
@@ -1034,22 +1021,21 @@ class KippoProjectContract(UserCreatedBaseModel):
         null=True,
         blank=True,
         help_text=_(
-            "JPY. Provisional (仮) monthly amount for effort + monthly contracts (kippo#46): every "
-            "contract month is billed this amount up front, then corrected to actuals (実績) via the "
-            "true-up admin action before the entry is received. Blank bills logged actuals directly."
+            "実績 × 月額の契約のみ。各月をこの暫定額で請求し、入金前に「請求エントリを実績に修正」で実績額へ修正。"
+            "未入力の場合は実績額をそのまま請求。"
         ),
     )
     start_date = models.DateField(
         _("契約開始日"),
         null=True,
         blank=True,
-        help_text=_("Contract period start. Auto-populated from the project start_date when left blank."),
+        help_text=_("未入力の場合はプロジェクトの開始日を自動設定。"),
     )
     end_date = models.DateField(
         _("契約終了日"),
         null=True,
         blank=True,
-        help_text=_("Contract period end. Auto-populated from the project target_date when left blank."),
+        help_text=_("未入力の場合はプロジェクトの完了予定日を自動設定。"),
     )
     note = models.CharField(
         _("備考"),
