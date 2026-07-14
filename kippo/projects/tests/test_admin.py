@@ -45,7 +45,7 @@ from projects.admin import (
     _next_continuation_project_name,
     _start_of_next_month,
 )
-from projects.definitions import CONTINUATION_LEAD_SOURCE_VALUE, DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS
+from projects.definitions import CONTINUATION_LEAD_SOURCE_VALUE, DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS, PRICING_BASIS_EFFORT
 from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
@@ -555,7 +555,8 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         # The change_form template pulls the 契約 inline out of the default inline block and emits it
         # directly below the "Dates & Estimates" fieldset. Assert the rendered order:
         #   Dates & Estimates (allocated_staff_days) < 契約 (billing_type) < Details (document_folder_url).
-        # Field names are used as markers because they are prefix-independent and absent from the <head>.
+        # The 契約 marker is the rendered input name (not the bare field name, which the <head> script
+        # that toggles 月額 also mentions).
         KippoProjectContract.objects.create(
             project=self.project1,
             billing_type="monthly",
@@ -572,13 +573,72 @@ class ProjectsAdminViewTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         content = response.content.decode()
         dates_idx = content.index("allocated_staff_days")
-        contract_idx = content.index("billing_type")
+        contract_idx = content.index('name="contract-0-billing_type"')  # the rendered inline field, not a mention of the field name
         details_idx = content.index("document_folder_url")
         self.assertLess(dates_idx, contract_idx, "契約 inline should render after the Dates & Estimates fieldset")
         self.assertLess(contract_idx, details_idx, "契約 inline should render before the Details fieldset")
         # A contract exists, so the project's own start/target inputs are hidden (contract is the source of truth).
         self.assertNotIn('name="start_date"', content)
         self.assertNotIn('name="target_date"', content)
+
+    def test_contract_inline_renders_markup_the_monthly_amount_toggle_hooks_into(self):
+        # 月額 is only valid for 実績 × 月額 (KippoProjectContract.clean rejects it elsewhere), so the
+        # change_form <head> script hides the field for every other combination. That script finds the
+        # field by walking `.inline-related` -> `select[name$="-pricing_basis"]` / `[name$="-billing_type"]`
+        # -> `input[name$="-estimated_monthly_amount"]` -> its `.form-row` container. Pin that markup here:
+        # a template/prefix change that breaks the selectors would otherwise silently restore the
+        # confusing always-visible field (the JS itself is not exercised by the Django test client).
+        KippoProjectContract.objects.create(
+            project=self.project1,
+            billing_type="monthly",
+            pricing_basis="effort",
+            estimated_monthly_amount=500000,
+            start_date=self.current_date,
+            end_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        self.assertIn("inline-related", content)
+        for field in ("pricing_basis", "billing_type", "estimated_monthly_amount"):
+            self.assertIn(f'name="contract-0-{field}"', content, f"{field} must render with the contract- prefix the toggle matches on")
+        self.assertIn("form-row field-estimated_monthly_amount", content)  # the container the toggle hides
+
+    def test_contract_inline_exposes_monthly_amount_toggle_script(self):
+        # the toggle ships in the change_form <head> (this app's static/ dirs are gitignored)
+        url = reverse("admin:projects_kippoproject_change", args=[self.project1.id])
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        self.assertIn('<script id="contract-monthly-amount-toggle">', content)
+
+    def test_standalone_contract_change_form_exposes_monthly_amount_toggle_script(self):
+        # the standalone 契約 admin edits the same terms, so it gets the same toggle — its fields carry no
+        # formset prefix (name="pricing_basis", not "contract-0-pricing_basis"), which the toggle matches too.
+        contract = KippoProjectContract.objects.create(
+            project=self.project1,
+            billing_type="monthly",
+            pricing_basis="effort",
+            estimated_monthly_amount=500000,
+            start_date=self.current_date,
+            end_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        url = reverse("admin:projects_kippoprojectcontract_change", args=[contract.id])
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        self.assertIn('<script id="contract-monthly-amount-toggle">', content)
+        for field in ("pricing_basis", "billing_type", "estimated_monthly_amount"):
+            self.assertIn(f'name="{field}"', content, f"{field} must render unprefixed on the standalone 契約 form")
+        self.assertIn("form-row field-estimated_monthly_amount", content)  # the container the toggle hides
 
 
 class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
@@ -2733,9 +2793,25 @@ class KippoProjectAdminUnderContractChangeViewTestCase(IsStaffModelAdminTestCase
         self.assertEqual(self.project.phase, PHASE_UNDER_CONTRACT)
         self.assertIsNotNone(self.project.get_contract())
 
+    def test_change_phase_to_under_contract_with_effort_contract_and_no_total_amount_saves(self):
+        # 契約金額 is NOT required for an effort (実績) contract — it is an optional cap (上限). Selecting
+        # 料金体系=実績 is itself enough to register the pre-filled row, so the gate passes with a blank amount
+        # (the gate checks the period, which backfills from the project).
+        data = self._rendered_post_data()
+        data["phase"] = PHASE_UNDER_CONTRACT
+        data["contract-0-pricing_basis"] = PRICING_BASIS_EFFORT
+        data["contract-0-total_amount"] = ""
+        response = self.client.post(self.change_url, data)
+        self.assertEqual(response.status_code, HTTPStatus.FOUND, self._formset_errors(response))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, PHASE_UNDER_CONTRACT)
+        contract = self.project.get_contract()
+        self.assertIsNotNone(contract)
+        self.assertIsNone(contract.total_amount)
+
     def test_change_phase_to_under_contract_with_empty_contract_shows_actionable_message(self):
-        # the pre-filled dates alone do not save a contract (no 契約金額 -> the row is skipped): the phase
-        # change is blocked with an ACCURATE message on the contract inline, not the misleading dates one.
+        # the pre-filled dates alone do not save a contract (an untouched row is skipped): the phase change
+        # is blocked with a message on the contract inline naming what to fill in (period + 固定's 契約金額).
         data = self._rendered_post_data()
         data["phase"] = PHASE_UNDER_CONTRACT  # leave the contract row at its pre-filled defaults (no amount)
         response = self.client.post(self.change_url, data)
