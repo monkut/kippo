@@ -1566,8 +1566,11 @@ class KippoProjectAdminCompletedPhaseRedirectTestCase(KippoProjectAdminFixtureTe
         active_admin.save_model(request, self.project, form, change=True)
         response = active_admin.response_change(request, self.project)
         response.render()
+        content = response.content.decode()
         all_projects_changelist = reverse("admin:projects_kippoproject_changelist")
-        self.assertIn(f'action="{all_projects_changelist}"', response.content.decode())
+        self.assertIn(f'action="{all_projects_changelist}"', content)
+        # the template comment explaining the changelist choice must not leak into the rendered page
+        self.assertNotIn("Dispatch on the all-projects changelist", content)
 
     def test_response_change_without_flag_uses_default(self):
         request = self.factory.post(reverse("admin:projects_kippoproject_change", args=[self.project.id]), {"_save": ""})
