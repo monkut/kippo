@@ -69,6 +69,7 @@ from .functions import (
 )
 from .models import (
     _COMPUTE,
+    PHASE_COMPLETED,
     PHASE_CONFIDENCE,
     ActiveKippoProject,
     CollectIssuesAction,
@@ -800,6 +801,9 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
         if form.is_valid():
             follow_up = form.cleaned_data["follow_up"]
             project.close_comment = form.cleaned_data["close_comment"]
+            # A closed project is delivered — stamp the 完了 phase (idempotent; save() re-derives
+            # confidence only when the phase actually changes).
+            project.phase = PHASE_COMPLETED
             project.is_closed = True
             project.actual_date = timezone.now().date()
             project.display_as_active = False
@@ -1087,9 +1091,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         KippoProjectStatusAdminInline,
     )
     # /add/ form (kippo#41, slimmed for the contract-driven flow): flat, no sections — registration
-    # collects only these fields; everything else (contract, PM, estimates, …) is added on a later
-    # edit. The continuation close-wizard add (?_continuation_source=close) instead gets the full sectioned
-    # form (see get_fieldsets) so its prefilled optional fields (parent_project, lead_source, slack, …) render.
+    # collects only these fields (the required set plus the optional lead_source); everything else
+    # (contract, PM, estimates, …) is added on a later edit. The continuation close-wizard add
+    # (?_continuation_source=close) instead gets the full sectioned form (see get_fieldsets) so its
+    # prefilled optional fields (parent_project, lead_source, slack, …) render.
     ADD_FIELDS = (
         "organization",
         "customer",
@@ -1097,6 +1102,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         "start_date",
         "phase",
         "category",
+        "lead_source",
     )
     # Shared base columns. KippoProjectAdmin appends display_as_active (it lists closed/inactive
     # projects too); the active admin uses this set as-is.
@@ -1744,9 +1750,18 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         return self._redirect_back_after_save(request, super().response_add(request, obj, post_url_continue))
 
     def response_change(self, request: DjangoRequest, obj: KippoProject):
+        # Manually flipping an open project's phase to 完了 routes into the close wizard so closure
+        # fields (comment / continuation) are captured. The change itself is already saved; the wizard
+        # is the offer to finish closing (set in save_model).
+        if getattr(request, "_phase_changed_to_completed", False):
+            return close_kippoproject_action(self, request, KippoProject.objects.filter(pk=obj.pk))
         return self._redirect_back_after_save(request, super().response_change(request, obj))
 
     def save_model(self, request: DjangoRequest, obj: KippoProject, form: Form, change: bool):
+        # Detect a manual phase→完了 on an open project so response_change can route to the close wizard.
+        request._phase_changed_to_completed = (
+            change and "phase" in getattr(form, "changed_data", ()) and obj.phase == PHASE_COMPLETED and not obj.is_closed
+        )
         if obj.pk is None:
             # expect only not not exist IF creating a new Project via ADMIN
             obj.created_by = request.user
