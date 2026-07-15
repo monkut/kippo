@@ -40,7 +40,10 @@
 {% block content %}
 <div id="content-main">
   <h1>{% trans "Close Project" %}: {{ project.name }}</h1>
-  <form method="post" action="{% url opts|admin_urlname:'changelist' %}">{% csrf_token %}
+  {# Dispatch on the all-projects changelist: the active/sales changelists filter by phase (and by their
+     proxy managers), so a project just moved to 完了 is excluded there and the action would see an empty
+     queryset ("Select exactly one project to close."). The all-projects changelist has no such filter. #}
+  <form method="post" action="{% url 'admin:projects_kippoproject_changelist' %}">{% csrf_token %}
     <input type="hidden" name="action" value="close_kippoproject_action">
     <input type="hidden" name="post" value="yes">
     <input type="hidden" name="_selected_action" value="{{ project.id }}">
