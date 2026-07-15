@@ -19,6 +19,7 @@ from customers.models import KippoCustomer
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connection
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -49,6 +50,7 @@ from projects.definitions import CONTINUATION_LEAD_SOURCE_VALUE, DEFAULT_BILLING
 from projects.filters import PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
+    PHASE_COMPLETED,
     PHASE_UNDER_CONTRACT,
     SALES_PROJECT_PHASES,
     VALID_PROJECT_PHASES,
@@ -766,6 +768,23 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
 
         # confirm no new project was created
         self.assertEqual(KippoProject.objects.count(), 2)
+
+    def test_close_stamps_completed_phase(self):
+        # project1 starts at the default proposing-low phase; closing stamps 完了 automatically.
+        self.assertNotEqual(self.project1.phase, "completed")
+        self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                "follow_up": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
+                "close_comment": "done",
+            },
+        )
+        self.project1.refresh_from_db()
+        self.assertTrue(self.project1.is_closed)
+        self.assertEqual(self.project1.phase, "completed")
 
     def test_continuation_flow_closes_and_redirects(self):
         response = self.client.post(
@@ -1491,6 +1510,58 @@ class KippoProjectAdminReturnToTestCase(KippoProjectAdminFixtureTestCaseBase):
         request = self._add_request({}, {"_save": ""})
         original = HttpResponse()
         self.assertIs(self.modeladmin._redirect_back_after_save(request, original), original)
+
+
+class KippoProjectAdminCompletedPhaseRedirectTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """Manually setting an open project's phase to 完了 on the change form routes into the close wizard."""
+
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        self.project = self.make_project("phase-redirect-project")
+
+    def _save_model(self, obj: KippoProject, changed_data: list[str]) -> HttpRequest:
+        request = self.factory.post(reverse("admin:projects_kippoproject_change", args=[obj.id]))
+        request.user = self.superuser_no_org
+        form = MagicMock()
+        form.changed_data = changed_data
+        self.modeladmin.save_model(request, obj, form, change=True)
+        return request
+
+    def test_manual_phase_completed_flags_request(self):
+        self.project.phase = PHASE_COMPLETED
+        request = self._save_model(self.project, ["phase"])
+        self.assertTrue(request._phase_changed_to_completed)
+
+    def test_phase_unchanged_does_not_flag(self):
+        # already 完了, edited some other field — no re-route.
+        self.project.phase = PHASE_COMPLETED
+        self.project.save()
+        request = self._save_model(self.project, ["name"])
+        self.assertFalse(request._phase_changed_to_completed)
+
+    def test_phase_changed_to_non_completed_does_not_flag(self):
+        self.project.phase = PHASE_UNDER_CONTRACT
+        request = self._save_model(self.project, ["phase"])
+        self.assertFalse(request._phase_changed_to_completed)
+
+    def test_response_change_renders_close_wizard(self):
+        self.project.phase = PHASE_COMPLETED
+        request = self._save_model(self.project, ["phase"])
+        response = self.modeladmin.response_change(request, self.project)
+        self.assertIn("admin/projects/close_project_action.html", response.template_name)
+        self.assertEqual(response.context_data["project"], self.project)
+
+    def test_response_change_without_flag_uses_default(self):
+        request = self.factory.post(reverse("admin:projects_kippoproject_change", args=[self.project.id]), {"_save": ""})
+        request.user = self.superuser_no_org
+        # Django's default response_change queues a success message — give the request message storage.
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        # no flag set → normal post-change redirect (not the wizard template response)
+        response = self.modeladmin.response_change(request, self.project)
+        self.assertIsInstance(response, HttpResponseRedirect)
 
 
 class KippoProjectAdminActiveParityTestCase(KippoProjectAdminFixtureTestCaseBase):

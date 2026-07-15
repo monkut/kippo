@@ -40,7 +40,7 @@
 {% block content %}
 <div id="content-main">
   <h1>{% trans "Close Project" %}: {{ project.name }}</h1>
-  <form method="post">{% csrf_token %}
+  <form method="post" action="{% url opts|admin_urlname:'changelist' %}">{% csrf_token %}
     <input type="hidden" name="action" value="close_kippoproject_action">
     <input type="hidden" name="post" value="yes">
     <input type="hidden" name="_selected_action" value="{{ project.id }}">

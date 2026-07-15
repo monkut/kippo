@@ -168,6 +168,9 @@ class ProjectColumn(models.Model):
 # user-editable). The old anon-project value is retired — non-projects are identified by category=="non-project".
 DEFAULT_PROJECT_PHASE = "proposing-low"
 PHASE_UNDER_CONTRACT = "under-contract"
+# Terminal delivery phase. The close action stamps this on the project being closed, and manually
+# selecting it on the change form re-routes the user into the close wizard (see admin).
+PHASE_COMPLETED = "completed"
 # Shared by KippoProject.clean() (admin) and KippoProjectSerializer (API) so the gate message stays
 # in one place (and translated) across both layers.
 UNDER_CONTRACT_REQUIRES_CONTRACT_MSG = _("フェーズを契約(稼働中)にするには、開始日・終了日のある契約を保存してください。")
@@ -178,7 +181,7 @@ VALID_PROJECT_PHASES = (
     ("proposing-high", _("提案(高)")),
     ("verbal-order", _("口頭受注")),
     (PHASE_UNDER_CONTRACT, _("契約(稼働中)")),
-    ("completed", _("完了")),
+    (PHASE_COMPLETED, _("完了")),
     ("lost", _("失注")),
 )
 # Phases pre-selected on the active-project admin changelist when the フェーズ filter has no query
