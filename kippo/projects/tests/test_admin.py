@@ -1553,6 +1553,22 @@ class KippoProjectAdminCompletedPhaseRedirectTestCase(KippoProjectAdminFixtureTe
         self.assertIn("admin/projects/close_project_action.html", response.template_name)
         self.assertEqual(response.context_data["project"], self.project)
 
+    def test_close_wizard_dispatches_on_all_projects_changelist(self):
+        # Reached from the active admin: the wizard OK button must post to the all-projects changelist,
+        # not the active one — the active/sales changelists filter out a 完了 project, which would make
+        # the close action see an empty queryset ("Select exactly one project to close.").
+        active_admin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+        request = self.factory.post(reverse("admin:projects_activekippoproject_change", args=[self.project.id]))
+        request.user = self.superuser_no_org
+        self.project.phase = PHASE_COMPLETED
+        form = MagicMock()
+        form.changed_data = ["phase"]
+        active_admin.save_model(request, self.project, form, change=True)
+        response = active_admin.response_change(request, self.project)
+        response.render()
+        all_projects_changelist = reverse("admin:projects_kippoproject_changelist")
+        self.assertIn(f'action="{all_projects_changelist}"', response.content.decode())
+
     def test_response_change_without_flag_uses_default(self):
         request = self.factory.post(reverse("admin:projects_kippoproject_change", args=[self.project.id]), {"_save": ""})
         request.user = self.superuser_no_org
