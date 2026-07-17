@@ -46,8 +46,14 @@ from projects.admin import (
     _next_continuation_project_name,
     _start_of_next_month,
 )
-from projects.definitions import CONTINUATION_LEAD_SOURCE_VALUE, DEFAULT_BILLING_TYPE, DEFAULT_PRICING_BASIS, PRICING_BASIS_EFFORT
-from projects.filters import PhaseMultiSelectListFilter
+from projects.definitions import (
+    CONTINUATION_LEAD_SOURCE_VALUE,
+    DEFAULT_BILLING_TYPE,
+    DEFAULT_PRICING_BASIS,
+    KIPPOPROJECT_CATEGORY_CHOICES,
+    PRICING_BASIS_EFFORT,
+)
+from projects.filters import CategoryExcludeListFilter, PhaseMultiSelectListFilter
 from projects.models import (
     DEFAULT_ACTIVE_PROJECT_PHASES,
     PHASE_COMPLETED,
@@ -2780,6 +2786,80 @@ class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(str(choices[0]["display"]), "全て")
         self.assertTrue(choices[0]["selected"])
         self.assertFalse(any(choice["selected"] for choice in choices[1:]))
+
+
+class ActiveProjectCategoryExcludeFilterTestCase(IsStaffModelAdminTestCaseBase):
+    """CategoryExcludeListFilter on the ActiveKippoProject changelist (multi-select, excludes selected)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        super().setUp()
+        columnset = ProjectColumnSet.objects.get(pk=DEFAULT_COLUMNSET_PK)
+        # include 非案件(non-project) so the default exclusion is exercised
+        self.categories = ("ai-development", "system-development", "consulting", "other", "non-project")
+        # one active project per category (all in-flight phases so no phase default hides them)
+        for category in self.categories:
+            KippoProject.objects.create(
+                organization=self.organization,
+                name=f"project-{category}",
+                phase="under-contract",
+                category=_global_category(category),
+                columnset=columnset,
+                start_date=timezone.now().date(),
+                created_by=self.github_manager,
+                updated_by=self.github_manager,
+            )
+        self.modeladmin = ActiveKippoProjectAdmin(ActiveKippoProject, self.site)
+
+    def _changelist_categories(self, query: str = "") -> set:
+        request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
+        request.user = self.superuser_no_org
+        changelist = self.modeladmin.get_changelist_instance(request)
+        return set(changelist.queryset.values_list("category__key", flat=True))
+
+    def _category_filter_choices(self, query: str = "") -> list:
+        request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
+        request.user = self.superuser_no_org
+        changelist = self.modeladmin.get_changelist_instance(request)
+        spec = next(f for f in changelist.filter_specs if isinstance(f, CategoryExcludeListFilter))
+        return list(spec.choices(changelist))
+
+    def test_filter_registered_on_active_admin_only(self):
+        self.assertIn(CategoryExcludeListFilter, self.modeladmin.list_filter)
+        # the all-projects admin keeps the default (empty) list_filter — the filter is active-only
+        self.assertNotIn(CategoryExcludeListFilter, KippoProjectAdmin(KippoProject, self.site).list_filter)
+
+    def test_non_project_excluded_by_default(self):
+        # no param => 非案件(non-project) is dropped, everything else shows
+        self.assertEqual(self._changelist_categories(), set(self.categories) - {"non-project"})
+
+    def test_single_category_excluded(self):
+        self.assertEqual(self._changelist_categories("?exclude_category=other"), set(self.categories) - {"other"})
+
+    def test_multiple_categories_excluded(self):
+        expected = set(self.categories) - {"consulting", "other"}
+        self.assertEqual(self._changelist_categories("?exclude_category=consulting,other"), expected)
+
+    def test_empty_param_excludes_nothing(self):
+        # an explicit empty param (全て) overrides the default and shows every category
+        self.assertEqual(self._changelist_categories("?exclude_category="), set(self.categories))
+
+    def test_non_project_preselected_when_no_param(self):
+        # the sidebar pre-highlights 非案件 (and 全て is not selected) when no param is present
+        labels = dict(KIPPOPROJECT_CATEGORY_CHOICES)
+        selected = {str(choice["display"]) for choice in self._category_filter_choices() if choice["selected"]}
+        self.assertEqual(selected, {str(labels["non-project"])})
+
+    def test_all_option_selected_when_param_empty(self):
+        choices = self._category_filter_choices("?exclude_category=")
+        self.assertEqual(str(choices[0]["display"]), "全て")
+        self.assertTrue(choices[0]["selected"])
+        self.assertFalse(any(choice["selected"] for choice in choices[1:]))
+
+    def test_excluded_categories_rendered_selected(self):
+        selected = {str(choice["display"]) for choice in self._category_filter_choices("?exclude_category=other") if choice["selected"]}
+        self.assertEqual(selected, {str(dict(KIPPOPROJECT_CATEGORY_CHOICES)["other"])})
 
 
 class _AdminFormFieldParser(HTMLParser):

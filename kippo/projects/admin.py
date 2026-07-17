@@ -57,7 +57,7 @@ from .definitions import (
     ProjectRoles,
 )
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
-from .filters import PhaseMultiSelectListFilter
+from .filters import CategoryExcludeListFilter, PhaseMultiSelectListFilter
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
@@ -1899,7 +1899,8 @@ class ActiveKippoProjectAdmin(KippoProjectBaseAdmin):
     # manager) restricts it to open + display_as_active projects. The only form difference is
     # below — closure fields never apply to an active project.
     # Multi-select フェーズ filter, defaulting to the two in-flight phases (kippo new filter).
-    list_filter = (PhaseMultiSelectListFilter,)
+    # CategoryExcludeListFilter lets the user drop one or more categories from the changelist.
+    list_filter = (PhaseMultiSelectListFilter, CategoryExcludeListFilter)
 
     def get_exclude(self, request: DjangoRequest, obj: KippoProject | None = None):
         excluded: list[str] = list(super().get_exclude(request, obj) or ())
