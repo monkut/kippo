@@ -13,6 +13,12 @@ Parameters:
     Type: String
     Default: "10.0.0.0/16"
 
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment (used in tags).
+
 Resources:
   FckNatInterfaceA:
     Type: AWS::EC2::NetworkInterface
@@ -24,6 +30,13 @@ Resources:
             - NatSecurityGroup
             - GroupId
       SourceDestCheck: false
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
 
   FckNatInterfaceB:
     Type: AWS::EC2::NetworkInterface
@@ -35,6 +48,13 @@ Resources:
             - NatSecurityGroup
             - GroupId
       SourceDestCheck: false
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
 
   FckNatAsgInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -103,6 +123,16 @@ Resources:
         Ref: FckNatAsgLaunchConfigA
       VPCZoneIdentifier:
         - Fn::ImportValue: !Sub '${VPCStackName}-SubnetAPublic'
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: kippo
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: !Ref Environment
+          PropagateAtLaunch: true
     UpdatePolicy:
       AutoScalingScheduledAction:
         IgnoreUnmodifiedGroupSizeProperties: true
@@ -117,6 +147,16 @@ Resources:
         Ref: FckNatAsgLaunchConfigB
       VPCZoneIdentifier:
         - Fn::ImportValue: !Sub '${VPCStackName}-SubnetBPublic'
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: kippo
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: !Ref Environment
+          PropagateAtLaunch: true
     UpdatePolicy:
       AutoScalingScheduledAction:
         IgnoreUnmodifiedGroupSizeProperties: true
@@ -135,6 +175,13 @@ Resources:
           IpProtocol: "-1"
       VpcId:
         Fn::ImportValue: !Sub '${VPCStackName}-VPC'
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
 
   NatRole:
     Type: AWS::IAM::Role
@@ -146,6 +193,13 @@ Resources:
             Principal:
               Service: ec2.amazonaws.com
         Version: "2012-10-17"
+      Tags:
+        - Key: ProjectId
+          Value: kippo
+        - Key: Project
+          Value: kippo
+        - Key: Environment
+          Value: !Ref Environment
       Policies:
         - PolicyDocument:
             Statement:
