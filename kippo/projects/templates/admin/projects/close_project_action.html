@@ -44,10 +44,13 @@
     Dispatch on the all-projects changelist: the active/sales changelists filter by phase (and by their
     proxy managers), so a project just moved to 完了 is excluded there and the action would see an empty
     queryset ("Select exactly one project to close."). The all-projects changelist has no such filter.
+    _close_origin (admin.CLOSE_ORIGIN_PARAM) carries the admin the action started from so the redirect
+    after closing returns there rather than to the all-projects changelist we dispatch on.
   {% endcomment %}
   <form method="post" action="{% url 'admin:projects_kippoproject_changelist' %}">{% csrf_token %}
     <input type="hidden" name="action" value="close_kippoproject_action">
     <input type="hidden" name="post" value="yes">
+    <input type="hidden" name="_close_origin" value="{{ close_origin }}">
     <input type="hidden" name="_selected_action" value="{{ project.id }}">
     <fieldset class="module aligned">
       {% if form.non_field_errors %}

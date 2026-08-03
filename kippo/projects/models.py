@@ -185,8 +185,12 @@ VALID_PROJECT_PHASES = (
     ("lost", _("失注")),
 )
 # Phases pre-selected on the active-project admin changelist when the フェーズ filter has no query
-# param — the two "in-flight" phases. See projects.filters.PhaseMultiSelectListFilter.
-DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", "under-contract")
+# param — the two in-flight phases plus 完了. See projects.filters.PhaseMultiSelectListFilter.
+# 完了 is included deliberately: ActiveKippoProjectManager already drops closed projects
+# (is_closed=True / display_as_active=False), so the only 完了 rows this surfaces are the ones
+# stamped 完了 without being closed — the inconsistent state we want visible, and the state whose
+# row must stay selectable for the close action.
+DEFAULT_ACTIVE_PROJECT_PHASES = ("verbal-order", PHASE_UNDER_CONTRACT, PHASE_COMPLETED)
 # Pre-contract sales-pipeline phases — everything before delivery (under-contract) and before a
 # terminal outcome (completed/lost). Consumed by SalesKippoProjectManager (プロジェクト(営業中)).
 SALES_PROJECT_PHASES = ("keep-in-touch", "proposing-low", "proposing-mid", "proposing-high", "verbal-order")
