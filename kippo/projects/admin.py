@@ -35,6 +35,7 @@ from django.http import (
     request as DjangoRequest,  # noqa: N812
 )
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -123,6 +124,11 @@ PROJECT_CLOSURE_FIELDS = ("close_comment", "survey_issued")
 # fields render and save), instead of the flat required-only plain add.
 CONTINUATION_SOURCE_PARAM = "_continuation_source"
 CONTINUATION_SOURCE_VALUE = "close"
+
+# Hidden field on the close-confirmation form naming the admin the action was started from (e.g.
+# "activekippoproject"). The form always posts to the all-projects changelist (see the template
+# comment), so the origin has to travel with the POST for the close to land back where it began.
+CLOSE_ORIGIN_PARAM = "_close_origin"
 
 # confidence (%, derived from phase via PHASE_CONFIDENCE) at which a non-closed project must carry a
 # positive allocated_staff_days estimate (kippo#41).
@@ -781,6 +787,22 @@ def _build_continuation_prefill_params(project: KippoProject) -> dict[str, str]:
     return {k: v for k, v in params.items() if v}
 
 
+def _close_origin_opts(modeladmin: admin.ModelAdmin, request: DjangoRequest) -> "models.options.Options":
+    """Meta options of the admin the close action was started from.
+
+    The confirmation form posts to the all-projects changelist, so on that POST `modeladmin` is
+    always KippoProjectAdmin — the origin comes from the form's hidden CLOSE_ORIGIN_PARAM instead.
+    Only registered KippoProject admins are accepted (no arbitrary reverse target); anything else
+    falls back to the dispatching admin.
+    """
+    requested = request.POST.get(CLOSE_ORIGIN_PARAM)
+    if requested:
+        for model in modeladmin.admin_site._registry:
+            if issubclass(model, KippoProject) and model._meta.model_name == requested:
+                return model._meta
+    return modeladmin.model._meta
+
+
 def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
     """Close a KippoProject with an optional 継続 (continuation) follow-up project."""
     if queryset.count() != 1:
@@ -795,6 +817,11 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
             level=messages.ERROR,
         )
         return None
+
+    # Send the user back to the changelist (or continuation add form) of the admin they started
+    # from — 実行中/営業中 proxies included — instead of always the all-projects admin.
+    origin_opts = _close_origin_opts(modeladmin, request)
+    origin_urlname = f"admin:{origin_opts.app_label}_{origin_opts.model_name}"
 
     if request.POST.get("post") == "yes":
         form = CloseProjectActionForm(request.POST)
@@ -815,8 +842,8 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
 
             if follow_up == CONTINUATION_LEAD_SOURCE_VALUE:
                 params = urllib.parse.urlencode(_build_continuation_prefill_params(project))
-                return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/add/?{params}")
-            return HttpResponseRedirect(f"{settings.URL_PREFIX}/admin/projects/kippoproject/")
+                return HttpResponseRedirect(f"{reverse(f'{origin_urlname}_add')}?{params}")
+            return HttpResponseRedirect(reverse(f"{origin_urlname}_changelist"))
     else:
         form = CloseProjectActionForm()
 
@@ -826,7 +853,10 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
         "project": project,
         "form": form,
         "action": "close_kippoproject_action",
-        "opts": modeladmin.model._meta,
+        # origin_opts (not modeladmin's) so the breadcrumbs/Cancel link keep pointing at the
+        # originating admin when the confirmation page re-renders with form errors.
+        "opts": origin_opts,
+        "close_origin": origin_opts.model_name,
         "no_continuation_value": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
     }
     return TemplateResponse(request, "admin/projects/close_project_action.html", context)

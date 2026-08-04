@@ -29,6 +29,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from projects.admin import (
+    CLOSE_ORIGIN_PARAM,
     CLOSE_PROJECT_NO_CONTINUATION_VALUE,
     CONTINUATION_SOURCE_PARAM,
     CONTINUATION_SOURCE_VALUE,
@@ -914,6 +915,98 @@ class CloseProjectActionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertTemplateUsed(response, "admin/projects/close_project_action.html")
         self.assertContains(response, "project1")
+
+    def test_intermediate_form_carries_originating_admin(self):
+        """Started from プロジェクト(実行中), the confirmation form remembers that admin as the origin."""
+        # the 実行中 changelist filters to the in-flight phases -- put the project where it is selectable
+        self.project1.phase = DEFAULT_ACTIVE_PROJECT_PHASES[0]
+        self.project1.save()
+        response = self.client.post(
+            reverse("admin:projects_activekippoproject_changelist"),
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        # breadcrumbs/Cancel (opts) and the hidden origin field both point back at the active admin
+        self.assertEqual(response.context["opts"].model_name, "activekippoproject")
+        self.assertContains(response, f'name="{CLOSE_ORIGIN_PARAM}" value="activekippoproject"')
+
+    def test_completed_but_unclosed_project_is_closable_from_active_changelist(self):
+        """A 完了 project that was never closed stays selectable on プロジェクト(実行中).
+
+        The action runs against the *filtered* changelist queryset, so before 完了 joined
+        DEFAULT_ACTIVE_PROJECT_PHASES the row fell out of the フェーズ filter and the action
+        answered "Select exactly one project to close." instead of opening the wizard.
+        """
+        self.project1.phase = PHASE_COMPLETED
+        self.project1.save()
+        self.assertFalse(self.project1.is_closed)
+
+        response = self.client.post(
+            reverse("admin:projects_activekippoproject_changelist"),
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "admin/projects/close_project_action.html")
+
+    def test_close_redirects_to_originating_admin(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                CLOSE_ORIGIN_PARAM: "activekippoproject",
+                "follow_up": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
+                "close_comment": "Project completed successfully.",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertEqual(response["Location"], reverse("admin:projects_activekippoproject_changelist"))
+        self.project1.refresh_from_db()
+        self.assertTrue(self.project1.is_closed)
+
+    def test_continuation_redirects_to_originating_admin_add(self):
+        response = self.client.post(
+            self.changelist_url,
+            data={
+                "action": "close_kippoproject_action",
+                ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                "post": "yes",
+                CLOSE_ORIGIN_PARAM: "activekippoproject",
+                "follow_up": CONTINUATION_LEAD_SOURCE_VALUE,
+                "close_comment": "",
+            },
+        )
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        parsed = urlparse(response["Location"])
+        self.assertEqual(parsed.path, reverse("admin:projects_activekippoproject_add"))
+        # the continuation prefill still travels with the redirect
+        self.assertEqual(parse_qs(parsed.query).get("parent_project"), [str(self.project1.id)])
+
+    def test_unregistered_origin_falls_back_to_dispatching_admin(self):
+        for origin in ("notanadmin", "kippouser"):  # unknown model, and a registered non-project model
+            with self.subTest(origin=origin):
+                self.project1.is_closed = False
+                self.project1.save()
+                response = self.client.post(
+                    self.changelist_url,
+                    data={
+                        "action": "close_kippoproject_action",
+                        ACTION_CHECKBOX_NAME: [str(self.project1.id)],
+                        "post": "yes",
+                        CLOSE_ORIGIN_PARAM: origin,
+                        "follow_up": CLOSE_PROJECT_NO_CONTINUATION_VALUE,
+                        "close_comment": "done",
+                    },
+                )
+                self.assertEqual(response.status_code, HTTPStatus.FOUND)
+                self.assertEqual(response["Location"], self.changelist_url)
 
     def test_add_form_prefills_from_get_params(self):
         # the close-wizard opens /add/?_continuation_source=close&... and prefills the new project's
@@ -2748,6 +2841,12 @@ class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
         changelist = self.modeladmin.get_changelist_instance(request)
         return set(changelist.queryset.values_list("phase", flat=True))
 
+    def _changelist_ids(self, query: str = "") -> set:
+        request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
+        request.user = self.superuser_no_org
+        changelist = self.modeladmin.get_changelist_instance(request)
+        return set(changelist.queryset.values_list("id", flat=True))
+
     def _phase_filter_choices(self, query: str = "") -> list:
         request = RequestFactory().get(f"/admin/projects/activekippoproject/{query}")
         request.user = self.superuser_no_org
@@ -2761,8 +2860,24 @@ class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
         self.assertNotIn(PhaseMultiSelectListFilter, KippoProjectAdmin(KippoProject, self.site).list_filter)
 
     def test_default_phases_preselected_when_no_param(self):
-        # no `phase` query param => only the two in-flight phases show
+        # no `phase` query param => the in-flight phases plus 完了 show
         self.assertEqual(self._changelist_phases(), set(DEFAULT_ACTIVE_PROJECT_PHASES))
+
+    def test_completed_included_by_default_only_while_not_closed(self):
+        """完了 is a default phase so an unclosed 完了 project stays visible; closing it removes the row."""
+        completed = KippoProject.objects.get(name="project-completed")
+        self.assertIn(PHASE_COMPLETED, DEFAULT_ACTIVE_PROJECT_PHASES)
+        self.assertIn(completed.id, self._changelist_ids())
+
+        # the close action's field set: ActiveKippoProjectManager drops the row on is_closed /
+        # display_as_active, independent of the phase filter
+        completed.is_closed = True
+        completed.display_as_active = False
+        completed.save()
+        self.assertNotIn(completed.id, self._changelist_ids())
+        self.assertNotIn(PHASE_COMPLETED, self._changelist_phases())
+        # and it is still absent when 完了 is the only phase explicitly selected
+        self.assertNotIn(completed.id, self._changelist_ids(f"?phase={PHASE_COMPLETED}"))
 
     def test_single_phase_param_filters(self):
         self.assertEqual(self._changelist_phases("?phase=completed"), {"completed"})
@@ -2775,7 +2890,7 @@ class ActiveProjectPhaseFilterTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(self._changelist_phases("?phase="), set(self.all_phases))
 
     def test_default_phases_rendered_selected(self):
-        # the sidebar pre-highlights the two default phases when no param is present
+        # the sidebar pre-highlights the default phases when no param is present
         phase_labels = dict(VALID_PROJECT_PHASES)
         expected = {str(phase_labels[phase]) for phase in DEFAULT_ACTIVE_PROJECT_PHASES}
         selected = {str(choice["display"]) for choice in self._phase_filter_choices() if choice["selected"]}
