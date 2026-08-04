@@ -2009,16 +2009,19 @@ class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCase
         names = self._autocomplete_result_names(KippoProjectUserStatisfactionResult, term="survey-open-project")
         self.assertEqual(names, [self.open_project.name])
 
-    def test_autocomplete_results_labelled_with_project_name_and_customer_name(self):
+    def _assign_customer_to_open_project(self, name: str = "survey-customer") -> KippoCustomer:
         customer = KippoCustomer.objects.create(
             organization=self.organization,
-            name="survey-customer",
+            name=name,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
         self.open_project.customer = customer
         self.open_project.save()
+        return customer
 
+    def test_autocomplete_results_labelled_with_project_name_and_customer_name(self):
+        customer = self._assign_customer_to_open_project()
         expected_label = f"{self.open_project.name} {customer.name}"
         names = self._autocomplete_result_names(KippoProjectUserStatisfactionResult, term="survey-open-project")
         self.assertEqual(names, [expected_label])
@@ -2029,6 +2032,20 @@ class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCase
         request.user = self.superuser_no_org
         form = modeladmin.get_form(request)
         self.assertEqual(form.base_fields["project"].label_from_instance(self.open_project), expected_label)
+
+    def test_add_page_renders_the_selected_option_with_project_and_customer_names(self):
+        # an autocomplete renders only the *selected* option server-side (the rest arrive over AJAX) -- this
+        # is the text actually shown in the closed select, so assert the rendered markup, not just the label
+        # callable. It must match the AJAX result above or the text changes the moment a row is picked.
+        customer = self._assign_customer_to_open_project()
+        url = reverse("admin:projects_kippoprojectuserstatisfactionresult_add")
+
+        response = self.client.get(url, {"project": str(self.open_project.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertInHTML(
+            f'<option value="{self.open_project.id}" selected>{self.open_project.name} {customer.name}</option>',
+            response.content.decode(),
+        )
 
     def test_search_results_unfiltered_without_survey_scope_param(self):
         # the changelist search box shares get_search_results and must stay unnarrowed.
