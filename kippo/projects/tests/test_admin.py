@@ -2003,10 +2003,32 @@ class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCase
         self.assertNotIn(self.closed_project.name, retrospective)
 
     def test_autocomplete_results_labelled_with_project_name(self):
-        # KippoProject.__str__ renders "KippoProject(顧客名 名前)"; the survey select shows project.name, so
-        # the AJAX results must too or the text would change the moment a row is picked.
+        # KippoProject.__str__ renders "KippoProject(顧客名 名前)"; the survey select shows
+        # "プロジェクト名 顧客名", so the AJAX results must too or the text would change the moment a row is
+        # picked. A project without a 顧客 shows the name alone.
         names = self._autocomplete_result_names(KippoProjectUserStatisfactionResult, term="survey-open-project")
         self.assertEqual(names, [self.open_project.name])
+
+    def test_autocomplete_results_labelled_with_project_name_and_customer_name(self):
+        customer = KippoCustomer.objects.create(
+            organization=self.organization,
+            name="survey-customer",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.open_project.customer = customer
+        self.open_project.save()
+
+        expected_label = f"{self.open_project.name} {customer.name}"
+        names = self._autocomplete_result_names(KippoProjectUserStatisfactionResult, term="survey-open-project")
+        self.assertEqual(names, [expected_label])
+
+        # the selected option (label_from_instance) must render identically to the dropdown result
+        modeladmin = KippoProjectUserStatisfactionResultAdmin(KippoProjectUserStatisfactionResult, self.site)
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        form = modeladmin.get_form(request)
+        self.assertEqual(form.base_fields["project"].label_from_instance(self.open_project), expected_label)
 
     def test_search_results_unfiltered_without_survey_scope_param(self):
         # the changelist search box shares get_search_results and must stay unnarrowed.
@@ -2029,6 +2051,18 @@ class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCase
                 widget = _unwrap_related_widget(response.context["adminform"].form.fields["project"].widget)
                 self.assertIsInstance(widget, SurveyScopedProjectAutocompleteSelect)
                 self.assertIn(f"{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM}={expected_scope}", widget.get_url())
+
+    def test_retrospective_survey_project_field_offers_no_add_or_change_links(self):
+        # プロジェクト is select-only on the survey form: the admin's ＋ / ✎ related-object links are dropped.
+        response = self.client.get(reverse("admin:projects_kippoprojectuserstatisfactionresult_add"))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        widget = response.context["adminform"].form.fields["project"].widget
+        self.assertFalse(widget.can_add_related)
+        self.assertFalse(widget.can_change_related)
+
+        content = response.content.decode()
+        self.assertNotIn('id="add_id_project"', content)
+        self.assertNotIn('id="change_id_project"', content)
 
     def test_survey_add_page_preselects_project_from_query_param(self):
         # the ?project=<id> link that request_employee_survey_action posts to Slack must open the form with
