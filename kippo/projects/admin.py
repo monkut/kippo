@@ -23,7 +23,7 @@ from customers.models import KippoCustomer
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
-from django.contrib.admin.widgets import AutocompleteSelect
+from django.contrib.admin.widgets import AutocompleteSelect, RelatedFieldWidgetWrapper
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.db.models import Case, JSONField, Model, OuterRef, Prefetch, QuerySet, Subquery, Sum, Value, When
@@ -215,7 +215,18 @@ def survey_project_queryset(user: KippoUser, survey_scope: str) -> QuerySet:
         queryset = queryset.filter(category__key=NON_PROJECT_CATEGORY_VALUE)
     else:
         queryset = queryset.exclude(category__key=NON_PROJECT_CATEGORY_VALUE)
-    return queryset.order_by("name")
+    # customer joined in: it is part of the option label (survey_project_display_label).
+    return queryset.select_related("customer").order_by("name")
+
+
+def survey_project_display_label(project: KippoProject) -> str:
+    """プロジェクト option text on the employee-survey selects: "{プロジェクト名} {顧客名}".
+
+    Single source of truth for the dropdown results (KippoProjectBaseAdmin.autocomplete_result_label) and
+    the selected option (label_from_instance on the survey forms), so the text cannot change the moment a
+    row is picked. Projects without a 顧客 show the name alone.
+    """
+    return f"{project.name} {project.customer.name}" if project.customer else project.name
 
 
 def _customer_autocomplete_widget(
@@ -1477,15 +1488,16 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
         survey_scope = request.GET.get(SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM)
         if survey_scope:
-            queryset = queryset.filter(pk__in=survey_project_queryset(request.user, survey_scope).values("pk"))
+            # customer joined in: it is part of each result's label (autocomplete_result_label).
+            queryset = queryset.filter(pk__in=survey_project_queryset(request.user, survey_scope).values("pk")).select_related("customer")
         return queryset, may_have_duplicates
 
     @staticmethod
     def autocomplete_result_label(obj: KippoProject) -> str:
         # Read by KippoAutocompleteJsonView. KippoProject.__str__ renders "KippoProject(顧客名 名前)", but the
-        # survey forms label the select with project.name (label_from_instance) -- without this the option
-        # text would change the moment a row is picked from the dropdown.
-        return obj.name
+        # survey forms label the select with "プロジェクト名 顧客名" (label_from_instance) -- without this the
+        # option text would change the moment a row is picked from the dropdown.
+        return survey_project_display_label(obj)
 
     @admin.display(description=_("請求方法"), ordering="contract__billing_type")
     def get_contract_billing_type_display(self, obj: KippoProject) -> str:
@@ -2704,6 +2716,16 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
             )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+    def formfield_for_dbfield(self, db_field: models.Field, request: DjangoRequest, **kwargs):
+        # The survey form only *selects* a プロジェクト -- drop the ＋ / ✎ (add / change) links the admin puts
+        # beside a related select, so it is not a side door into project maintenance. Wrapping happens in
+        # formfield_for_dbfield (after formfield_for_foreignkey), so the flags have to be cleared here.
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "project" and isinstance(getattr(formfield, "widget", None), RelatedFieldWidgetWrapper):
+            formfield.widget.can_add_related = False
+            formfield.widget.can_change_related = False
+        return formfield
+
     def get_project_name(self, obj: KippoProjectUserStatisfactionResult | None = None) -> str:
         result = "-"
         if obj and obj.project and obj.project.name:
@@ -2733,14 +2755,11 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
 
-        def get_project_display_name(project: KippoProject) -> str:
-            return project.name
-
         if "project" in form.base_fields:
             open_projects = survey_project_queryset(request.user, self.SURVEY_SCOPE)
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
-            form.base_fields["project"].label_from_instance = get_project_display_name
+            form.base_fields["project"].label_from_instance = survey_project_display_label
         return form
 
     def has_change_permission(self, request: DjangoRequest, obj: KippoProjectUserStatisfactionResult | None = None) -> bool:
@@ -2855,14 +2874,11 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
         form = super().get_form(request, obj, **kwargs)
         form.request = request
 
-        def get_project_display_name(project: KippoProject) -> str:
-            return project.name
-
         if "project" in form.base_fields:
             open_projects = survey_project_queryset(request.user, self.SURVEY_SCOPE)
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
-            form.base_fields["project"].label_from_instance = get_project_display_name
+            form.base_fields["project"].label_from_instance = survey_project_display_label
         return form
 
     def save_model(self, request: DjangoRequest, obj: KippoProjectUserMonthlyStatisfactionResult, form: Form, change: bool):
