@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from projects.admin import GithubRepositoryProjectInlineForm
 
-from accounts.models import KippoUser, OrganizationMembership
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase
 from customers.admin import KippoCustomerAdmin
 from customers.models import KippoCustomer
@@ -21,6 +21,7 @@ from django.contrib import admin
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME, AdminForm
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connection
+from django.db.models import Model
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, SimpleTestCase
@@ -33,6 +34,9 @@ from projects.admin import (
     CONTINUATION_SOURCE_PARAM,
     CONTINUATION_SOURCE_VALUE,
     CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG,
+    SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM,
+    SURVEY_SCOPE_MONTHLY,
+    SURVEY_SCOPE_RETROSPECTIVE,
     ActiveKippoProjectAdmin,
     KippoMilestoneAdmin,
     KippoProjectAdmin,
@@ -40,17 +44,23 @@ from projects.admin import (
     KippoProjectBaseAdmin,
     KippoProjectContractAdmin,
     KippoProjectContractInline,
+    KippoProjectUserMonthlyStatisfactionResultAdmin,
+    KippoProjectUserStatisfactionResultAdmin,
+    OrganizationScopedAutocompleteSelect,
     ProjectAssignmentRateInline,
     ProjectWeeklyEffortAdminInline,
     SalesKippoProjectAdmin,
+    SurveyScopedProjectAutocompleteSelect,
     _next_continuation_project_name,
     _start_of_next_month,
+    survey_project_queryset,
 )
 from projects.definitions import (
     CONTINUATION_LEAD_SOURCE_VALUE,
     DEFAULT_BILLING_TYPE,
     DEFAULT_PRICING_BASIS,
     KIPPOPROJECT_CATEGORY_CHOICES,
+    NON_PROJECT_CATEGORY_VALUE,
     PRICING_BASIS_EFFORT,
 )
 from projects.filters import CategoryExcludeListFilter, PhaseMultiSelectListFilter
@@ -66,6 +76,7 @@ from projects.models import (
     KippoProjectContract,
     KippoProjectOrganizationCategory,
     KippoProjectStatus,
+    KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
     ProjectColumnSet,
     ProjectWeeklyEffort,
@@ -76,6 +87,11 @@ from projects.models import (
 def _global_category(key: str) -> KippoProjectOrganizationCategory:
     """Fetch a seeded global (organization=null) project category by key, for KippoProject.category FK in tests."""
     return KippoProjectOrganizationCategory.objects.get(organization__isnull=True, key=key)
+
+
+def _unwrap_related_widget(widget: forms.Widget) -> forms.Widget:
+    """The real widget behind django's RelatedFieldWidgetWrapper (the add/change/delete-button wrapper)."""
+    return getattr(widget, "widget", widget)
 
 
 class MockRequest:
@@ -1770,6 +1786,169 @@ class KippoProjectAdminCustomerAutocompleteTestCase(SimpleTestCase):
         errors = KippoProjectAdmin(KippoProject, admin.site).check()
         autocomplete_errors = [e for e in errors if e.id in {"admin.E038", "admin.E039", "admin.E040"}]
         self.assertEqual(autocomplete_errors, [])
+
+
+class KippoProjectAdminProjectManagerAutocompleteTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """プロジェクトマネージャー is selected via a searchable autocomplete, scoped to the project's organization."""
+
+    def test_project_admins_declare_project_manager_autocomplete(self):
+        self.assertIn("project_manager", KippoProjectAdmin.autocomplete_fields)
+        # ActiveKippoProjectAdmin inherits the base configuration.
+        self.assertIn("project_manager", ActiveKippoProjectAdmin.autocomplete_fields)
+
+    def test_project_manager_autocomplete_pinned_to_project_organization(self):
+        # the dropdown endpoint (served by KippoUserAdmin) is pinned to the project's org so it lists that
+        # organization's members, not every user the editor may see.
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        request._customer_autocomplete_organization_id = self.organization.id
+        formfield = modeladmin.formfield_for_foreignkey(KippoProject._meta.get_field("project_manager"), request)
+        self.assertIn(f"organization={self.organization.id}", formfield.widget.get_url())
+
+    def _rendered_project_manager_ids(self, project: KippoProject) -> set:
+        """The プロジェクトマネージャー values the change form accepts, read off the rendered admin form."""
+        response = self.client.get(reverse("admin:projects_kippoproject_change", args=[project.id]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        form = response.context["adminform"].form
+        return set(form.base_fields["project_manager"].queryset.values_list("id", flat=True))
+
+    def test_change_form_renders_the_project_manager_autocomplete_widget(self):
+        project = self.make_project("pm-render")
+        response = self.client.get(reverse("admin:projects_kippoproject_change", args=[project.id]))
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        widget = _unwrap_related_widget(response.context["adminform"].form.fields["project_manager"].widget)
+        self.assertIsInstance(widget, OrganizationScopedAutocompleteSelect)
+        self.assertIn(f"organization={self.organization.id}", widget.get_url())
+
+    def test_project_manager_queryset_scoped_to_project_organization_members(self):
+        project = self.make_project("pm-scope")
+        selectable = self._rendered_project_manager_ids(project)
+        self.assertIn(self.staffuser_with_org.id, selectable)
+        self.assertNotIn(self.otherstaffuser_with_org.id, selectable)
+
+    def test_project_manager_queryset_keeps_currently_assigned_non_member(self):
+        # a PM who has since left the organization stays selectable, so an unrelated edit cannot fail
+        # validation on -- or silently drop -- a value the editor never touched.
+        project = self.make_project("pm-legacy")
+        project.project_manager = self.otherstaffuser_with_org
+        project.save()
+        self.assertIn(self.otherstaffuser_with_org.id, self._rendered_project_manager_ids(project))
+
+
+class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCaseBase):
+    """プロジェクト on both 従業員アンケート admins is a searchable autocomplete, scoped per survey type."""
+
+    def setUp(self):
+        super().setUp()
+        self.open_project = self.make_project("survey-open-project")
+        self.closed_project = self.make_project("survey-closed-project", is_closed=True)
+        self.non_project = self._make_categorized_project("survey-open-non-project", self.organization, NON_PROJECT_CATEGORY_VALUE)
+        self.other_org_project = self._make_categorized_project("survey-other-org-project", self.other_organization, "other")
+
+    def _make_categorized_project(self, name: str, organization: KippoOrganization, category_key: str) -> KippoProject:
+        return KippoProject.objects.create(
+            organization=organization,
+            name=name,
+            category=_global_category(category_key),
+            columnset=self.columnset,
+            start_date=self.current_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_survey_admins_declare_project_autocomplete(self):
+        self.assertIn("project", KippoProjectUserStatisfactionResultAdmin.autocomplete_fields)
+        self.assertIn("project", KippoProjectUserMonthlyStatisfactionResultAdmin.autocomplete_fields)
+
+    def test_autocomplete_endpoints_pinned_to_survey_scope(self):
+        for modeladmin_class, model, expected_scope in (
+            (KippoProjectUserStatisfactionResultAdmin, KippoProjectUserStatisfactionResult, SURVEY_SCOPE_RETROSPECTIVE),
+            (KippoProjectUserMonthlyStatisfactionResultAdmin, KippoProjectUserMonthlyStatisfactionResult, SURVEY_SCOPE_MONTHLY),
+        ):
+            with self.subTest(modeladmin=modeladmin_class.__name__):
+                modeladmin = modeladmin_class(model, self.site)
+                request = MockRequest()
+                request.user = self.superuser_no_org
+                formfield = modeladmin.formfield_for_foreignkey(model._meta.get_field("project"), request)
+                self.assertIn(f"{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM}={expected_scope}", formfield.widget.get_url())
+
+    def test_retrospective_scope_excludes_non_project_closed_and_other_organizations(self):
+        selectable = set(survey_project_queryset(self.superuser_no_org, SURVEY_SCOPE_RETROSPECTIVE).values_list("id", flat=True))
+        self.assertIn(self.open_project.id, selectable)
+        self.assertNotIn(self.non_project.id, selectable)
+        self.assertNotIn(self.closed_project.id, selectable)
+        self.assertNotIn(self.other_org_project.id, selectable)
+
+    def test_monthly_scope_lists_only_open_non_project_rows(self):
+        selectable = set(survey_project_queryset(self.superuser_no_org, SURVEY_SCOPE_MONTHLY).values_list("id", flat=True))
+        self.assertEqual(selectable, {self.non_project.id})
+
+    def _autocomplete_result_names(self, source_model: type[Model], **extra_params: str) -> list[str]:
+        params = {
+            "app_label": source_model._meta.app_label,
+            "model_name": source_model._meta.model_name,
+            "field_name": "project",
+            **extra_params,
+        }
+        response = self.client.get(reverse("admin:autocomplete"), params)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        return [result["text"] for result in response.json()["results"]]
+
+    def test_autocomplete_results_narrowed_by_survey_scope(self):
+        # end-to-end: the pinned param is what keeps the dropdown to projects the survey form accepts.
+        monthly = self._autocomplete_result_names(
+            KippoProjectUserMonthlyStatisfactionResult, **{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM: SURVEY_SCOPE_MONTHLY}
+        )
+        self.assertEqual(monthly, [self.non_project.name])
+
+        retrospective = self._autocomplete_result_names(
+            KippoProjectUserStatisfactionResult, **{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM: SURVEY_SCOPE_RETROSPECTIVE}
+        )
+        self.assertIn(self.open_project.name, retrospective)
+        self.assertNotIn(self.non_project.name, retrospective)
+        self.assertNotIn(self.closed_project.name, retrospective)
+
+    def test_autocomplete_results_labelled_with_project_name(self):
+        # KippoProject.__str__ renders "KippoProject(顧客名 名前)"; the survey select shows project.name, so
+        # the AJAX results must too or the text would change the moment a row is picked.
+        names = self._autocomplete_result_names(KippoProjectUserStatisfactionResult, term="survey-open-project")
+        self.assertEqual(names, [self.open_project.name])
+
+    def test_search_results_unfiltered_without_survey_scope_param(self):
+        # the changelist search box shares get_search_results and must stay unnarrowed.
+        modeladmin = KippoProjectAdmin(KippoProject, self.site)
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        results, _ = modeladmin.get_search_results(request, KippoProject.objects.all(), "")
+        result_ids = set(results.values_list("id", flat=True))
+        for project in (self.open_project, self.closed_project, self.non_project, self.other_org_project):
+            self.assertIn(project.id, result_ids)
+
+    def test_survey_add_pages_render_the_autocomplete_widget(self):
+        for url_name, expected_scope in (
+            ("admin:projects_kippoprojectuserstatisfactionresult_add", SURVEY_SCOPE_RETROSPECTIVE),
+            ("admin:projects_kippoprojectusermonthlystatisfactionresult_add", SURVEY_SCOPE_MONTHLY),
+        ):
+            with self.subTest(url_name=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertEqual(response.status_code, HTTPStatus.OK)
+                widget = _unwrap_related_widget(response.context["adminform"].form.fields["project"].widget)
+                self.assertIsInstance(widget, SurveyScopedProjectAutocompleteSelect)
+                self.assertIn(f"{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM}={expected_scope}", widget.get_url())
+
+    def test_survey_forms_offer_the_scoped_projects(self):
+        for modeladmin_class, model, expected_ids in (
+            (KippoProjectUserStatisfactionResultAdmin, KippoProjectUserStatisfactionResult, {self.open_project.id}),
+            (KippoProjectUserMonthlyStatisfactionResultAdmin, KippoProjectUserMonthlyStatisfactionResult, {self.non_project.id}),
+        ):
+            with self.subTest(modeladmin=modeladmin_class.__name__):
+                modeladmin = modeladmin_class(model, self.site)
+                request = MockRequest()
+                request.user = self.superuser_no_org
+                form = modeladmin.get_form(request)
+                selectable = set(form.base_fields["project"].queryset.values_list("id", flat=True))
+                self.assertEqual(selectable, expected_ids)
 
 
 class ClosedProjectReadonlyTestCase(KippoProjectAdminFixtureTestCaseBase):

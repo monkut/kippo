@@ -28,6 +28,7 @@ from projects.models import CollectIssuesAction, ProjectColumnSet
 from social_django.models import Association, Nonce, UserSocialAuth
 from tasks.periodic.tasks import collect_github_project_issues
 
+from .definitions import KIPPOUSER_AUTOCOMPLETE_ORGANIZATION_PARAM
 from .models import (
     AttendanceRecord,
     Country,
@@ -281,6 +282,26 @@ class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMi
         (_("Permissions"), {"fields": ("is_active", "is_staff", "is_superuser")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
+
+    def has_view_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        # Staff get read access (writes stay superuser-only via AllowIsStaffReadonlyMixin). Required for the
+        # プロジェクトマネージャー autocomplete on the project admin: Django's autocomplete endpoint is served by
+        # THIS admin and checks has_view_permission on it, so without this a non-superuser gets an empty
+        # dropdown (403). Rows stay scoped to the user's own organizations via
+        # OrganizationQuerysetModelAdminMixin.get_queryset -- staff never see other organizations' users.
+        return self.check_perm(request.user)
+
+    def get_search_results(self, request: DjangoRequest, queryset: QuerySet, search_term: str) -> tuple[QuerySet, bool]:
+        # The org-scoped user autocomplete (プロジェクトマネージャー) pins its AJAX endpoint to one organization
+        # via ?organization=<id> (OrganizationScopedAutocompleteSelect). Narrow the dropdown to that org's
+        # members so it lists only candidates the project form will accept. get_queryset already restricts
+        # non-superusers to their own orgs, so this can only narrow the visible set (no leak).
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        organization_id = request.GET.get(KIPPOUSER_AUTOCOMPLETE_ORGANIZATION_PARAM)
+        if organization_id:
+            queryset = queryset.filter(organizationmembership__organization_id=organization_id)
+            may_have_duplicates = True
+        return queryset, may_have_duplicates
 
     def get_is_collaborator(self, obj: KippoUser) -> bool:
         return obj.is_github_outside_collaborator

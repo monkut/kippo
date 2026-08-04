@@ -1,10 +1,59 @@
 from unittest.mock import patch
 
-from commons.tests import IsStaffModelAdminTestCaseBase
+from commons.tests import IsStaffModelAdminTestCaseBase, MockRequest
 from octocat.models import GithubAccessToken
 
 from ..admin import KippoOrganizationAdmin, KippoOrganizationAdminForm, KippoUserAdmin, OrganizationMembershipAdmin, PersonalHolidayAdmin
 from ..models import KippoOrganization, KippoUser, OrganizationMembership, PersonalHoliday
+
+
+class KippoUserAdminAutocompleteTestCase(IsStaffModelAdminTestCaseBase):
+    """KippoUserAdmin serves the プロジェクトマネージャー autocomplete on the project admin."""
+
+    def setUp(self):
+        super().setUp()
+        self.modeladmin = KippoUserAdmin(KippoUser, self.site)
+
+    def test_staff_has_view_permission(self):
+        # django's autocomplete endpoint checks has_view_permission on THIS admin; without it a
+        # non-superuser gets a 403 and an empty プロジェクトマネージャー dropdown.
+        self.assertTrue(self.modeladmin.has_view_permission(self.staff_user_request))
+        self.assertTrue(self.modeladmin.has_view_permission(self.super_user_request))
+
+    def test_staff_write_permissions_unchanged(self):
+        # read access only -- AllowIsStaffReadonlyMixin keeps writes superuser-only.
+        self.assertFalse(self.modeladmin.has_add_permission(self.staff_user_request))
+        self.assertFalse(self.modeladmin.has_change_permission(self.staff_user_request))
+        self.assertFalse(self.modeladmin.has_delete_permission(self.staff_user_request))
+
+    def test_staff_view_permission_does_not_widen_visible_rows(self):
+        # the rows a staff user can read stay scoped to their own organizations.
+        visible = set(self.modeladmin.get_queryset(self.staff_user_request).values_list("id", flat=True))
+        self.assertIn(self.staffuser_with_org.id, visible)
+        self.assertNotIn(self.otherstaffuser_with_org.id, visible)
+
+    def test_search_results_filtered_by_organization_param(self):
+        # the ?organization=<id> the widget pins is what narrows the dropdown to that org's members --
+        # excluded even for a superuser, whose base queryset spans all orgs.
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        request.GET = {"organization": str(self.organization.id)}
+        results, _ = self.modeladmin.get_search_results(request, KippoUser.objects.all(), "")
+        result_ids = set(results.values_list("id", flat=True))
+        self.assertIn(self.staffuser_with_org.id, result_ids)
+        self.assertNotIn(self.otherstaffuser_with_org.id, result_ids)
+
+    def test_search_results_unfiltered_without_organization_param(self):
+        request = MockRequest()
+        request.user = self.superuser_no_org
+        results, _ = self.modeladmin.get_search_results(request, KippoUser.objects.all(), "")
+        result_ids = set(results.values_list("id", flat=True))
+        self.assertIn(self.staffuser_with_org.id, result_ids)
+        self.assertIn(self.otherstaffuser_with_org.id, result_ids)
+
+    def test_search_fields_cover_user_name(self):
+        # inherited from django's UserAdmin -- the fields the autocomplete term is matched against.
+        self.assertEqual(self.modeladmin.search_fields, ("username", "first_name", "last_name", "email"))
 
 
 class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBase):
