@@ -1937,6 +1937,19 @@ class EmployeeSurveyProjectAutocompleteTestCase(KippoProjectAdminFixtureTestCase
                 self.assertIsInstance(widget, SurveyScopedProjectAutocompleteSelect)
                 self.assertIn(f"{SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM}={expected_scope}", widget.get_url())
 
+    def test_survey_add_page_preselects_project_from_query_param(self):
+        # the ?project=<id> link that request_employee_survey_action posts to Slack must open the form with
+        # that project already selected -- even though get_form defaults the field to the first in scope.
+        alphabetically_first = self._make_categorized_project("aaa-survey-default-project", self.organization, "other")
+        url = reverse("admin:projects_kippoprojectuserstatisfactionresult_add")
+
+        default_form = self.client.get(url).context["adminform"].form
+        self.assertEqual(default_form["project"].value(), alphabetically_first.pk)
+
+        response = self.client.get(url, {"project": str(self.open_project.id)})
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(str(response.context["adminform"].form["project"].value()), str(self.open_project.id))
+
     def test_survey_forms_offer_the_scoped_projects(self):
         for modeladmin_class, model, expected_ids in (
             (KippoProjectUserStatisfactionResultAdmin, KippoProjectUserStatisfactionResult, {self.open_project.id}),

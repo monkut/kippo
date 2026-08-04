@@ -987,6 +987,58 @@ def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, re
 add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calendar link to Slack channel")  # noqa: E305
 
 
+def request_employee_survey_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):  # noqa: E305
+    """Ask each selected project's members to fill in the 振り返り従業員アンケート, via the organization's Slack channel.
+
+    Mentions the members who logged 週間稼働 on the project and have not responded yet, and links to the
+    survey form with the project preselected. Projects whose organization has no kippo Slack channel (or
+    no Slack API token) are reported as errors.
+    """
+    from .services.employee_survey_request import ProjectEmployeeSurveyRequestManager
+
+    requested: list[str] = []
+    nobody_pending: list[str] = []
+    errors: list[str] = []
+    managers: dict = {}
+    for project in queryset.select_related("organization"):
+        organization = project.organization
+        if not organization.slack_channel_name:
+            errors.append(
+                _("%(name)s: organization '%(org)s' has no kippo Slack channel configured.") % {"name": project.name, "org": organization.name}
+            )
+            continue
+        if not organization.slack_api_token:
+            errors.append(_("%(name)s: organization '%(org)s' has no Slack API token configured.") % {"name": project.name, "org": organization.name})
+            continue
+        manager = managers.get(organization.id)
+        if manager is None:
+            manager = ProjectEmployeeSurveyRequestManager(organization)
+            managers[organization.id] = manager
+        try:
+            users = manager.post(project)
+        except SlackApiError as e:
+            errors.append(_("%(name)s: Slack API error — %(error)s") % {"name": project.name, "error": e.response["error"]})
+        else:
+            if users:
+                requested.append(_("%(name)s (%(count)d)") % {"name": project.name, "count": len(users)})
+            else:
+                nobody_pending.append(project.name)
+
+    if requested:
+        modeladmin.message_user(request, _("Requested employee survey for: %s") % ", ".join(requested), level=messages.INFO)
+    if nobody_pending:
+        modeladmin.message_user(
+            request,
+            _("No members to request (no logged 週間稼働, or everyone has responded): %s") % ", ".join(nobody_pending),
+            level=messages.WARNING,
+        )
+    for error in errors:
+        modeladmin.message_user(request, error, level=messages.ERROR)
+
+
+request_employee_survey_action.short_description = _("Request employee survey (Slack)")  # noqa: E305
+
+
 class KippoProjectAdminForm(forms.ModelForm):
     # Required at project registration (kippo#40 / T19; slimmed for the contract-driven flow) —
     # enforced create-only so existing rows/edits are unaffected. The model keeps these fields
@@ -1209,6 +1261,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         close_kippoproject_action,
         reopen_kippoproject_action,
         add_calendar_links_to_slack_channels_action,
+        request_employee_survey_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
         "generate_billing_entries",
