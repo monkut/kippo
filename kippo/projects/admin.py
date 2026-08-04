@@ -12,6 +12,7 @@ from string import ascii_lowercase
 from typing import TYPE_CHECKING
 
 import nested_admin
+from accounts.definitions import KIPPOUSER_AUTOCOMPLETE_ORGANIZATION_PARAM
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.admin import AllowIsStaffAdminMixin, PrettyJSONWidget, UserCreatedBaseModelAdmin
 from commons.definitions import SATURDAY
@@ -145,26 +146,76 @@ DEFAULT_ASSIGNMENT_RATES_FIXTURE = Path(__file__).parent / "fixtures" / "default
 # get_search_results reads it to narrow the dropdown to a single organization's customers.
 CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM = "organization"
 
+# Query param the employee-survey プロジェクト autocompletes pin on their AJAX endpoint;
+# KippoProjectBaseAdmin.get_search_results reads it to narrow the dropdown to exactly the projects the
+# survey form validates against (see survey_project_queryset).
+SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM = "survey_scope"
+# 振り返り従業員アンケート (KippoProjectUserStatisfactionResult): real projects only.
+SURVEY_SCOPE_RETROSPECTIVE = "retrospective"
+# （月）従業員アンケート (KippoProjectUserMonthlyStatisfactionResult): 非案件 rows only.
+SURVEY_SCOPE_MONTHLY = "monthly"
+
 
 class OrganizationScopedAutocompleteSelect(AutocompleteSelect):
-    """AutocompleteSelect that pins the KippoCustomer autocomplete AJAX request to one organization.
+    """AutocompleteSelect that pins its autocomplete AJAX request to one organization.
 
-    Django's autocomplete dropdown is served by KippoCustomerAdmin and does not know which project is
-    being edited, so it otherwise lists every customer the editor may see (all their orgs; all orgs for
-    a superuser). Appending ``?organization=<id>`` to the endpoint URL lets KippoCustomerAdmin.
-    get_search_results narrow the dropdown to the project's organization's customers only (顧客 on the
-    project, 請求先 on its contract). Select2 appends its own term/page params with ``&``, preserving this.
+    Django's autocomplete dropdown is served by the RELATED model's admin (KippoCustomerAdmin for 顧客 /
+    請求先, KippoUserAdmin for プロジェクトマネージャー), which does not know which project is being edited,
+    so it otherwise lists every row the editor may see (all their orgs; all orgs for a superuser).
+    Appending ``?<param_name>=<id>`` to the endpoint URL lets that admin's get_search_results narrow the
+    dropdown to the project's organization. Select2 appends its own term/page params with ``&``,
+    preserving this.
     """
 
-    def __init__(self, *args, organization_id: uuid.UUID | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        organization_id: uuid.UUID | None = None,
+        param_name: str = CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM,
+        **kwargs,
+    ) -> None:
         self.organization_id = organization_id
+        self.param_name = param_name
         super().__init__(*args, **kwargs)
 
     def get_url(self) -> str:
         url = super().get_url()
         if self.organization_id:
-            url = f"{url}?{urllib.parse.urlencode({CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM: self.organization_id})}"
+            url = f"{url}?{urllib.parse.urlencode({self.param_name: self.organization_id})}"
         return url
+
+
+class SurveyScopedProjectAutocompleteSelect(AutocompleteSelect):
+    """AutocompleteSelect that pins the employee-survey プロジェクト autocomplete to one survey scope.
+
+    The dropdown is served by KippoProjectAdmin, which would otherwise list every project the editor may
+    see — including closed ones and the wrong category, which the survey form then rejects on save.
+    Appending ``?survey_scope=<scope>`` lets KippoProjectBaseAdmin.get_search_results apply the same
+    filter the form field validates with.
+    """
+
+    def __init__(self, *args, survey_scope: str, **kwargs) -> None:
+        self.survey_scope = survey_scope
+        super().__init__(*args, **kwargs)
+
+    def get_url(self) -> str:
+        url = super().get_url()
+        return f"{url}?{urllib.parse.urlencode({SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM: self.survey_scope})}"
+
+
+def survey_project_queryset(user: KippoUser, survey_scope: str) -> QuerySet:
+    """Projects selectable on an employee-survey form, for ``survey_scope``.
+
+    Single source of truth for both the form field queryset (which validates the submitted value) and the
+    autocomplete dropdown (KippoProjectBaseAdmin.get_search_results), so the two cannot drift — a project
+    offered in the dropdown is always one the form accepts.
+    """
+    queryset = KippoProject.objects.filter(is_closed=False, organization__in=user.organizations)
+    if survey_scope == SURVEY_SCOPE_MONTHLY:
+        queryset = queryset.filter(category__key=NON_PROJECT_CATEGORY_VALUE)
+    else:
+        queryset = queryset.exclude(category__key=NON_PROJECT_CATEGORY_VALUE)
+    return queryset.order_by("name")
 
 
 def _customer_autocomplete_widget(
@@ -175,6 +226,23 @@ def _customer_autocomplete_widget(
     field and the contract inline's 請求先 field.
     """
     return OrganizationScopedAutocompleteSelect(db_field, model_admin.admin_site, using=using, organization_id=organization_id)
+
+
+def _project_manager_autocomplete_widget(
+    model_admin: admin.options.BaseModelAdmin, db_field: models.ForeignKey, organization_id: uuid.UUID | None, using: str | None
+) -> OrganizationScopedAutocompleteSelect:
+    """A KippoUser autocomplete widget for プロジェクトマネージャー, pinned to ``organization_id``.
+
+    None (on /add/, before a project organization exists) leaves the dropdown scoped to whatever
+    KippoUserAdmin.get_queryset allows — the editor's own organizations.
+    """
+    return OrganizationScopedAutocompleteSelect(
+        db_field,
+        model_admin.admin_site,
+        using=using,
+        organization_id=organization_id,
+        param_name=KIPPOUSER_AUTOCOMPLETE_ORGANIZATION_PARAM,
+    )
 
 
 def _default_assignment_rate_initial() -> tuple[dict, ...]:
@@ -949,6 +1017,58 @@ def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, re
 add_calendar_links_to_slack_channels_action.short_description = _("Add MTG calendar link to Slack channel")  # noqa: E305
 
 
+def request_employee_survey_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):  # noqa: E305
+    """Ask each selected project's members to fill in the 振り返り従業員アンケート, via the organization's Slack channel.
+
+    Mentions the members who logged 週間稼働 on the project and have not responded yet, and links to the
+    survey form with the project preselected. Projects whose organization has no kippo Slack channel (or
+    no Slack API token) are reported as errors.
+    """
+    from .services.employee_survey_request import ProjectEmployeeSurveyRequestManager
+
+    requested: list[str] = []
+    nobody_pending: list[str] = []
+    errors: list[str] = []
+    managers: dict = {}
+    for project in queryset.select_related("organization"):
+        organization = project.organization
+        if not organization.slack_channel_name:
+            errors.append(
+                _("%(name)s: organization '%(org)s' has no kippo Slack channel configured.") % {"name": project.name, "org": organization.name}
+            )
+            continue
+        if not organization.slack_api_token:
+            errors.append(_("%(name)s: organization '%(org)s' has no Slack API token configured.") % {"name": project.name, "org": organization.name})
+            continue
+        manager = managers.get(organization.id)
+        if manager is None:
+            manager = ProjectEmployeeSurveyRequestManager(organization)
+            managers[organization.id] = manager
+        try:
+            users = manager.post(project)
+        except SlackApiError as e:
+            errors.append(_("%(name)s: Slack API error — %(error)s") % {"name": project.name, "error": e.response["error"]})
+        else:
+            if users:
+                requested.append(_("%(name)s (%(count)d)") % {"name": project.name, "count": len(users)})
+            else:
+                nobody_pending.append(project.name)
+
+    if requested:
+        modeladmin.message_user(request, _("Requested employee survey for: %s") % ", ".join(requested), level=messages.INFO)
+    if nobody_pending:
+        modeladmin.message_user(
+            request,
+            _("No members to request (no logged 週間稼働, or everyone has responded): %s") % ", ".join(nobody_pending),
+            level=messages.WARNING,
+        )
+    for error in errors:
+        modeladmin.message_user(request, error, level=messages.ERROR)
+
+
+request_employee_survey_action.short_description = _("Request employee survey (Slack)")  # noqa: E305
+
+
 class KippoProjectAdminForm(forms.ModelForm):
     # Required at project registration (kippo#40 / T19; slimmed for the contract-driven flow) —
     # enforced create-only so existing rows/edits are unaffected. The model keeps these fields
@@ -1159,7 +1279,9 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     search_fields = ("id", "name", "phase", "category__key", "category__label", "problem_definition", "customer__name")
     # 顧客 (customer) is selected via a searchable autocomplete (searches/displays KippoCustomer.name
     # through KippoCustomerAdmin.search_fields) instead of a long unsearchable <select>.
-    autocomplete_fields = ("customer",)
+    # プロジェクトマネージャー likewise, searching username/first_name/last_name/email through
+    # KippoUserAdmin.search_fields (inherited from django's UserAdmin).
+    autocomplete_fields = ("customer", "project_manager")
     # Changelist ordering lives in get_ordering() (a Case() expression), not the `ordering`
     # attribute — see the note there for why the attribute can't express it.
     actions = [
@@ -1169,6 +1291,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         close_kippoproject_action,
         reopen_kippoproject_action,
         add_calendar_links_to_slack_channels_action,
+        request_employee_survey_action,
         "export_project_kippotaskstatus_csv",
         "export_kippoprojectstatus_comments_csv",
         "generate_billing_entries",
@@ -1339,7 +1462,30 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             kwargs["widget"] = _customer_autocomplete_widget(
                 self, db_field, getattr(request, "_customer_autocomplete_organization_id", None), kwargs.get("using")
             )
+        # Same for プロジェクトマネージャー — pinned to the project's organization's members.
+        if db_field.name == "project_manager" and "project_manager" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _project_manager_autocomplete_widget(
+                self, db_field, getattr(request, "_customer_autocomplete_organization_id", None), kwargs.get("using")
+            )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_search_results(self, request: DjangoRequest, queryset: QuerySet, search_term: str) -> tuple[QuerySet, bool]:
+        # The employee-survey プロジェクト autocompletes pin their AJAX endpoint to a survey scope via
+        # ?survey_scope=<scope> (SurveyScopedProjectAutocompleteSelect). Narrow the dropdown to the same
+        # projects the survey form validates against. Unset (the changelist search box, the 顧客 admin's
+        # project search) leaves the results untouched.
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        survey_scope = request.GET.get(SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM)
+        if survey_scope:
+            queryset = queryset.filter(pk__in=survey_project_queryset(request.user, survey_scope).values("pk"))
+        return queryset, may_have_duplicates
+
+    @staticmethod
+    def autocomplete_result_label(obj: KippoProject) -> str:
+        # Read by KippoAutocompleteJsonView. KippoProject.__str__ renders "KippoProject(顧客名 名前)", but the
+        # survey forms label the select with project.name (label_from_instance) -- without this the option
+        # text would change the moment a row is picked from the dropdown.
+        return obj.name
 
     @admin.display(description=_("請求方法"), ordering="contract__billing_type")
     def get_contract_billing_type_display(self, obj: KippoProject) -> str:
@@ -1546,7 +1692,8 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     def get_form(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs) -> Form:
         """Set defaults based on request user"""
         # Stash the project's org BEFORE super() builds the form so formfield_for_foreignkey can pin the
-        # 顧客 autocomplete dropdown to it (None on /add/ — no project org yet, dropdown stays user-scoped).
+        # 顧客 and プロジェクトマネージャー autocomplete dropdowns to it (None on /add/ — no project org yet,
+        # dropdowns stay user-scoped).
         request._customer_autocomplete_organization_id = obj.organization_id if obj is not None else None
         # update user field with logged user as default
         form = super().get_form(request, obj, **kwargs)
@@ -1589,6 +1736,10 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # customer: scope queryset to the project's organization (on change) or the user's orgs (on add).
         self._scope_customer_queryset(form, obj, user_memberships)
 
+        # project_manager: same scoping, so a superuser's dropdown is narrowed too (a non-superuser's is
+        # already narrowed by KippoUserAdmin.get_queryset) and a cross-org value is rejected on save.
+        self._scope_project_manager_queryset(form, obj, user_memberships)
+
         # category: scope to the project's organization (on change) or the preselected session
         # organization (on add) so the select never lists other organizations' categories.
         self._scope_category_queryset(form, obj, user_initial_organization)
@@ -1621,6 +1772,21 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization=obj.organization)
         else:
             form.base_fields["customer"].queryset = KippoCustomer.objects.filter(organization__in=user_memberships)
+
+    @staticmethod
+    def _scope_project_manager_queryset(form: Form, obj: KippoProject | None, user_memberships: models.QuerySet) -> None:
+        """Scope プロジェクトマネージャー to the project's organization members (or the user's orgs on /add/).
+
+        The currently-assigned PM is always kept selectable — even one who has since left the organization —
+        so an unrelated edit can never fail validation on, or silently drop, a value the form did not touch.
+        """
+        if "project_manager" not in form.base_fields:
+            return
+        organizations = [obj.organization] if obj is not None and obj.organization_id else user_memberships
+        selectable = models.Q(organizationmembership__organization__in=organizations)
+        if obj is not None and obj.project_manager_id:
+            selectable |= models.Q(pk=obj.project_manager_id)
+        form.base_fields["project_manager"].queryset = KippoUser.objects.filter(selectable).distinct()
 
     @staticmethod
     def _scope_category_queryset(form: Form, obj: KippoProject | None, add_organization: "KippoOrganization | None") -> None:
@@ -2525,6 +2691,18 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
         "created_datetime",
     )
     actions = ("download_csv",)
+    # プロジェクト is selected via a searchable autocomplete (searches KippoProject.name through
+    # KippoProjectAdmin.search_fields) instead of a long unsearchable <select>. The dropdown is pinned to
+    # this survey's scope so it offers exactly what get_form validates against.
+    autocomplete_fields = ("project",)
+    SURVEY_SCOPE = SURVEY_SCOPE_RETROSPECTIVE
+
+    def formfield_for_foreignkey(self, db_field: models.Field, request: DjangoRequest, **kwargs):
+        if db_field.name == "project" and "project" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = SurveyScopedProjectAutocompleteSelect(
+                db_field, self.admin_site, using=kwargs.get("using"), survey_scope=self.SURVEY_SCOPE
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def get_project_name(self, obj: KippoProjectUserStatisfactionResult | None = None) -> str:
         result = "-"
@@ -2559,12 +2737,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
             return project.name
 
         if "project" in form.base_fields:
-            user_organizations = request.user.organizations
-            open_projects = (
-                KippoProject.objects.filter(is_closed=False, organization__in=user_organizations)
-                .exclude(category__key="non-project")
-                .order_by("name")
-            )
+            open_projects = survey_project_queryset(request.user, self.SURVEY_SCOPE)
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
             form.base_fields["project"].label_from_instance = get_project_display_name
@@ -2633,6 +2806,16 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
     formfield_overrides = {
         models.DateField: {"widget": MonthYearWidget},
     }
+    # Searchable プロジェクト select, pinned to this survey's scope (非案件 rows) — see the retrospective admin.
+    autocomplete_fields = ("project",)
+    SURVEY_SCOPE = SURVEY_SCOPE_MONTHLY
+
+    def formfield_for_foreignkey(self, db_field: models.Field, request: DjangoRequest, **kwargs):
+        if db_field.name == "project" and "project" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = SurveyScopedProjectAutocompleteSelect(
+                db_field, self.admin_site, using=kwargs.get("using"), survey_scope=self.SURVEY_SCOPE
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def get_project_name(self, obj: KippoProjectUserMonthlyStatisfactionResult | None = None) -> str:
         result = "-"
@@ -2676,10 +2859,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
             return project.name
 
         if "project" in form.base_fields:
-            user_organizations = request.user.organizations
-            open_projects = KippoProject.objects.filter(is_closed=False, organization__in=user_organizations, category__key="non-project").order_by(
-                "name"
-            )
+            open_projects = survey_project_queryset(request.user, self.SURVEY_SCOPE)
             form.base_fields["project"].initial = open_projects.first()
             form.base_fields["project"].queryset = open_projects
             form.base_fields["project"].label_from_instance = get_project_display_name

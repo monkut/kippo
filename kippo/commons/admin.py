@@ -4,9 +4,13 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.apps import AdminConfig
+from django.contrib.admin.views.autocomplete import AutocompleteJsonView
 from django.db.models import Model, QuerySet
 from django.forms import BaseFormSet, Form, widgets
-from django.http import request as DjangoRequest  # noqa: N812
+from django.http import (
+    HttpResponse,
+    request as DjangoRequest,  # noqa: N812
+)
 
 from commons.functions import ui_url
 
@@ -127,6 +131,23 @@ class OrganizationQuerysetModelAdminMixin:
         )
 
 
+class KippoAutocompleteJsonView(AutocompleteJsonView):
+    """Autocomplete results labelled by the ModelAdmin rather than always by ``str(obj)``.
+
+    A ModelAdmin opts in by defining ``autocomplete_result_label(obj)``. Needed where a form labels the
+    select with something other than __str__ (KippoProjectBaseAdmin: project.name, vs. the model's
+    "KippoProject(顧客名 名前)") -- without it the option text would change the moment a row is picked
+    from the dropdown.
+    """
+
+    def serialize_result(self, obj: Model, to_field_name: str) -> dict:
+        result = super().serialize_result(obj, to_field_name)
+        get_label = getattr(self.model_admin, "autocomplete_result_label", None)
+        if get_label:
+            result["text"] = get_label(obj)
+        return result
+
+
 class KippoAdminSite(admin.AdminSite):
     # update displayed header/title
     site_header = settings.SITE_HEADER
@@ -135,6 +156,11 @@ class KippoAdminSite(admin.AdminSite):
 
     # apps pinned to the top of the admin index, in this order; remaining apps keep Django's default order
     APP_PRIORITY = ("customers", "projects")
+
+    def autocomplete_view(self, request: DjangoRequest) -> HttpResponse:
+        # site-wide endpoint (there is no per-ModelAdmin autocomplete view) -- swapped for the subclass
+        # that honours each admin's autocomplete_result_label.
+        return KippoAutocompleteJsonView.as_view(admin_site=self)(request)
 
     def _app_sort_key(self, app: dict) -> int:
         app_label = app["app_label"]
