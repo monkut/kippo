@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from ..models import (
+    DEFAULT_ACTIVE_PROJECT_PHASES,
     PHASE_CONFIDENCE,
     KippoProject,
     KippoProjectBillingEntry,
@@ -587,6 +588,82 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertIn(str(self.project.id), all_ids)
         self.assertIn(str(non_project.id), all_ids)
 
+    def test_filter_by_phase(self):
+        """The repeatable `phase` parameter filters to the given phase keys (admin フェーズ filter parity)."""
+        self.project.phase = "under-contract"
+        self.project.save()
+
+        verbal_order_project = KippoProject.objects.create(
+            name="Verbal Order Project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            phase="verbal-order",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        proposing_project = KippoProject.objects.create(
+            name="Proposing Project",
+            organization=self.organization,
+            columnset=self.project.columnset,
+            phase="proposing-low",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+        # Single phase.
+        url = f"{settings.URL_PREFIX}/api/projects/?phase=verbal-order"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = [result["id"] for result in response.json()["results"]]
+        self.assertEqual(result_ids, [str(verbal_order_project.id)])
+
+        # Repeated phase params union the phases — this is the set the active-project admin
+        # changelist shows by default, so 口頭受注 is included and 提案(低) is not.
+        query = "&".join(f"phase={phase}" for phase in DEFAULT_ACTIVE_PROJECT_PHASES)
+        url = f"{settings.URL_PREFIX}/api/projects/?{query}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = {result["id"] for result in response.json()["results"]}
+        self.assertIn(str(self.project.id), result_ids)
+        self.assertIn(str(verbal_order_project.id), result_ids)
+        self.assertNotIn(str(proposing_project.id), result_ids)
+
+    def test_filter_by_phase_empty_value_is_ignored(self):
+        """`?phase=` (no value) is a no-op rather than a filter matching nothing."""
+        url = f"{settings.URL_PREFIX}/api/projects/?phase="
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        result_ids = [result["id"] for result in response.json()["results"]]
+        self.assertIn(str(self.project.id), result_ids)
+
+    def test_filter_by_phase_unknown_key_matches_nothing(self):
+        """An unrecognized phase key returns an empty result set (not an error)."""
+        url = f"{settings.URL_PREFIX}/api/projects/?phase=not-a-real-phase"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_projectsurvey_url_matches_model(self):
+        """`projectsurvey_url` mirrors KippoProject.get_projectsurvey_url() (admin column parity)."""
+        self.organization.google_forms_project_survey_url = "https://docs.google.com/forms/d/e/TEST/viewform"
+        self.organization.google_forms_project_survey_projectid_entryid = "entry.12345"
+        self.organization.save()
+
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.project.refresh_from_db()
+        expected = self.project.get_projectsurvey_url()
+        self.assertTrue(expected)
+        self.assertEqual(response.json()["projectsurvey_url"], expected)
+
+    def test_projectsurvey_url_blank_when_org_form_unconfigured(self):
+        """Organizations without a survey form serialize an empty string, matching the blank admin cell."""
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.json()["projectsurvey_url"], "")
+
     def test_search_filters_by_name_substring(self):
         """Test the `search` query parameter filters projects by case-insensitive name substring."""
         match = KippoProject.objects.create(
@@ -760,6 +837,20 @@ class KippoProjectViewSetTestCase(TestCase):
 
         self.assertIn("page_size", param_names)
         self.assertIn("page", param_names)
+
+    def test_openapi_schema_exposes_repeatable_phase_query_param(self):
+        """The `phase` filter is documented as a repeatable (array) query param.
+
+        kippo-ui generates its client from this schema; if `phase` were emitted as a plain
+        string the generated client could only send one phase and the project-status route
+        could not request the admin's DEFAULT_ACTIVE_PROJECT_PHASES set.
+        """
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        projects_list_op = schema["paths"][f"{settings.URL_PREFIX}/api/projects/"]["get"]
+        phase_params = [p for p in projects_list_op.get("parameters", []) if p["name"] == "phase"]
+
+        self.assertEqual(len(phase_params), 1)
+        self.assertEqual(phase_params[0]["schema"]["type"], "array")
 
 
 class ProjectWeeklyEffortViewSetTestCase(TestCase):

@@ -156,6 +156,7 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
 
     **Filtering:**
     - is_active: Filter by display_as_active field (true/false)
+    - phase: Include only the given phase key(s); repeatable, e.g. ?phase=verbal-order&phase=under-contract
     - category: Include only the given category key (exact match)
     - exclude_category: Exclude the given category key (exact match), e.g. drop non-project rows
 
@@ -202,6 +203,17 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 description="Filter by active status (display_as_active field)",
                 required=False,
                 type=bool,
+            ),
+            OpenApiParameter(
+                name="phase",
+                description=(
+                    "Filter by phase key. Repeatable — pass the parameter once per phase "
+                    "(e.g. ?phase=verbal-order&phase=under-contract) to match the admin's "
+                    "multi-select フェーズ filter. Unknown keys match nothing."
+                ),
+                required=False,
+                many=True,
+                type=str,
             ),
             OpenApiParameter(
                 name="category",
@@ -332,6 +344,14 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(display_as_active=is_active_bool)
             if is_active_bool:
                 queryset = queryset.filter(is_closed=False)
+
+        # Filter by phase — repeatable, mirroring the admin's PhaseMultiSelectListFilter so a client
+        # can request the same in-flight set (DEFAULT_ACTIVE_PROJECT_PHASES) the active-project
+        # changelist shows by default. Empty values are dropped so `?phase=` is a no-op rather than
+        # a filter that matches nothing.
+        phases = [phase for phase in self.request.query_params.getlist("phase") if phase]
+        if phases:
+            queryset = queryset.filter(phase__in=phases)
 
         # Filter by category (exact match on the KippoProject.category key)
         category = self.request.query_params.get("category", None)
