@@ -324,6 +324,7 @@ class OrganizationMembership(UserCreatedBaseModel):
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
     is_developer = models.BooleanField(default=True)
+    is_organization_admin = models.BooleanField(default=False, help_text=_("Organization admin: may invite members to this organization"))
     # TODO: Update to allow for fractional days 1.0 - 0.0
     sunday = models.BooleanField(default=False, help_text=_("Works Sunday"))
     monday = models.BooleanField(default=True, help_text=_("Works Monday"))
@@ -457,6 +458,21 @@ class KippoUser(AbstractUser):
         # "first" organization across separate SELECT invocations within a transaction.
         organization_ids = OrganizationMembership.objects.filter(user=self).values_list("organization", flat=True)
         return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
+
+    @property
+    def organization_admin_organizations(self) -> QuerySet:
+        """Organizations for which this user holds the `is_organization_admin` role."""
+        # Mirrors `organizations` above: the OrganizationMembership `unique_together`
+        # guarantees the inner values_list is deduplicated, and `.order_by("name")` keeps
+        # the outer queryset deterministic.
+        organization_ids = OrganizationMembership.objects.filter(user=self, is_organization_admin=True).values_list("organization", flat=True)
+        return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
+
+    def is_organization_admin_of(self, organization: KippoOrganization) -> bool:
+        """True if this user administers the given organization (superusers administer all)."""
+        if self.is_superuser:
+            return True
+        return OrganizationMembership.objects.filter(user=self, organization=organization, is_organization_admin=True).exists()
 
     def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=self, organization=organization)
