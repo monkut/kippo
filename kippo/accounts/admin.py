@@ -105,7 +105,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         "committed_days",
         "is_project_manager",
         "is_developer",
-        "is_organization_admin",
+        "is_admin",
     )
     ordering = ("organization", "user")
     search_fields = ["user__username", "user__github_login", "slack_username"]
@@ -127,7 +127,7 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
     """Invites are writable by superusers and by organization admins, scoped to the organizations they administer.
 
     Viewing stays at organization *membership* (`get_queryset`); only writes require the
-    `OrganizationMembership.is_organization_admin` role. See kiconiaworks/kippo#57.
+    `OrganizationMembership.is_admin` role. See kiconiaworks/kippo#57.
     """
 
     list_display = ("organization", "email", "expiration_date", "is_complete", "expiration_date", "processed_datetime")

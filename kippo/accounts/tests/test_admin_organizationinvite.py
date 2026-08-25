@@ -21,7 +21,7 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
         OrganizationMembership.objects.create(
             user=self.orgadmin_user,
             organization=self.organization,
-            is_organization_admin=True,
+            is_admin=True,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -34,7 +34,7 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
             user=self.pm_user,
             organization=self.organization,
             is_project_manager=True,
-            is_organization_admin=False,
+            is_admin=False,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -135,7 +135,7 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
 
 
 class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
-    """KippoUser helpers backing the is_organization_admin role."""
+    """KippoUser helpers backing the OrganizationMembership.is_admin role."""
 
     def setUp(self):
         super().setUp()
@@ -143,7 +143,7 @@ class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
         OrganizationMembership.objects.create(
             user=self.orgadmin_user,
             organization=self.organization,
-            is_organization_admin=True,
+            is_admin=True,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -165,4 +165,4 @@ class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
 
     def test_membership_role_defaults_false(self):
         membership = self.staffuser_with_org.get_membership(self.organization)
-        self.assertFalse(membership.is_organization_admin)
+        self.assertFalse(membership.is_admin)
