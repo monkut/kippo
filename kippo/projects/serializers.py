@@ -475,6 +475,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     # meeting_calendar_url_field / meeting_description_tag_field display methods.
     meeting_calendar_url = serializers.SerializerMethodField()
     meeting_description_tag = serializers.SerializerMethodField()
+    # 顧客アンケートURL — the org's google-form survey link pre-populated with this project id,
+    # mirroring the admin's get_projectsurvey_display_url column. Blank when the organization has
+    # no survey form configured.
+    projectsurvey_url = serializers.SerializerMethodField()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -529,6 +533,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "problem_definition",
             "meeting_calendar_url",
             "meeting_description_tag",
+            "projectsurvey_url",
             "survey_issued",
             "assignment_rates",
             "has_requirements",
@@ -548,6 +553,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "parent_project_name",  # read-only label for the parent_project FK
             "meeting_calendar_url",  # MTG calendar template URL (admin parity)
             "meeting_description_tag",  # dsearch tag for meeting minutes (admin parity)
+            "projectsurvey_url",  # 顧客アンケートURL (admin parity)
             "customer_document_url",  # linked customer's contract-folder URL (kippo#34 / T04)
             "phase_display",  # human-readable status label (kippo#37 / T10)
             "category_label",  # human-readable category label (kippo#39 / T14)
@@ -719,6 +725,15 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     def get_meeting_description_tag(self, obj: KippoProject) -> str:
         """Dsearch sentinel tag embedding the project id, for meeting-minutes discovery (admin parity)."""
         return obj.get_dsearch_tag()
+
+    @extend_schema_field(serializers.CharField())
+    def get_projectsurvey_url(self, obj: KippoProject) -> str:
+        """顧客アンケートURL — org survey form pre-populated with the project id (admin parity).
+
+        Empty string when the organization has no survey form configured, matching
+        KippoProject.get_projectsurvey_url() and the admin column's blank cell.
+        """
+        return obj.get_projectsurvey_url()
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_allocated_effort_hours(self, obj: KippoProject) -> float | None:
