@@ -460,7 +460,7 @@ class KippoUser(AbstractUser):
         return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
 
     @property
-    def organization_admin_organizations(self) -> QuerySet:
+    def admin_organizations(self) -> QuerySet:
         """Organizations for which this user holds the `OrganizationMembership.is_admin` role."""
         # Mirrors `organizations` above: the OrganizationMembership `unique_together`
         # guarantees the inner values_list is deduplicated, and `.order_by("name")` keeps

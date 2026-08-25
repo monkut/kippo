@@ -148,12 +148,12 @@ class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
             updated_by=self.github_manager,
         )
 
-    def test_organization_admin_organizations_lists_only_administered(self):
-        organizations = list(self.orgadmin_user.organization_admin_organizations)
+    def test_admin_organizations_lists_only_administered(self):
+        organizations = list(self.orgadmin_user.admin_organizations)
         self.assertEqual(organizations, [self.organization])
 
-    def test_organization_admin_organizations_empty_for_plain_member(self):
-        self.assertEqual(list(self.staffuser_with_org.organization_admin_organizations), [])
+    def test_admin_organizations_empty_for_plain_member(self):
+        self.assertEqual(list(self.staffuser_with_org.admin_organizations), [])
 
     def test_is_organization_admin_of(self):
         self.assertTrue(self.orgadmin_user.is_organization_admin_of(self.organization))

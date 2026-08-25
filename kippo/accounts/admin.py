@@ -138,7 +138,7 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
     def _is_any_organization_admin(user: KippoUser) -> bool:
         if not user.is_active or user.is_anonymous:
             return False
-        return user.is_superuser or user.organization_admin_organizations.exists()
+        return user.is_superuser or user.admin_organizations.exists()
 
     def _may_write(self, request: DjangoRequest, obj: OrganizationInvite | None = None) -> bool:
         user = request.user
@@ -176,7 +176,7 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
 
     def formfield_for_foreignkey(self, db_field: Model, request: DjangoRequest, **kwargs):
         if db_field.name == "organization" and not request.user.is_superuser:
-            kwargs["queryset"] = request.user.organization_admin_organizations
+            kwargs["queryset"] = request.user.admin_organizations
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request: DjangoRequest, obj: OrganizationInvite, form: Form, change: bool) -> None:
