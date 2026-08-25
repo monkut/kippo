@@ -124,10 +124,13 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
 
 @admin.register(OrganizationInvite)
 class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
-    """Invites are writable by superusers and by organization admins, scoped to the organizations they administer.
+    """Invites are visible and writable only to superusers and organization admins, scoped to the organizations they administer.
 
-    Viewing stays at organization *membership* (`get_queryset`); only writes require the
-    `OrganizationMembership.is_admin` role. See kiconiaworks/kippo#57.
+    Both the listed rows (`get_queryset`) and the organization selector
+    (`formfield_for_foreignkey`) are scoped to `KippoUser.admin_organizations`. Plain
+    membership grants nothing here: an admin of one organization who merely belongs to a
+    second must not read that second organization's invitee email addresses. See
+    kiconiaworks/kippo#57.
     """
 
     list_display = ("organization", "email", "expiration_date", "is_complete", "expiration_date", "processed_datetime")
@@ -172,7 +175,9 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(organization__in=request.user.organizations)
+        # scoped to ADMINISTERED organizations, not merely joined ones -- this queryset also
+        # backs get_object(), so it bounds which invites the change/delete views can load.
+        return qs.filter(organization__in=request.user.admin_organizations)
 
     def formfield_for_foreignkey(self, db_field: Model, request: DjangoRequest, **kwargs):
         if db_field.name == "organization" and not request.user.is_superuser:
