@@ -513,11 +513,26 @@ class KippoUser(AbstractUser):
 
 
 class OrganizationInvite(UserCreatedBaseModel):
-    organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE)
-    email = models.EmailField(db_index=True, help_text=_("Email address to send invite to"))
-    expiration_date = models.DateField(editable=False, help_text=_("Date the invite expires"))
-    is_complete = models.BooleanField(default=False, editable=False, help_text=_("True if the invite has been processed"))
-    processed_datetime = models.DateTimeField(null=True, blank=True, editable=False, help_text=_("Date the invite was processed"))
+    organization = models.ForeignKey(KippoOrganization, on_delete=models.CASCADE, verbose_name=_("組織"))
+    email = models.EmailField(db_index=True, verbose_name=_("メールアドレス"), help_text=_("Email address to send invite to"))
+    expiration_date = models.DateField(editable=False, verbose_name=_("有効期限"), help_text=_("Date the invite expires"))
+    is_complete = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("処理済み"),
+        help_text=_("True if the invite has been processed"),
+    )
+    processed_datetime = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("処理日時"),
+        help_text=_("Date the invite was processed"),
+    )
+
+    class Meta:
+        verbose_name = _("組織招待")
+        verbose_name_plural = verbose_name
 
     def __str__(self) -> str:
         return f"OrganizationInvite({self.organization.name} -> {self.email})"

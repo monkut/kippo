@@ -5,6 +5,7 @@ from django.contrib import admin as django_admin
 from django.contrib.admin import helpers
 from django.contrib.admin.actions import delete_selected
 from django.contrib.admin.sites import AdminSite
+from django.contrib.admin.templatetags.admin_list import result_headers
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 from django.urls import reverse
@@ -369,3 +370,48 @@ class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
     def test_membership_role_defaults_false(self):
         membership = self.staffuser_with_org.get_membership(self.organization)
         self.assertFalse(membership.is_admin)
+
+
+class OrganizationInviteAdminJapaneseLabelTestCase(IsStaffModelAdminTestCaseBase):
+    """Entries are labeled in Japanese -- changelist column headers and change-form field labels."""
+
+    CHANGELIST_HEADERS = ("組織", "メールアドレス", "有効期限", "処理済み", "処理日時")
+
+    def setUp(self):
+        super().setUp()
+        self.invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            email=f"invitee@{self.organization_domain}",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_login(self.superuser_no_org)
+
+    def test_changelist_column_headers_are_japanese(self):
+        response = self.client.get(reverse("admin:accounts_organizationinvite_changelist"))
+        self.assertEqual(response.status_code, 200)
+        # compare against the per-column header labels, NOT the raw page HTML: 組織 is a substring
+        # of the 組織招待 page title, so a whole-page containment check would pass regardless.
+        headers = [str(header["text"]) for header in result_headers(response.context["cl"])]
+        for header in self.CHANGELIST_HEADERS:
+            self.assertIn(header, headers)
+
+    def test_changelist_does_not_repeat_a_column(self):
+        response = self.client.get(reverse("admin:accounts_organizationinvite_changelist"))
+        self.assertEqual(response.status_code, 200)
+        headers = [str(header["text"]) for header in result_headers(response.context["cl"])]
+        self.assertEqual(len(headers), len(set(headers)))
+
+    def test_change_form_field_labels_are_japanese(self):
+        change_url = reverse("admin:accounts_organizationinvite_change", args=[self.invite.pk])
+        response = self.client.get(change_url)
+        self.assertEqual(response.status_code, 200)
+        labels = {name: str(field.label) for name, field in response.context["adminform"].form.fields.items()}
+        # expiration_date/is_complete/processed_datetime are editable=False, so the form carries
+        # only these two; their headers are covered by the changelist test above.
+        self.assertEqual(labels["organization"], "組織")
+        self.assertEqual(labels["email"], "メールアドレス")
+
+    def test_model_verbose_name_is_japanese(self):
+        self.assertEqual(str(OrganizationInvite._meta.verbose_name), "組織招待")
+        self.assertEqual(str(OrganizationInvite._meta.verbose_name_plural), "組織招待")
