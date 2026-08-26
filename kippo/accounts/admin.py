@@ -111,7 +111,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
         "user",
         "get_user_github_login",
         "slack_username",
-        "committed_days",
+        "get_committed_days",
         "is_project_manager",
         "is_developer",
         "is_admin",
@@ -176,10 +176,13 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
             raise PermissionDenied(f"User({request.user}) is not an organization admin of {obj.organization}")
         super().save_model(request, obj, form, change)
 
+    @admin.display(description=_("GitHubログイン"))
     def get_user_github_login(self, obj: OrganizationMembership) -> str:
         return obj.user.github_login
 
-    get_user_github_login.short_description = _("Github Login")
+    @admin.display(description=_("稼働日数"))
+    def get_committed_days(self, obj: OrganizationMembership) -> int:
+        return obj.committed_days
 
 
 @admin.register(OrganizationInvite)
