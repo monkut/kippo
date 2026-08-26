@@ -1,8 +1,13 @@
 from unittest.mock import MagicMock, patch
 
 from commons.tests import IsStaffModelAdminTestCaseBase, MockRequest
+from django.contrib import admin as django_admin
+from django.contrib.admin import helpers
+from django.contrib.admin.actions import delete_selected
 from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import PermissionDenied
+from django.test import RequestFactory
+from django.urls import reverse
 
 from ..admin import OrganizationInviteAdmin
 from ..models import KippoOrganization, KippoUser, OrganizationInvite, OrganizationMembership
@@ -15,6 +20,9 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
         super().setUp()
         self.site = AdminSite()
         self.modeladmin = OrganizationInviteAdmin(OrganizationInvite, self.site)
+        # the instance actually serving /admin/ -- its admin_site registry is what
+        # get_deleted_objects consults when collecting per-object delete permissions.
+        self.registered_modeladmin = django_admin.site._registry[OrganizationInvite]
 
         # an organization admin of self.organization only
         self.orgadmin_user = KippoUser.objects.create(username="orgadmin_with_org", is_superuser=False, is_staff=True)
@@ -189,6 +197,144 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
         with self.assertRaises(PermissionDenied):
             self.modeladmin.save_model(self.dualrole_request, invite, form=None, change=False)
         self.assertFalse(OrganizationInvite.objects.filter(organization=self.other_organization).exists())
+
+    def test_view_permission_falls_back_to_django_permissions_for_non_administrators(self):
+        # has_view_permission short-circuits to True only for organization admins; everyone else
+        # falls through to ModelAdmin.has_view_permission, which requires an explicit
+        # accounts.view_organizationinvite (or change) grant that none of these users hold.
+        self.assertFalse(self.modeladmin.has_view_permission(self.pm_request))
+        self.assertFalse(self.modeladmin.has_view_permission(self.staff_user_request))
+        self.assertFalse(self.modeladmin.has_view_permission(self.staff_user2_request))
+
+    def test_bulk_delete_selected_denies_an_unadministered_organization_invite(self):
+        # get_queryset already keeps this object out of the changelist, so reaching the action with
+        # it selected should be impossible -- this asserts the *second* gate independently, by
+        # handing delete_selected a queryset that scoping would never produce.
+        #
+        # This must run against the ModelAdmin registered on the real admin site, not
+        # `self.modeladmin`: get_deleted_objects only consults has_delete_permission for models
+        # found in `admin_site._registry` (contrib/admin/utils.py format_callback), so against the
+        # bare AdminSite() built in setUp the per-object check is skipped and nothing is denied.
+        other_invite = self._build_invite(self.other_organization, email="invitee@othertestorg.com")
+        other_invite.save()
+
+        request = RequestFactory().post("/admin/accounts/organizationinvite/", {"post": "yes"})
+        request.user = self.dualrole_user
+
+        with self.assertRaises(PermissionDenied):
+            delete_selected(self.registered_modeladmin, request, OrganizationInvite.objects.filter(pk=other_invite.pk))
+        self.assertTrue(OrganizationInvite.objects.filter(pk=other_invite.pk).exists())
+
+    def test_bulk_delete_selected_allows_an_administered_organization_invite(self):
+        # proves the denial above is the permission check, not a broken delete_selected call.
+        own_invite = self._build_invite(self.organization)
+        own_invite.save()
+
+        request = RequestFactory().post("/admin/accounts/organizationinvite/", {"post": "yes"})
+        request.user = self.dualrole_user
+
+        with patch.object(OrganizationInviteAdmin, "message_user"):
+            deleted = delete_selected(self.registered_modeladmin, request, OrganizationInvite.objects.filter(pk=own_invite.pk))
+        self.assertIsNone(deleted)
+        self.assertFalse(OrganizationInvite.objects.filter(pk=own_invite.pk).exists())
+
+
+class OrganizationInviteAdminHttpTestCase(IsStaffModelAdminTestCaseBase):
+    """The admin views over HTTP -- the gates the ModelAdmin-level tests reach past.
+
+    The `organization` selector is not cosmetic: `ModelChoiceField.to_python` resolves the
+    submitted pk against the scoped queryset and raises `invalid_choice` on a miss, so a forged
+    POST fails form validation before `save_model` is ever consulted. That gate has no other test.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # administers self.organization, plainly belongs to self.other_organization
+        self.orgadmin_user = KippoUser.objects.create(username="orgadmin_http", is_superuser=False, is_staff=True)
+        OrganizationMembership.objects.create(
+            user=self.orgadmin_user,
+            organization=self.organization,
+            is_admin=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        OrganizationMembership.objects.create(
+            user=self.orgadmin_user,
+            organization=self.other_organization,
+            is_admin=False,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client.force_login(self.orgadmin_user)
+        self.add_url = reverse("admin:accounts_organizationinvite_add")
+        self.changelist_url = reverse("admin:accounts_organizationinvite_changelist")
+
+    def _create_invite(self, organization: KippoOrganization, email: str) -> OrganizationInvite:
+        return OrganizationInvite.objects.create(
+            organization=organization,
+            email=email,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_add_view_rejects_a_forged_unadministered_organization_pk(self):
+        response = self.client.post(
+            self.add_url,
+            {"organization": str(self.other_organization.pk), "email": "invitee@othertestorg.com"},
+        )
+        # the form re-renders with an error rather than redirecting to the changelist
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("organization", response.context["adminform"].form.errors)
+        self.assertFalse(OrganizationInvite.objects.filter(organization=self.other_organization).exists())
+
+    def test_add_view_creates_an_invite_for_an_administered_organization(self):
+        response = self.client.post(
+            self.add_url,
+            {"organization": str(self.organization.pk), "email": "invitee@testorg.com"},
+        )
+        self.assertEqual(response.status_code, 302)
+        invite = OrganizationInvite.objects.get(organization=self.organization, email="invitee@testorg.com")
+        self.assertEqual(invite.created_by, self.orgadmin_user)
+
+    def test_changelist_omits_a_joined_but_unadministered_organization_invite(self):
+        own_invite = self._create_invite(self.organization, "invitee@testorg.com")
+        other_invite = self._create_invite(self.other_organization, "invitee@othertestorg.com")
+
+        response = self.client.get(self.changelist_url)
+        self.assertEqual(response.status_code, 200)
+        listed = set(response.context["cl"].queryset.values_list("id", flat=True))
+        self.assertIn(own_invite.id, listed)
+        self.assertNotIn(other_invite.id, listed)
+        self.assertNotContains(response, "invitee@othertestorg.com")
+
+    def test_bulk_delete_action_cannot_reach_an_unadministered_organization_invite(self):
+        other_invite = self._create_invite(self.other_organization, "invitee@othertestorg.com")
+
+        response = self.client.post(
+            self.changelist_url,
+            {
+                "action": "delete_selected",
+                helpers.ACTION_CHECKBOX_NAME: [str(other_invite.pk)],
+                "post": "yes",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(OrganizationInvite.objects.filter(pk=other_invite.pk).exists())
+
+    def test_bulk_delete_action_deletes_an_administered_organization_invite(self):
+        own_invite = self._create_invite(self.organization, "invitee@testorg.com")
+
+        response = self.client.post(
+            self.changelist_url,
+            {
+                "action": "delete_selected",
+                helpers.ACTION_CHECKBOX_NAME: [str(own_invite.pk)],
+                "post": "yes",
+            },
+        )
+        # delete_selected returns None after deleting, so response_action redirects to the changelist
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(OrganizationInvite.objects.filter(pk=own_invite.pk).exists())
 
 
 class OrganizationAdminRoleModelTestCase(IsStaffModelAdminTestCaseBase):
