@@ -324,6 +324,7 @@ class OrganizationMembership(UserCreatedBaseModel):
     # in order to define the start/stop of when the user may work
     is_project_manager = models.BooleanField(default=False)
     is_developer = models.BooleanField(default=True)
+    is_admin = models.BooleanField(default=False, help_text=_("Organization admin: may invite members to this organization"))
     # TODO: Update to allow for fractional days 1.0 - 0.0
     sunday = models.BooleanField(default=False, help_text=_("Works Sunday"))
     monday = models.BooleanField(default=True, help_text=_("Works Monday"))
@@ -381,9 +382,16 @@ class OrganizationMembership(UserCreatedBaseModel):
     def clean(self, *args, **kwargs):
         super().clean(*args, **kwargs)
 
+        # `organization` is unset when its own form field failed validation (missing, or a pk
+        # outside the scoped choices). ModelForm._post_clean calls Model.clean() regardless of
+        # the exclusion list, so dereferencing it here raises RelatedObjectDoesNotExist -- a 500
+        # -- instead of letting the field error render. Nothing to check without an email either.
+        if not self.email or not self.organization_id:
+            return
+
         # check that given email matches expected organization email domain
         organization_domains = [d.domain for d in self.organization.email_domains]
-        if self.email and self.email_domain not in organization_domains:
+        if self.email_domain not in organization_domains:
             raise ValidationError(f"Invalid email address ({self.email}) for organization({self.organization}) domains: {organization_domains}")
 
     def save(self, *args, **kwargs):
@@ -457,6 +465,21 @@ class KippoUser(AbstractUser):
         # "first" organization across separate SELECT invocations within a transaction.
         organization_ids = OrganizationMembership.objects.filter(user=self).values_list("organization", flat=True)
         return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
+
+    @property
+    def admin_organizations(self) -> QuerySet:
+        """Organizations for which this user holds the `OrganizationMembership.is_admin` role."""
+        # Mirrors `organizations` above: the OrganizationMembership `unique_together`
+        # guarantees the inner values_list is deduplicated, and `.order_by("name")` keeps
+        # the outer queryset deterministic.
+        organization_ids = OrganizationMembership.objects.filter(user=self, is_admin=True).values_list("organization", flat=True)
+        return KippoOrganization.objects.filter(id__in=organization_ids).order_by("name")
+
+    def is_organization_admin_of(self, organization: KippoOrganization) -> bool:
+        """True if this user administers the given organization (superusers administer all)."""
+        if self.is_superuser:
+            return True
+        return OrganizationMembership.objects.filter(user=self, organization=organization, is_admin=True).exists()
 
     def get_membership(self, organization: KippoOrganization) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=self, organization=organization)
