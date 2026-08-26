@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from commons.tests import IsStaffModelAdminTestCaseBase, MockRequest
 from django.contrib.admin.sites import AdminSite
+from django.contrib.admin.templatetags.admin_list import result_headers
 from django.core.exceptions import PermissionDenied
 from django.forms import ModelChoiceField
 from django.urls import reverse
@@ -247,3 +248,49 @@ class OrganizationMembershipAdminHttpTestCase(OrganizationMembershipAdminTestCas
         # get_object() loads through the scoped get_queryset, so the object is unreachable
         self.assertIn(response.status_code, (302, 403, 404))
         self.assertTrue(OrganizationMembership.objects.filter(pk=other_membership.pk).exists())
+
+
+class OrganizationMembershipAdminJapaneseLabelTestCase(OrganizationMembershipAdminTestCaseBase):
+    """Entries are labeled in Japanese -- changelist column headers and change-form field labels."""
+
+    CHANGELIST_HEADERS = (
+        "組織",
+        "ユーザー",
+        "GitHubログイン",
+        "Slackユーザー名",
+        "稼働日数",
+        "プロジェクトマネージャー",
+        "開発者",
+        "組織管理者",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.membership = self._add_membership(self.target_user, self.organization)
+        self.client.force_login(self.superuser_no_org)
+
+    def test_changelist_column_headers_are_japanese(self):
+        response = self.client.get(reverse("admin:accounts_organizationmembership_changelist"))
+        self.assertEqual(response.status_code, 200)
+        # compare against the per-column header labels, NOT the raw page HTML: several of these
+        # headers are substrings of one another (組織 of 組織メンバー, ユーザー of Slackユーザー名),
+        # so a whole-page containment check passes even with the label dropped.
+        headers = [str(header["text"]) for header in result_headers(response.context["cl"])]
+        for header in self.CHANGELIST_HEADERS:
+            self.assertIn(header, headers)
+
+    def test_change_form_field_labels_are_japanese(self):
+        change_url = reverse("admin:accounts_organizationmembership_change", args=[self.membership.pk])
+        response = self.client.get(change_url)
+        self.assertEqual(response.status_code, 200)
+        labels = {name: str(field.label) for name, field in response.context["adminform"].form.fields.items()}
+        self.assertEqual(labels["organization"], "組織")
+        self.assertEqual(labels["user"], "ユーザー")
+        self.assertEqual(labels["slack_username"], "Slackユーザー名")
+        self.assertEqual(labels["is_project_manager"], "プロジェクトマネージャー")
+        self.assertEqual(labels["is_developer"], "開発者")
+        self.assertEqual(labels["is_admin"], "組織管理者")
+
+    def test_model_verbose_name_is_japanese(self):
+        self.assertEqual(str(OrganizationMembership._meta.verbose_name), "組織メンバー")
+        self.assertEqual(str(OrganizationMembership._meta.verbose_name_plural), "組織メンバー")

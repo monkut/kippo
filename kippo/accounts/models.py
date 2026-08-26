@@ -314,17 +314,21 @@ class EmailDomain(UserCreatedBaseModel):
 
 
 class OrganizationMembership(UserCreatedBaseModel):
-    user = models.ForeignKey("KippoUser", on_delete=models.DO_NOTHING)
-    organization = models.ForeignKey("KippoOrganization", on_delete=models.DO_NOTHING)
-    email = models.EmailField(blank=True, default="", help_text=_("Email address with Organization"))
-    slack_username = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack username"))
+    user = models.ForeignKey("KippoUser", on_delete=models.DO_NOTHING, verbose_name=_("ユーザー"))
+    organization = models.ForeignKey("KippoOrganization", on_delete=models.DO_NOTHING, verbose_name=_("組織"))
+    email = models.EmailField(blank=True, default="", verbose_name=_("メールアドレス"), help_text=_("Email address with Organization"))
+    slack_username = models.CharField(max_length=100, blank=True, default="", verbose_name=_("Slackユーザー名"), help_text=_("Slack username"))
     slack_user_id = models.CharField(max_length=100, blank=True, default="", help_text=_("Slack user ID"))
     slack_image_url = models.URLField(blank=True, default="", help_text=_("Slack user image URL"))
     # TODO: add OPTIONAL -- contract_start, contract_end
     # in order to define the start/stop of when the user may work
-    is_project_manager = models.BooleanField(default=False)
-    is_developer = models.BooleanField(default=True)
-    is_admin = models.BooleanField(default=False, help_text=_("Organization admin: may invite members to this organization"))
+    is_project_manager = models.BooleanField(default=False, verbose_name=_("プロジェクトマネージャー"))
+    is_developer = models.BooleanField(default=True, verbose_name=_("開発者"))
+    is_admin = models.BooleanField(
+        default=False,
+        verbose_name=_("組織管理者"),
+        help_text=_("Organization admin: may invite members to this organization"),
+    )
     # TODO: Update to allow for fractional days 1.0 - 0.0
     sunday = models.BooleanField(default=False, help_text=_("Works Sunday"))
     monday = models.BooleanField(default=True, help_text=_("Works Monday"))
@@ -341,6 +345,8 @@ class OrganizationMembership(UserCreatedBaseModel):
             "organization",
         )
         indexes = (models.Index(fields=["user_id", "organization_id"]),)
+        verbose_name = _("組織メンバー")
+        verbose_name_plural = _("組織メンバー")
 
     @property
     def committed_days(self) -> int:
