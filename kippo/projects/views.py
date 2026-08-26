@@ -809,6 +809,7 @@ class WeeklyEffortExpectedHoursView(APIView):
 
         from accounts.models import PersonalHoliday, PublicHoliday
         from commons.context_processors import get_personal_holiday_hours
+        from commons.definitions import PERSONAL_HOLIDAY_LOOKBACK_DAYS
 
         week_start_str = request.query_params.get("week_start")
 
@@ -872,20 +873,24 @@ class WeeklyEffortExpectedHoursView(APIView):
         elif org_membership.organization.default_holiday_country:
             public_holidays = public_holidays.filter(country=org_membership.organization.default_holiday_country)
 
-        public_holiday_days = public_holidays.count()
-        public_holiday_hours = public_holiday_days * user_first_org.day_workhours
+        public_holiday_dates = set(public_holidays.values_list("day", flat=True))
+        public_holiday_hours = len(public_holiday_dates) * user_first_org.day_workhours
         expected_hours -= public_holiday_hours
 
-        # Subtract personal holidays
+        # Subtract personal holidays.
+        # NOTE: filtered from a lookback -- the filter matches the holiday's START date, so a
+        # span beginning before the week must be included for its in-week days to be deducted.
         personal_holidays = PersonalHoliday.objects.filter(
             user=user,
-            day__gte=week_start,
+            day__gte=week_start - timezone.timedelta(days=PERSONAL_HOLIDAY_LOOKBACK_DAYS),
             day__lte=week_enddate,
         )
         personal_holiday_hours = get_personal_holiday_hours(
             personal_holidays,
             day_workhours=user_first_org.day_workhours,
+            start_date=week_start,
             end_date=week_enddate,
+            exclude_dates=public_holiday_dates,
         )
         expected_hours -= personal_holiday_hours
 
