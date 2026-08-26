@@ -196,7 +196,7 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
     kiconiaworks/kippo#57.
     """
 
-    list_display = ("organization", "email", "expiration_date", "is_complete", "expiration_date", "processed_datetime")
+    list_display = ("organization", "email", "expiration_date", "is_complete", "processed_datetime")
     ordering = ("organization", "email")
     search_fields = ["email"]
 
