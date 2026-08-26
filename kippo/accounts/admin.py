@@ -97,6 +97,15 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
 
 @admin.register(OrganizationMembership)
 class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
+    """Memberships are readable and writable only by superusers and organization admins, scoped to the organizations they administer.
+
+    `is_admin` lives on this model, so scoping on plain membership would let an admin of one
+    organization grant themselves the role in a second organization they merely belong to.
+    Every gate here therefore reads `KippoUser.admin_organizations`, matching
+    `OrganizationInviteAdmin`. Deletion stays superuser-only via `AllowIsStaffReadonlyMixin`.
+    See kiconiaworks/kippo#57.
+    """
+
     list_display = (
         "organization",
         "user",
@@ -110,11 +119,62 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
     ordering = ("organization", "user")
     search_fields = ["user__username", "user__github_login", "slack_username"]
 
+    @staticmethod
+    def _is_any_organization_admin(user: KippoUser) -> bool:
+        if not user.is_active or user.is_anonymous:
+            return False
+        return user.is_superuser or user.admin_organizations.exists()
+
+    def _may_write(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
+        user = request.user
+        if not user.is_active or user.is_anonymous:
+            return False
+        if user.is_superuser:
+            return True
+        if obj is None:
+            # changelist/add-button rendering: any administered organization is enough
+            return self._is_any_organization_admin(user)
+        return user.is_organization_admin_of(obj.organization)
+
+    def has_view_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
+        # deliberately does NOT fall through to the Django model permission: membership rows are
+        # visible to superusers and organization admins only, regardless of any `view`/`change`
+        # grant a group may carry.
+        return self._may_write(request, obj)
+
+    def has_add_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
+        return self._may_write(request, obj)
+
+    def has_change_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
+        return self._may_write(request, obj)
+
     def get_queryset(self, request: DjangoRequest):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        return qs.filter(organization__in=request.user.organizations)
+        # scoped to ADMINISTERED organizations, not merely joined ones -- this queryset also
+        # backs get_object(), so it bounds which memberships the change view can load.
+        return qs.filter(organization__in=request.user.admin_organizations)
+
+    def formfield_for_foreignkey(self, db_field: Model, request: DjangoRequest, **kwargs):
+        if db_field.name == "organization" and not request.user.is_superuser:
+            administered = request.user.admin_organizations
+            kwargs["queryset"] = administered
+            if administered.count() == 1:
+                # a single-organization admin does not choose. `disabled` makes Django ignore
+                # whatever the POST carries for this field and clean to `initial` instead
+                # (forms/fields.py Field.clean via BaseForm._clean_fields), so the value is
+                # both pre-filled and unforgeable.
+                kwargs["initial"] = administered.first().pk
+                kwargs["disabled"] = True
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request: DjangoRequest, obj: OrganizationMembership, form: Form, change: bool) -> None:
+        # Defense in depth: the scoped `organization` choices above are bypassable by a forged
+        # POST whenever the field is a live selector, so re-check before writing.
+        if not request.user.is_organization_admin_of(obj.organization):
+            raise PermissionDenied(f"User({request.user}) is not an organization admin of {obj.organization}")
+        super().save_model(request, obj, form, change)
 
     def get_user_github_login(self, obj: OrganizationMembership) -> str:
         return obj.user.github_login

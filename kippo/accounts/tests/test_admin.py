@@ -119,15 +119,27 @@ class IsStaffOrganizationKippoUserModelAdminTestCase(IsStaffModelAdminTestCaseBa
         msg = f"actual({actual}) != expected({expected})"
         self.assertTrue(actual == expected, msg)
 
-        # with staff user only single user with same org should be returned
-        qs = modeladmin.get_queryset(self.staff_user_request)
-        queryset = list(qs)
-        expected_count = OrganizationMembership.objects.filter(organization__in=self.staff_user_request.user.organizations).count()
-        self.assertTrue(len(queryset) == expected_count, f"actual({len(queryset)}) != expected({expected_count}): {queryset}")
+        # plain organization membership no longer lists anything: memberships carry the is_admin
+        # role, so they are scoped to ADMINISTERED organizations (kiconiaworks/kippo#57).
+        self.assertEqual(list(modeladmin.get_queryset(self.staff_user_request)), [])
 
-        staff_user_orgids = {o.id for o in self.staff_user_request.user.organizations}
+        # an organization admin lists their administered organization's memberships, and only those
+        orgadmin_user = KippoUser.objects.create(username="membership_listing_orgadmin", is_superuser=False, is_staff=True)
+        OrganizationMembership.objects.create(
+            user=orgadmin_user,
+            organization=self.organization,
+            is_admin=True,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        orgadmin_request = MockRequest()
+        orgadmin_request.user = orgadmin_user
+
+        queryset = list(modeladmin.get_queryset(orgadmin_request))
+        expected_count = OrganizationMembership.objects.filter(organization=self.organization).count()
+        self.assertTrue(len(queryset) == expected_count, f"actual({len(queryset)}) != expected({expected_count}): {queryset}")
         for membership in queryset:
-            self.assertTrue(membership.organization.id in staff_user_orgids)
+            self.assertEqual(membership.organization.id, self.organization.id)
 
     def test_personalholidays_list_objects(self):
         modeladmin = PersonalHolidayAdmin(PersonalHoliday, self.site)

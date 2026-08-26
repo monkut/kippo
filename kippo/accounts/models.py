@@ -382,9 +382,16 @@ class OrganizationMembership(UserCreatedBaseModel):
     def clean(self, *args, **kwargs):
         super().clean(*args, **kwargs)
 
+        # `organization` is unset when its own form field failed validation (missing, or a pk
+        # outside the scoped choices). ModelForm._post_clean calls Model.clean() regardless of
+        # the exclusion list, so dereferencing it here raises RelatedObjectDoesNotExist -- a 500
+        # -- instead of letting the field error render. Nothing to check without an email either.
+        if not self.email or not self.organization_id:
+            return
+
         # check that given email matches expected organization email domain
         organization_domains = [d.domain for d in self.organization.email_domains]
-        if self.email and self.email_domain not in organization_domains:
+        if self.email_domain not in organization_domains:
             raise ValidationError(f"Invalid email address ({self.email}) for organization({self.organization}) domains: {organization_domains}")
 
     def save(self, *args, **kwargs):
