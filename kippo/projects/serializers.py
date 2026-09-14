@@ -65,6 +65,10 @@ class ProjectProgressStatusInlineSerializer(serializers.Serializer):
     current_effort_hours = serializers.IntegerField()
     expected_effort_hours = serializers.IntegerField(allow_null=True)
     allocated_effort_hours = serializers.IntegerField(allow_null=True)
+    is_estimated_allocated_effort_hours = serializers.BooleanField(
+        help_text="True when allocated_effort_hours is estimated from a 納品/固定 contract (契約金額 ÷ 人日単価) "
+        "because the project has no 割当工数(人日) entered.",
+    )
     difference_percentage = serializers.FloatField(allow_null=True)
 
 
@@ -806,6 +810,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "current_effort_hours": project_progress_status.current_effort_hours,
             "expected_effort_hours": project_progress_status.expected_effort_hours,
             "allocated_effort_hours": project_progress_status.allocated_effort_hours,
+            "is_estimated_allocated_effort_hours": project_progress_status.is_estimated_allocated_effort_hours,
             "difference_percentage": project_progress_status.get_difference_percentage(),
         }
 
