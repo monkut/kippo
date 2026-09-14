@@ -1,6 +1,7 @@
 """Tests for the projects REST API viewsets."""
 
 import datetime
+from decimal import Decimal
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 from unittest import mock
@@ -2351,3 +2352,46 @@ class KippoProjectListQueryCountTestCase(TestCase):
             response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertGreaterEqual(response.json()["count"], 6)
+
+
+class ProjectStatusDisplayEstimatedBudgetTestCase(TestCase):
+    """`projectstatus_display` reports whether its allocated_effort_hours is a contract estimate."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project: KippoProject = created["KippoProject"]
+        self.project.start_date = datetime.date(2026, 1, 5)
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        # day_workhours=8, DEFAULT_PROJECT_DAILY_RATE=180,000 -> 1,800,000 yen == 10 人日 == 80h
+        self.expected_estimate = 80
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _projectstatus_display(self) -> dict | None:
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        return response.json()["projectstatus_display"]
+
+    def test_no_budget_has_no_projectstatus_display(self):
+        self.assertIsNone(self._projectstatus_display())
+
+    def test_contract_estimate_is_flagged(self):
+        KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1800000"))
+        projectstatus_display = self._projectstatus_display()
+        self.assertIsNotNone(projectstatus_display)
+        self.assertEqual(projectstatus_display["allocated_effort_hours"], self.expected_estimate)
+        self.assertTrue(projectstatus_display["is_estimated_allocated_effort_hours"])
+
+    def test_entered_allocated_staff_days_is_not_flagged(self):
+        KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1800000"))
+        self.project.allocated_staff_days = 30
+        self.project.save()
+        projectstatus_display = self._projectstatus_display()
+        self.assertEqual(projectstatus_display["allocated_effort_hours"], 30 * self.organization.day_workhours)
+        self.assertFalse(projectstatus_display["is_estimated_allocated_effort_hours"])

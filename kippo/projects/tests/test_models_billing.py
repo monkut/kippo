@@ -1035,3 +1035,105 @@ class BillingEntryReceivedTrackingTestCase(TestCase):
         entry.save()
         entry.refresh_from_db()
         self.assertIsNone(entry.received_by)
+
+
+class ContractDerivedAllocatedEffortHoursTestCase(TestCase):
+    """`KippoProject.allocated_effort_hours` falls back to a 納品/固定 contract estimate."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.project: KippoProject = created["KippoProject"]
+        self.user = created["KippoUser"]
+        self.organization = created["KippoOrganization"]
+        # day_workhours=8 (setup_basic_project), DEFAULT_PROJECT_DAILY_RATE=180,000 ->
+        # 1,800,000 yen == 10 人日 == 80h
+        self.day_workhours = self.organization.day_workhours
+        self.total_amount = Decimal("1800000")
+        self.expected_estimate = 80
+
+    def _contract(self, **kwargs) -> KippoProjectContract:
+        values = {
+            "project": self.project,
+            "billing_type": BILLING_TYPE_DELIVERY,
+            "pricing_basis": PRICING_BASIS_FIXED,
+            "total_amount": self.total_amount,
+        }
+        values.update(kwargs)
+        return KippoProjectContract.objects.create(**values)
+
+    def test_no_contract_and_no_allocated_staff_days_is_none(self):
+        self.assertIsNone(self.project.allocated_effort_hours)
+        self.assertIsNone(self.project.estimated_allocated_effort_hours)
+        self.assertFalse(self.project.is_estimated_allocated_effort_hours)
+
+    def test_delivery_fixed_contract_estimates_hours(self):
+        self._contract()
+        self.assertEqual(self.project.estimated_allocated_effort_hours, self.expected_estimate)
+        self.assertEqual(self.project.allocated_effort_hours, self.expected_estimate)
+        self.assertTrue(self.project.is_estimated_allocated_effort_hours)
+
+    def test_entered_allocated_staff_days_wins_over_contract_estimate(self):
+        self._contract()
+        self.project.allocated_staff_days = 30
+        self.project.save()
+        self.assertEqual(self.project.allocated_effort_hours, 30 * self.day_workhours)
+        self.assertFalse(self.project.is_estimated_allocated_effort_hours)
+        # the estimate itself is still derivable, it is simply not used
+        self.assertEqual(self.project.estimated_allocated_effort_hours, self.expected_estimate)
+
+    def test_monthly_billing_is_not_estimated(self):
+        self._contract(billing_type=BILLING_TYPE_MONTHLY)
+        self.assertIsNone(self.project.estimated_allocated_effort_hours)
+        self.assertIsNone(self.project.allocated_effort_hours)
+
+    def test_effort_pricing_is_not_estimated(self):
+        self._contract(pricing_basis=PRICING_BASIS_EFFORT)
+        self.assertIsNone(self.project.estimated_allocated_effort_hours)
+        self.assertIsNone(self.project.allocated_effort_hours)
+
+    def test_contract_without_total_amount_is_not_estimated(self):
+        self._contract(total_amount=None)
+        self.assertIsNone(self.project.estimated_allocated_effort_hours)
+
+    def test_project_developer_rate_is_used_when_defined(self):
+        self._contract()
+        ProjectAssignmentRate.objects.create(
+            project=self.project,
+            role=ProjectRoles.DEVELOPER.value,
+            rate_per_day=90_000,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        # 1,800,000 / 90,000 == 20 人日 == 160h
+        self.assertEqual(self.project.estimated_allocated_effort_hours, 160)
+
+    def test_non_developer_rate_is_ignored(self):
+        self._contract()
+        ProjectAssignmentRate.objects.create(
+            project=self.project,
+            role=ProjectRoles.TESTER.value,
+            rate_per_day=90_000,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        self.assertEqual(self.project.estimated_allocated_effort_hours, self.expected_estimate)
+
+    def test_estimated_budget_produces_expected_effort_and_progress_status(self):
+        # without a budget there is no expected effort, so the status meter cannot render
+        self.project.start_date = datetime.date(2026, 1, 5)
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        self.assertEqual(self.project.get_expected_effort(at_date=datetime.date(2026, 6, 30)), (None, None))
+
+        self._contract()
+        self.project.refresh_from_db()
+        _, expected_effort_hours = self.project.get_expected_effort(at_date=datetime.date(2026, 6, 30))
+        self.assertIsNotNone(expected_effort_hours)
+        self.assertGreater(expected_effort_hours, 0)
+        self.assertLess(expected_effort_hours, self.expected_estimate)
+
+        progress_status = self.project.get_projectprogressstatus_values()
+        self.assertEqual(progress_status.allocated_effort_hours, self.expected_estimate)
+        self.assertTrue(progress_status.is_estimated_allocated_effort_hours)

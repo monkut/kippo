@@ -91,6 +91,7 @@ def project_status_api(request: DjangoRequest, project_id: str) -> JsonResponse:
             "target_date": project.target_date.isoformat() if project.target_date else None,
             "allocated_staff_days": project.allocated_staff_days,
             "allocated_effort_hours": allocated_effort_hours,
+            "is_estimated_allocated_effort_hours": project.is_estimated_allocated_effort_hours,
         },
         "weekly_effort": weekly_effort_data,
         "expected_effort_by_date": expected_effort_by_date,

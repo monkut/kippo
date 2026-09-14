@@ -103,6 +103,9 @@ class ProjectProgressStatus:
     expected_effort_days: int
     allocated_effort_hours: int
     allocated_effort_days: int | None = None
+    # True when allocated_effort_hours was derived from a 納品/固定 contract rather than
+    # entered as 割当工数(人日) — see KippoProject.estimated_allocated_effort_hours.
+    is_estimated_allocated_effort_hours: bool = False
 
     def get_difference_percentage(self) -> float | None:
         """Calculate the difference percentage between current and expected effort hours."""

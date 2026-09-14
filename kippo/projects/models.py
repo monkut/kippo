@@ -24,6 +24,7 @@ from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
 from .definitions import (
+    BILLING_TYPE_DELIVERY,
     BILLING_TYPE_MONTHLY,
     DEFAULT_BILLING_TYPE,
     DEFAULT_PRICING_BASIS,
@@ -666,9 +667,51 @@ class KippoProject(UserCreatedBaseModel):
         return latest_kippoprojectstatus
 
     @property
+    def estimated_allocated_effort_hours(self) -> int | None:
+        """予算工数 implied by a 納品/固定 contract, for a project with no allocated_staff_days entered.
+
+        A delivery + fixed (納品/固定) contract bills a fixed 契約金額 for a fixed scope, so the amount
+        implies a budget: 契約金額 ÷ 人日単価 × day_workhours. The rate is the project's developer
+        ProjectAssignmentRate, falling back to settings.DEFAULT_PROJECT_DAILY_RATE (the same resolution
+        used for requirement estimates). `assignment_rates` is walked in python so a prefetched list
+        context costs no extra query.
+
+        None for any other contract shape — 月額 bills per month and 実績 bills actuals, so neither
+        amount states a scope — and for a contract with no 契約金額 or an org with no day_workhours.
+        """
+        contract = self.get_contract()
+        if not contract or contract.billing_type != BILLING_TYPE_DELIVERY or contract.pricing_basis != PRICING_BASIS_FIXED:
+            return None
+        if not contract.total_amount or not self.organization.day_workhours:
+            return None
+        rate_per_day = next(
+            (rate.rate_per_day for rate in self.assignment_rates.all() if rate.role == ProjectRoles.DEVELOPER.value),
+            settings.DEFAULT_PROJECT_DAILY_RATE,
+        )
+        if not rate_per_day:
+            return None
+        return round((contract.total_amount / Decimal(rate_per_day)) * Decimal(self.organization.day_workhours))
+
+    @property
+    def is_estimated_allocated_effort_hours(self) -> bool:
+        """True when `allocated_effort_hours` is the 納品/固定 contract estimate, not an entered value."""
+        if self.allocated_staff_days and self.organization.day_workhours:
+            return False
+        return self.estimated_allocated_effort_hours is not None
+
+    @property
     def allocated_effort_hours(self) -> int | None:
+        """予算工数: the entered 割当工数(人日) × day_workhours.
+
+        Falls back to the 納品/固定 contract estimate while no allocated_staff_days is entered, so a
+        fixed-price project still carries a budget (and therefore a progress status) before it is
+        estimated. The entered value always wins once it is defined.
+        """
         if self.allocated_staff_days and self.organization.day_workhours:
             return self.allocated_staff_days * self.organization.day_workhours
+        estimated_effort_hours = self.estimated_allocated_effort_hours
+        if estimated_effort_hours is not None:
+            return estimated_effort_hours
         logger.warning(
             f"Project.allocated_staff_days and/or Project.organization.day_workhours not set: project={self}, organization={self.organization}"
         )
@@ -689,12 +732,13 @@ class KippoProject(UserCreatedBaseModel):
         """
         expected_effort_days = None
         expected_effort_hours = None
-        if self.start_date and self.target_date and self.allocated_staff_days:
+        # the budget, which is the entered 割当工数(人日) or the 納品/固定 contract estimate
+        total_project_hours = self.allocated_effort_hours
+        if self.start_date and self.target_date and total_project_hours:
             if not at_date:
                 at_date = timezone.localdate()
                 logger.info(f"at_date not given, setting to: {at_date}")
             if self.start_date <= at_date <= self.target_date or at_date > self.target_date:
-                total_project_hours = self.allocated_staff_days * self.organization.day_workhours
                 # get weekdays - public holidays
                 if holidays is _COMPUTE:
                     holidays = []
@@ -727,10 +771,13 @@ class KippoProject(UserCreatedBaseModel):
                 logger.warning(f"at_date({at_date}) is not between start_date({self.start_date}) and target_date({self.target_date})")
         else:
             logger.warning(
-                f"Project.start_date, Project.target_date and/or Project.allocated_staff_days not set: "
+                f"Project.start_date, Project.target_date and/or the project budget (割当工数(人日) or 納品/固定 contract) not set: "
                 f"project={self}, organization={self.organization}"
             )
-            logger.warning(f"start_date={self.start_date}, target_date={self.target_date}, allocated_staff_days={self.allocated_staff_days}")
+            logger.warning(
+                f"start_date={self.start_date}, target_date={self.target_date}, "
+                f"allocated_staff_days={self.allocated_staff_days}, allocated_effort_hours={total_project_hours}"
+            )
         return expected_effort_days, expected_effort_hours
 
     def get_projectprogressstatus_values(self, total_effort: object = _COMPUTE, holidays: object = _COMPUTE) -> ProjectProgressStatus:
@@ -748,6 +795,7 @@ class KippoProject(UserCreatedBaseModel):
             expected_effort_days=expected_effort_days,
             allocated_effort_hours=allocated_effort_hours,
             allocated_effort_days=self.allocated_staff_days,
+            is_estimated_allocated_effort_hours=self.is_estimated_allocated_effort_hours,
         )
         return project_progress_status
 
