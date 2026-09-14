@@ -9,6 +9,7 @@
 import datetime
 import logging
 
+from accounts.functions import get_allholiday_weekstarts
 from accounts.models import KippoOrganization, OrganizationMembership
 from commons.functions import first_of_month, last_of_month
 from django.conf import settings
@@ -62,21 +63,30 @@ class WeeklyEffortCloseReminderManager:
         return None
 
     def get_missing_by_member(self, closing_month_first: datetime.date) -> list[tuple[OrganizationMembership, list[datetime.date]]]:
-        """締め対象月の各週で稼働未入力の開発メンバと、その未入力週の一覧。"""
+        """締め対象月の各週で稼働未入力の開発メンバと、その未入力週の一覧。
+
+        稼働日が全て休日 (個人休日 / 祝日) の週は入力対象が無いため未入力週に含めない。
+        """
         week_starts = mondays_in_month(closing_month_first)
         logged = set(
             ProjectWeeklyEffort.objects.filter(project__organization=self.organization, week_start__in=week_starts).values_list(
                 "user_id", "week_start"
             )
         )
-        memberships = (
+        memberships = list(
             OrganizationMembership.objects.filter(organization=self.organization, is_developer=True)
             .exclude(user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)  # 組織の (unassigned) 番人ユーザは対象外
             .select_related("user")
         )
+        allholiday_weekstarts = get_allholiday_weekstarts(
+            memberships,
+            week_starts,
+            default_holiday_country=self.organization.default_holiday_country,
+        )
         results = []
         for membership in memberships:
-            missing = [week_start for week_start in week_starts if (membership.user_id, week_start) not in logged]
+            excluded = allholiday_weekstarts.get(membership.user_id, set())
+            missing = [week_start for week_start in week_starts if week_start not in excluded and (membership.user_id, week_start) not in logged]
             if missing:
                 results.append((membership, missing))
         return results

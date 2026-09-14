@@ -5,7 +5,7 @@ import json
 from typing import TYPE_CHECKING
 from unittest import mock
 
-from accounts.models import KippoUser, OrganizationMembership
+from accounts.models import KippoUser, OrganizationMembership, PersonalHoliday
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
@@ -488,6 +488,54 @@ class WeeklyEffortCloseReminderTestCase(WeeklyEffortCloseTestCaseBase):
         self._create_effort(week_start=datetime.date(2024, 4, 8))
         missing_map = {m.user_id: weeks for m, weeks in manager.get_missing_by_member(datetime.date(2024, 4, 1))}
         self.assertNotIn(datetime.date(2024, 4, 8), missing_map[self.user.pk])
+
+    def _create_personalholiday(self, day: datetime.date, duration: int = 1, is_half: bool = False) -> PersonalHoliday:
+        return PersonalHoliday.objects.create(
+            user=self.user,
+            day=day,
+            duration=duration,
+            is_half=is_half,
+            created_by=self.user,
+            updated_by=self.user,
+        )
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__excludes_week_fully_covered_by_personalholiday(self):
+        # Mon 2024-04-08 .. Fri 2024-04-12 -- every committed weekday of the week is a personal holiday
+        self._create_personalholiday(datetime.date(2024, 4, 8), duration=5)
+        missing_map = {m.user_id: weeks for m, weeks in self._manager().get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertEqual(
+            missing_map[self.user.pk],
+            [datetime.date(2024, 4, d) for d in (1, 15, 22, 29)],
+        )
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__keeps_week_partially_covered_by_personalholiday(self):
+        # Mon 2024-04-08 .. Tue 2024-04-09 only -- Wed-Fri remain workdays, so effort is still expected
+        self._create_personalholiday(datetime.date(2024, 4, 8), duration=2)
+        missing_map = {m.user_id: weeks for m, weeks in self._manager().get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertIn(datetime.date(2024, 4, 8), missing_map[self.user.pk])
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__excludes_week_covered_by_personalholiday_starting_before_month(self):
+        # Fri 2024-03-29 .. Fri 2024-04-05: starts before the closing month but covers all of week 2024-04-01
+        self._create_personalholiday(datetime.date(2024, 3, 29), duration=8)
+        missing_map = {m.user_id: weeks for m, weeks in self._manager().get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertNotIn(datetime.date(2024, 4, 1), missing_map[self.user.pk])
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_get_missing_by_member__drops_member_with_all_weeks_on_personalholiday(self):
+        # 2024-04-01 .. 2024-05-05 covers every committed weekday of all five April week_starts
+        self._create_personalholiday(datetime.date(2024, 4, 1), duration=35)
+        user_ids = {m.user_id for m, _ in self._manager().get_missing_by_member(datetime.date(2024, 4, 1))}
+        self.assertNotIn(self.user.pk, user_ids)
+
+    @freeze_time(WITHIN_WINDOW)
+    def test_post__no_post_when_all_missing_weeks_are_personalholidays(self):
+        self._create_personalholiday(datetime.date(2024, 4, 1), duration=35)
+        manager = self._manager()
+        self.assertIsNone(manager.post())
+        manager._mock_client.chat_postMessage.assert_not_called()
 
     @freeze_time(WITHIN_WINDOW)
     def test_get_missing_by_member__excludes_unassigned_user(self):
