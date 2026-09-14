@@ -321,6 +321,8 @@ WEBHOOK_URL = f"{HOST_URL}{URL_PREFIX}{WEBHOOK_ENDPOINT}"
 DEFAULT_DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = "True"
 DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND = bool(strtobool(os.getenv("DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND", DEFAULT_DISPLAY_ADMIN_AUTH_FOR_MODELBACKEND)))
 
+# Fallback workday length for parsing github issue estimate labels (commons.github). Effort
+# calculations use the project organization's own KippoOrganization.day_workhours instead.
 DAY_WORKHOURS = 7
 
 DEFAULT_WEBHOOK_DELETE_DAYS = "30"
