@@ -1,10 +1,13 @@
 import re
 import tempfile
+from http import HTTPStatus
 from pathlib import Path
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.test import SimpleTestCase
+from django.http import HttpResponse
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from whitenoise.middleware import WhiteNoiseMiddleware
 
 from commons.storage import KippoStaticFilesStorage
 
@@ -99,3 +102,40 @@ class ImmutableFileTestSettingTestCase(SimpleTestCase):
             "/prod/static/google_signin_buttons/web/1x/btn_google_signin_dark_normal_web.png",
         ):
             assert not self.pattern.search(url), url
+
+
+class WhiteNoiseStagePrefixTestCase(SimpleTestCase):
+    """Deployed configuration: URL_PREFIX=/prod → STATIC_URL=/prod/static/, while API Gateway strips
+    the stage from path_info so Django (and WhiteNoise) see `/static/...`. WHITENOISE_STATIC_PREFIX
+    is pinned to `/static/` for that reason (whitenoise#164); the immutable test must still fire.
+    """
+
+    UI_ASSET = "ui/assets/entry.client-B8yIs_ty.js"
+    ADMIN_ASSET = "admin/css/base.96c479cedf7a.css"
+    UNHASHED = "admin/css/base.css"
+
+    def _cache_control(self, static_root: str, path: str) -> str | None:
+        with override_settings(
+            DEBUG=False,
+            STATIC_ROOT=static_root,
+            STATIC_URL="/prod/static/",
+            WHITENOISE_STATIC_PREFIX="/static/",
+            WHITENOISE_USE_FINDERS=False,
+            WHITENOISE_AUTOREFRESH=False,
+        ):
+            middleware = WhiteNoiseMiddleware(lambda _request: HttpResponse("fallthrough"))
+            # Stage already stripped by API Gateway: no /prod in path_info.
+            response = middleware(RequestFactory().get(f"/static/{path}"))
+        assert response.status_code == HTTPStatus.OK, f"{path}: expected WhiteNoise to serve it, got {response.status_code}"
+        return response.get("Cache-Control")
+
+    def test_stage_stripped_ui_asset_is_immutable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in (self.UI_ASSET, self.ADMIN_ASSET, self.UNHASHED):
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_bytes(b"x")
+
+            assert self._cache_control(tmp, self.UI_ASSET) == "max-age=315360000, public, immutable"
+            assert self._cache_control(tmp, self.ADMIN_ASSET) == "max-age=315360000, public, immutable"
+            assert self._cache_control(tmp, self.UNHASHED) == "max-age=60, public"

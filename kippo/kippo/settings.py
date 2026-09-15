@@ -101,6 +101,11 @@ WHITENOISE_STATIC_PREFIX = "/static/"
 # which fell back to WhiteNoise's 60-second default (kiconiaworks/kippo#61). Both forms are
 # content-addressed, so both are safe to cache forever. The SPA's index.html is served by
 # SPAView, not from here, so a new release is picked up immediately.
+# Stage prefix: on the deployed API Gateway stage the browser requests `/prod/static/ui/...`
+# but API Gateway strips the stage before the request reaches Django, and WhiteNoise keys
+# every file by WHITENOISE_STATIC_PREFIX (`/static/`, pinned above) + relative path — so the
+# URL passed to this test is `/static/ui/assets/...` with no stage. The leading `^.*` accepts
+# both the stripped form and a prefixed one; the Django-hash alternative is prefix-agnostic.
 WHITENOISE_IMMUTABLE_FILE_TEST = r"^.*/static/ui/assets/.+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$|^.+\.[0-9a-f]{12}\..+$"
 # Django 5.1 removed STATICFILES_STORAGE; STORAGES is the supported API.
 # KippoStaticFilesStorage hashes Django assets but passes the Vite-pre-hashed
