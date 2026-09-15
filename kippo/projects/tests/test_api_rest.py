@@ -177,7 +177,10 @@ class KippoProjectViewSetTestCase(TestCase):
         self.assertEqual(data["name"], self.project.name)
         self.assertEqual(data["organization_name"], self.organization.name)
         self.assertEqual(data["allocated_staff_days"], 60)
-        self.assertEqual(data["allocated_effort_hours"], 60 * settings.DAY_WORKHOURS)
+        # the organization's own day_workhours (8 here), NOT settings.DAY_WORKHOURS (7) — the value
+        # must match projectstatus_display.allocated_effort_hours and every other effort calculation
+        self.assertEqual(data["allocated_effort_hours"], 60 * self.organization.day_workhours)
+        self.assertEqual(data["allocated_effort_hours"], data["projectstatus_display"]["allocated_effort_hours"])
         # phase_display exposes the human-readable status label for the phase key (kippo#37 / T10)
         self.assertEqual(data["phase_display"], self.project.get_phase_display())
 
@@ -2387,6 +2390,13 @@ class ProjectStatusDisplayEstimatedBudgetTestCase(TestCase):
         self.assertIsNotNone(projectstatus_display)
         self.assertEqual(projectstatus_display["allocated_effort_hours"], self.expected_estimate)
         self.assertTrue(projectstatus_display["is_estimated_allocated_effort_hours"])
+
+    def test_top_level_allocated_effort_hours_matches_the_estimate(self):
+        KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1800000"))
+        url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
+        data = self.client.get(url).json()
+        self.assertEqual(data["allocated_effort_hours"], self.expected_estimate)
+        self.assertEqual(data["allocated_effort_hours"], data["projectstatus_display"]["allocated_effort_hours"])
 
     def test_entered_allocated_staff_days_is_not_flagged(self):
         KippoProjectContract.objects.create(project=self.project, total_amount=Decimal("1800000"))

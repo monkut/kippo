@@ -741,10 +741,17 @@ class KippoProjectSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_allocated_effort_hours(self, obj: KippoProject) -> float | None:
-        """Calculate allocated effort in hours from staff days."""
-        if obj.allocated_staff_days is not None:
-            return obj.allocated_staff_days * settings.DAY_WORKHOURS
-        return None
+        """予算工数 — delegated to KippoProject.allocated_effort_hours.
+
+        Previously computed here as `allocated_staff_days × settings.DAY_WORKHOURS` — the only
+        effort calculation in the codebase that read that setting instead of the project
+        organization's own `day_workhours`, so this field disagreed with
+        `projectstatus_display.allocated_effort_hours` for any organization whose workday is not 7h.
+        (The setting remains, but only as the github issue-label fallback in `commons.github`.)
+        Delegating also picks up the 納品/固定 contract estimate, keeping the two fields consistent
+        for a project with no 割当工数(人日) entered.
+        """
+        return obj.allocated_effort_hours
 
     @extend_schema_field(GithubRepositoryInlineSerializer(many=True))
     def get_github_repositories(self, obj: KippoProject) -> list[dict]:
