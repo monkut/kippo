@@ -16,11 +16,26 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "kippo-${Environment}-zappa-deploy"
+      # Zappa's slim_handler archive lives at a stable key
+      # (<stage>_<project>_current_project.tar.gz) and is fetched on every cold
+      # start, so it is a *live* object for the whole life of a deployment, not
+      # a superseded one. A blanket ExpirationInDays therefore deletes the
+      # archive the running Lambda depends on once a stage goes 30 days without
+      # a redeploy (#385). Bound storage growth via versioning instead: the
+      # current version is never expired, only the versions a redeploy
+      # supersedes.
+      VersioningConfiguration:
+        Status: Enabled
       LifecycleConfiguration:
         Rules:
-          - Id: ExpireOldDeployments
+          - Id: ExpireSupersededDeployments
             Status: Enabled
-            ExpirationInDays: 30
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
       Tags:
         - Key: Project
           Value: kippo
