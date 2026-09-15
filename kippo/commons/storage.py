@@ -21,8 +21,9 @@ class KippoStaticFilesStorage(CompressedManifestStaticFilesStorage):
 
     The ``ui/`` prefix is therefore:
       * not hashed (``hashed_name`` returns the input verbatim), and
-      * skipped from ``post_process`` so neither Django's URL rewriter nor
-        WhiteNoise's ``.gz`` writer touches the Vite output.
+      * skipped from the manifest/URL-rewriting half of ``post_process``, while
+        still being handed to WhiteNoise's compressor so ``.gz`` siblings exist
+        and the middleware serves pre-compressed bodies (kiconiaworks/kippo#61).
 
     Admin and other Django-owned assets are hashed and compressed normally.
     ``manifest_strict = False`` lets any future ``{% static "ui/..." %}`` call
@@ -40,3 +41,8 @@ class KippoStaticFilesStorage(CompressedManifestStaticFilesStorage):
     def post_process(self, paths: dict[str, Any], **options: Any) -> Iterator[tuple[str, str, bool]]:  # noqa: ANN401
         django_paths = {k: v for k, v in paths.items() if not k.startswith(self._UI_PREFIX)}
         yield from super().post_process(django_paths, **options)
+        if options.get("dry_run"):
+            return
+        ui_paths = [name for name in paths if name.startswith(self._UI_PREFIX)]
+        for name, compressed_name in self.compress_files(ui_paths):
+            yield name, compressed_name, True

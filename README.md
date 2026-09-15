@@ -236,17 +236,15 @@ files in production. Relevant settings (in `kippo/kippo/settings.py`):
 | `STATIC_ROOT` | `<repo>/kippo/staticfiles/` | Target of `collectstatic` |
 | `STATICFILES_DIRS` | `[("ui", "<repo>/static/ui/")]` if present | Populated by `update_ui` |
 | `WHITENOISE_STATIC_PREFIX` | `/static/` | See whitenoise issue #164 |
-| `STATICFILES_STORAGE` | `whitenoise.storage.CompressedManifestStaticFilesStorage` | See note below |
+| `STORAGES["staticfiles"]` | `commons.storage.KippoStaticFilesStorage` | See note below |
+| `WHITENOISE_IMMUTABLE_FILE_TEST` | Django + Vite hash patterns | Long-lived `immutable` caching for hashed assets |
 
-> **Note on `STATICFILES_STORAGE` and Django 5.2.** The setting was deprecated in
-> Django 4.2 and removed in 5.1, so on the current Django 5.2 dependency it is
-> silently ignored — manifest hashing and `.gz` precompression are **not** active.
-> Whitenoise still serves `/static/*` from `STATIC_ROOT` via middleware, so files
-> load correctly, just without cache-busting hashes. Migration to the Django 5.1+
-> `STORAGES` dict is tracked in [#258](https://github.com/monkut/kippo/issues/258).
-> Any such migration must exclude the `static/ui/` bundle from manifest re-hashing
-> because Vite already pre-hashes those filenames and the SPA's `index.html`
-> hard-codes them.
+> **`KippoStaticFilesStorage`** wraps whitenoise's `CompressedManifestStaticFilesStorage`
+> (Django 5.1+ `STORAGES` API). Django-owned assets are content-hashed and
+> pre-compressed as usual. The `static/ui/` bundle is excluded from hashing —
+> Vite already hashes those filenames and the SPA's `index.html` hard-codes them —
+> but is still pre-compressed. `WHITENOISE_IMMUTABLE_FILE_TEST` recognises both hash
+> styles so all of them are served with `Cache-Control: max-age=315360000, public, immutable`.
 
 ## Optional Features
 

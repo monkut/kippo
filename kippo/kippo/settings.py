@@ -95,6 +95,13 @@ MIDDLEWARE = [
 
 # https://github.com/evansd/whitenoise/issues/164
 WHITENOISE_STATIC_PREFIX = "/static/"
+# Files matching this regex are served with `Cache-Control: max-age=<10y>, public, immutable`.
+# WhiteNoise's default test only recognises Django's ManifestStaticFilesStorage hash
+# (`base.96c479cedf7a.css`); the Vite-built kippo-ui bundle uses `entry.client-DzqYHiS7.js`,
+# which fell back to WhiteNoise's 60-second default (kiconiaworks/kippo#61). Both forms are
+# content-addressed, so both are safe to cache forever. The SPA's index.html is served by
+# SPAView, not from here, so a new release is picked up immediately.
+WHITENOISE_IMMUTABLE_FILE_TEST = r"^.*/static/ui/assets/.+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$|^.+\.[0-9a-f]{12}\..+$"
 # Django 5.1 removed STATICFILES_STORAGE; STORAGES is the supported API.
 # KippoStaticFilesStorage hashes Django assets but passes the Vite-pre-hashed
 # kippo-ui bundle through verbatim — see commons/storage.py for the why.
