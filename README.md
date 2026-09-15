@@ -248,6 +248,40 @@ files in production. Relevant settings (in `kippo/kippo/settings.py`):
 > because Vite already pre-hashes those filenames and the SPA's `index.html`
 > hard-codes them.
 
+## Deployment package size (zappa)
+
+The prod Lambda runs with `slim_handler: true`, so every cold start downloads the
+deployment tarball from S3 and extracts it before Django can import. Cold-start
+time therefore scales with package size (measured 2026-09: 8–11 s per container
+with a 103 MB / 266 MB-extracted package). Keep the package small.
+
+`zappa_settings.json` is gitignored, so the recommended `exclude` list is
+documented here. Apply it to every stage:
+
+```json
+"exclude": [
+    "test_*.py", "__pycache__",
+    "*.map", "*.sketch", "*.sketch.gz",
+    "pyright", "pyright-*",
+    "ruff", "ruff-*",
+    "poethepoet", "poethepoet-*",
+    "freezegun", "freezegun-*",
+    "openapi_python_client", "openapi_python_client-*",
+    "xmlrunner", "unittest_xml_reporting-*"
+]
+```
+
+- `*.map` — source maps under `staticfiles/` (DevTools only).
+- `*.sketch`, `*.sketch.gz` — design-tool source files; only exported PNGs are served.
+  `collectstatic` never removes stale copies from `staticfiles/`, so run it with
+  `--clear` once after deleting a static source file.
+- The rest are dev-group dependencies that zappa otherwise copies from the venv.
+  Deploying from a venv created with `uv sync --no-dev` makes those entries
+  redundant but harmless.
+
+Check the result with `uv run zappa package prod` (writes a local tarball; delete
+it afterwards) — `tar -tzvf <tarball> | sort -k3 -n | tail` shows the largest files.
+
 ## Optional Features
 
 ### ProjectId Mapping file output
