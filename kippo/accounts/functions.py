@@ -107,7 +107,7 @@ def process_organizationinvites(backend: str, user: KippoUser, response: dict | 
         key=lambda invite: invite.expiration_date,
         reverse=True,
     )
-    if not expired_invites or OrganizationMembership.objects.filter(user=user).exists():
+    if not expired_invites or user.is_superuser or OrganizationMembership.objects.filter(user=user).exists():
         return
 
     latest_expired = expired_invites[0]

@@ -541,17 +541,20 @@ class OrganizationInvite(UserCreatedBaseModel):
         system_user = get_climanager_user()
 
         logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ...")
-        membership = OrganizationMembership(
+        # (user, organization) is unique_together: an invite to an organization the user already belongs to
+        # only marks the invite complete.
+        membership, created = OrganizationMembership.objects.get_or_create(
             user=user,
             organization=self.organization,
-            email=self.email,
-            is_project_manager=False,
-            is_developer=False,
-            created_by=system_user,
-            updated_by=system_user,
+            defaults={
+                "email": self.email,
+                "is_project_manager": False,
+                "is_developer": False,
+                "created_by": system_user,
+                "updated_by": system_user,
+            },
         )
-        membership.save()
-        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ... DONE")
+        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ... DONE (created={created})")
         self.is_complete = True
         self.processed_datetime = timezone.now()
         self.save()

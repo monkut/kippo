@@ -149,6 +149,34 @@ class ProcessOrganizationInvitesTestCase(IsStaffModelAdminTestCaseBase):
         process_organizationinvites(None, user, None, None, None)
         self.assertEqual(OrganizationMembership.objects.filter(user=user, organization=self.organization).count(), 1)
 
+    def test_process_for_organizationinvites__expired_ignored_for_superuser(self):
+        user_email = f"root@{self.organization_domain}"
+        user = KippoUser.objects.create(username="root_user", email=user_email, is_superuser=True, is_staff=True)
+        self._create_expired_invite(user_email)
+        process_organizationinvites(None, user, None, None, None)  # must not raise
+
+    def test_process_for_organizationinvites__valid_invite_for_existing_membership(self):
+        """A valid invite to an organization the user already belongs to completes without a duplicate membership"""
+        user_email = f"member@{self.organization_domain}"
+        user = KippoUser.objects.create(username="existing_member", email=user_email, is_superuser=False, is_staff=True)
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        invite = OrganizationInvite.objects.create(
+            email=user_email,
+            organization=self.organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        process_organizationinvites(None, user, None, None, None)  # must not raise IntegrityError
+        self.assertEqual(OrganizationMembership.objects.filter(user=user, organization=self.organization).count(), 1)
+        invite.refresh_from_db()
+        self.assertTrue(invite.is_complete)
+
     def test_process_for_organizationinvites__no_email(self):
         user = KippoUser.objects.create(username="no_email_user", email="", is_superuser=False, is_staff=False)
         process_organizationinvites(None, user, None, None, None)  # must not raise
