@@ -256,7 +256,8 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
         if not change:
             from django.conf import settings
 
-            login_url = f"{settings.HOST_URL}{settings.URL_PREFIX}/admin/"
+            # build from the request so the message carries the address the admin was served from
+            login_url = request.build_absolute_uri(f"{settings.URL_PREFIX}/admin/")
             self.message_user(request, f"Ask invited user to login using {obj.email} at: {login_url}", level=messages.INFO)
 
 
