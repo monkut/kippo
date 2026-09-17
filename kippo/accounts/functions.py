@@ -7,6 +7,7 @@ from typing import Any
 from commons.definitions import PERSONAL_HOLIDAY_LOOKBACK_DAYS
 from django.utils import timezone
 
+from .exceptions import OrganizationInviteExpiredError
 from .models import Country, KippoUser, OrganizationMembership, PersonalHoliday, PublicHoliday
 
 logger = logging.getLogger(__name__)
@@ -82,18 +83,37 @@ def get_allholiday_weekstarts(
 
 
 def process_organizationinvites(backend: str, user: KippoUser, response: dict | object, *args, **kwargs):  # noqa: ARG001
-    """Check if the user has any invites and send them to the user."""
-    new_user_check_buffer = timezone.now() - timezone.timedelta(minutes=5)  # don't want to query DB if user is not new
-    if hasattr(user, "email") and user.email and hasattr(user, "date_joined") and user.date_joined >= new_user_check_buffer:
-        from accounts.models import OrganizationInvite
+    """Social-auth pipeline step: create OrganizationMemberships for the user's pending invites.
 
-        # get all organization memberships for the user
-        today = timezone.localdate()
-        incomplete_invites = OrganizationInvite.objects.filter(email=user.email, expiration_date__gte=today, is_complete=False)
-        for invite in incomplete_invites:
-            invite.create_organizationmembership(user)
-        # if the user has no incomplete invites, check if there are any expired invites
-        logger.info("User has no incomplete invites, may be expired.")
-
-    else:
+    Raises `OrganizationInviteExpiredError` when the user belongs to no organization and every pending
+    invite for their email has expired, so the login page can tell them why access was denied.
+    """
+    if not getattr(user, "email", None):
         logger.error("User has no email address, cannot process organization invites.")
+        return
+
+    from accounts.models import OrganizationInvite
+
+    today = timezone.localdate()
+    incomplete_invites = OrganizationInvite.objects.filter(email=user.email, is_complete=False).select_related("organization")
+    valid_invites = [invite for invite in incomplete_invites if invite.expiration_date >= today]
+    for invite in valid_invites:
+        invite.create_organizationmembership(user)
+    if valid_invites:
+        return
+
+    expired_invites = sorted(
+        (invite for invite in incomplete_invites if invite.expiration_date < today),
+        key=lambda invite: invite.expiration_date,
+        reverse=True,
+    )
+    if not expired_invites or OrganizationMembership.objects.filter(user=user).exists():
+        return
+
+    latest_expired = expired_invites[0]
+    logger.warning(f"User({user.username}) login denied, invite expired: {latest_expired}")
+    raise OrganizationInviteExpiredError(
+        backend,
+        f"Your invitation to {latest_expired.organization.name} expired on {latest_expired.expiration_date:%Y-%m-%d}. "
+        "Ask the person who sent you the invitation link to issue a new invitation, then log in again.",
+    )
