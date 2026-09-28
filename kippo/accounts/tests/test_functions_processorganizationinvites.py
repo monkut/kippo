@@ -186,6 +186,35 @@ class ProcessOrganizationInvitesTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(OrganizationMembership.objects.filter(user=user, organization=nostaff_organization).count(), 1)
         invite.refresh_from_db()
         self.assertTrue(invite.is_complete)
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+
+    def test_process_for_organizationinvites__email_outside_organization_domains(self):
+        """An invite grants staff access even when the invited email is not in the organization's EmailDomains"""
+        nodomain_organization = KippoOrganization.objects.create(
+            name="nodomain-organization",
+            github_organization_name="nodomain-testorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        user_email = "invitee@external-example.com"
+        user = KippoUser.objects.create(username="external_user", email=user_email, is_superuser=False, is_staff=False)
+        user.date_joined = timezone.now() - timezone.timedelta(days=3)  # user row exists from an earlier login
+        user.save()
+        OrganizationInvite.objects.create(
+            email=user_email,
+            organization=nodomain_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+        process_organizationinvites(None, user, None, None, None)
+        self.assertTrue(user.is_staff)  # the pipeline's user instance logs in with access
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_active)
+        membership = OrganizationMembership.objects.get(user=user, organization=nodomain_organization)
+        membership.clean()  # must not raise: an organization admin can still edit the invited member
 
     def test_process_for_organizationinvites__no_email(self):
         user = KippoUser.objects.create(username="no_email_user", email="", is_superuser=False, is_staff=False)
