@@ -82,6 +82,36 @@ def get_allholiday_weekstarts(
     return results
 
 
+def process_organization_email_domains(backend: str, user: KippoUser, response: dict | object, *args, **kwargs):  # noqa: ARG001
+    """Social-auth pipeline step: add the user to every organization with a staff EmailDomain matching their email.
+
+    Only active non-staff users are checked: staff users already have access, and `is_active=False`
+    is how an administrator revokes a domain user (a new membership would re-activate them).
+    """
+    if user.is_staff or not user.is_active or not getattr(user, "email", None):
+        return
+
+    from accounts.models import EmailDomain, get_climanager_user
+
+    domain = user.email.split("@")[-1]
+    email_domains = EmailDomain.objects.filter(domain__iexact=domain, is_staff_domain=True).select_related("organization")
+    for email_domain in email_domains:
+        logger.info(f"Adding User({user.username}) to {email_domain.organization} by email domain ({domain}) ...")
+        system_user = get_climanager_user()
+        # OrganizationMembership.save() sets is_staff/is_active on this same user instance
+        OrganizationMembership.objects.get_or_create(
+            user=user,
+            organization=email_domain.organization,
+            defaults={
+                "email": user.email,
+                "is_project_manager": False,
+                "is_developer": False,
+                "created_by": system_user,
+                "updated_by": system_user,
+            },
+        )
+
+
 def process_organizationinvites(backend: str, user: KippoUser, response: dict | object, *args, **kwargs):  # noqa: ARG001
     """Social-auth pipeline step: create OrganizationMemberships for the user's pending invites.
 
