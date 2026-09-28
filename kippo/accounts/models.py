@@ -397,8 +397,12 @@ class OrganizationMembership(UserCreatedBaseModel):
 
         # check that given email matches expected organization email domain
         organization_domains = [d.domain for d in self.organization.email_domains]
-        if self.email_domain not in organization_domains:
-            raise ValidationError(f"Invalid email address ({self.email}) for organization({self.organization}) domains: {organization_domains}")
+        if self.email_domain in organization_domains:
+            return
+        # an address invited to the organization is a member regardless of its domain
+        if OrganizationInvite.objects.filter(organization_id=self.organization_id, email=self.email, is_complete=True).exists():
+            return
+        raise ValidationError(f"Invalid email address ({self.email}) for organization({self.organization}) domains: {organization_domains}")
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -541,28 +545,30 @@ class OrganizationInvite(UserCreatedBaseModel):
         system_user = get_climanager_user()
 
         logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ...")
-        membership = OrganizationMembership(
+        # (user, organization) is unique_together: an invite to an organization the user already belongs to
+        # only marks the invite complete.
+        membership, created = OrganizationMembership.objects.get_or_create(
             user=user,
             organization=self.organization,
-            email=self.email,
-            is_project_manager=False,
-            is_developer=False,
-            created_by=system_user,
-            updated_by=system_user,
+            defaults={
+                "email": self.email,
+                "is_project_manager": False,
+                "is_developer": False,
+                "created_by": system_user,
+                "updated_by": system_user,
+            },
         )
-        membership.save()
-        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ... DONE")
+        logger.info(f"Creating OrganizationMembership for {user.username} ({self.organization}) ... DONE (created={created})")
         self.is_complete = True
         self.processed_datetime = timezone.now()
         self.save()
 
-        for domain in self.organization.email_domains:
-            if self.email.endswith(domain.domain) and domain.is_staff_domain:
-                logger.info(f"Updating User({user.username}) is_staff -> True ...")
-                user.is_staff = True
-                user.save()
-                logger.info(f"Updating User({user.username}) is_staff -> True ... DONE")
-                break
+        # an invite grants admin access to its organization, whatever the invited email's domain
+        if not (user.is_staff and user.is_active):
+            logger.info(f"Updating User({user.username}) is_staff/is_active -> True")
+            user.is_staff = True
+            user.is_active = True
+            user.save(update_fields=["is_staff", "is_active"])
 
         return membership
 

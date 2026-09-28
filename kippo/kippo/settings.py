@@ -261,6 +261,10 @@ SOCIAL_AUTH_ADMIN_USER_SEARCH_FIELDS = ["username", "first_name", "email"]
 SOCIAL_AUTH_USER_MODEL = "accounts.KippoUser"
 AUTH_USER_MODEL = SOCIAL_AUTH_USER_MODEL
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = f"{URL_PREFIX}/admin/"
+# Pipeline AuthExceptions (e.g. an expired OrganizationInvite) are shown as a message on the login page
+# by SocialAuthExceptionMiddleware instead of raising (the default raises when DEBUG=True).
+SOCIAL_AUTH_LOGIN_ERROR_URL = f"{URL_PREFIX}/admin/login/"
+SOCIAL_AUTH_RAISE_EXCEPTIONS = False
 
 # https://python-social-auth.readthedocs.io/en/latest/pipeline.html
 SOCIAL_AUTH_PIPELINE = (
@@ -296,6 +300,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.load_extra_data",
     # Update the user record with any changed info from the auth service.
     "social_core.pipeline.user.user_details",
+    "accounts.functions.process_organization_email_domains",  # add users of an organization's staff email domain
     "accounts.functions.process_organizationinvites",  # process organization invites
 )
 

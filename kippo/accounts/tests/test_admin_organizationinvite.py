@@ -135,6 +135,19 @@ class OrganizationInviteAdminPermissionTestCase(IsStaffModelAdminTestCaseBase):
         self.assertEqual(invite.created_by, self.orgadmin_user)
 
     @patch.object(OrganizationInviteAdmin, "message_user")
+    def test_save_model_message_uses_request_host_for_login_url(self, mock_message_user: MagicMock):
+        # the login URL must come from the request (the address the admin is served from), not settings.HOST_URL
+        request = RequestFactory().get("/admin/accounts/organizationinvite/add/", HTTP_HOST="kippo.example.com")
+        request.user = self.orgadmin_user
+        invite = self._build_invite(self.organization)
+        with self.settings(HOST_URL="http://127.0.0.1"):
+            self.modeladmin.save_model(request, invite, form=None, change=False)
+        message = mock_message_user.call_args.args[1]
+        self.assertIn(invite.email, message)
+        self.assertIn("http://kippo.example.com/admin/", message)
+        self.assertNotIn("127.0.0.1", message)
+
+    @patch.object(OrganizationInviteAdmin, "message_user")
     def test_save_model_rejects_unadministered_organization(self, mock_message_user: MagicMock):
         # a forged POST bypasses the scoped `organization` choices, so save_model re-checks.
         invite = self._build_invite(self.other_organization, email="invitee@othertestorg.com")

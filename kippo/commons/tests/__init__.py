@@ -106,6 +106,9 @@ def setup_basic_project(
 class MockRequest:
     GET = QueryDict()  # empty, immutable — admin list filters read request.GET.getlist()
 
+    def build_absolute_uri(self, location: str) -> str:
+        return f"http://testserver{location}"
+
 
 class IsStaffModelAdminTestCaseBase(TestCase):
     fixtures = ["required_bot_users", "default_columnset", "default_labelset"]
