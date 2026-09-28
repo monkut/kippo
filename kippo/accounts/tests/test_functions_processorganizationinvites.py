@@ -2,7 +2,7 @@ from commons.tests import IsStaffModelAdminTestCaseBase
 from django.utils import timezone
 
 from accounts.exceptions import OrganizationInviteExpiredError
-from accounts.functions import process_organizationinvites
+from accounts.functions import process_organization_email_domains, process_organizationinvites
 from accounts.models import KippoOrganization, KippoUser, OrganizationInvite, OrganizationMembership
 
 
@@ -215,6 +215,30 @@ class ProcessOrganizationInvitesTestCase(IsStaffModelAdminTestCaseBase):
         self.assertTrue(user.is_active)
         membership = OrganizationMembership.objects.get(user=user, organization=nodomain_organization)
         membership.clean()  # must not raise: an organization admin can still edit the invited member
+
+    def test_process_for_organizationinvites__second_login_after_invite_runs_no_queries(self):
+        """Once an invite has made the user staff, later logins run no onboarding queries"""
+        nodomain_organization = KippoOrganization.objects.create(
+            name="nodomain-organization",
+            github_organization_name="nodomain-testorg",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        user_email = "invitee@external-example.com"
+        user = KippoUser.objects.create(username="external_user", email=user_email, is_superuser=False, is_staff=False)
+        OrganizationInvite.objects.create(
+            email=user_email,
+            organization=nodomain_organization,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        process_organization_email_domains(None, user, None)
+        process_organizationinvites(None, user, None)
+
+        user = KippoUser.objects.get(pk=user.pk)  # the next login loads the user from the DB
+        with self.assertNumQueries(0):
+            process_organization_email_domains(None, user, None)
+            process_organizationinvites(None, user, None)
 
     def test_process_for_organizationinvites__no_email(self):
         user = KippoUser.objects.create(username="no_email_user", email="", is_superuser=False, is_staff=False)

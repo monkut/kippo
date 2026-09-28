@@ -68,6 +68,17 @@ class ProcessOrganizationEmailDomainsTestCase(IsStaffModelAdminTestCaseBase):
         with self.assertNumQueries(0):
             process_organization_email_domains(None, user, None)
 
+    def test_second_login_after_domain_add_runs_no_queries(self):
+        """Once the domain step has made the user staff, later logins run no onboarding queries"""
+        user = KippoUser.objects.create(username="new_user", email=f"new@{self.organization_domain}", is_superuser=False, is_staff=False)
+        process_organization_email_domains(None, user, None)
+        process_organizationinvites(None, user, None)
+
+        user = KippoUser.objects.get(pk=user.pk)  # the next login loads the user from the DB
+        with self.assertNumQueries(0):
+            process_organization_email_domains(None, user, None)
+            process_organizationinvites(None, user, None)
+
     def test_expired_invite_does_not_deny_domain_user(self):
         """The domain step runs first, so an expired invite no longer denies a same-domain user"""
         user_email = f"new@{self.organization_domain}"
