@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
@@ -44,6 +44,7 @@ from .serializers import (
     KippoProjectContractSerializer,
     KippoProjectOrganizationCategorySerializer,
     KippoProjectSerializer,
+    KippoProjectStatusCommentSerializer,
     KippoProjectUserStatisfactionResultSerializer,
     OrganizationMemberSerializer,
     ProjectAssignmentPatternSerializer,
@@ -819,6 +820,34 @@ class KippoProjectContractViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance: KippoProjectContract) -> None:
         self._reject_if_project_closed(instance.project)
         instance.delete()
+
+
+class KippoProjectStatusCommentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    """Status comments (``KippoProjectStatus``, kippo#64) for a project, nested under
+    ``/projects/{project_pk}/status-comments/``.
+
+    Append-only like the admin inline: list (newest first), retrieve, create — no update/delete.
+    Org-scoped via the project; ``project`` comes from the URL and ``created_by`` from the acting
+    user. A closed project rejects new comments (mirrors ``LockWhenProjectClosedInlineMixin``).
+    The newest comment is what ``/projects/{id}/`` exposes as ``latest_comment``.
+    """
+
+    serializer_class = KippoProjectStatusCommentSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = KippoProjectStatus.objects.all().select_related("created_by", "project__organization").order_by("-created_datetime")
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(project__in=_user_accessible_projects(self.request.user))
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            queryset = queryset.filter(project_id=project_pk)
+        return queryset
+
+    def perform_create(self, serializer: KippoProjectStatusCommentSerializer) -> None:
+        project = get_object_or_404(_user_accessible_projects(self.request.user), pk=self.kwargs.get("project_pk"))
+        if project.is_closed:
+            raise ValidationError("This project is closed; status comments cannot be added.")
+        serializer.save(project=project, created_by=self.request.user, updated_by=self.request.user)
 
 
 class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):

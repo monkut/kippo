@@ -19,6 +19,7 @@ from .viewsets import (
     KippoProjectBillingEntryViewSet,
     KippoProjectContractViewSet,
     KippoProjectOrganizationCategoryViewSet,
+    KippoProjectStatusCommentViewSet,
     KippoProjectUserStatisfactionResultViewSet,
     KippoProjectViewSet,
     ProjectAssignmentRateViewSet,
@@ -49,6 +50,8 @@ router.register(r"billing", BillingEntryListViewSet, basename="billing")
 projects_nested_router = nested_routers.NestedDefaultRouter(router, r"projects", lookup="project")
 projects_nested_router.register(r"contract", KippoProjectContractViewSet, basename="project-contract")
 projects_nested_router.register(r"billing-entries", KippoProjectBillingEntryViewSet, basename="project-billing-entry")
+# Status comments (kippo#64) — append-only, org-scoped. /api/projects/{project_pk}/status-comments/
+projects_nested_router.register(r"status-comments", KippoProjectStatusCommentViewSet, basename="project-status-comment")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(
