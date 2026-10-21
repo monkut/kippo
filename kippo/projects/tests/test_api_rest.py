@@ -10,6 +10,7 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_COLUMNSET_PK, DEFAULT_FIXTURES, setup_basic_project
 from django.conf import settings
 from django.test import TestCase
+from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
 from freezegun import freeze_time
 from rest_framework.test import APIClient
@@ -2405,3 +2406,97 @@ class ProjectStatusDisplayEstimatedBudgetTestCase(TestCase):
         projectstatus_display = self._projectstatus_display()
         self.assertEqual(projectstatus_display["allocated_effort_hours"], 30 * self.organization.day_workhours)
         self.assertFalse(projectstatus_display["is_estimated_allocated_effort_hours"])
+
+
+class ProjectStatusCommentAPITestCase(TestCase):
+    """Status-comment REST endpoint nested under projects/ (kippo#64)."""
+
+    fixtures = DEFAULT_FIXTURES
+
+    def setUp(self):
+        created = setup_basic_project()
+        self.organization = created["KippoOrganization"]
+        self.user = created["KippoUser"]
+        self.project = created["KippoProject"]
+        self.github_manager = KippoUser.objects.get(username="github-manager")
+        self.other_org = KippoOrganization.objects.create(
+            name="status-api-other-org",
+            github_organization_name="status-api-other-org",
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.other_project = KippoProject.objects.create(
+            name="Other Status Project",
+            organization=self.other_org,
+            columnset=self.project.columnset,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/status-comments/"
+
+    def test_create_status_comment_binds_project_and_author(self):
+        resp = self.client.post(self.url, {"comment": "進捗順調。来週リリース予定。"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        data = resp.json()
+        self.assertEqual(data["project"], str(self.project.id))
+        self.assertEqual(data["comment"], "進捗順調。来週リリース予定。")
+        self.assertEqual(data["created_by_username"], self.user.username)
+        status = KippoProjectStatus.objects.get(id=data["id"])
+        self.assertEqual(status.project, self.project)
+        self.assertEqual(status.created_by, self.user)
+
+    def test_create_status_comment_ignores_project_in_payload(self):
+        resp = self.client.post(self.url, {"comment": "bound from url", "project": str(self.other_project.id)}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.CREATED, resp.content)
+        self.assertEqual(resp.json()["project"], str(self.project.id))
+
+    def test_created_comment_becomes_latest_comment(self):
+        self.client.post(self.url, {"comment": "first"}, format="json")
+        with freeze_time(timezone.now() + datetime.timedelta(minutes=1)):
+            self.client.post(self.url, {"comment": "second"}, format="json")
+        detail = self.client.get(f"{settings.URL_PREFIX}/api/projects/{self.project.id}/").json()
+        self.assertEqual(detail["latest_comment"]["comment"], "second")
+
+    def test_list_status_comments_newest_first(self):
+        KippoProjectStatus.objects.create(project=self.project, comment="older", created_by=self.user, updated_by=self.user)
+        with freeze_time(timezone.now() + datetime.timedelta(minutes=1)):
+            KippoProjectStatus.objects.create(project=self.project, comment="newer", created_by=self.user, updated_by=self.user)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, HTTPStatus.OK, resp.content)
+        comments = [row["comment"] for row in resp.json()["results"]]
+        self.assertEqual(comments, ["newer", "older"])
+
+    def test_empty_comment_rejected(self):
+        resp = self.client.post(self.url, {"comment": "   "}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.assertIn("comment", resp.json())
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.project).count(), 0)
+
+    def test_closed_project_rejected(self):
+        self.project.is_closed = True
+        self.project.save()
+        resp = self.client.post(self.url, {"comment": "too late"}, format="json")
+        self.assertEqual(resp.status_code, HTTPStatus.BAD_REQUEST, resp.content)
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.project).count(), 0)
+
+    def test_other_org_project_not_found(self):
+        url = f"{settings.URL_PREFIX}/api/projects/{self.other_project.id}/status-comments/"
+        self.assertEqual(self.client.post(url, {"comment": "x"}, format="json").status_code, HTTPStatus.NOT_FOUND)
+        self.assertEqual(self.client.get(url).status_code, HTTPStatus.OK)
+        self.assertEqual(self.client.get(url).json()["results"], [])
+        self.assertEqual(KippoProjectStatus.objects.filter(project=self.other_project).count(), 0)
+
+    def test_unauthenticated_rejected(self):
+        self.assertEqual(APIClient().post(self.url, {"comment": "x"}, format="json").status_code, HTTPStatus.UNAUTHORIZED)
+
+    def test_update_and_delete_not_routed(self):
+        status = KippoProjectStatus.objects.create(project=self.project, comment="fixed", created_by=self.user, updated_by=self.user)
+        patch = self.client.patch(f"{self.url}{status.id}/", {"comment": "edited"}, format="json")
+        self.assertEqual(patch.status_code, HTTPStatus.METHOD_NOT_ALLOWED)
+        self.assertEqual(self.client.delete(f"{self.url}{status.id}/").status_code, HTTPStatus.METHOD_NOT_ALLOWED)
+
+    def test_status_comments_in_openapi_schema(self):
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        self.assertIn(f"{settings.URL_PREFIX}/api/projects/{{project_pk}}/status-comments/", schema["paths"])

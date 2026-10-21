@@ -31,6 +31,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
     ProjectColumnSet,
@@ -319,6 +320,30 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
         if project_pk:
             return KippoProject.objects.filter(pk=project_pk).select_related("organization").first()
         return None
+
+
+class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
+    """A project's status comment (``KippoProjectStatus``, kippo#64), nested under
+    ``/projects/{project_pk}/status-comments/``.
+
+    ``project`` and ``created_by`` are bound from the route and the acting user, never the payload.
+    The author fields mirror ``KippoProjectSerializer.latest_comment`` so a client can render either.
+    """
+
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True, allow_null=True)
+    created_by_display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KippoProjectStatus
+        fields = ["id", "project", "comment", "created_by_username", "created_by_display_name", "created_datetime"]
+        read_only_fields = ["id", "project", "created_datetime"]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_created_by_display_name(self, obj: KippoProjectStatus) -> str | None:
+        created_by = obj.created_by
+        if not created_by:
+            return None
+        return f"{created_by.first_name or ''} {created_by.last_name or ''}".strip() or created_by.username
 
 
 class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
