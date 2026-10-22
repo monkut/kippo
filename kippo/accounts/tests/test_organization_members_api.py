@@ -58,6 +58,35 @@ class OrganizationListTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         self.assertEqual(response.json(), {"organizations": []})
 
+    def test_listener_settings_default_to_empty_strings(self):
+        """kippo#66: unset listener settings are empty strings, never null/absent, so kippo-ui treats them uniformly."""
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(f"{settings.URL_PREFIX}/api/organizations/")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        organization = next(o for o in response.json()["organizations"] if o["id"] == str(self.organization.id))
+        self.assertEqual(organization["listener_api_url"], "")
+        self.assertEqual(organization["listener_api_key"], "")
+
+    def test_listener_settings_are_returned_to_members(self):
+        """kippo#66: admin-entered listener URL + key reach members through the org list."""
+        self.organization.listener_api_url = "https://abc123.lambda-url.ap-northeast-1.on.aws/"
+        self.organization.listener_api_key = "k" * 48
+        self.organization.save()
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(f"{settings.URL_PREFIX}/api/organizations/")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        organization = next(o for o in response.json()["organizations"] if o["id"] == str(self.organization.id))
+        self.assertEqual(organization["listener_api_url"], "https://abc123.lambda-url.ap-northeast-1.on.aws/")
+        self.assertEqual(organization["listener_api_key"], "k" * 48)
+
+    def test_listener_settings_not_visible_to_non_members(self):
+        """The other org's listener key never leaks to a non-member (existing scoping, re-asserted for the secret)."""
+        self.other_organization.listener_api_key = "secret"
+        self.other_organization.save()
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(f"{settings.URL_PREFIX}/api/organizations/")
+        self.assertNotIn("secret", response.content.decode())
+
     def test_superuser_sees_all_orgs(self):
         superuser = KippoUser.objects.create(username="root", is_staff=True, is_superuser=True)
         self.client.force_authenticate(user=superuser)
@@ -73,7 +102,7 @@ class OrganizationListTestCase(TestCase):
         url = f"{settings.URL_PREFIX}/api/organizations/"
         response = self.client.get(url)
         org = next(o for o in response.json()["organizations"] if o["id"] == str(self.organization.id))
-        self.assertEqual(set(org.keys()), {"id", "name", "github_organization_name"})
+        self.assertEqual(set(org.keys()), {"id", "name", "github_organization_name", "listener_api_url", "listener_api_key"})
         self.assertEqual(org["name"], self.organization.name)
         self.assertEqual(org["github_organization_name"], self.organization.github_organization_name)
 

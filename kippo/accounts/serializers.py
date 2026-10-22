@@ -15,6 +15,14 @@ class OrganizationSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="KippoOrganization primary key.")
     name = serializers.CharField()
     github_organization_name = serializers.CharField()
+    listener_api_url = serializers.CharField(
+        allow_blank=True,
+        help_text="kiconia-kippo-listener API base URL; empty when the organization has no listener (kippo#66).",
+    )
+    listener_api_key = serializers.CharField(
+        allow_blank=True,
+        help_text="kiconia-kippo-listener X-API-Key; empty when unset (kippo#66).",
+    )
 
 
 class OrganizationMemberDetailSerializer(serializers.Serializer):
