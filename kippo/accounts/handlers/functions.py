@@ -14,29 +14,26 @@ def _get_persionalholidays_for_date(
     users: Iterable[KippoUser], read_behind_buffer_days: int = settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS
 ) -> list[tuple[KippoUser, PersonalHoliday]]:
     """
-    Get PersonalHoliday entries for the last {read_behind_buffer_days} days and return,
-    a dictionary of dates keyed by KippoUser
+    Get PersonalHoliday entries from the last {read_behind_buffer_days} days that cover today and return,
+    a list of (KippoUser, PersonalHoliday) with one entry per user
     """
-    current_datetime = timezone.localtime()
-    search_start_datetime = current_datetime - timezone.timedelta(days=read_behind_buffer_days)
+    today = timezone.localdate()
+    search_start_date = today - timezone.timedelta(days=read_behind_buffer_days)
     existing_personalholiday_entries = PersonalHoliday.objects.filter(
         user__in=users,
-        day__gte=search_start_datetime.date(),
-        day__lte=current_datetime.date(),
-    )
-    users_on_personalholiday = []
+        day__gte=search_start_date,
+        day__lte=today,
+    ).select_related("user")
+    personalholiday_by_user = {}
     for entry in existing_personalholiday_entries:
-        if entry.day == current_datetime.date():
-            # if the entry is for today, add it to the list
-            users_on_personalholiday.append((entry.user, entry))
-        else:
-            # PersonalHoliday stored as date + duration
-            # -- build dates from duration
-            for i in range(1, entry.duration + 1):
-                candidate_date = entry.day + timezone.timedelta(days=i)
-                if candidate_date == current_datetime.date():
-                    users_on_personalholiday.append((entry.user, entry))
-    return users_on_personalholiday
+        # PersonalHoliday covers `duration` days starting from (and including) `day`
+        if entry.day + timezone.timedelta(days=entry.duration) <= today:
+            continue
+        # a user may have multiple overlapping entries -- report once, full-day takes precedence over half-day
+        existing_entry = personalholiday_by_user.get(entry.user)
+        if existing_entry is None or (existing_entry.is_half and not entry.is_half):
+            personalholiday_by_user[entry.user] = entry
+    return list(personalholiday_by_user.items())
 
 
 def _prepare_organization_user_status_blocks(
