@@ -124,3 +124,13 @@ class PostPersonalHolidaysTimezoneTestCase(IsStaffModelAdminTestCaseBase):
             # The function should properly find the July 25 holiday at JST midnight
             user_persionalholidays, _ = post_personalholidays(event={}, context={})
             self.assertEqual(len(user_persionalholidays), 1)
+
+        # Test 3: Current time is 2025-07-26 00:00:00 JST (2025-07-25 15:00:00 UTC)
+        # The 1 day holiday has ended, so the holiday should NOT be found
+        utc_datetime_day_after_target_date = datetime.datetime(2025, 7, 25, 15, 0, 0, tzinfo=datetime.UTC)
+
+        with freeze_time(utc_datetime_day_after_target_date):
+            self.assertEqual(timezone.localdate(), datetime.date(2025, 7, 26))
+            user_persionalholidays, personalholidays_report_blocks = post_personalholidays(event={}, context={})
+            self.assertFalse(user_persionalholidays)
+            self.assertFalse(personalholidays_report_blocks)
