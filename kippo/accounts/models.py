@@ -137,6 +137,21 @@ class KippoOrganization(UserCreatedBaseModel):
             "calendar-template URLs so created meeting minutes are collected per-project."
         ),
     )
+    listener_api_url = models.URLField(
+        blank=True,
+        default="",
+        help_text=_(
+            "Optional. kiconia-kippo-listener API base URL (Lambda Function URL). "
+            "When set, the kippo-ui project-status view reports the displayed project to the listener "
+            "so meeting notes are attributed to it."
+        ),
+    )
+    listener_api_key = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=_("kiconia-kippo-listener API key (X-API-Key). Shared with the facilitators who run the listener."),
+    )
 
     fiscalyear_start_month = models.PositiveSmallIntegerField(
         default=JAPAN_FISCALYEAR_START_MONTH, validators=[MaxValueValidator(12), MinValueValidator(1)]
