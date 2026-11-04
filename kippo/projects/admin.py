@@ -2414,6 +2414,7 @@ class ProjectWeeklyEffortAdminForm(forms.ModelForm):
 @admin.register(ProjectWeeklyEffort)
 class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin):
     form = ProjectWeeklyEffortAdminForm
+    change_list_template = "admin/projects/weeklyeffortadmin.html"
     list_display = ("get_project_name", "week_start", "get_user_display_name", "hours")
     ordering = ("project", "-week_start", "user")
     search_fields = (
@@ -2543,6 +2544,11 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         results = {}
         now = timezone.now()
         monthly_expected_hours_processed = False
+        organizations = list(organizations)
+        if not organizations:
+            # `current_fiscal_year` and `org` are set in the loop below and reused after it
+            # (public-holiday subtraction); a user with no organization (superuser) has no summary.
+            return {}, {}, ()
         for org in organizations:
             user_weekstarts = defaultdict(list)
             results[org.name] = {}
@@ -2616,22 +2622,19 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         return dict(results), dict(monthly_expected_hours), tuple(all_months)
 
     def changelist_view(self, request: DjangoRequest, extra_context: dict | None = None):
-        original_response = super().changelist_view(request, extra_context)
-        organizations = request.user.organizations
-        summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(organizations)
-
-        extra_context = dict(
-            self.admin_site.each_context(request),
-            summary=summary_results,
-            expected=expected_hours,
-            months=all_months,
-            monthly_exceed_percentage=int(settings.PROJECT_EFFORT_EXCEED_PERCENTAGE * 100),
-        )
-        if hasattr(original_response, "context_data") and original_response.context_data:
-            extra_context.update(original_response.context_data)
-        elif isinstance(original_response, HttpResponseRedirect):
-            return original_response
-        return TemplateResponse(request, "admin/projects/weeklyeffortadmin.html", extra_context)
+        # Add the fiscal-year summary to the changelist context and let Django render it with
+        # `change_list_template`. Action responses (e.g. the delete_selected confirmation page,
+        # which has no `cl` in its context) pass through untouched instead of being re-rendered
+        # with the changelist template, which raised NoReverseMatch for admin:app_list -> 500.
+        summary_results, expected_hours, all_months = self.get_fiscal_year_org_per_user_weeklyeffort(request.user.organizations)
+        extra_context = {
+            **(extra_context or {}),
+            "summary": summary_results,
+            "expected": expected_hours,
+            "months": all_months,
+            "monthly_exceed_percentage": int(settings.PROJECT_EFFORT_EXCEED_PERCENTAGE * 100),
+        }
+        return super().changelist_view(request, extra_context)
 
 
 @admin.register(ProjectWeeklyEffortUnlock)
