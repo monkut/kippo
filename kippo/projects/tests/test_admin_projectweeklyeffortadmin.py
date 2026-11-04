@@ -160,3 +160,38 @@ class ProjectWeeklyEffortAdminTestCase(IsStaffModelAdminTestCaseBase):
         expected = "/projects/download/"
         actual = response.redirect_chain[-1][0]
         self.assertTrue(actual.startswith(expected), f"actual({actual}) != expected({expected})")
+
+    def test_delete_selected_action__confirmation_page_renders_and_confirm_deletes(self):
+        """The changelist_view override must pass the delete_selected confirmation page through untouched.
+
+        Regression: the override re-rendered every TemplateResponse with the changelist template, so the
+        confirmation page (no ``cl`` in context) raised NoReverseMatch for ``admin:app_list`` -> 500.
+        """
+        effort = ProjectWeeklyEffort.objects.filter(user=self.staffuser_with_org).order_by("week_start").first()
+        change_url = reverse("admin:projects_projectweeklyeffort_changelist")
+        data = {"action": "delete_selected", ACTION_CHECKBOX_NAME: [effort.id]}
+        self.client.force_login(self.superuser_no_org)
+
+        response = self.client.post(change_url, data)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "admin/delete_selected_confirmation.html")
+
+        response = self.client.post(change_url, {**data, "post": "yes"}, follow=True)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertFalse(ProjectWeeklyEffort.objects.filter(id=effort.id).exists())
+
+    def test_changelist__renders_summary_template(self):
+        change_url = reverse("admin:projects_projectweeklyeffort_changelist")
+        self.client.force_login(self.staffuser_with_org)
+        response = self.client.get(change_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertTemplateUsed(response, "admin/projects/weeklyeffortadmin.html")
+        self.assertIn("summary", response.context)
+
+    def test_changelist__superuser_without_organization(self):
+        """A user with no organization membership gets an empty summary instead of a 500."""
+        change_url = reverse("admin:projects_projectweeklyeffort_changelist")
+        self.client.force_login(self.superuser_no_org)
+        response = self.client.get(change_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(response.context["summary"], {})
