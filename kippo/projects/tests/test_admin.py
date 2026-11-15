@@ -2166,8 +2166,10 @@ class ReopenProjectActionTestCase(KippoProjectAdminFixtureTestCaseBase):
         super().setUp()
         self.closed_project_a = self.make_project("closed-a", is_closed=True, actual_date=self.current_date)
         self.closed_project_b = self.make_project("closed-b", is_closed=True, actual_date=self.current_date)
-        # close_kippoproject_action sets display_as_active=False — mirror that closed state
-        KippoProject.objects.filter(pk__in=(self.closed_project_a.pk, self.closed_project_b.pk)).update(display_as_active=False)
+        # close_kippoproject_action sets both display flags to False — mirror that closed state
+        KippoProject.objects.filter(pk__in=(self.closed_project_a.pk, self.closed_project_b.pk)).update(
+            display_as_active=False, display_in_project_report=False
+        )
         self.open_project = self.make_project("still-open")
         self.changelist_url = reverse("admin:projects_kippoproject_changelist")
 
@@ -2186,6 +2188,7 @@ class ReopenProjectActionTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertIsNone(self.closed_project_a.closed_datetime)
         self.assertIsNone(self.closed_project_a.actual_date)
         self.assertTrue(self.closed_project_a.display_as_active)
+        self.assertTrue(self.closed_project_a.display_in_project_report)
         self.assertEqual(self.closed_project_a.updated_by, self.superuser_no_org)
 
         statuses = KippoProjectStatus.objects.filter(project=self.closed_project_a)
@@ -2210,6 +2213,8 @@ class ReopenProjectActionTestCase(KippoProjectAdminFixtureTestCaseBase):
         self.assertFalse(self.closed_project_b.is_closed)
         self.assertTrue(self.closed_project_a.display_as_active)
         self.assertTrue(self.closed_project_b.display_as_active)
+        self.assertTrue(self.closed_project_a.display_in_project_report)
+        self.assertTrue(self.closed_project_b.display_in_project_report)
         self.assertEqual(KippoProjectStatus.objects.filter(project=self.closed_project_a).count(), 1)
         self.assertEqual(KippoProjectStatus.objects.filter(project=self.closed_project_b).count(), 1)
 
