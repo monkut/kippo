@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from collections import Counter
 
 # from tasks.functions import prepare_project_engineering_load_plot_data
+from commons.functions import ui_url
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -333,7 +334,7 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
     Restricted to users belonging to the project's organization.
     """
     try:
-        selected_organization, user_organizations = get_user_session_organization(request)
+        _, user_organizations = get_user_session_organization(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e.args))
 
@@ -457,29 +458,24 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
     # Get project progress status for meter display
     project_progress_status = project.get_projectprogressstatus_values()
 
-    # Calculate meter values for work status display (matching admin logic)
-    meter_values = None
+    # Effort meter values, matching kippo-ui ProjectStatusMeter (routes/project-status.tsx):
+    # fill = current / max(allocated, current); colour from difference_percentage (effort vs. schedule).
+    effort_meter = None
     if project_progress_status.allocated_effort_hours and project_progress_status.expected_effort_hours:
-        low = int(project_progress_status.expected_effort_hours) + 1
-        high = (
-            settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD / 100
-        ) * project_progress_status.expected_effort_hours + project_progress_status.expected_effort_hours
-
-        max_value = project_progress_status.allocated_effort_hours
-        if (
-            project_progress_status.allocated_effort_hours
-            and project_progress_status.current_effort_hours
-            and project_progress_status.allocated_effort_hours < project_progress_status.current_effort_hours
-        ):
-            max_value = project_progress_status.current_effort_hours
-
-        meter_values = {
-            "low": low,
-            "optimum": int(project_progress_status.expected_effort_hours),
-            "high": int(high),
-            "max": max_value,
-            "value": project_progress_status.current_effort_hours,
-            "show_low": low < max_value,  # Only show low if it's less than max
+        current_hours = project_progress_status.current_effort_hours or 0
+        max_hours = max(project_progress_status.allocated_effort_hours, current_hours)
+        difference_percentage = project_progress_status.get_difference_percentage()
+        level = "neutral"
+        if difference_percentage is not None:
+            level = "success"
+            if difference_percentage > 0:
+                level = "warning"
+            if difference_percentage > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
+                level = "danger"
+        effort_meter = {
+            "level": level,
+            "fill_percentage": round(current_hours / max_hours * 100, 1) if current_hours > 0 else 0,
+            "difference_percentage": difference_percentage,
         }
 
     # Calculate remaining hours
@@ -495,12 +491,10 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
         "chart_data_json": chart_data_json,
         "verbose_names": verbose_names,
         "project_progress_status": project_progress_status,
-        "meter_values": meter_values,
+        "effort_meter": effort_meter,
         "remaining_hours": remaining_hours,
-        "selected_organization": selected_organization,
-        "organizations": user_organizations,
         "URL_PREFIX": settings.URL_PREFIX,
-        "PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD": settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD,
+        "ui_project_status_url": ui_url("project-status"),
     }
 
     return render(request, "projects/projectstatus_details.html", context)

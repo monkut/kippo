@@ -1,127 +1,268 @@
-{% extends "projects/base.html" %}
-{% load static %}
-
-{% block title %}Kippo: {{ project.name }} - Status Details{% endblock %}
-
-{% block bootstrap4_extra_head %}
+<!DOCTYPE html>
+{% comment %}
+Styled to match kippo-ui (Tailwind gray/indigo palette, white cards, Inter): see kippo-ui
+app/components/layout.tsx (header) and app/routes/project-status.tsx (ProjectStatusMeter).
+Standalone page — does not extend projects/base.html (Bootstrap 4).
+{% endcomment %}
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ project.name }} - プロジェクト状況 - Kippo</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.8/index.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <style>
-    .chart-container {
-        position: relative;
-        height: 500px;
-        margin: 20px 0;
+    /* Tailwind v4 default palette values used by kippo-ui */
+    :root {
+        --gray-50: #f9fafb;
+        --gray-100: #f3f4f6;
+        --gray-200: #e5e7eb;
+        --gray-400: #9ca3af;
+        --gray-500: #6b7280;
+        --gray-600: #4b5563;
+        --gray-700: #374151;
+        --gray-900: #111827;
+        --indigo-600: #4f46e5;
+        --indigo-800: #3730a3;
+        --green-500: #22c55e;
+        --green-600: #16a34a;
+        --yellow-500: #eab308;
+        --yellow-600: #ca8a04;
+        --red-500: #ef4444;
+        --red-600: #dc2626;
+        --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
     }
-    .project-info {
-        margin: 20px 0;
-        padding: 15px;
-        background-color: #f8f9fa;
-        border-radius: 5px;
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--gray-50);
+        color: var(--gray-900);
+        font-family: var(--font-sans);
+        line-height: 1.5;
     }
-    .project-info h2 {
-        margin-top: 0;
+    a { text-decoration: none; }
+
+    .header {
+        background: #fff;
+        border-bottom: 1px solid var(--gray-200);
+        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     }
-    .info-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-top: 15px;
+    .header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 4rem;
+        padding: 0 2rem;
     }
-    .info-item {
-        padding: 10px;
-        background-color: white;
-        border-radius: 3px;
-        border-left: 3px solid #007bff;
+    .header-side { width: 12rem; font-size: 0.875rem; }
+    .header-side.end { text-align: right; color: var(--gray-600); }
+    .header-title {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
     }
-    .info-label {
-        font-weight: bold;
-        font-size: 0.9em;
-        color: #666;
+    .header-title .app { font-size: 1.25rem; font-weight: 700; color: var(--gray-900); white-space: nowrap; }
+    .header-title .sep { color: var(--gray-400); }
+    .header-title .project {
+        font-size: 1.125rem;
+        font-weight: 500;
+        color: var(--indigo-600);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
-    .info-value {
-        font-size: 1.155em;
-        margin-top: 5px;
+
+    .link { color: var(--indigo-600); transition: color 0.15s; }
+    .link:hover { color: var(--indigo-800); }
+
+    .main { max-width: 80rem; margin: 0 auto; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
+    .card { background: #fff; border-radius: 0.5rem; padding: 1.5rem; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+    .card h2 { margin: 0 0 1rem; font-size: 1.125rem; font-weight: 500; color: var(--gray-900); }
+
+    .page-title h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--gray-900); }
+    .page-title .customer { margin: 0.25rem 0 0; font-size: 0.875rem; font-style: italic; color: var(--gray-500); }
+    .pill {
+        display: inline-flex;
+        margin-top: 0.5rem;
+        padding: 0 0.5rem;
+        font-size: 0.75rem;
+        line-height: 1.25rem;
+        font-weight: 600;
+        border-radius: 9999px;
+        background: var(--gray-100);
+        color: var(--gray-700);
+    }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1rem; }
+    .stat { padding: 1rem; background: var(--gray-50); border-radius: 0.5rem; text-align: center; }
+    .stat-label { margin: 0; font-size: 0.875rem; color: var(--gray-500); }
+    .stat-value { margin: 0.25rem 0 0; font-size: 1.5rem; font-weight: 700; color: var(--gray-600); }
+    .stat-value.muted { color: var(--gray-400); font-weight: 400; }
+
+    .effort { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+    .effort-hours { font-size: 1.5rem; font-weight: 600; }
+    .effort-diff { font-size: 0.875rem; }
+    .meter { width: 12rem; height: 1.5rem; background: var(--gray-200); border-radius: 9999px; overflow: hidden; }
+    .meter.estimated { border: 1px dashed var(--gray-400); }
+    .meter-fill { height: 100%; }
+    .effort-legend { font-size: 0.75rem; color: var(--gray-500); }
+    .level-neutral { color: var(--gray-600); }
+    .level-success { color: var(--green-600); }
+    .level-warning { color: var(--yellow-600); }
+    .level-danger { color: var(--red-600); }
+    .fill-neutral { background: var(--gray-400); }
+    .fill-success { background: var(--green-500); }
+    .fill-warning { background: var(--yellow-500); }
+    .fill-danger { background: var(--red-500); }
+
+    .chart-container { position: relative; height: 500px; }
+    .chart-container.pie { height: 400px; }
+
+    @media (max-width: 640px) {
+        .header-inner, .main { padding-left: 1rem; padding-right: 1rem; }
+        .header-side { width: auto; }
+        .header-side.end { display: none; }
     }
 </style>
-{% endblock %}
+</head>
+<body>
+<header class="header">
+    <div class="header-inner">
+        <div class="header-side">
+            <a class="link" href="{{ URL_PREFIX }}/admin/projects/kippoproject/">&larr; プロジェクト一覧</a>
+        </div>
+        <div class="header-title">
+            <a class="app" href="{{ ui_project_status_url }}">Kippo プロジェクト状況</a>
+            <span class="sep">/</span>
+            <span class="project">{{ project.name }}</span>
+        </div>
+        <div class="header-side end">{{ user.username }}</div>
+    </div>
+</header>
 
-{% block bootstrap4_content %}
-<h1>{{ project.name }} - Status Details</h1>
+<main class="main">
+    <div class="page-title">
+        <h1>{{ project.name }}</h1>
+        {% if project.customer %}<p class="customer">{{ project.customer.name }}</p>{% endif %}
+        <span class="pill">{{ project.get_phase_display }}</span>
+    </div>
 
-<div class="project-info">
-    <h2>{{ verbose_names.model }} Information</h2>
-    <div class="info-grid">
-        {% if project.project_manager %}
-        <div class="info-item">
-            <div class="info-label">{{ verbose_names.project_manager|default:"Project Manager" }}</div>
-            <div class="info-value">{{ project.project_manager.display_name }}</div>
-        </div>
-        {% endif %}
-        <div class="info-item">
-            <div class="info-label">{{ verbose_names.start_date }}</div>
-            <div class="info-value">{{ project.start_date|default:"Not set" }}</div>
-        </div>
-        <div class="info-item">
-            <div class="info-label">{{ verbose_names.target_date }}</div>
-            <div class="info-value">{{ project.target_date|default:"Not set" }}</div>
-        </div>
-        <div class="info-item">
-            <div class="info-label">{{ verbose_names.allocated_staff_days|default:"Allocated Staff Days" }}</div>
-            <div class="info-value">{{ project.allocated_staff_days|default:"Not set" }}</div>
-        </div>
-        <div class="info-item">
-            <div class="info-label">Allocated Hours</div>
-            <div class="info-value">{{ project.allocated_effort_hours|default:"Not set" }}</div>
-        </div>
-        {% if meter_values %}
-        <div class="info-item">
-            <div class="info-label">稼働状況 (Work Status)</div>
-            <div class="info-value">
-                {{ project_progress_status.current_effort_hours }}h<br/>
-                {% if project_progress_status.get_difference_percentage %}
-                    {% if project_progress_status.get_difference_percentage > 0 %}+{% endif %}{{ project_progress_status.get_difference_percentage|floatformat:0 }}%<br/>
+    <section class="card">
+        <h2>{{ verbose_names.model }}情報</h2>
+        <div class="stat-grid">
+            <div class="stat">
+                <p class="stat-label">{{ verbose_names.project_manager }}</p>
+                {% if project.project_manager %}
+                <p class="stat-value">{{ project.project_manager.display_name }}</p>
+                {% else %}
+                <p class="stat-value muted">未設定</p>
                 {% endif %}
-                {% if remaining_hours is not None %}
-                    Remaining: {{ remaining_hours|floatformat:0 }}h<br/>
+            </div>
+            <div class="stat">
+                <p class="stat-label">{{ verbose_names.start_date }}</p>
+                {% if project.start_date %}
+                <p class="stat-value">{{ project.start_date|date:"Y/n/j" }}</p>
+                {% else %}
+                <p class="stat-value muted">未設定</p>
                 {% endif %}
-                <meter min="0"
-                    {% if meter_values.show_low %}low="{{ meter_values.low }}"{% endif %}
-                    optimum="{{ meter_values.optimum }}"
-                    high="{{ meter_values.high }}"
-                    max="{{ meter_values.max }}"
-                    value="{{ meter_values.value }}">
-                </meter>
+            </div>
+            <div class="stat">
+                <p class="stat-label">{{ verbose_names.target_date }}</p>
+                {% if project.target_date %}
+                <p class="stat-value">{{ project.target_date|date:"Y/n/j" }}</p>
+                {% else %}
+                <p class="stat-value muted">未設定</p>
+                {% endif %}
+            </div>
+            <div class="stat">
+                <p class="stat-label">{{ verbose_names.allocated_staff_days }}</p>
+                {% if project.allocated_staff_days %}
+                <p class="stat-value">{{ project.allocated_staff_days }} 日</p>
+                {% else %}
+                <p class="stat-value muted">未設定</p>
+                {% endif %}
+            </div>
+            <div class="stat">
+                <p class="stat-label">予算工数</p>
+                {% if project.allocated_effort_hours %}
+                <p class="stat-value">{{ project.allocated_effort_hours }}h</p>
+                {% else %}
+                <p class="stat-value muted">未設定</p>
+                {% endif %}
+            </div>
+            {% if remaining_hours is not None %}
+            <div class="stat">
+                <p class="stat-label">残工数</p>
+                <p class="stat-value">{{ remaining_hours|floatformat:0 }}h</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    {% if effort_meter %}
+    <section class="card">
+        <h2>稼働状況</h2>
+        <div class="effort">
+            <div class="effort-hours level-{{ effort_meter.level }}">{{ project_progress_status.current_effort_hours|default:0 }}h</div>
+            {% if effort_meter.difference_percentage is not None %}
+            <div class="effort-diff level-{{ effort_meter.level }}">{% if effort_meter.difference_percentage > 0 %}+{% endif %}{{ effort_meter.difference_percentage|floatformat:0 }}%</div>
+            {% endif %}
+            <div class="meter{% if project_progress_status.is_estimated_allocated_effort_hours %} estimated{% endif %}">
+                <div class="meter-fill fill-{{ effort_meter.level }}" style="width: {{ effort_meter.fill_percentage|stringformat:'s' }}%"></div>
+            </div>
+            <div class="effort-legend">
+                <span title="予定: 現在日までに消化されているべき工数（線形進捗に基づく）">{{ project_progress_status.expected_effort_hours|floatformat:0 }}h</span>
+                /
+                {% if project_progress_status.is_estimated_allocated_effort_hours %}
+                <span title="* 予算(見積): 割当人日が未入力のため、納品/固定契約の契約金額から算出した推定値です（契約金額 ÷ 人日単価 × 1日の稼働時間）">{{ project_progress_status.allocated_effort_hours }}h<sup>*</sup></span>
+                {% else %}
+                <span title="予算: プロジェクト全体の予算工数（割当人日 × 1日の稼働時間）">{{ project_progress_status.allocated_effort_hours }}h</span>
+                {% endif %}
             </div>
         </div>
-        {% endif %}
-    </div>
-</div>
+    </section>
+    {% endif %}
 
-<h2>Effort Distribution by User</h2>
-<div class="chart-container" style="height: 400px;">
-    <canvas id="pieChart"></canvas>
-</div>
+    <section class="card">
+        <h2>メンバー別稼働割合（累計）</h2>
+        <div class="chart-container pie">
+            <canvas id="pieChart"></canvas>
+        </div>
+    </section>
 
-<h2 style="margin-top: 40px;">Effort Over Time</h2>
-<div class="chart-container">
-    <canvas id="effortChart"></canvas>
-</div>
+    <section class="card">
+        <h2>稼働推移（実績 vs 予定）</h2>
+        <div class="chart-container">
+            <canvas id="effortChart"></canvas>
+        </div>
+    </section>
+</main>
 
 <script>
 // Chart data from Django context
 const chartData = JSON.parse('{{ chart_data_json|escapejs }}');
 
-// Generate colors for each user
+// Chart.js defaults matching kippo-ui typography and gray palette
+Chart.defaults.font.family = getComputedStyle(document.documentElement).getPropertyValue("--font-sans").trim();
+Chart.defaults.color = '#6b7280';        // gray-500
+Chart.defaults.borderColor = '#e5e7eb';  // gray-200
+
+// Tailwind 500-level colours, one per user
 const colorPalette = [
-    'rgba(54, 162, 235, 0.8)',
-    'rgba(255, 99, 132, 0.8)',
-    'rgba(75, 192, 192, 0.8)',
-    'rgba(255, 159, 64, 0.8)',
-    'rgba(153, 102, 255, 0.8)',
-    'rgba(255, 206, 86, 0.8)',
-    'rgba(231, 233, 237, 0.8)',
-    'rgba(201, 203, 207, 0.8)'
+    '#6366f1', // indigo
+    '#0ea5e9', // sky
+    '#10b981', // emerald
+    '#f59e0b', // amber
+    '#f43f5e', // rose
+    '#8b5cf6', // violet
+    '#14b8a6', // teal
+    '#f97316'  // orange
 ];
 
 // Create a consistent mapping from user to color
@@ -131,112 +272,72 @@ chartData.users.forEach((user, index) => {
 });
 
 // Prepare datasets for stacked bars (one per user)
-const datasets = [];
-chartData.users.forEach((user, index) => {
-    const color = userColorMap[user];
-    datasets.push({
-        label: user,
-        data: chartData.effort_by_user[user],
-        weeklyData: chartData.weekly_effort_by_user[user],  // Store weekly hours for tooltip
-        backgroundColor: color,
-        borderColor: color.replace('0.8', '1'),
-        borderWidth: 1,
-        type: 'bar',
-        stack: 'effort'
-    });
-});
+const datasets = chartData.users.map((user) => ({
+    label: user,
+    data: chartData.effort_by_user[user],
+    weeklyData: chartData.weekly_effort_by_user[user],  // Store weekly hours for tooltip
+    backgroundColor: userColorMap[user],
+    borderWidth: 0,
+    type: 'bar',
+    stack: 'effort'
+}));
 
 // Add expected effort line
 datasets.push({
-    label: 'Expected Effort',
+    label: '予定工数',
     data: chartData.expected_effort,
-    borderColor: 'rgba(255, 0, 0, 1)',
-    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    borderColor: '#ef4444',  // red-500
+    backgroundColor: '#ef4444',
     borderWidth: 2,
     fill: false,
     type: 'line',
     tension: 0.1,
-    pointRadius: 4,
-    pointHoverRadius: 6
+    pointRadius: 3,
+    pointHoverRadius: 5
 });
 
-// Prepare annotations for start_date and target_date vertical lines
+// Annotation line with a pill label in the given colour
+function makeLineAnnotation(color, content, position, range) {
+    return {
+        type: 'line',
+        ...range,
+        borderColor: color,
+        borderWidth: 2,
+        borderDash: [5, 5],
+        label: {
+            display: true,
+            content: content,
+            position: position,
+            backgroundColor: color,
+            color: 'white',
+            borderRadius: 9999,
+            padding: { x: 8, y: 2 },
+            font: { size: 12, weight: '600' }
+        }
+    };
+}
+
 const annotations = {};
-const verboseNames = {
-    start_date: '{{ verbose_names.start_date }}',
-    target_date: '{{ verbose_names.target_date }}'
-};
-
 if (chartData.start_date) {
-    annotations.startDateLine = {
-        type: 'line',
-        xMin: chartData.start_date,
-        xMax: chartData.start_date,
-        borderColor: 'rgba(0, 200, 0, 0.8)',
-        borderWidth: 2,
-        borderDash: [5, 5],
-        label: {
-            display: true,
-            content: verboseNames.start_date,
-            position: 'start',
-            backgroundColor: 'rgba(0, 200, 0, 0.8)',
-            color: 'white',
-            font: {
-                size: 12,
-                weight: 'bold'
-            }
-        }
-    };
+    annotations.startDateLine = makeLineAnnotation(
+        '#16a34a', '{{ verbose_names.start_date|escapejs }}', 'start',  // green-600
+        { xMin: chartData.start_date, xMax: chartData.start_date }
+    );
 }
-
 if (chartData.target_date) {
-    annotations.targetDateLine = {
-        type: 'line',
-        xMin: chartData.target_date,
-        xMax: chartData.target_date,
-        borderColor: 'rgba(255, 0, 0, 0.8)',
-        borderWidth: 2,
-        borderDash: [5, 5],
-        label: {
-            display: true,
-            content: verboseNames.target_date,
-            position: 'start',
-            backgroundColor: 'rgba(255, 0, 0, 0.8)',
-            color: 'white',
-            font: {
-                size: 12,
-                weight: 'bold'
-            }
-        }
-    };
+    annotations.targetDateLine = makeLineAnnotation(
+        '#dc2626', '{{ verbose_names.target_date|escapejs }}', 'start',  // red-600
+        { xMin: chartData.target_date, xMax: chartData.target_date }
+    );
 }
-
-// Add horizontal line for allocated hours
 if (chartData.allocated_hours) {
-    annotations.allocatedHoursLine = {
-        type: 'line',
-        yMin: chartData.allocated_hours,
-        yMax: chartData.allocated_hours,
-        borderColor: 'rgba(128, 128, 128, 0.6)',
-        borderWidth: 2,
-        borderDash: [3, 3],
-        label: {
-            display: true,
-            content: 'Allocated Hours',
-            position: 'end',
-            backgroundColor: 'rgba(128, 128, 128, 0.6)',
-            color: 'white',
-            font: {
-                size: 12,
-                weight: 'bold'
-            }
-        }
-    };
+    annotations.allocatedHoursLine = makeLineAnnotation(
+        '#9ca3af', '予算工数', 'end',  // gray-400
+        { yMin: chartData.allocated_hours, yMax: chartData.allocated_hours }
+    );
 }
 
-// Create the chart
-const ctx = document.getElementById('effortChart').getContext('2d');
-const effortChart = new Chart(ctx, {
+const effortChart = new Chart(document.getElementById('effortChart'), {
     type: 'bar',
     data: {
         labels: chartData.labels,
@@ -250,16 +351,10 @@ const effortChart = new Chart(ctx, {
             intersect: false
         },
         plugins: {
-            title: {
-                display: true,
-                text: 'Project Effort: Actual vs Expected (Hours)',
-                font: {
-                    size: 16
-                }
-            },
             legend: {
                 display: true,
-                position: 'top'
+                position: 'top',
+                labels: { usePointStyle: true, boxWidth: 8 }
             },
             tooltip: {
                 callbacks: {
@@ -268,11 +363,9 @@ const effortChart = new Chart(ctx, {
                         if (context.dataset.type === 'bar') {
                             const cumulativeHours = context.parsed.y;
                             const weeklyHours = context.dataset.weeklyData[context.dataIndex];
-                            return label + ': ' + weeklyHours + 'h (week) | ' + cumulativeHours + 'h (cumulative)';
-                        } else {
-                            // Expected effort line
-                            return label + ': ' + context.parsed.y + 'h';
+                            return label + ': ' + weeklyHours + 'h (週) | ' + cumulativeHours + 'h (累計)';
                         }
+                        return label + ': ' + context.parsed.y + 'h';
                     },
                     footer: function(tooltipItems) {
                         let total = 0;
@@ -281,7 +374,7 @@ const effortChart = new Chart(ctx, {
                                 total += tooltipItem.parsed.y;
                             }
                         });
-                        return 'Total Actual: ' + total + 'h';
+                        return '実績合計: ' + total + 'h';
                     }
                 }
             },
@@ -295,15 +388,16 @@ const effortChart = new Chart(ctx, {
                 time: {
                     unit: 'week',
                     displayFormats: {
-                        week: 'yyyy-MM-dd'
+                        week: 'yyyy/M/d'
                     },
-                    tooltipFormat: 'yyyy-MM-dd'
+                    tooltipFormat: 'yyyy/M/d'
                 },
                 title: {
                     display: true,
-                    text: 'Week Start Date'
+                    text: '週開始日'
                 },
                 stacked: true,
+                grid: { display: false },
                 ticks: {
                     source: 'data',
                     autoSkip: false
@@ -312,7 +406,7 @@ const effortChart = new Chart(ctx, {
             y: {
                 title: {
                     display: true,
-                    text: 'Effort (Hours)'
+                    text: '工数 (時間)'
                 },
                 stacked: true,
                 beginAtZero: true
@@ -321,55 +415,42 @@ const effortChart = new Chart(ctx, {
     }
 });
 
-// Create pie chart for effort distribution
-// Sort users by effort (descending) for better legend ordering
+// Pie chart: users sorted by effort (descending) for better legend ordering
 const pieData = chartData.pie_chart.users.map((user, index) => ({
     user: user,
     effort: chartData.pie_chart.effort[index]
 })).sort((a, b) => b.effort - a.effort);
 
-// Calculate percentages and create labels with percentages
 const totalEffort = chartData.pie_chart.effort.reduce((a, b) => a + b, 0);
 const pieLabels = pieData.map(item => {
     const percentage = totalEffort > 0 ? ((item.effort / totalEffort) * 100).toFixed(1) : 0;
     return item.user + ' (' + percentage + '%)';
 });
 
-const pieEffortValues = pieData.map(item => item.effort);
-
-const pieCtx = document.getElementById('pieChart').getContext('2d');
-const pieChart = new Chart(pieCtx, {
+const pieChart = new Chart(document.getElementById('pieChart'), {
     type: 'pie',
     data: {
         labels: pieLabels,
         datasets: [{
-            data: pieEffortValues,
+            data: pieData.map(item => item.effort),
             backgroundColor: pieData.map(item => userColorMap[item.user]),
-            borderColor: pieData.map(item => userColorMap[item.user].replace('0.8', '1')),
-            borderWidth: 1
+            borderColor: '#ffffff',
+            borderWidth: 2
         }]
     },
     options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-            title: {
-                display: true,
-                text: 'Total Cumulative Effort Distribution (%)',
-                font: {
-                    size: 16
-                }
-            },
             legend: {
                 display: true,
-                position: 'right'
+                position: 'right',
+                labels: { usePointStyle: true, boxWidth: 8 }
             },
             tooltip: {
                 callbacks: {
                     label: function(context) {
-                        const label = context.label || '';
-                        const value = context.parsed || 0;
-                        return label + ': ' + value + 'h';
+                        return (context.label || '') + ': ' + (context.parsed || 0) + 'h';
                     }
                 }
             }
@@ -377,9 +458,5 @@ const pieChart = new Chart(pieCtx, {
     }
 });
 </script>
-
-<div style="margin-top: 30px;">
-    <a href="{{ URL_PREFIX }}/admin/projects/kippoproject/" class="btn btn-secondary">Back to Projects</a>
-</div>
-
-{% endblock bootstrap4_content %}
+</body>
+</html>
