@@ -965,6 +965,8 @@ def reopen_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequ
     for project in closed_projects:
         project.is_closed = False
         project.actual_date = None
+        project.display_as_active = True
+        project.display_in_project_report = True
         project.updated_by = request.user
         project.save()
         KippoProjectStatus.objects.create(
