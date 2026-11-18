@@ -314,7 +314,7 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
 class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
     model = ProjectMonthlyAssignment
     extra = 0
-    fields = ("user", "month", "percentage", "role", "is_confirmed")
+    fields = ("user", "month", "percentage", "role")
     classes = ["collapse"]
 
 
@@ -2317,9 +2317,10 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project", "get_project_organization", "user", "month", "percentage", "role", "is_confirmed")
-    list_filter = ("is_confirmed", "role", "month", "project__organization")
+    list_display = ("project", "get_project_organization", "user", "month", "percentage", "role")
+    list_filter = ("role", "month", "project__organization")
     search_fields = ("project__name", "user__username")
+    exclude = ("is_confirmed",)  # deprecated 確定 field (kippo#69 D3)
     actions = (auto_extend_projectmonthlyassignment_action,)
 
     def get_project_organization(self, obj: ProjectMonthlyAssignment):

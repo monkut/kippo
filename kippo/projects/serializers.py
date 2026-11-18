@@ -10,12 +10,11 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from .definitions import (
     BILLING_TYPE_MONTHLY,
-    FULL_CONFIDENCE_PERCENTAGE,
     PRICING_BASIS_EFFORT,
     PRICING_BASIS_FIXED,
     SURVEY_EFFORT_THRESHOLD_PERCENTAGE,
@@ -1158,9 +1157,18 @@ class ProjectWeeklyEffortUnlockSerializer(serializers.ModelSerializer):
         return attrs
 
 
+@extend_schema_serializer(deprecate_fields=["is_confirmed"])
 class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
-    """Serializer for ProjectMonthlyAssignment model."""
+    """Serializer for ProjectMonthlyAssignment model.
 
+    `is_confirmed` (確定) is deprecated (kippo#69 D3): kept for API compatibility only, carries no
+    behaviour, and is no longer gated or used to trigger auto-extend.
+    """
+
+    is_confirmed = serializers.BooleanField(
+        required=False,
+        help_text="Deprecated (kippo#69): no longer used. Kept for API compatibility; defaults to false.",
+    )
     project_name = serializers.CharField(source="project.name", read_only=True)
     user_username = serializers.CharField(source="user.username", read_only=True)
     user_display_name = serializers.SerializerMethodField()
@@ -1241,29 +1249,6 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
         if membership:
             return membership.slack_image_url or None
         return None
-
-    def validate(self, attrs: dict) -> dict:
-        """Reject *confirming* an assignment whose project confidence (確度) is not 100%.
-
-        Only the unconfirmed → confirmed transition is gated (returns a 400 so the UI can
-        surface the reason). Unconfirming, and editing a row that is already confirmed
-        (e.g. its percentage), are always allowed regardless of confidence.
-        """
-        attrs = super().validate(attrs)
-        was_confirmed = bool(getattr(self.instance, "is_confirmed", False))
-        will_be_confirmed = attrs.get("is_confirmed", was_confirmed)
-        if will_be_confirmed and not was_confirmed:
-            project = attrs.get("project") or getattr(self.instance, "project", None)
-            if project is not None and project.confidence != FULL_CONFIDENCE_PERCENTAGE:
-                raise serializers.ValidationError(
-                    {
-                        "is_confirmed": (
-                            "Assignment can only be confirmed when the project confidence (確度) is 100%. "
-                            f"Project '{project.name}' is at {project.confidence}%."
-                        )
-                    }
-                )
-        return attrs
 
 
 class ProjectParticipantCreateSerializer(serializers.Serializer):
