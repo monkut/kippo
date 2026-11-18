@@ -92,6 +92,13 @@ project_monthly_assignment_auto_extend = ProjectMonthlyAssignmentViewSet.as_view
     }
 )
 
+# kippo#72 — add a project participant (bulk-create monthly assignments over the project period).
+project_participants = ProjectMonthlyAssignmentViewSet.as_view(
+    {
+        "post": "add_participant",
+    }
+)
+
 # HTML Views and Legacy API
 html_and_legacy_patterns = [
     # HTML Views
@@ -151,6 +158,12 @@ api_patterns = [
         "projects/<uuid:project_id>/monthly-assignments/auto-extend/",
         project_monthly_assignment_auto_extend,
         name="project-monthly-assignment-auto-extend",
+    ),
+    # kippo#72 — add project participant (nested under projects/)
+    path(
+        "projects/<uuid:project_id>/participants/",
+        project_participants,
+        name="project-participants",
     ),
     # API ViewSets
     path("", include(router.urls)),

@@ -1266,6 +1266,21 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class ProjectParticipantCreateSerializer(serializers.Serializer):
+    """Request body for POST /api/projects/{id}/participants/ (kippo#72)."""
+
+    user = serializers.PrimaryKeyRelatedField(queryset=KippoUser.objects.all())
+    percentage = serializers.IntegerField(min_value=0)
+    role = serializers.ChoiceField(choices=ProjectRoles.choices(), required=False, allow_blank=True, default="")
+
+
+class ProjectParticipantResponseSerializer(serializers.Serializer):
+    """Response body for POST /api/projects/{id}/participants/ (kippo#72)."""
+
+    created = ProjectMonthlyAssignmentSerializer(many=True)
+    skipped_months = serializers.ListField(child=serializers.DateField())
+
+
 class ProjectMonthlyCostSerializer(serializers.ModelSerializer):
     """Serializer for ProjectMonthlyCost model."""
 
