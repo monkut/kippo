@@ -444,51 +444,11 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
-    def test_confirm_rejected_when_project_confidence_below_100(self):
-        # self.project keeps the default confidence (80) — confirming must 400.
+    def test_confirm_not_gated_by_project_confidence(self):
+        # kippo#69: 確定 is deprecated — no confidence (確度) gate on is_confirmed.
         self.assertNotEqual(self.project.confidence, 100)
         url = f"{self.list_url}{self.assignment_apr.id}/"
         response = self.client.patch(url, {"is_confirmed": True}, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
-        self.assertIn("is_confirmed", response.json())
-        self.assignment_apr.refresh_from_db()
-        self.assertFalse(self.assignment_apr.is_confirmed)
-
-    def test_confirm_allowed_when_project_confidence_100(self):
-        self.project.phase = "under-contract"
-        self.project.save()
-        url = f"{self.list_url}{self.assignment_apr.id}/"
-        response = self.client.patch(url, {"is_confirmed": True}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
         self.assignment_apr.refresh_from_db()
-        self.assertTrue(self.assignment_apr.is_confirmed)
-
-    def test_unconfirm_allowed_regardless_of_confidence(self):
-        # Confirm while at 100%, then drop confidence and unconfirm — must succeed.
-        self.project.phase = "under-contract"
-        self.project.save()
-        self.assignment_apr.is_confirmed = True
-        self.assignment_apr.save()
-        self.project.phase = "proposing-mid"
-        self.project.save()
-        url = f"{self.list_url}{self.assignment_apr.id}/"
-        response = self.client.patch(url, {"is_confirmed": False}, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
-        self.assignment_apr.refresh_from_db()
-        self.assertFalse(self.assignment_apr.is_confirmed)
-
-    def test_edit_already_confirmed_row_allowed_below_100(self):
-        # Only the unconfirmed→confirmed transition is gated. Editing an already-confirmed
-        # row (here: its percentage) while confidence < 100 must still succeed.
-        self.project.phase = "under-contract"
-        self.project.save()
-        self.assignment_apr.is_confirmed = True
-        self.assignment_apr.save()
-        self.project.phase = "proposing-mid"
-        self.project.save()
-        url = f"{self.list_url}{self.assignment_apr.id}/"
-        response = self.client.patch(url, {"percentage": 33}, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
-        self.assignment_apr.refresh_from_db()
-        self.assertEqual(self.assignment_apr.percentage, 33)
         self.assertTrue(self.assignment_apr.is_confirmed)

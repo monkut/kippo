@@ -16,8 +16,7 @@ if TYPE_CHECKING:
 # Minimum effort percentage required for a user to be included in survey tracking
 SURVEY_EFFORT_THRESHOLD_PERCENTAGE = 3
 
-# A project's confidence (確度) must be at this percentage before its monthly
-# assignments can be confirmed (is_confirmed=True).
+# Full project confidence (確度) percentage (under-contract / completed phases).
 FULL_CONFIDENCE_PERCENTAGE = 100
 
 # The weekly-effort close offset (days after the month's last entry-start date, i.e. the Monday
@@ -190,7 +189,7 @@ class SkipReason(StringEnumWithChoices):
     """Structured reasons `auto_create_future_assignments` may skip persisting rows.
 
     Returned alongside `created_rows` as the second element of the service tuple so the
-    REST endpoint, admin action, and signal log path can all distinguish "nothing to do"
+    REST endpoint and admin action can both distinguish "nothing to do"
     from "couldn't do it" without parsing log strings (kippo#19, #20).
     """
 
@@ -200,5 +199,4 @@ class SkipReason(StringEnumWithChoices):
     NO_SEED_SHAPE = "no_seed_shape"
     ALREADY_COMPLETE = "already_complete"
     FORECAST_UNAVAILABLE = "forecast_unavailable"
-    NOT_CONFIRMED = "not_confirmed"
     NO_MISSING_MONTHS = "no_missing_months"

@@ -1,14 +1,13 @@
-"""Auto-create future-month ProjectMonthlyAssignment rows on confirmation.
+"""Auto-create (extend) future-month ProjectMonthlyAssignment rows.
 
-When any `ProjectMonthlyAssignment` row for a project becomes confirmed and the
-project has a contiguous run of fully-confirmed months from `start_month` onward,
-this service builds uncommitted (`is_confirmed=False`) rows for every *missing*
-month between `(latest_confirmed_month, target_date]`, scaling per-user
-percentages so the project's estimated completion lands on (or before)
-`target_date`.
+Manual only (kippo#69 D2): run from the REST `auto-extend` endpoint or the admin action
+(kippo#19); nothing triggers it on save. Given the contiguous run of months from
+`start_month` that hold at least one row with `percentage > 0`, this service builds rows
+for every *missing* month between `(latest_assigned_month, target_date]`, scaling per-user
+percentages so the project's estimated completion lands on (or before) `target_date`.
 
-See kiconiaworks/kippo#17 for the trigger-relaxation + top-up semantics
-(supersedes the original "only on start_month full confirmation" trigger).
+`is_confirmed` (確定) is deprecated (kippo#69 D3) and plays no part in seeding or the run.
+See kiconiaworks/kippo#17 for the top-up semantics.
 """
 
 from __future__ import annotations
@@ -46,29 +45,28 @@ def auto_create_future_assignments(  # noqa: PLR0911
 ) -> tuple[list[ProjectMonthlyAssignment], SkipReason | None]:
     """Create uncommitted future-month ProjectMonthlyAssignment rows for `project`.
 
-    Top-up semantics (kippo#17): given a contiguous run of fully-confirmed months
-    starting at `start_month`, this only persists rows for months that are MISSING
-    inside `(latest_confirmed_month, target_month]`. Existing rows (confirmed or
-    unconfirmed) are never touched.
+    Top-up semantics (kippo#17): given a contiguous run of assigned months (rows with
+    `percentage > 0`) starting at `start_month`, this only persists rows for months that
+    are MISSING inside `(latest_assigned_month, target_month]`. Existing rows are never
+    touched.
 
     Returns `(created_rows, skip_reason)` (kippo#19). On success `skip_reason` is `None`
     and `created_rows` holds the newly-persisted rows. On no-op, `created_rows` is `[]`
     and `skip_reason` carries a structured `SkipReason` enum value the caller (REST
-    endpoint / admin action / signal log) can present to the operator.
+    endpoint / admin action) can present to the operator.
 
     `triggered_by` is the user attributed as `created_by` / `updated_by` on the new
-    rows (D2). Resolved by the signal from the trigger row's `updated_by` (falling
-    back to `created_by`); may be `None` only when no provenance is recoverable.
+    rows (D2) — the requesting user; may be `None` only when no provenance is recoverable.
     """
     skip_reason = _eligibility_skip_reason(project)
     if skip_reason is not None:
         return [], skip_reason
 
-    latest_confirmed_month = latest_contiguous_confirmed_month(project)
-    if latest_confirmed_month is None:
-        return [], SkipReason.NOT_CONFIRMED
+    latest_assigned_month = latest_contiguous_assigned_month(project)
+    if latest_assigned_month is None:
+        return [], SkipReason.NO_SEED_SHAPE
 
-    seed_pct = _compute_seed_shape(project, latest_confirmed_month)
+    seed_pct = _compute_seed_shape(project, latest_assigned_month)
     if not seed_pct:
         return [], SkipReason.NO_SEED_SHAPE
 
@@ -77,9 +75,9 @@ def auto_create_future_assignments(  # noqa: PLR0911
     # We forecast with the seed shape extended across the full target window so the
     # forecast captures real effort exhaustion. Falls back to target_month when the
     # forecast is unavailable (no allocated_hours, no future months, etc.).
-    completion_month = _estimated_completion_month(project, seed_pct, latest_confirmed_month, target_month)
+    completion_month = _estimated_completion_month(project, seed_pct, latest_assigned_month, target_month)
     bound_month = min(target_month, completion_month) if completion_month is not None else target_month
-    candidate_months = _future_months(latest_confirmed_month, bound_month)
+    candidate_months = _future_months(latest_assigned_month, bound_month)
     if not candidate_months:
         return [], SkipReason.ALREADY_COMPLETE
 
@@ -98,7 +96,7 @@ def auto_create_future_assignments(  # noqa: PLR0911
                 "project_id": str(project.pk),
                 "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
                 "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
-                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+                "latest_assigned_month": latest_assigned_month.isoformat(),
             },
         )
         return [], SkipReason.FORECAST_UNAVAILABLE
@@ -109,7 +107,7 @@ def auto_create_future_assignments(  # noqa: PLR0911
                 "project_id": str(project.pk),
                 "skip_reason": SkipReason.FORECAST_UNAVAILABLE.value,
                 "triggered_by_user_id": str(triggered_by.pk) if triggered_by else None,
-                "latest_confirmed_month": latest_confirmed_month.isoformat(),
+                "latest_assigned_month": latest_assigned_month.isoformat(),
             },
         )
         return [], SkipReason.FORECAST_UNAVAILABLE
@@ -141,7 +139,7 @@ def _compute_seed_shape(project: KippoProject, seed_month: datetime.date) -> dic
     excluded so they don't carry forward as zero-rows.
     """
     rows = (
-        ProjectMonthlyAssignment.objects.filter(project=project, month=seed_month, is_confirmed=True, percentage__gt=0)
+        ProjectMonthlyAssignment.objects.filter(project=project, month=seed_month, percentage__gt=0)
         .values("user_id")
         .annotate(total=Sum("percentage"))
     )
@@ -163,17 +161,17 @@ def _future_months(seed_month: datetime.date, target_month: datetime.date) -> li
 def _estimated_completion_month(
     project: KippoProject,
     seed_pct: dict,
-    latest_confirmed_month: datetime.date,
+    latest_assigned_month: datetime.date,
     target_month: datetime.date,
 ) -> datetime.date | None:
     """Forecast the project's estimated completion month using the seed shape laid across
-    `(latest_confirmed_month, target_month]` (kippo#18).
+    `(latest_assigned_month, target_month]` (kippo#18).
 
     Returns the month containing `estimated_completion_date` (always first-of-month), or
     `None` when the forecast cannot compute a date (missing allocated_hours, no future
     months in the forecast window, etc.). Callers fall back to `target_month` on `None`.
     """
-    preview_months = _future_months(latest_confirmed_month, target_month)
+    preview_months = _future_months(latest_assigned_month, target_month)
     if not preview_months or not seed_pct:
         return None
     try:
@@ -399,7 +397,6 @@ def _persist(
                     project=project,
                     user=user,
                     month=month,
-                    is_confirmed=False,
                     percentage=pct,
                     created_by=triggered_by,
                     updated_by=triggered_by,
@@ -444,27 +441,24 @@ def _emit_cap_warnings(project: KippoProject, created_rows: list[ProjectMonthlyA
             )
 
 
-def latest_contiguous_confirmed_month(project: KippoProject) -> datetime.date | None:
-    """Return the latest month for which a contiguous confirmed run exists from `start_month`.
+def latest_contiguous_assigned_month(project: KippoProject) -> datetime.date | None:
+    """Return the latest month of the contiguous assigned run starting at `start_month`.
 
-    Walks month-by-month from `project.start_date.replace(day=1)` forward, requiring at least
-    one row per month and every row in that month to have `is_confirmed=True`. The walk halts
-    at the first month with either no rows or at least one unconfirmed row, returning the
-    previous month (or None if `start_month` itself is not fully confirmed).
+    Walks month-by-month from `project.start_date.replace(day=1)` forward, requiring each month
+    to hold at least one row with `percentage > 0` (`is_confirmed` is ignored — kippo#69). The
+    walk halts at the first month with no such row, returning the previous month (or None if
+    `start_month` itself has none).
     """
     if project.start_date is None:
         return None
     start_month = project.start_date.replace(day=1)
-    months_with_rows = set(ProjectMonthlyAssignment.objects.filter(project=project, month__gte=start_month).values_list("month", flat=True))
-    if not months_with_rows:
-        return None
-    unconfirmed_months = set(
-        ProjectMonthlyAssignment.objects.filter(project=project, month__gte=start_month, is_confirmed=False).values_list("month", flat=True)
+    assigned_months = set(
+        ProjectMonthlyAssignment.objects.filter(project=project, month__gte=start_month, percentage__gt=0).values_list("month", flat=True)
     )
 
     latest = None
     current = start_month
-    while current in months_with_rows and current not in unconfirmed_months:
+    while current in assigned_months:
         latest = current
         current = current + relativedelta(months=1)
     return latest

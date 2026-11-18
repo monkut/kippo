@@ -1,4 +1,7 @@
-"""Tests for the auto-create future-month assignment service + signal — kippo#240.
+"""Tests for the auto-create future-month assignment service — kippo#240.
+
+Auto-extend is manual only (kippo#69 D2): saving a row never triggers it, and `is_confirmed`
+plays no part in seeding (kippo#69 D3).
 
 Covers decisions D1–D4:
 - D1: scaling — binary search + ceil + 3-day tolerance.
@@ -19,7 +22,7 @@ from django.utils import timezone
 from projects.models import KippoProject, ProjectMonthlyAssignment
 from projects.services.autoassign import (
     auto_create_future_assignments,
-    latest_contiguous_confirmed_month,
+    latest_contiguous_assigned_month,
 )
 
 
@@ -64,7 +67,6 @@ class AutoAssignTestCaseBase(TestCase):
         user: KippoUser | None = None,
         month: datetime.date | None = None,
         percentage: int,
-        is_confirmed: bool = False,
         project: KippoProject | None = None,
         created_by: KippoUser | None = None,
         updated_by: KippoUser | None = None,
@@ -74,19 +76,18 @@ class AutoAssignTestCaseBase(TestCase):
             user=user or self.user,
             month=month or self.start_month,
             percentage=percentage,
-            is_confirmed=is_confirmed,
             created_by=created_by or self.github_manager,
             updated_by=updated_by or self.github_manager,
         )
 
 
 class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
-    """Direct unit tests of `auto_create_future_assignments` — bypasses the signal."""
+    """Direct unit tests of `auto_create_future_assignments`."""
 
     # ----------------------------------------------------------- eligibility / no-op
 
     def test_no_op_when_project_is_closed(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.is_closed = True
         self.project.save()
 
@@ -95,7 +96,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         self.assertEqual(ProjectMonthlyAssignment.objects.filter(project=self.project).count(), 1)
 
     def test_no_op_when_actual_date_set(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.actual_date = self.start_month + relativedelta(months=2)
         self.project.save()
 
@@ -103,7 +104,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         self.assertEqual(rows, [])
 
     def test_no_op_when_target_date_missing(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.target_date = None
         self.project.save()
 
@@ -111,7 +112,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         self.assertEqual(rows, [])
 
     def test_no_op_when_target_date_le_start_month(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.target_date = self.start_month + datetime.timedelta(days=15)  # within start_month
         self.project.save()
 
@@ -132,7 +133,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
     def test_no_op_when_seed_all_zero(self):
         # _make_assignment with percentage=0 still creates a row (model allows 0).
         # Such rows are excluded by the seed query (`percentage__gt=0`); seed becomes empty.
-        self._make_assignment(percentage=0, is_confirmed=True)
+        self._make_assignment(percentage=0)
         rows, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(rows, [])
 
@@ -142,8 +143,8 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         # doesn't truncate the window.
         self.project.allocated_staff_days = 1000
         self.project.save()
-        self._make_assignment(percentage=50, is_confirmed=True)
-        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=20, is_confirmed=False)
+        self._make_assignment(percentage=50)
+        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=20)
 
         rows, _skip = auto_create_future_assignments(self.project, self.github_manager)
         # 5 missing months created (target window has 6 future months; one is occupied).
@@ -153,13 +154,12 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         # Pre-existing row is untouched.
         existing = ProjectMonthlyAssignment.objects.get(project=self.project, month=self.start_month + relativedelta(months=2))
         self.assertEqual(existing.percentage, 20)
-        self.assertFalse(existing.is_confirmed)
 
     def test_returns_empty_when_no_missing_months(self):
-        # All future months already populated → nothing to top-up.
-        self._make_assignment(percentage=50, is_confirmed=True)
+        # All future months already populated (+1 at 0% halts the assigned run) → nothing to top-up.
+        self._make_assignment(percentage=50)
         for offset in range(1, 7):
-            self._make_assignment(month=self.start_month + relativedelta(months=offset), percentage=20, is_confirmed=False)
+            self._make_assignment(month=self.start_month + relativedelta(months=offset), percentage=0 if offset == 1 else 20)
         rows, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(rows, [])
 
@@ -170,7 +170,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         # generous enough that the forecast doesn't cap us short of target).
         self.project.allocated_staff_days = 1000
         self.project.save()
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
 
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(len(created), 6)
@@ -186,7 +186,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         self.project.target_date = datetime.date(2020, 7, 1)
         self.project.save()
         self.start_month = datetime.date(2020, 1, 1)
-        self._make_assignment(month=self.start_month, percentage=50, is_confirmed=True)
+        self._make_assignment(month=self.start_month, percentage=50)
 
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         # 6 historical months persisted: 2020-02-01 through 2020-07-01.
@@ -196,7 +196,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
 
     def test_uses_trigger_row_updated_by_for_created_by_and_updated_by(self):
         actor = self._add_member("trigger-actor")
-        self._make_assignment(percentage=50, is_confirmed=True, updated_by=actor)
+        self._make_assignment(percentage=50, updated_by=actor)
 
         created, _skip = auto_create_future_assignments(self.project, actor)
         self.assertTrue(created)
@@ -205,9 +205,8 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
             self.assertEqual(row.updated_by_id, actor.id)
 
     def test_falls_back_to_created_by_when_updated_by_is_none(self):
-        # Simulate the signal's resolution: updated_by None → created_by.
-        # Service receives whatever `triggered_by` the signal resolved.
-        self._make_assignment(percentage=50, is_confirmed=True)
+        # Service receives whatever `triggered_by` the caller resolved.
+        self._make_assignment(percentage=50)
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertTrue(created)
         for row in created:
@@ -218,7 +217,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
     def test_within_tolerance_seed_unchanged(self):
         # Seed already lands close enough: don't scale, persist seed as-is.
         # 50% × 8h × ~5 weekdays/week → roughly 100h/month → completes well before target.
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertTrue(created)
         # Fast seed → no scaling: every row keeps the seed percentage.
@@ -228,7 +227,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
     def test_slow_seed_is_scaled_up(self):
         # Single 5% seed produces ~1h/day. 240h ÷ 1h/day far exceeds the project window
         # → binary search will scale up.
-        self._make_assignment(percentage=5, is_confirmed=True)
+        self._make_assignment(percentage=5)
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertTrue(created)
         seed_pct = 5
@@ -239,7 +238,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         # With soft ceiling 75%, a single user can never persist > 75% per month.
         self.organization.project_assignment_member_soft_ceiling = 75
         self.organization.save()
-        self._make_assignment(percentage=5, is_confirmed=True)
+        self._make_assignment(percentage=5)
 
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
         self.assertTrue(created)
@@ -257,13 +256,12 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
-        self._make_assignment(percentage=5, is_confirmed=True)  # seed
+        self._make_assignment(percentage=5)  # seed
         ProjectMonthlyAssignment.objects.create(
             project=other_project,
             user=self.user,
             month=self.start_month + relativedelta(months=1),
             percentage=60,
-            is_confirmed=True,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -276,15 +274,8 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
 
     # ------------------------------------------------------- D4: bulk_create persistence
 
-    def test_persisted_rows_are_unconfirmed(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
-        created, _skip = auto_create_future_assignments(self.project, self.github_manager)
-        self.assertTrue(created)
-        for row in created:
-            self.assertFalse(row.is_confirmed)
-
     def test_forecast_failure_is_swallowed(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         with patch(
             "projects.services.autoassign.ProjectAssignmentForecastManager.compute",
             side_effect=RuntimeError("boom"),
@@ -293,160 +284,82 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
         self.assertEqual(rows, [])
 
 
-class AutoAssignSignalTestCase(AutoAssignTestCaseBase):
-    """Signal wiring: post_save trigger + transaction.on_commit semantics."""
+class NoAutoExtendOnSaveTestCase(AutoAssignTestCaseBase):
+    """kippo#69 D2: auto-extend is manual only — saving a row never creates future rows."""
 
-    def test_confirming_last_first_month_row_triggers_creation(self):
-        # Ample effort so kippo#18 forecast bound doesn't truncate the 6-month window.
-        self.project.allocated_staff_days = 1000
-        self.project.save()
-        actor = self._add_member("actor")
-        # Two unconfirmed first-month rows.
-        self._make_assignment(user=self.user, percentage=30, is_confirmed=False)
-        second = self._make_assignment(user=actor, percentage=20, is_confirmed=False)
-
-        with self.captureOnCommitCallbacks(execute=True):
-            second.is_confirmed = True
-            second.updated_by = actor
-            second.save()
-        # Confirming a non-last row first.
-        self.assertEqual(
-            ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count(),
-            0,
-        )
-
-        first = ProjectMonthlyAssignment.objects.get(project=self.project, user=self.user, month=self.start_month)
-        with self.captureOnCommitCallbacks(execute=True):
-            first.is_confirmed = True
-            first.updated_by = actor
-            first.save()
-        future = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month)
-        # 2 seed users × 6 future months = 12 rows.
-        self.assertEqual(future.count(), 12)
-        for row in future:
-            self.assertEqual(row.updated_by_id, actor.id)
-
-    def test_confirming_non_last_row_does_not_trigger(self):
-        self._make_assignment(user=self.user, percentage=30, is_confirmed=False)
-        actor = self._add_member("actor2")
-        self._make_assignment(user=actor, percentage=20, is_confirmed=False)
-
-        first = ProjectMonthlyAssignment.objects.get(user=self.user, month=self.start_month)
-        with self.captureOnCommitCallbacks(execute=True):
-            first.is_confirmed = True
-            first.save()
-        self.assertEqual(
-            ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count(),
-            0,
-        )
-
-    def test_resaving_already_confirmed_row_does_not_duplicate(self):
-        # Wrap creation in captureOnCommitCallbacks so the post_save's transaction.on_commit
-        # callback actually runs — TestCase rolls back at end-of-test, so on_commit normally
-        # never fires. Ample effort so kippo#18 doesn't truncate the window.
+    def test_saving_row_does_not_auto_extend(self):
         self.project.allocated_staff_days = 1000
         self.project.save()
         with self.captureOnCommitCallbacks(execute=True):
-            seed = self._make_assignment(percentage=50, is_confirmed=True)
-        first_count = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count()
-        self.assertEqual(first_count, 6)
-
-        # Re-save: top-up finds no missing months → no new rows.
+            row = self._make_assignment(percentage=50)
         with self.captureOnCommitCallbacks(execute=True):
-            seed.percentage = 51
-            seed.save()
-        self.assertEqual(
-            ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count(),
-            6,
-        )
-
-    def test_bulk_create_does_not_recursively_fire_signal(self):
-        # Seed → service is invoked → bulk_create persists 6 rows. Each persisted row
-        # would trigger post_save if we used .save(); bulk_create skips that, and the
-        # idempotency guard would defend the second invocation regardless. Ample effort
-        # so kippo#18 doesn't truncate the window.
-        self.project.allocated_staff_days = 1000
-        self.project.save()
-        seed = self._make_assignment(percentage=50, is_confirmed=False)
-
-        signal_calls: list[int] = []
-
-        def counter(sender: type[ProjectMonthlyAssignment], instance: ProjectMonthlyAssignment, created: bool, **kwargs) -> None:  # noqa: ARG001
-            signal_calls.append(instance.pk)
-
-        from django.db.models.signals import post_save
-
-        post_save.connect(counter, sender=ProjectMonthlyAssignment)
-        try:
-            with self.captureOnCommitCallbacks(execute=True):
-                seed.is_confirmed = True
-                seed.save()
-        finally:
-            post_save.disconnect(counter, sender=ProjectMonthlyAssignment)
-
-        # Exactly one post_save fire (the trigger row's). The 6 bulk_created children fire none.
-        self.assertEqual(len(signal_calls), 1)
-        self.assertEqual(signal_calls[0], seed.pk)
-        self.assertEqual(
-            ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).count(),
-            6,
-        )
+            row.is_confirmed = True
+            row.percentage = 60
+            row.save()
+        self.assertFalse(ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month).exists())
 
 
-class LatestContiguousConfirmedMonthTestCase(AutoAssignTestCaseBase):
-    """Smoke tests for the trigger predicate (kippo#17)."""
+class LatestContiguousAssignedMonthTestCase(AutoAssignTestCaseBase):
+    """Run predicate: contiguous months from start_month holding a row with percentage > 0."""
 
     def test_returns_none_when_start_date_missing(self):
         self.project.start_date = None
         self.project.save()
-        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
+        self.assertIsNone(latest_contiguous_assigned_month(self.project))
 
     def test_returns_none_when_no_rows_for_start_month(self):
-        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
+        self.assertIsNone(latest_contiguous_assigned_month(self.project))
 
-    def test_returns_none_when_any_start_month_row_unconfirmed(self):
-        self._make_assignment(percentage=30, is_confirmed=True)
+    def test_returns_none_when_start_month_rows_all_zero(self):
+        self._make_assignment(percentage=0)
+        self.assertIsNone(latest_contiguous_assigned_month(self.project))
+
+    def test_month_counts_when_any_row_has_percentage(self):
+        self._make_assignment(percentage=30)
         actor = self._add_member("actor3")
-        self._make_assignment(user=actor, percentage=20, is_confirmed=False)
-        self.assertIsNone(latest_contiguous_confirmed_month(self.project))
+        self._make_assignment(user=actor, percentage=0)
+        self.assertEqual(latest_contiguous_assigned_month(self.project), self.start_month)
 
-    def test_returns_start_month_when_only_start_month_confirmed(self):
-        self._make_assignment(percentage=30, is_confirmed=True)
-        actor = self._add_member("actor4")
-        self._make_assignment(user=actor, percentage=20, is_confirmed=True)
-        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month)
-
-    def test_returns_latest_contiguous_confirmed_month_through_run(self):
-        # Confirm start_month, +1, +2 — gap at +3 (no row), so latest = +2.
-        self._make_assignment(percentage=30, is_confirmed=True)
-        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=True)
-        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=30, is_confirmed=True)
+    def test_returns_latest_month_through_run(self):
+        # Rows at start_month, +1, +2 — gap at +3 (no row), so latest = +2.
+        self._make_assignment(percentage=30)
+        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30)
+        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=30)
         # gap at +3
-        self._make_assignment(month=self.start_month + relativedelta(months=4), percentage=30, is_confirmed=True)
-        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month + relativedelta(months=2))
+        self._make_assignment(month=self.start_month + relativedelta(months=4), percentage=30)
+        self.assertEqual(latest_contiguous_assigned_month(self.project), self.start_month + relativedelta(months=2))
 
-    def test_run_halts_at_first_unconfirmed_month(self):
-        self._make_assignment(percentage=30, is_confirmed=True)
-        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=False)
-        self.assertEqual(latest_contiguous_confirmed_month(self.project), self.start_month)
+    def test_run_halts_at_first_zero_percentage_month(self):
+        self._make_assignment(percentage=30)
+        self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=0)
+        self._make_assignment(month=self.start_month + relativedelta(months=2), percentage=30)
+        self.assertEqual(latest_contiguous_assigned_month(self.project), self.start_month)
 
 
-class TriggerRelaxationTestCase(AutoAssignTestCaseBase):
-    """kippo#17: confirming a non-start_month row triggers extension from that month."""
+class SeedFromLatestAssignedMonthTestCase(AutoAssignTestCaseBase):
+    """kippo#17 / #69: extension seeds from the last month of the assigned run, confirmed or not."""
 
-    def test_confirming_later_month_seeds_from_latest_confirmed(self):
-        # Start month + 1 month, both fully confirmed → extension seed is +1 month's shape.
+    def test_seeds_from_unconfirmed_rows(self):
+        self.project.allocated_staff_days = 1000
+        self.project.save()
+        self._make_assignment(percentage=50)  # is_confirmed defaults to False
+
+        created, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
+        self.assertIsNone(skip_reason)
+        self.assertEqual(len(created), 6)
+        self.assertEqual({row.user_id for row in created}, {self.user.id})
+
+    def test_later_month_seeds_from_latest_assigned(self):
+        # start_month and +1 both assigned → extension seed is +1 month's shape.
         # Ample effort so kippo#18 doesn't truncate the window.
         self.project.allocated_staff_days = 1000
         self.project.save()
-        self._make_assignment(percentage=30, is_confirmed=True)
+        self._make_assignment(percentage=30)
         actor = self._add_member("later-actor")
-        # Different shape on +1: only `actor` confirmed at 40%.
-        self._make_assignment(user=actor, month=self.start_month + relativedelta(months=1), percentage=40, is_confirmed=True)
+        # Different shape on +1: only `actor` at 40%.
+        self._make_assignment(user=actor, month=self.start_month + relativedelta(months=1), percentage=40)
 
-        # latest_confirmed_month is start_month (because start_month's user is the only user and confirmed,
-        # but +1 has only `actor`'s row which is also confirmed — both months are fully confirmed).
-        latest = latest_contiguous_confirmed_month(self.project)
+        latest = latest_contiguous_assigned_month(self.project)
         self.assertEqual(latest, self.start_month + relativedelta(months=1))
 
         created, _skip = auto_create_future_assignments(self.project, self.github_manager)
@@ -455,19 +368,6 @@ class TriggerRelaxationTestCase(AutoAssignTestCaseBase):
         created_users = {row.user_id for row in created}
         self.assertEqual(created_users, {actor.id})
 
-    def test_signal_path_confirming_later_month_creates_future_rows(self):
-        # End-to-end signal test: confirming a +1 row triggers auto-create.
-        self._make_assignment(percentage=30, is_confirmed=True)
-        later_row = self._make_assignment(month=self.start_month + relativedelta(months=1), percentage=30, is_confirmed=False)
-
-        with self.captureOnCommitCallbacks(execute=True):
-            later_row.is_confirmed = True
-            later_row.save()
-
-        future = ProjectMonthlyAssignment.objects.filter(project=self.project, month__gt=self.start_month + relativedelta(months=1))
-        # 5 months created (start_month+2 through start_month+6).
-        self.assertEqual(future.count(), 5)
-
 
 class AutoExtendSkipReasonTestCase(AutoAssignTestCaseBase):
     """kippo#19: service returns structured SkipReason values for each no-op path."""
@@ -475,7 +375,7 @@ class AutoExtendSkipReasonTestCase(AutoAssignTestCaseBase):
     def test_skip_project_closed(self):
         from projects.definitions import SkipReason
 
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.is_closed = True
         self.project.save()
         _, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
@@ -492,30 +392,31 @@ class AutoExtendSkipReasonTestCase(AutoAssignTestCaseBase):
     def test_skip_missing_target_date(self):
         from projects.definitions import SkipReason
 
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.target_date = None
         self.project.save()
         _, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(skip_reason, SkipReason.MISSING_TARGET_DATE)
 
-    def test_skip_not_confirmed(self):
+    def test_skip_no_seed_when_start_month_has_no_assigned_rows(self):
         from projects.definitions import SkipReason
 
-        self._make_assignment(percentage=50, is_confirmed=False)
+        self._make_assignment(percentage=0)
         _, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
-        self.assertEqual(skip_reason, SkipReason.NOT_CONFIRMED)
+        self.assertEqual(skip_reason, SkipReason.NO_SEED_SHAPE)
 
     def test_skip_no_missing_months(self):
         from projects.definitions import SkipReason
 
-        self._make_assignment(percentage=50, is_confirmed=True)
+        # +1 at 0% halts the assigned run at start_month; every later month already has a row.
+        self._make_assignment(percentage=50)
         for offset in range(1, 7):
-            self._make_assignment(month=self.start_month + relativedelta(months=offset), percentage=20, is_confirmed=False)
+            self._make_assignment(month=self.start_month + relativedelta(months=offset), percentage=0 if offset == 1 else 20)
         _, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
         self.assertEqual(skip_reason, SkipReason.NO_MISSING_MONTHS)
 
     def test_skip_none_on_success(self):
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         created, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
         self.assertTrue(created)
         self.assertIsNone(skip_reason)
@@ -538,7 +439,7 @@ class AutoExtendRESTEndpointTestCase(AutoAssignTestCaseBase):
             organization=self.organization,
             defaults={"is_developer": True, "created_by": self.github_manager, "updated_by": self.github_manager},
         )
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         client = APIClient()
         client.force_authenticate(user=self.github_manager)
 
@@ -557,7 +458,7 @@ class AutoExtendRESTEndpointTestCase(AutoAssignTestCaseBase):
             defaults={"is_developer": True, "created_by": self.github_manager, "updated_by": self.github_manager},
         )
         # Closed project → PROJECT_CLOSED skip.
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         self.project.is_closed = True
         self.project.save()
 
@@ -575,7 +476,7 @@ class AutoExtendRESTEndpointTestCase(AutoAssignTestCaseBase):
         outsider = self._add_member("outsider-org-x")
         # Remove their membership in the project's org (added by _add_member).
         OrganizationMembership.objects.filter(user=outsider, organization=self.organization).delete()
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
 
         client = APIClient()
         client.force_authenticate(user=outsider)
@@ -602,7 +503,7 @@ class AutoExtendAdminActionTestCase(AutoAssignTestCaseBase):
         # Ample effort so kippo#18 doesn't truncate the window for this assertion.
         self.project.allocated_staff_days = 1000
         self.project.save()
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
 
         # Mock-ish admin and request — just enough for the action.
         class _FakeModelAdmin:
@@ -636,7 +537,7 @@ class CapWarningParityTestCase(AutoAssignTestCaseBase):
         self.organization.save()
         # Seed user at 50% on this project — auto-create will fill future months at 50% too.
         # Add 60% on a *different* project for one of the future months; total = 110% → warning.
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         other_project = KippoProject.objects.create(
             organization=self.organization,
             name="cap-warning-other-project",
@@ -653,7 +554,6 @@ class CapWarningParityTestCase(AutoAssignTestCaseBase):
             user=self.user,
             month=warning_month,
             percentage=60,
-            is_confirmed=True,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -675,7 +575,6 @@ class CapWarningParityTestCase(AutoAssignTestCaseBase):
             user=self.user,
             month=warning_month,
             percentage=60,
-            is_confirmed=False,
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
@@ -690,7 +589,7 @@ class SkipReasonLoggingTestCase(AutoAssignTestCaseBase):
     def test_forecast_failure_logs_skip_reason_in_extra(self):
         from projects.definitions import SkipReason
 
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
         with (
             patch(
                 "projects.services.autoassign.ProjectAssignmentForecastManager.compute",
@@ -713,7 +612,7 @@ class EffortExhaustionBoundTestCase(AutoAssignTestCaseBase):
         # At 100% × 8h × ~22 workdays/month ≈ 176h/month → completes in ~2 months.
         self.project.allocated_staff_days = 30
         self.project.save()
-        self._make_assignment(percentage=100, is_confirmed=True)
+        self._make_assignment(percentage=100)
 
         created, skip_reason = auto_create_future_assignments(self.project, self.github_manager)
         self.assertIsNone(skip_reason)
@@ -726,7 +625,7 @@ class EffortExhaustionBoundTestCase(AutoAssignTestCaseBase):
         # allocated_staff_days needs to be large enough that 1% can't finish in the window.
         self.project.allocated_staff_days = 1000
         self.project.save()
-        self._make_assignment(percentage=1, is_confirmed=True)
+        self._make_assignment(percentage=1)
 
         created, _ = auto_create_future_assignments(self.project, self.github_manager)
         # Hard cap at target_month → 6 future months even though completion is far away.
@@ -738,7 +637,7 @@ class EffortExhaustionBoundTestCase(AutoAssignTestCaseBase):
         # No allocated_effort_hours → forecast returns None → fallback to target_month.
         self.project.allocated_staff_days = None
         self.project.save()
-        self._make_assignment(percentage=50, is_confirmed=True)
+        self._make_assignment(percentage=50)
 
         created, _ = auto_create_future_assignments(self.project, self.github_manager)
         months = sorted({row.month for row in created})

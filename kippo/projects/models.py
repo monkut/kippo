@@ -209,7 +209,7 @@ DEFAULT_ACTIVE_PROJECT_PHASES = tuple(ACTIVE_PROJECT_PHASE_RANK)
 # Pre-contract sales-pipeline phases — everything before delivery (under-contract) and before a
 # terminal outcome (completed/lost). Consumed by SalesKippoProjectManager (プロジェクト(営業中)).
 SALES_PROJECT_PHASES = ("keep-in-touch", "proposing-low", "proposing-mid", "proposing-high", "verbal-order")
-# phase -> confidence (確度). under-contract/completed == 100 keep the monthly-assignment confirm gate working.
+# phase -> confidence (確度).
 PHASE_CONFIDENCE = {
     "keep-in-touch": 0,  # KIT = "keep in touch": proposal did not succeed
     "proposing-low": 30,
