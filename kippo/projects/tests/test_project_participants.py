@@ -163,11 +163,12 @@ class ProjectParticipantsEndpointTestCase(TestCase):
 
     def test_does_not_trigger_auto_extend(self):
         with (
-            patch("projects.signals.auto_create_future_assignments") as signal_auto_extend,
+            # Patch the service, not the post_save signal: kippo#70 removes the signal module.
+            patch("projects.services.autoassign.auto_create_future_assignments") as auto_extend,
             self.captureOnCommitCallbacks(execute=True) as callbacks,
         ):
             response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
         self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
-        signal_auto_extend.assert_not_called()
+        auto_extend.assert_not_called()
         self.assertEqual(callbacks, [])
         self.assertEqual(ProjectMonthlyAssignment.objects.filter(project=self.project).count(), 4)

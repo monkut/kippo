@@ -1140,7 +1140,7 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
 
         Creates one unconfirmed ProjectMonthlyAssignment per month from the `start_date` month to the
         `target_date` month (inclusive). Months where (project, user, month) already exists are skipped,
-        never overwritten. Rows are unconfirmed, so the auto-extend signal does not fire.
+        never overwritten. Auto-extend does not run.
 
         Permission: organization-scoped like `auto_extend` — non-members get 403.
         """
