@@ -1760,9 +1760,83 @@ def cleanup_github_milestones(sender: type[KippoMilestone], instance: KippoMiles
         logger.info("no related GithubMilestone, will not attempt to close on github")
 
 
+class ProjectParticipant(UserCreatedBaseModel):
+    """プロジェクト参加者 (kiconiaworks/kippo#75): the parent of a user's monthly assignments on a project.
+
+    `percentage` and `role` are the defaults for the participant's monthly rows. Creating rows for the
+    remaining period (R1) and applying edited defaults (E2) live in `projects.services.participants`;
+    `delete()` removes the remaining months (X1).
+    """
+
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="participants")
+    user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectparticipant_user")
+    percentage = models.SmallIntegerField(
+        validators=(MinValueValidator(0),),
+        help_text=_("Default monthly workload percentage for this participant"),
+    )
+    role = models.CharField(
+        max_length=50,
+        choices=ProjectRoles.choices(),
+        blank=True,
+        default="",
+        help_text=_("Default billing-rate role for this participant's monthly assignments"),
+    )
+
+    class Meta:
+        verbose_name = _("プロジェクト参加者")
+        verbose_name_plural = verbose_name
+        unique_together = ("project", "user")
+
+    def __str__(self) -> str:
+        return f"{self.project} - {self.user}"
+
+    def clean(self) -> None:
+        super().clean()
+        if not (self.project_id and self.user_id):
+            return
+        is_member = OrganizationMembership.objects.filter(user_id=self.user_id, organization_id=self.project.organization_id).exists()
+        if not is_member:
+            raise ValidationError(
+                {"user": _("User is not a member of the project's organization '%(org)s'") % {"org": self.project.organization}},
+                code="invalid_user_organization",
+            )
+        if self._state.adding:
+            # R1 needs the project period (matches the API's 400 on missing dates, kippo#72 D6).
+            if self.project.start_date is None or self.project.target_date is None:
+                raise ValidationError(
+                    _("Set the project's start date and target date before adding participants"),
+                    code="project_period_required",
+                )
+            return
+        previous_user_id = ProjectParticipant.objects.filter(pk=self.pk).values_list("user_id", flat=True).first()
+        if previous_user_id is not None and previous_user_id != self.user_id:
+            raise ValidationError(
+                {"user": _("A participant's user cannot be changed; delete the participant and add the new user")},
+                code="participant_user_immutable",
+            )
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):  # noqa: ANN201
+        """X1: delete this participant's rows from the current month (JST) on; past rows are kept (participant → null)."""
+        self.monthly_assignments.filter(month__gte=timezone.localdate().replace(day=1)).delete()
+        return super().delete(*args, **kwargs)
+
+
 class ProjectMonthlyAssignment(UserCreatedBaseModel):
     project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="projectassignment_project")
     user = models.ForeignKey("accounts.KippoUser", on_delete=models.DO_NOTHING, related_name="projectassignment_user")
+    # Set from (project, user) in clean(); null only for past rows kept after their participant was deleted (kippo#75 X1).
+    participant = models.ForeignKey(
+        ProjectParticipant,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.SET_NULL,
+        related_name="monthly_assignments",
+    )
     month = models.DateField(null=True, blank=True, help_text=_("Assignment month (defaults to project start_date month)"))
     is_confirmed = models.BooleanField(default=False, help_text=_("Assignment is confirmed or not"))
     percentage = models.SmallIntegerField(
@@ -1798,6 +1872,26 @@ class ProjectMonthlyAssignment(UserCreatedBaseModel):
                     params={"user": self.user, "org": self.project.organization},
                     code="invalid_user_organization",
                 )
+
+        self._link_participant()
+
+    def _link_participant(self) -> None:
+        """O2 (kippo#75): a new row needs a ProjectParticipant for (project, user); link it.
+
+        An existing row whose participant was deleted (past month kept by X1) may still be edited unlinked.
+        """
+        if not (self.project_id and self.user_id):
+            return
+        participant = ProjectParticipant.objects.filter(project_id=self.project_id, user_id=self.user_id).first()
+        if participant is not None:
+            self.participant = participant
+            return
+        if self._state.adding or self.participant_id is not None:
+            raise ValidationError(
+                _("User '%(user)s' is not a participant of project '%(project)s'; add them as a project participant first"),
+                params={"user": self.user, "project": self.project},
+                code="participant_required",
+            )
 
     def save(self, *args, **kwargs) -> None:
         self.full_clean()

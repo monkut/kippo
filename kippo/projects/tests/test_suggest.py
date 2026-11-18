@@ -23,6 +23,7 @@ from projects.services.suggest import (
     PatternId,
     ProjectAssignmentSuggestionManager,
 )
+from projects.tests.helpers import make_participant
 
 
 def _set_today_dependent_dates(project: KippoProject) -> None:
@@ -69,6 +70,7 @@ class SuggesterTestCaseBase(TestCase):
         percentage: int,
         is_confirmed: bool = False,
     ) -> ProjectMonthlyAssignment:
+        make_participant(project or self.project, user or self.user)
         return ProjectMonthlyAssignment.objects.create(
             project=project or self.project,
             user=user or self.user,

@@ -27,6 +27,7 @@ from projects.models import (
     ProjectMonthlyAssignment,
     ProjectWeeklyEffort,
 )
+from projects.tests.helpers import make_participant
 
 
 class ContractFieldsTestCase(TestCase):
@@ -750,6 +751,7 @@ class EffortContractGenerationTestCase(TestCase):
         )
 
     def _assign_role(self, month: datetime.date, role: str) -> None:
+        make_participant(self.project, self.user)
         ProjectMonthlyAssignment.objects.create(
             project=self.project, user=self.user, month=month, role=role, percentage=100, created_by=self.user, updated_by=self.user
         )

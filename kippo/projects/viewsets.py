@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 from accounts.models import KippoUser
-from commons.functions import first_of_next_month, is_uuid
+from commons.functions import is_uuid
 from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -36,6 +36,7 @@ from .models import (
     ProjectAssignmentRate,
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
+    ProjectParticipant,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
 )
@@ -55,11 +56,13 @@ from .serializers import (
     ProjectMonthlyCostSerializer,
     ProjectParticipantCreateSerializer,
     ProjectParticipantResponseSerializer,
+    ProjectParticipantSerializer,
     ProjectWeeklyEffortSerializer,
     ProjectWeeklyEffortUnlockSerializer,
 )
 from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
+from .services.participants import create_remaining_assignments
 from .services.suggest import ProjectAssignmentSuggestionManager
 
 
@@ -1136,26 +1139,24 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
         },
     )
     def add_participant(self, request: Request, project_id: str) -> Response:
-        """Add a project participant (kippo#72).
+        """Add a project participant (kippo#72, kippo#75).
 
-        Creates one unconfirmed ProjectMonthlyAssignment per month from the `start_date` month to the
-        `target_date` month (inclusive). Months where (project, user, month) already exists are skipped,
-        never overwritten. Auto-extend does not run.
+        Creates the ProjectParticipant (when the user is not one yet) and one ProjectMonthlyAssignment per
+        remaining month: from the later of the current month (JST) and the `start_date` month, through the
+        `target_date` month (R1). Months where (project, user, month) already exists are skipped, never
+        overwritten; an existing participant's stored defaults are left unchanged. Auto-extend does not run.
 
         Permission: organization-scoped like `auto_extend` — non-members get 403.
         """
-        try:
-            project = KippoProject.objects.select_related("organization").get(pk=project_id)
-        except KippoProject.DoesNotExist:
-            return Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
-
-        user = request.user
-        if not user.is_superuser and project.organization_id not in organization_ids_for_user(user):
-            return Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
+        project, error_response = self._participant_project(request, project_id)
+        if error_response:
+            return error_response
 
         request_serializer = ProjectParticipantCreateSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        participant = request_serializer.validated_data["user"]
+        participant_user = request_serializer.validated_data["user"]
+        percentage = request_serializer.validated_data["percentage"]
+        role = request_serializer.validated_data["role"]
 
         missing_dates = {
             field: f"Project '{project.name}' has no {field}; set it before adding participants."
@@ -1165,42 +1166,53 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
         if missing_dates:
             raise ValidationError(missing_dates)
 
-        months = []
-        month = project.start_date.replace(day=1)
-        target_month = project.target_date.replace(day=1)
-        while month <= target_month:
-            months.append(month)
-            month = first_of_next_month(month)
-
-        existing_months = set(
-            ProjectMonthlyAssignment.objects.filter(project=project, user=participant, month__in=months).values_list("month", flat=True)
-        )
-        created_rows = []
         try:
             with transaction.atomic():
-                for month in months:
-                    if month in existing_months:
-                        continue
-                    # save() runs full_clean() → ProjectMonthlyAssignment.clean() validates org membership.
-                    row = ProjectMonthlyAssignment(
+                participant = ProjectParticipant.objects.filter(project=project, user=participant_user).first()
+                if participant is None:
+                    # save() runs full_clean() → ProjectParticipant.clean() validates org membership.
+                    participant = ProjectParticipant(
                         project=project,
-                        user=participant,
-                        month=month,
-                        percentage=request_serializer.validated_data["percentage"],
-                        role=request_serializer.validated_data["role"],
-                        is_confirmed=False,
-                        created_by=user,
-                        updated_by=user,
+                        user=participant_user,
+                        percentage=percentage,
+                        role=role,
+                        created_by=request.user,
+                        updated_by=request.user,
                     )
-                    row.save()
-                    created_rows.append(row)
+                    participant.save()
+                created_rows, skipped_months = create_remaining_assignments(participant, request.user, percentage=percentage, role=role)
         except DjangoValidationError as exc:
             raise ValidationError(serializers.as_serializer_error(exc)) from exc
 
-        response_serializer = ProjectParticipantResponseSerializer(
-            {"created": created_rows, "skipped_months": sorted(existing_months)},
-        )
+        response_serializer = ProjectParticipantResponseSerializer({"created": created_rows, "skipped_months": skipped_months})
         return Response(response_serializer.data, status=HTTPStatus.CREATED if created_rows else HTTPStatus.OK)
+
+    @extend_schema(
+        responses={
+            200: ProjectParticipantSerializer(many=True),
+            403: OpenApiResponse(description="Caller is not a member of the project's organization."),
+            404: OpenApiResponse(description="Project not found."),
+        },
+    )
+    def list_participants(self, request: Request, project_id: str) -> Response:
+        """List the project's participants (kippo#75), ordered by username."""
+        project, error_response = self._participant_project(request, project_id)
+        if error_response:
+            return error_response
+        participants = project.participants.select_related("user").order_by("user__username")
+        return Response(ProjectParticipantSerializer(participants, many=True).data)
+
+    @staticmethod
+    def _participant_project(request: Request, project_id: str) -> tuple[KippoProject | None, Response | None]:
+        """Resolve the project for the participants endpoints: 404 when missing, 403 for non-members."""
+        try:
+            project = KippoProject.objects.select_related("organization").get(pk=project_id)
+        except KippoProject.DoesNotExist:
+            return None, Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
+        user = request.user
+        if not user.is_superuser and project.organization_id not in organization_ids_for_user(user):
+            return None, Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
+        return project, None
 
 
 class ProjectMonthlyCostViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):

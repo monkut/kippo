@@ -24,6 +24,7 @@ from projects.services.autoassign import (
     auto_create_future_assignments,
     latest_contiguous_assigned_month,
 )
+from projects.tests.helpers import make_participant
 
 
 class AutoAssignTestCaseBase(TestCase):
@@ -71,6 +72,7 @@ class AutoAssignTestCaseBase(TestCase):
         created_by: KippoUser | None = None,
         updated_by: KippoUser | None = None,
     ) -> ProjectMonthlyAssignment:
+        make_participant(project or self.project, user or self.user)
         return ProjectMonthlyAssignment.objects.create(
             project=project or self.project,
             user=user or self.user,
@@ -257,6 +259,7 @@ class AutoAssignServiceTestCase(AutoAssignTestCaseBase):
             updated_by=self.github_manager,
         )
         self._make_assignment(percentage=5)  # seed
+        make_participant(other_project, self.user)
         ProjectMonthlyAssignment.objects.create(
             project=other_project,
             user=self.user,
@@ -549,6 +552,7 @@ class CapWarningParityTestCase(AutoAssignTestCaseBase):
         )
         # Use a future month inside the auto-extend window.
         warning_month = self.start_month + relativedelta(months=1)
+        make_participant(other_project, self.user)
         ProjectMonthlyAssignment.objects.create(
             project=other_project,
             user=self.user,
@@ -570,6 +574,7 @@ class CapWarningParityTestCase(AutoAssignTestCaseBase):
 
         # Manually craft a "newly-created" row at 60% in warning_month — combined with the
         # 60% other-project row, total = 120% → warning must fire.
+        make_participant(self.project, self.user)
         new_row = ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=self.user,

@@ -36,6 +36,7 @@ from .models import (
     ProjectColumnSet,
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
+    ProjectParticipant,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
 )
@@ -1207,6 +1208,21 @@ class ProjectMonthlyAssignmentSerializer(serializers.ModelSerializer):
             "updated_datetime",
         ]
 
+    def validate(self, attrs: dict) -> dict:
+        """O2 (kippo#75): a row for a new (project, user) pair needs a ProjectParticipant — 400 instead of the
+        model's full_clean() error surfacing as a 500.
+        """
+        attrs = super().validate(attrs)
+        project = attrs.get("project") or getattr(self.instance, "project", None)
+        user = attrs.get("user") or getattr(self.instance, "user", None)
+        pair_changed = self.instance is None or (project, user) != (self.instance.project, self.instance.user)
+        if project and user and pair_changed and not ProjectParticipant.objects.filter(project=project, user=user).exists():
+            raise serializers.ValidationError(
+                {"user": f"User '{user.username}' is not a participant of project '{project.name}'; add them as a project participant first."},
+                code="participant_required",
+            )
+        return attrs
+
     def _get_user_organization_membership(self, obj: ProjectMonthlyAssignment) -> "OrganizationMembership | None":
         """Get the user's OrganizationMembership for the project's organization.
 
@@ -1257,6 +1273,18 @@ class ProjectParticipantCreateSerializer(serializers.Serializer):
     user = serializers.PrimaryKeyRelatedField(queryset=KippoUser.objects.all())
     percentage = serializers.IntegerField(min_value=0)
     role = serializers.ChoiceField(choices=ProjectRoles.choices(), required=False, allow_blank=True, default="")
+
+
+class ProjectParticipantSerializer(serializers.ModelSerializer):
+    """A project participant (kippo#75): the parent of the user's monthly assignments on the project."""
+
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    user_display_name = serializers.CharField(source="user.display_name", read_only=True)
+
+    class Meta:
+        model = ProjectParticipant
+        fields = ["id", "project", "user", "user_username", "user_display_name", "percentage", "role", "created_datetime", "updated_datetime"]
+        read_only_fields = fields
 
 
 class ProjectParticipantResponseSerializer(serializers.Serializer):

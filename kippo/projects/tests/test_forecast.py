@@ -19,6 +19,7 @@ from rest_framework.test import APIClient
 from projects.exceptions import ProjectStartDateRequiredError
 from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectWeeklyEffort
 from projects.services.forecast import ProjectAssignmentForecastManager
+from projects.tests.helpers import make_participant
 
 
 def _set_today_dependent_dates(project: KippoProject) -> None:
@@ -50,6 +51,7 @@ class ForecastServiceTestCase(TestCase):
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
     def _make_assignment(self, *, user: KippoUser | None = None, month: datetime.date, percentage: int) -> None:
+        make_participant(self.project, user or self.user)
         ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=user or self.user,

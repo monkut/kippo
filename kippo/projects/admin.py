@@ -90,10 +90,12 @@ from .models import (
     ProjectColumnSet,
     ProjectMonthlyAssignment,
     ProjectMonthlyCost,
+    ProjectParticipant,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
     SalesKippoProject,
 )
+from .services.participants import apply_defaults_to_remaining_months, create_remaining_assignments
 
 if TYPE_CHECKING:
     from .services.forecast import ForecastResult
@@ -311,11 +313,33 @@ class ProjectAssignmentRateInline(LockWhenProjectClosedInlineMixin, AllowIsStaff
     # seeded in save_model on create. Shown on /change/ for editing the per-role rates.
 
 
-class ProjectMonthlyAssignmentInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
-    model = ProjectMonthlyAssignment
+class ProjectParticipantInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
+    """プロジェクト参加者 (kippo#75). KippoProjectBaseAdmin.save_formset runs the participant services:
+    add → rows for the remaining months (R1); percentage/role edit → remaining months updated (E2);
+    delete → ProjectParticipant.delete() removes the remaining months (X1). Monthly rows are not shown here;
+    each participant links to the ProjectMonthlyAssignment admin filtered to it.
+    """
+
+    model = ProjectParticipant
     extra = 0
-    fields = ("user", "month", "percentage", "role")
-    classes = ["collapse"]
+    fields = ("user", "percentage", "role", "monthly_assignments_link")
+    readonly_fields = ("monthly_assignments_link",)
+    ordering = ("user__username",)
+
+    def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        # closed projects render every field readonly → no "user" form field to scope
+        if obj is not None and "user" in formset.form.base_fields:
+            member_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user_id", flat=True)
+            formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=member_ids).order_by("last_name", "username")
+        return formset
+
+    @admin.display(description=_("月別割当"))
+    def monthly_assignments_link(self, obj: ProjectParticipant) -> str:
+        if not obj.pk:
+            return "-"
+        url = f"{reverse('admin:projects_projectmonthlyassignment_changelist')}?participant={obj.pk}"
+        return format_html('<a href="{}">{}</a>', url, _("%(count)d件") % {"count": obj.monthly_assignments.count()})
 
 
 class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
@@ -1243,11 +1267,11 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     # Inlines hidden on /add/ (only meaningful once a project exists). Exposed as a class
     # attribute so tests and subclasses can reference the same source of truth.
     HIDDEN_ON_ADD_INLINES = (
-        # Assignment rates use fixture defaults on /add/ (seeded in save_model); monthly assignments
-        # are managed after the project exists — both hidden on the add form. The contract is added
-        # on a later edit (registration collects only the slim ADD_FIELDS set).
+        # Assignment rates use fixture defaults on /add/ (seeded in save_model); participants need the
+        # project's period and are managed after the project exists — both hidden on the add form. The
+        # contract is added on a later edit (registration collects only the slim ADD_FIELDS set).
         ProjectAssignmentRateInline,
-        ProjectMonthlyAssignmentInline,
+        ProjectParticipantInline,
         KippoProjectContractInline,
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
@@ -1368,7 +1392,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         # KippoMilestoneReadOnlyInline,
         # KippoMilestoneAdminInline,
         ProjectAssignmentRateInline,
-        ProjectMonthlyAssignmentInline,
+        ProjectParticipantInline,
         # 契約 is rendered directly below the "Dates & Estimates" fieldset by the change_form template
         # (Django emits all fieldsets before any inline, so this list order can't place it there).
         KippoProjectContractInline,
@@ -1692,7 +1716,13 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
     def save_formset(self, request: DjangoRequest, form: Form, formset: BaseFormSet, change: bool) -> None:
         instances = formset.save(commit=False)
         for obj in formset.deleted_objects:
-            obj.delete()
+            obj.delete()  # ProjectParticipant.delete() also removes its remaining months (kippo#75 X1)
+        # Participants whose defaults changed get them applied to their remaining months (kippo#75 E2).
+        participants_with_new_defaults = {
+            obj.pk
+            for obj, changed_fields in formset.changed_objects
+            if isinstance(obj, ProjectParticipant) and {"percentage", "role"} & set(changed_fields)
+        }
         for instance in instances:
             if instance._state.adding:  # Only for create (needed for handling uuid field as id)
                 instance.created_by = request.user  # only update created_by once!
@@ -1702,7 +1732,12 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             # KippoProjectContractAdmin.save_formset so receipts are consistent regardless of page.
             if isinstance(instance, KippoProjectBillingEntry) and instance.is_received and not instance.received_by:
                 instance.received_by = request.user
+            is_new_participant = isinstance(instance, ProjectParticipant) and instance._state.adding
             instance.save()
+            if is_new_participant:
+                create_remaining_assignments(instance, request.user)  # kippo#75 R1
+            elif instance.pk in participants_with_new_defaults:
+                apply_defaults_to_remaining_months(instance, request.user)
         formset.save_m2m()
 
     def get_form(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs) -> Form:
@@ -2319,6 +2354,7 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user", "month", "percentage", "role")
     list_filter = ("role", "month", "project__organization")
+    ordering = ("project", "user__username", "month")
     search_fields = ("project__name", "user__username")
     exclude = ("is_confirmed",)  # deprecated 確定 field (kippo#69 D3)
     actions = (auto_extend_projectmonthlyassignment_action,)

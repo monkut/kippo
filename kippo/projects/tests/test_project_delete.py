@@ -14,6 +14,7 @@ from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.test import TestCase
 
 from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectWeeklyEffort
+from projects.tests.helpers import make_participant
 
 
 class KippoProjectDeleteCascadeTestCase(TestCase):
@@ -27,6 +28,7 @@ class KippoProjectDeleteCascadeTestCase(TestCase):
         self.github_manager = KippoUser.objects.get(username="github-manager")
         self.project.start_date = datetime.date(2026, 3, 15)
         self.project.save()
+        make_participant(self.project, self.user)
         ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=self.user,
