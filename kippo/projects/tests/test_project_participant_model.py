@@ -11,11 +11,12 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import ValidationError
 from django.forms.models import BaseInlineFormSet
 from django.test import RequestFactory, TestCase
 
-from projects.admin import KippoProjectAdmin, ProjectParticipantInline
+from projects.admin import KippoProjectAdmin, ProjectParticipantInline, fill_remaining_participant_months_action
 from projects.definitions import ProjectRoles
 from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectParticipant
 from projects.services.autoassign import auto_create_future_assignments
@@ -241,6 +242,55 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
         link = self.inline.monthly_assignments_link(participant)
         self.assertIn(f"/projectmonthlyassignment/?participant={participant.pk}", link)
         self.assertIn("3", link)
+
+
+class FillRemainingMonthsActionTestCase(ParticipantTestBase):
+    """G3: the 残りの月を補完 project admin action fills only missing remaining-period months."""
+
+    def setUp(self):
+        super().setUp()
+        self.request = RequestFactory().post("/")
+        self.request.user = self.github_manager
+        self.request.session = {}
+        self.request._messages = FallbackStorage(self.request)  # noqa: SLF001
+        self.modeladmin = KippoProjectAdmin(KippoProject, AdminSite())
+
+    def _run(self) -> list[str]:
+        fill_remaining_participant_months_action(self.modeladmin, self.request, KippoProject.objects.filter(pk=self.project.pk))
+        return [str(m) for m in self.request._messages]  # noqa: SLF001
+
+    def test_fills_missing_months_and_keeps_existing(self):
+        participant = make_participant(self.project, self.member, percentage=40, role=ProjectRoles.DEVELOPER.value)
+        existing = ProjectMonthlyAssignment.objects.create(
+            project=self.project, user=self.member, participant=participant, month=datetime.date(2026, 5, 1), percentage=70
+        )
+
+        messages_text = self._run()
+
+        rows = {r.month: r for r in participant.monthly_assignments.all()}
+        self.assertEqual(sorted(rows), [datetime.date(2026, 4, 1), datetime.date(2026, 5, 1), datetime.date(2026, 6, 1)])
+        self.assertEqual((rows[datetime.date(2026, 4, 1)].percentage, rows[datetime.date(2026, 4, 1)].role), (40, ProjectRoles.DEVELOPER.value))
+        self.assertEqual(rows[datetime.date(2026, 5, 1)].pk, existing.pk)
+        self.assertEqual(rows[datetime.date(2026, 5, 1)].percentage, 70)  # never overwritten
+        self.assertIn("created 2 row(s) for 2026-04 〜 2026-06", " ".join(messages_text))
+
+        self._run()  # idempotent
+        self.assertEqual(participant.monthly_assignments.count(), 3)
+
+    def test_skips_closed_and_ended_projects(self):
+        participant = make_participant(self.project, self.member, percentage=40)
+        self.project.target_date = datetime.date(2026, 3, 31)  # ended before TODAY's month
+        self.project.save()
+        self.assertIn("no remaining period", " ".join(self._run()))
+
+        KippoProject.objects.filter(pk=self.project.pk).update(is_closed=True, target_date=datetime.date(2026, 6, 10))
+        self.assertIn("Skipped 1 closed project(s).", " ".join(self._run()))
+        self.assertEqual(participant.monthly_assignments.count(), 0)
+
+    def test_reports_participant_outside_organization(self):
+        make_participant(self.project, self.outsider, percentage=40)  # bulk_create bypasses clean()
+        self.assertIn("outsider not filled", " ".join(self._run()))
+        self.assertFalse(ProjectMonthlyAssignment.objects.filter(project=self.project, user=self.outsider).exists())
 
 
 class BackfillParticipantsMigrationTestCase(ParticipantTestBase):

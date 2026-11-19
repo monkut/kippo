@@ -95,7 +95,7 @@ from .models import (
     ProjectWeeklyEffortUnlock,
     SalesKippoProject,
 )
-from .services.participants import apply_defaults_to_remaining_months, create_remaining_assignments
+from .services.participants import apply_defaults_to_remaining_months, create_remaining_assignments, remaining_months
 
 if TYPE_CHECKING:
     from .services.forecast import ForecastResult
@@ -1009,6 +1009,51 @@ def reopen_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoRequ
 reopen_kippoproject_action.short_description = _("Re-open Project(s)")  # noqa: E305
 
 
+def fill_remaining_participant_months_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet) -> None:
+    """kippo#75 G3: create the missing remaining-period (R1) rows for every participant of the selected projects.
+
+    Rows use each participant's stored percentage / role; months that already have a row are never changed.
+    Closed projects and projects without a remaining period are skipped.
+    """
+    closed_count = queryset.filter(is_closed=True).count()
+    if closed_count:
+        modeladmin.message_user(request, _("Skipped %(count)d closed project(s).") % {"count": closed_count}, level=messages.WARNING)
+    total_created = 0
+    for project in queryset.filter(is_closed=False).prefetch_related("participants__user"):
+        months = remaining_months(project)
+        if not months:
+            modeladmin.message_user(
+                request,
+                _("Project '%(name)s' skipped: no remaining period (start/target date missing or ended).") % {"name": project.name},
+                level=messages.WARNING,
+            )
+            continue
+        created_count = 0
+        for participant in project.participants.all():
+            try:
+                created_rows, _skipped_months = create_remaining_assignments(participant, request.user)
+            except ValidationError as exc:
+                modeladmin.message_user(
+                    request,
+                    _("Project '%(name)s': %(user)s not filled: %(error)s")
+                    % {"name": project.name, "user": participant.user.username, "error": "; ".join(exc.messages)},
+                    level=messages.ERROR,
+                )
+                continue
+            created_count += len(created_rows)
+        total_created += created_count
+        modeladmin.message_user(
+            request,
+            _("Project '%(name)s': created %(count)d row(s) for %(start)s 〜 %(end)s.")
+            % {"name": project.name, "count": created_count, "start": months[0].strftime("%Y-%m"), "end": months[-1].strftime("%Y-%m")},
+            level=messages.INFO,
+        )
+    modeladmin.message_user(request, _("Total rows created: %(count)d") % {"count": total_created}, level=messages.SUCCESS)
+
+
+fill_remaining_participant_months_action.short_description = _("残りの月を補完")  # noqa: E305
+
+
 def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
     """Add each selected project's MTG calendar-template URL as a pinned message on its Slack conversation channel.
 
@@ -1329,6 +1374,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         collect_project_github_repositories_action,
         close_kippoproject_action,
         reopen_kippoproject_action,
+        fill_remaining_participant_months_action,
         add_calendar_links_to_slack_channels_action,
         request_employee_survey_action,
         "export_project_kippotaskstatus_csv",
