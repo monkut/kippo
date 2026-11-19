@@ -28,7 +28,7 @@ from projects.tests.helpers import make_participant
 
 
 class AutoAssignTestCaseBase(TestCase):
-    """Shared fixture builder mirroring the suggester test base."""
+    """Shared fixture builder for the auto-assign tests."""
 
     fixtures = DEFAULT_FIXTURES
 

@@ -62,7 +62,7 @@ class ProjectAssignmentForecastManager:
         self.__latest_logged_week_start_loaded: bool = False
         # Memoizes the query-derived portion of the forecast user-context (membership,
         # holiday country, public + personal holidays) keyed by the inputs that determine
-        # it: (frozenset(user_ids), next_month_start, horizon). The suggester reuses one
+        # it: (frozenset(user_ids), next_month_start, horizon). Auto-assign reuses one
         # manager across ~28 compute() calls over the same users/horizon (seed + binary
         # search + s_max + final), so this collapses ~110 identical queries to 4.
         # Instance-scoped only — managers are constructed per request, so this is Lambda-safe.
@@ -75,8 +75,8 @@ class ProjectAssignmentForecastManager:
             overlay: Optional `{user_id: {month_first_day: percentage}}` mapping. When
                 provided, the future projection uses this hypothetical assignment set
                 instead of querying `ProjectMonthlyAssignment` rows on the project.
-                Used by the suggestion engine to evaluate candidate patterns without
-                persisting them. Past + in-progress logged effort is still computed
+                Used by auto-assign (`services/autoassign.py`) to evaluate candidate
+                percentages without persisting them. Past + in-progress logged effort is still computed
                 from `ProjectWeeklyEffort` regardless.
 
         Returns a `ForecastResult` with ``estimated_completion_date`` (date | None),
@@ -140,8 +140,8 @@ class ProjectAssignmentForecastManager:
         )
 
     def __logged_hours_through(self, today: datetime.date) -> int:
-        # Cached per manager instance — the suggester reuses one manager across many compute()
-        # calls (one per candidate pattern + thin-pattern retries), and the logged-hours total
+        # Cached per manager instance — auto-assign reuses one manager across many compute()
+        # calls (seed + binary search + final), and the logged-hours total
         # doesn't depend on the overlay being evaluated.
         if self.__logged_hours_cache is None:
             self.__logged_hours_cache = (

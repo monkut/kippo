@@ -19,7 +19,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,7 +49,6 @@ from .serializers import (
     KippoProjectStatusCommentSerializer,
     KippoProjectUserStatisfactionResultSerializer,
     OrganizationMemberSerializer,
-    ProjectAssignmentPatternSerializer,
     ProjectAssignmentRateSerializer,
     ProjectMonthlyAssignmentSerializer,
     ProjectMonthlyCostSerializer,
@@ -63,7 +61,6 @@ from .serializers import (
 from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
 from .services.participants import create_remaining_assignments
-from .services.suggest import ProjectAssignmentSuggestionManager
 
 
 class KippoProjectOrganizationCategoryViewSet(viewsets.ModelViewSet):
@@ -471,70 +468,6 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         # (it does that for `OrganizationMemberSerializer(many=True)` on a ModelViewSet).
         # The picker only ever displays ~10s of users; pagination would be wasted complexity.
         return Response({"members": OrganizationMemberSerializer(payload, many=True).data})
-
-    @extend_schema(
-        request=inline_serializer(
-            name="SuggestAssignmentsRequest",
-            fields={
-                "from_month": serializers.DateField(
-                    required=False,
-                    allow_null=True,
-                    help_text=(
-                        "First-of-month ISO date to start projecting from. When omitted, defaults "
-                        "to the first day of the month after the current date."
-                    ),
-                ),
-            },
-        ),
-        responses={
-            HTTPStatus.OK: OpenApiResponse(
-                response=inline_serializer(
-                    name="SuggestAssignmentsResponse",
-                    fields={
-                        "patterns": ProjectAssignmentPatternSerializer(many=True),
-                    },
-                ),
-                description=(
-                    "0–3 candidate patterns, ranked by closeness to project.target_date "
-                    "(feasible patterns first). Greenfield projects skip the P1-max-reuse pattern."
-                ),
-            ),
-            HTTPStatus.BAD_REQUEST: OpenApiResponse(description="project.start_date is required to compute suggestions."),
-        },
-        description=(
-            "Generate up to 3 candidate assignment patterns for the project. Patterns vary "
-            "along a continuity gradient (max past-member reuse / blend / most-available pool). "
-            "Returns 400 if the project has no start_date set. See monkut/kippo#224 B1-B13."
-        ),
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="suggest-assignments",
-        permission_classes=[IsAuthenticated],
-        # JSON only — drop the multipart/form-urlencoded variants from the OpenAPI schema.
-        parser_classes=[JSONParser],
-    )
-    def suggest_assignments(self, request: Request, pk: str | None = None) -> Response:  # noqa: ARG002
-        project = self.get_object()
-        from_month_str = (request.data or {}).get("from_month")
-        from_month = None
-        if from_month_str:
-            try:
-                from_month = datetime.date.fromisoformat(from_month_str).replace(day=1)
-            except ValueError:
-                return Response(
-                    {"detail": f"invalid from_month: {from_month_str!r}", "code": "invalid_from_month"},
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-        try:
-            patterns = ProjectAssignmentSuggestionManager(project, from_month=from_month).compute()
-        except ProjectStartDateRequiredError as exc:
-            return Response(
-                {"detail": str(exc), "code": "project_start_date_required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-        return Response({"patterns": [p.model_dump(mode="json") for p in patterns]})
 
 
 class ProjectWeeklyEffortViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
