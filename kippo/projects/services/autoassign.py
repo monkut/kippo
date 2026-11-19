@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from projects.definitions import SkipReason
 from projects.exceptions import ProjectStartDateRequiredError
-from projects.models import MAX_ASSIGNMENT_PERCENTAGE, ProjectMonthlyAssignment
+from projects.models import MAX_ASSIGNMENT_PERCENTAGE, ProjectMonthlyAssignment, ProjectParticipant
 from projects.services.forecast import ProjectAssignmentForecastManager
 
 if TYPE_CHECKING:
@@ -385,10 +385,17 @@ def _persist(
         return []
 
     user_lookup = {u.id: u for u in KippoUser.objects.filter(id__in=valid_user_ids)}
+    # bulk_create skips full_clean(), so link each row to its ProjectParticipant here (kippo#75 O2);
+    # a seed user who is not a participant gets no rows.
+    participant_lookup = {p.user_id: p for p in ProjectParticipant.objects.filter(project=project, user_id__in=valid_user_ids)}
     rows: list[ProjectMonthlyAssignment] = []
     for user_id in valid_user_ids:
         user = user_lookup.get(user_id)
         if user is None:
+            continue
+        participant = participant_lookup.get(user_id)
+        if participant is None:
+            logger.warning("project %s: user %s is not a project participant; no future rows created", project.pk, user_id)
             continue
         pct = pct_per_user[user_id]
         for month in months:
@@ -396,6 +403,7 @@ def _persist(
                 ProjectMonthlyAssignment(
                     project=project,
                     user=user,
+                    participant=participant,
                     month=month,
                     percentage=pct,
                     created_by=triggered_by,

@@ -2285,23 +2285,23 @@ class KippoProjectAdminInlinesTestCase(KippoProjectAdminFixtureTestCaseBase):
             self.assertIn(cls, inlines, f"{cls.__name__} should be present on ActiveKippoProject change")
 
     def test_add_view_hides_assignment_rate_and_monthly_assignment_inlines(self):
-        from projects.admin import GithubRepositoryProjectInline, ProjectMonthlyAssignmentInline
+        from projects.admin import GithubRepositoryProjectInline, ProjectParticipantInline
 
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         inlines = modeladmin.get_inlines(self.staff_user_request, obj=None)
         # Assignment rates use fixture defaults on /add/ (seeded in save_model); monthly assignments
         # and GitHub repositories are only meaningful once the project exists — all hidden on /add/.
         self.assertNotIn(ProjectAssignmentRateInline, inlines)
-        self.assertNotIn(ProjectMonthlyAssignmentInline, inlines)
+        self.assertNotIn(ProjectParticipantInline, inlines)
         self.assertNotIn(GithubRepositoryProjectInline, inlines)
 
     def test_change_view_shows_assignment_rate_and_monthly_assignment_inlines(self):
-        from projects.admin import ProjectMonthlyAssignmentInline
+        from projects.admin import ProjectParticipantInline
 
         modeladmin = KippoProjectAdmin(KippoProject, self.site)
         inlines = modeladmin.get_inlines(self.staff_user_request, obj=self.project)
         self.assertIn(ProjectAssignmentRateInline, inlines)
-        self.assertIn(ProjectMonthlyAssignmentInline, inlines)
+        self.assertIn(ProjectParticipantInline, inlines)
 
 
 class DefaultAssignmentRateLoaderTestCase(SimpleTestCase):

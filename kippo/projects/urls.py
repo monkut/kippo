@@ -95,6 +95,7 @@ project_monthly_assignment_auto_extend = ProjectMonthlyAssignmentViewSet.as_view
 # kippo#72 — add a project participant (bulk-create monthly assignments over the project period).
 project_participants = ProjectMonthlyAssignmentViewSet.as_view(
     {
+        "get": "list_participants",
         "post": "add_participant",
     }
 )

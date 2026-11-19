@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 from projects.definitions import ProjectRoles
 from projects.models import KippoProject, ProjectMonthlyAssignment
 from projects.serializers import ProjectMonthlyAssignmentSerializer
+from projects.tests.helpers import make_participant
 
 
 class ProjectMonthlyAssignmentModelTestCase(TestCase):
@@ -50,6 +51,7 @@ class ProjectMonthlyAssignmentModelTestCase(TestCase):
             "updated_by": self.github_manager,
         }
         defaults.update(overrides)
+        make_participant(defaults["project"], defaults["user"])
         return ProjectMonthlyAssignment(**defaults)
 
     def test_clean_rejects_user_not_in_project_organization(self):
@@ -186,6 +188,7 @@ class ProjectMonthlyAssignmentSerializerTestCase(TestCase):
         membership.slack_image_url = "https://example.com/octo.png"
         membership.save()
 
+        make_participant(self.project, self.user)
         self.assignment = ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=self.user,
@@ -262,6 +265,7 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
         )
 
         # Three assignments to drive filter tests
+        make_participant(self.project, self.user)
         self.assignment_apr = ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=self.user,
@@ -270,6 +274,7 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        make_participant(self.project, self.user)
         self.assignment_may = ProjectMonthlyAssignment.objects.create(
             project=self.project,
             user=self.user,
@@ -278,6 +283,7 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        make_participant(self.other_project, self.other_user)
         self.other_assignment = ProjectMonthlyAssignment.objects.create(
             project=self.other_project,
             user=self.other_user,
@@ -358,6 +364,7 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        make_participant(project, self.user)
         current = ProjectMonthlyAssignment.objects.create(
             project=project,
             user=self.user,
@@ -366,6 +373,7 @@ class ProjectMonthlyAssignmentViewSetTestCase(TestCase):
             created_by=self.github_manager,
             updated_by=self.github_manager,
         )
+        make_participant(project, self.user)
         past = ProjectMonthlyAssignment.objects.create(
             project=project,
             user=self.user,
