@@ -436,6 +436,7 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         description=(
             "Active members of the project's organization. Lists every KippoUser with an "
             "OrganizationMembership in the project's org, filtered by KippoUser.is_active=True. "
+            "The org's (unassigned) placeholder user is excluded. "
             "Used by kippo-ui's add-assignment picker so day-zero projects can pick from anyone "
             "in the org rather than only users already on the project."
         ),
@@ -448,6 +449,7 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
                 is_active=True,
                 organizationmembership__organization=project.organization,
             )
+            .exclude(username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)  # 組織の (unassigned) 番人ユーザは対象外
             .select_related()
             .prefetch_related("organizationmembership_set")
             .order_by("username")
