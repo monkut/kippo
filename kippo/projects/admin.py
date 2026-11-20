@@ -94,6 +94,7 @@ from .models import (
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
     SalesKippoProject,
+    participant_period_error,
 )
 from .services.participants import apply_defaults_to_remaining_months, create_remaining_assignments, remaining_months
 
@@ -1020,6 +1021,13 @@ def fill_remaining_participant_months_action(modeladmin: admin.ModelAdmin, reque
         modeladmin.message_user(request, _("Skipped %(count)d closed project(s).") % {"count": closed_count}, level=messages.WARNING)
     total_created = 0
     for project in queryset.filter(is_closed=False).prefetch_related("participants__user"):
+        period_error = participant_period_error(project) if project.start_date and project.target_date else None
+        if period_error:
+            _field, message, _code = period_error
+            modeladmin.message_user(
+                request, _("Project '%(name)s' skipped: %(reason)s") % {"name": project.name, "reason": message}, level=messages.WARNING
+            )
+            continue
         months = remaining_months(project)
         if not months:
             modeladmin.message_user(

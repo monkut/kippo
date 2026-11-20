@@ -53,3 +53,10 @@ def last_of_month(reference: datetime.date) -> datetime.date:
     """Return the last day of the month containing `reference`."""
     _, last_day = monthrange(reference.year, reference.month)
     return reference.replace(day=last_day)
+
+
+def add_months(reference: datetime.date, months: int) -> datetime.date:
+    """Return `reference` shifted by `months`, clamping the day to the target month's last day (01-31 + 1 → 02-28)."""
+    month_index = reference.year * 12 + reference.month - 1 + months
+    year, month = divmod(month_index, 12)
+    return datetime.date(year, month + 1, min(reference.day, monthrange(year, month + 1)[1]))

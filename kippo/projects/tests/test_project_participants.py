@@ -168,14 +168,48 @@ class ProjectParticipantsEndpointTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
         self.assertEqual([r.month for r in self._rows()], [datetime.date(2026, 5, 1), datetime.date(2026, 6, 1)])
 
-    def test_ended_project_adds_participant_without_rows(self):
-        self.project.target_date = datetime.date(2026, 3, 31)
+    def test_ended_project_returns_400(self):
+        self.project.target_date = datetime.date(2026, 4, 9)  # the day before TODAY
         self.project.save()
         response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
-        self.assertEqual(response.status_code, HTTPStatus.OK, response.content)
-        self.assertEqual(response.json(), {"created": [], "skipped_months": []})
-        self.assertTrue(ProjectParticipant.objects.filter(project=self.project, user=self.member).exists())
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("完了予定日: 2026-04-09", response.json()["target_date"][0])
+        self.assertFalse(ProjectParticipant.objects.filter(project=self.project, user=self.member).exists())
         self.assertFalse(self._rows().exists())
+
+    def test_target_date_today_is_allowed(self):
+        self.project.target_date = TODAY
+        self.project.save()
+        response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        self.assertEqual([r.month for r in self._rows()], [datetime.date(2026, 4, 1)])
+
+    def test_ended_project_rejects_existing_participant_too(self):
+        make_participant(self.project, self.member, percentage=PERCENTAGE)
+        self.project.target_date = datetime.date(2026, 4, 9)
+        self.project.save()
+        response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("target_date", response.json())
+
+    def test_start_more_than_6_months_ahead_returns_400(self):
+        self.project.start_date = datetime.date(2026, 10, 11)  # TODAY + 6 months + 1 day
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        message = response.json()["start_date"][0]
+        self.assertIn("開始日（2026-10-11）が6か月以上先", message)
+        self.assertIn("2026-04-11 以降に追加", message)
+        self.assertFalse(ProjectParticipant.objects.filter(project=self.project, user=self.member).exists())
+
+    def test_start_exactly_6_months_ahead_is_allowed(self):
+        self.project.start_date = datetime.date(2026, 10, 10)
+        self.project.target_date = datetime.date(2026, 11, 30)
+        self.project.save()
+        response = self.client.post(self._url(self.project.id), {"user": self.member.id, "percentage": PERCENTAGE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+        self.assertEqual([r.month for r in self._rows()], [datetime.date(2026, 10, 1), datetime.date(2026, 11, 1)])
 
     def test_get_lists_participants_by_username(self):
         make_participant(self.project, self.member, percentage=30, role=ProjectRoles.DEVELOPER.value)

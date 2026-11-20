@@ -38,6 +38,7 @@ from .models import (
     ProjectParticipant,
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
+    participant_period_error,
 )
 from .permissions import IsSuperuserOrOrgMemberForCategory, IsSuperuserOrOwnOrgReadUpdateCreate, IsSuperuserOrReadUpdateCreateOwn
 from .serializers import (
@@ -1098,6 +1099,11 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
         }
         if missing_dates:
             raise ValidationError(missing_dates)
+        # Also applies when the user is already a participant: the request is still an add.
+        period_error = participant_period_error(project)
+        if period_error:
+            field, message, code = period_error
+            raise ValidationError({field: [message]}, code=code)
 
         try:
             with transaction.atomic():
