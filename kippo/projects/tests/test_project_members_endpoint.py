@@ -73,6 +73,14 @@ class ProjectMembersEndpointTestCase(TestCase):
         # outsider is not in this org
         self.assertNotIn("members-outsider", usernames)
 
+    def test_excludes_unassigned_placeholder_user(self):
+        unassigned = self.organization.get_unassigned_kippouser()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        usernames = {row["username"] for row in response.json()["members"]}
+        self.assertNotIn(unassigned.username, usernames)
+        self.assertIn("octocat", usernames)
+
     def test_excludes_inactive_users(self):
         active = self._add_org_member("active-dev")
         inactive = self._add_org_member("inactive-dev")

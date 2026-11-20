@@ -88,6 +88,11 @@ class ProjectParticipantModelTestCase(ParticipantTestBase):
             self._participant(user=self.outsider)
         self.assertIn("user", ctx.exception.error_dict)
 
+    def test_unassigned_placeholder_user_rejected(self):
+        with self.assertRaises(ValidationError) as ctx:
+            self._participant(user=self.organization.get_unassigned_kippouser())
+        self.assertEqual(ctx.exception.error_dict["user"][0].code, "invalid_user_unassigned")
+
     def test_missing_project_period_rejected_on_add(self):
         self.project.target_date = None
         self.project.save()

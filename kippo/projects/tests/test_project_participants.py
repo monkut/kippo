@@ -161,6 +161,13 @@ class ProjectParticipantsEndpointTestCase(TestCase):
         self.assertFalse(ProjectMonthlyAssignment.objects.filter(project=self.project, user=self.outsider).exists())
         self.assertFalse(ProjectParticipant.objects.filter(project=self.project, user=self.outsider).exists())
 
+    def test_unassigned_placeholder_user_returns_400(self):
+        unassigned = self.organization.get_unassigned_kippouser()
+        response = self.client.post(self._url(self.project.id), {"user": unassigned.id, "percentage": PERCENTAGE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+        self.assertIn("user", response.json())
+        self.assertFalse(ProjectParticipant.objects.filter(project=self.project, user=unassigned).exists())
+
     def test_future_start_month_starts_at_start_date(self):
         self.project.start_date = datetime.date(2026, 5, 20)
         self.project.save()

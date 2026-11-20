@@ -1800,6 +1800,10 @@ class ProjectParticipant(UserCreatedBaseModel):
                 {"user": _("User is not a member of the project's organization '%(org)s'") % {"org": self.project.organization}},
                 code="invalid_user_organization",
             )
+        if self.user.username.startswith(UNASSIGNED_USER_GITHUB_LOGIN_PREFIX):
+            raise ValidationError(
+                {"user": ValidationError(_("The organization's (unassigned) user cannot be a participant"), code="invalid_user_unassigned")}
+            )
         if self._state.adding:
             # R1 needs the project period (matches the API's 400 on missing dates, kippo#72 D6).
             if self.project.start_date is None or self.project.target_date is None:
