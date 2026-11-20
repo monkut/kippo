@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
 from commons.fields import CommaSeparatedCharField
-from commons.functions import first_of_month, first_of_next_month, last_of_month
+from commons.functions import add_months, first_of_month, first_of_next_month, last_of_month
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -1807,6 +1807,10 @@ class ProjectParticipant(UserCreatedBaseModel):
                     _("Set the project's start date and target date before adding participants"),
                     code="project_period_required",
                 )
+            period_error = participant_period_error(self.project)
+            if period_error:
+                _field, message, code = period_error
+                raise ValidationError(message, code=code)
             return
         previous_user_id = ProjectParticipant.objects.filter(pk=self.pk).values_list("user_id", flat=True).first()
         if previous_user_id is not None and previous_user_id != self.user_id:
@@ -1823,6 +1827,40 @@ class ProjectParticipant(UserCreatedBaseModel):
         """X1: delete this participant's rows from the current month (JST) on; past rows are kept (participant → null)."""
         self.monthly_assignments.filter(month__gte=timezone.localdate().replace(day=1)).delete()
         return super().delete(*args, **kwargs)
+
+
+# kippo#75: participants can be added only when the project starts within this many months of today.
+PARTICIPANT_MAX_START_MONTHS_AHEAD = 6
+
+
+def participant_period_error(project: KippoProject) -> tuple[str, str, str] | None:
+    """Why participants can't be added to `project` today (JST), as (field, message, code); None when allowed (kippo#75).
+
+    Checked only when adding a participant; both dates must already be set.
+    - The project period has ended: target_date is before today.
+    - The project starts too far ahead: start_date is more than PARTICIPANT_MAX_START_MONTHS_AHEAD months after today.
+    """
+    today = timezone.localdate()
+    if project.target_date < today:
+        return (
+            "target_date",
+            _("プロジェクト期間が終了しているため参加者を追加できません（完了予定日: %(target)s）。完了予定日を更新してから追加してください。")
+            % {"target": project.target_date.isoformat()},
+            "project_period_ended",
+        )
+    latest_start = add_months(today, PARTICIPANT_MAX_START_MONTHS_AHEAD)
+    if project.start_date > latest_start:
+        return (
+            "start_date",
+            _("開始日（%(start)s）が%(months)dか月以上先のため参加者を追加できません。%(latest)s 以降に追加してください。")
+            % {
+                "start": project.start_date.isoformat(),
+                "months": PARTICIPANT_MAX_START_MONTHS_AHEAD,
+                "latest": add_months(project.start_date, -PARTICIPANT_MAX_START_MONTHS_AHEAD).isoformat(),
+            },
+            "project_start_too_far_ahead",
+        )
+    return None
 
 
 class ProjectMonthlyAssignment(UserCreatedBaseModel):

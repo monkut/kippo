@@ -15,10 +15,24 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import ValidationError
 from django.forms.models import BaseInlineFormSet
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 
-from projects.admin import KippoProjectAdmin, ProjectParticipantInline, fill_remaining_participant_months_action
+from projects.admin import (
+    ActiveKippoProjectAdmin,
+    KippoProjectAdmin,
+    ProjectParticipantInline,
+    SalesKippoProjectAdmin,
+    fill_remaining_participant_months_action,
+)
 from projects.definitions import ProjectRoles
-from projects.models import KippoProject, ProjectMonthlyAssignment, ProjectParticipant
+from projects.models import (
+    ActiveKippoProject,
+    KippoProject,
+    ProjectMonthlyAssignment,
+    ProjectParticipant,
+    SalesKippoProject,
+    participant_period_error,
+)
 from projects.services.autoassign import auto_create_future_assignments
 from projects.services.participants import apply_defaults_to_remaining_months, create_remaining_assignments, remaining_months
 from projects.tests.helpers import make_participant
@@ -77,6 +91,35 @@ class ProjectParticipantModelTestCase(ParticipantTestBase):
         with self.assertRaises(ValidationError) as ctx:
             self._participant()
         self.assertEqual(ctx.exception.error_dict["__all__"][0].code, "project_period_required")
+
+    def test_add_rejected_when_period_ended(self):
+        self.project.target_date = datetime.date(2026, 4, 9)  # the day before TODAY
+        self.project.save()
+        with self.assertRaises(ValidationError) as ctx:
+            self._participant()
+        error = ctx.exception.error_dict["__all__"][0]
+        self.assertEqual(error.code, "project_period_ended")
+        self.assertIn("プロジェクト期間が終了しているため参加者を追加できません", error.message)
+
+    def test_add_rejected_when_start_more_than_6_months_ahead(self):
+        self.project.start_date = datetime.date(2026, 10, 11)  # TODAY + 6 months + 1 day
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        with self.assertRaises(ValidationError) as ctx:
+            self._participant()
+        self.assertEqual(ctx.exception.error_dict["__all__"][0].code, "project_start_too_far_ahead")
+
+    def test_add_allowed_at_both_boundaries(self):
+        self.project.start_date = datetime.date(2026, 10, 10)  # exactly TODAY + 6 months
+        self.project.target_date = TODAY
+        self.assertIsNone(participant_period_error(self.project))
+
+    def test_existing_participant_editable_after_period_ended(self):
+        participant = self._participant()
+        self.project.target_date = datetime.date(2026, 4, 9)
+        self.project.save()
+        participant.percentage = 10
+        participant.save()  # E1: the rule applies to adds only
 
     def test_user_cannot_be_changed(self):
         participant = self._participant()
@@ -193,6 +236,36 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
         self.assertTrue(formset.is_valid(), formset.errors)
         return formset
 
+    def test_add_shows_period_error_on_the_inline_row(self):
+        self.project.target_date = datetime.date(2026, 4, 9)
+        self.project.save()
+        formset_class = self.inline.get_formset(self.request, self.project)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f"{prefix}-TOTAL_FORMS": "1",
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+            f"{prefix}-0-user": str(self.member.id),
+            f"{prefix}-0-percentage": "30",
+            f"{prefix}-0-role": "",
+        }
+        formset = formset_class(data=data, instance=self.project, prefix=prefix)
+        self.assertFalse(formset.is_valid())
+        self.assertIn("プロジェクト期間が終了しているため参加者を追加できません", " ".join(formset.forms[0].non_field_errors()))
+        self.assertFalse(ProjectParticipant.objects.filter(project=self.project).exists())
+
+    def test_add_creates_remaining_months_in_every_project_admin(self):
+        admins = ((KippoProjectAdmin, KippoProject), (ActiveKippoProjectAdmin, ActiveKippoProject), (SalesKippoProjectAdmin, SalesKippoProject))
+        for admin_class, model in admins:
+            with self.subTest(admin=admin_class.__name__):
+                ProjectParticipant.objects.filter(project=self.project).delete()
+                modeladmin = admin_class(model, self.site)
+                formset = self._formset([{"user": str(self.member.id), "percentage": "30", "role": ""}])
+                modeladmin.save_formset(self.request, None, formset, change=True)
+                participant = ProjectParticipant.objects.get(project=self.project, user=self.member)
+                self.assertEqual(self._months(participant), [datetime.date(2026, m, 1) for m in (4, 5, 6)])
+
     def test_user_choices_limited_to_project_organization(self):
         formset_class = self.inline.get_formset(self.request, self.project)
         user_ids = set(formset_class.form.base_fields["user"].queryset.values_list("id", flat=True))
@@ -281,16 +354,54 @@ class FillRemainingMonthsActionTestCase(ParticipantTestBase):
         participant = make_participant(self.project, self.member, percentage=40)
         self.project.target_date = datetime.date(2026, 3, 31)  # ended before TODAY's month
         self.project.save()
-        self.assertIn("no remaining period", " ".join(self._run()))
+        self.assertIn("プロジェクト期間が終了しているため参加者を追加できません", " ".join(self._run()))
 
         KippoProject.objects.filter(pk=self.project.pk).update(is_closed=True, target_date=datetime.date(2026, 6, 10))
         self.assertIn("Skipped 1 closed project(s).", " ".join(self._run()))
+        self.assertEqual(participant.monthly_assignments.count(), 0)
+
+    def test_skips_project_starting_more_than_6_months_ahead(self):
+        participant = make_participant(self.project, self.member, percentage=40)
+        self.project.start_date = datetime.date(2026, 10, 11)
+        self.project.target_date = datetime.date(2026, 12, 31)
+        self.project.save()
+        self.assertIn("6か月以上先", " ".join(self._run()))
         self.assertEqual(participant.monthly_assignments.count(), 0)
 
     def test_reports_participant_outside_organization(self):
         make_participant(self.project, self.outsider, percentage=40)  # bulk_create bypasses clean()
         self.assertIn("outsider not filled", " ".join(self._run()))
         self.assertFalse(ProjectMonthlyAssignment.objects.filter(project=self.project, user=self.outsider).exists())
+
+
+class ProjectAdminsParticipantFeaturesTestCase(ParticipantTestBase):
+    """The participants inline and 残りの月を補完 live on KippoProjectBaseAdmin, so every KippoProject admin has them."""
+
+    MODEL_NAMES = ("kippoproject", "activekippoproject", "saleskippoproject")
+
+    def setUp(self):
+        super().setUp()
+        self.github_manager.is_superuser = True
+        self.github_manager.is_staff = True
+        self.github_manager.save()
+        # A sales-phase, open, active project is listed by all three admins (proxy managers filter on these).
+        self.project.phase = "proposing-high"
+        self.project.save()
+        self.client.force_login(self.github_manager)
+
+    def test_change_page_renders_participants_inline(self):
+        for model_name in self.MODEL_NAMES:
+            with self.subTest(admin=model_name):
+                response = self.client.get(reverse(f"admin:projects_{model_name}_change", args=[self.project.id]))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'name="participants-TOTAL_FORMS"')
+
+    def test_changelist_offers_fill_action(self):
+        for model_name in self.MODEL_NAMES:
+            with self.subTest(admin=model_name):
+                response = self.client.get(reverse(f"admin:projects_{model_name}_changelist"))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'value="fill_remaining_participant_months_action"')
 
 
 class BackfillParticipantsMigrationTestCase(ParticipantTestBase):
