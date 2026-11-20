@@ -59,7 +59,7 @@ from .definitions import (
     ProjectRoles,
 )
 from .exceptions import GithubMilestoneAlreadyExistsError, SlackChannelNotFoundError
-from .filters import CategoryExcludeListFilter, PhaseMultiSelectListFilter
+from .filters import PROJECT_ID_PARAM, CategoryExcludeListFilter, ParticipantListFilter, PhaseMultiSelectListFilter
 from .functions import (
     generate_kippoprojectusermonthlystatisfaction_csv,
     generate_kippoprojectuserstatisfactionresult_csv,
@@ -247,7 +247,8 @@ def _customer_autocomplete_widget(
 def _project_manager_autocomplete_widget(
     model_admin: admin.options.BaseModelAdmin, db_field: models.ForeignKey, organization_id: uuid.UUID | None, using: str | None
 ) -> OrganizationScopedAutocompleteSelect:
-    """A KippoUser autocomplete widget for プロジェクトマネージャー, pinned to ``organization_id``.
+    """A KippoUser autocomplete widget pinned to ``organization_id``: プロジェクトマネージャー and the
+    プロジェクト参加者 inline's user.
 
     None (on /add/, before a project organization exists) leaves the dropdown scoped to whatever
     KippoUserAdmin.get_queryset allows — the editor's own organizations.
@@ -326,20 +327,47 @@ class ProjectParticipantInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdm
     fields = ("user", "percentage", "role", "monthly_assignments_link")
     readonly_fields = ("monthly_assignments_link",)
     ordering = ("user__username",)
+    # Searchable user select (KippoUserAdmin.search_fields), pinned to the project's organization members.
+    autocomplete_fields = ("user",)
 
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
+        # Stash the project's org BEFORE super() builds the form so formfield_for_foreignkey can pin the
+        # user autocomplete dropdown to it. The inline is only rendered on the change form, so obj is set.
+        request._participant_user_autocomplete_organization_id = obj.organization_id if obj is not None else None
         formset = super().get_formset(request, obj, **kwargs)
-        # closed projects render every field readonly → no "user" form field to scope
+        # closed projects render every field readonly → no "user" form field to scope.
+        # Validation stays scoped to the org's members, so a tampered cross-org submission is rejected.
         if obj is not None and "user" in formset.form.base_fields:
             member_ids = OrganizationMembership.objects.filter(organization=obj.organization).values_list("user_id", flat=True)
             formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id__in=member_ids).order_by("last_name", "username")
         return formset
 
+    def formfield_for_foreignkey(self, db_field: models.ForeignKey, request: DjangoRequest, **kwargs):
+        if db_field.name == "user" and "user" in self.get_autocomplete_fields(request):
+            kwargs["widget"] = _project_manager_autocomplete_widget(
+                self, db_field, getattr(request, "_participant_user_autocomplete_organization_id", None), kwargs.get("using")
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def formfield_for_dbfield(self, db_field: models.Field, request: DjangoRequest, **kwargs):
+        # Participants are chosen from existing organization members only — drop the ＋ / ✎ / × / 👁 links the
+        # admin puts beside a related select, so this is not a side door into user maintenance. Wrapping happens
+        # in formfield_for_dbfield (after formfield_for_foreignkey), so the flags have to be cleared here.
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "user" and isinstance(getattr(formfield, "widget", None), RelatedFieldWidgetWrapper):
+            formfield.widget.can_add_related = False
+            formfield.widget.can_change_related = False
+            formfield.widget.can_delete_related = False
+            formfield.widget.can_view_related = False
+        return formfield
+
     @admin.display(description=_("月別割当"))
     def monthly_assignments_link(self, obj: ProjectParticipant) -> str:
         if not obj.pk:
             return "-"
-        url = f"{reverse('admin:projects_projectmonthlyassignment_changelist')}?participant={obj.pk}"
+        # project + participant: the changelist's 参加者 filter can then be cleared to see the whole project.
+        query = urllib.parse.urlencode({PROJECT_ID_PARAM: obj.project_id, ParticipantListFilter.parameter_name: obj.pk})
+        url = f"{reverse('admin:projects_projectmonthlyassignment_changelist')}?{query}"
         return format_html('<a href="{}">{}</a>', url, _("%(count)d件") % {"count": obj.monthly_assignments.count()})
 
 
@@ -2407,11 +2435,28 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user", "month", "percentage", "role")
-    list_filter = ("role", "month", "project__organization")
+    list_filter = (ParticipantListFilter, "role", "month", "project__organization")
     ordering = ("project", "user__username", "month")
     search_fields = ("project__name", "user__username")
     exclude = ("is_confirmed",)  # deprecated 確定 field (kippo#69 D3)
     actions = (auto_extend_projectmonthlyassignment_action,)
+
+    def get_list_display(self, request: DjangoRequest) -> tuple:
+        columns = super().get_list_display(request)
+        if self._has_multiple_organizations(request):
+            return columns
+        return tuple(column for column in columns if column != "get_project_organization")
+
+    def get_list_filter(self, request: DjangoRequest) -> tuple:
+        filters = super().get_list_filter(request)
+        if self._has_multiple_organizations(request):
+            return filters
+        return tuple(list_filter for list_filter in filters if list_filter != "project__organization")
+
+    @staticmethod
+    def _has_multiple_organizations(request: DjangoRequest) -> bool:
+        """The Organization column / filter only distinguish rows for users in more than one organization."""
+        return len(organization_ids_for_user(request.user)) > 1
 
     def get_project_organization(self, obj: ProjectMonthlyAssignment):
         organization_name = obj.project.organization.name

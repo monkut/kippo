@@ -5,7 +5,7 @@ from django.http import request as DjangoRequest  # noqa: N812
 from django.utils.translation import gettext_lazy as _
 
 from .definitions import NON_PROJECT_CATEGORY_VALUE
-from .models import DEFAULT_ACTIVE_PROJECT_PHASES, VALID_PROJECT_PHASES
+from .models import DEFAULT_ACTIVE_PROJECT_PHASES, VALID_PROJECT_PHASES, KippoProject, ProjectParticipant
 
 
 class PhaseMultiSelectListFilter(MultiSelectListFilter):
@@ -67,3 +67,36 @@ class CategoryExcludeListFilter(MultiSelectListFilter):
     def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
         excluded = self.selected_values()
         return queryset.exclude(category__key__in=excluded) if excluded else queryset
+
+
+PROJECT_ID_PARAM = "project__id__exact"
+
+
+class ParticipantListFilter(admin.SimpleListFilter):
+    """参加者 filter for the 月別割当 changelist (kippo#75), opened from a participant's N件 link.
+
+    Choices are the participants of the project in ``?project__id__exact=`` (falling back to the selected
+    participant's project). The filter's すべて option drops only ``participant``, so the project filter stays
+    and every participant's rows for that project are listed. Hidden when no project is selected.
+    """
+
+    title = _("参加者")
+    parameter_name = "participant"
+
+    def __init__(self, request: DjangoRequest, params: dict, model: type[models.Model], model_admin: admin.ModelAdmin) -> None:
+        project_id = request.GET.get(PROJECT_ID_PARAM)
+        if not project_id and request.GET.get(self.parameter_name, "").isdigit():
+            project_id = ProjectParticipant.objects.filter(pk=request.GET[self.parameter_name]).values_list("project_id", flat=True).first()
+        self.project = KippoProject.objects.filter(pk=project_id).first() if project_id else None
+        super().__init__(request, params, model, model_admin)
+        if self.project is not None:
+            self.title = _("参加者 (%(project)s)") % {"project": self.project.name}
+
+    def lookups(self, request: DjangoRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        if self.project is None:
+            return []
+        participants = self.project.participants.select_related("user").order_by("user__username")
+        return [(str(p.pk), p.user.display_name.strip() or p.user.username) for p in participants]
+
+    def queryset(self, request: DjangoRequest, queryset: models.QuerySet) -> models.QuerySet:
+        return queryset.filter(participant_id=self.value()) if self.value() else queryset
