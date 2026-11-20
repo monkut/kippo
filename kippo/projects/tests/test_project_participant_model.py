@@ -11,15 +11,18 @@ from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.tests import DEFAULT_FIXTURES, setup_basic_project
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import AdminSite
+from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import ValidationError
 from django.forms.models import BaseInlineFormSet
+from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from projects.admin import (
     ActiveKippoProjectAdmin,
     KippoProjectAdmin,
+    OrganizationScopedAutocompleteSelect,
     ProjectParticipantInline,
     SalesKippoProjectAdmin,
     fill_remaining_participant_months_action,
@@ -266,6 +269,39 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
                 participant = ProjectParticipant.objects.get(project=self.project, user=self.member)
                 self.assertEqual(self._months(participant), [datetime.date(2026, m, 1) for m in (4, 5, 6)])
 
+    def test_user_field_is_org_scoped_search_without_related_links(self):
+        formset_class = self.inline.get_formset(self.request, self.project)
+        wrapper = formset_class.form.base_fields["user"].widget
+        self.assertIsInstance(wrapper, RelatedFieldWidgetWrapper)
+        # existing organization users only: no ＋ add / ✎ change / × delete / 👁 view links
+        self.assertFalse(wrapper.can_add_related)
+        self.assertFalse(wrapper.can_change_related)
+        self.assertFalse(wrapper.can_delete_related)
+        self.assertFalse(wrapper.can_view_related)
+        self.assertIsInstance(wrapper.widget, OrganizationScopedAutocompleteSelect)
+        self.assertIn(f"organization={self.organization.id}", wrapper.widget.get_url())
+        rendered = wrapper.render("participants-0-user", None)
+        self.assertIn("admin-autocomplete", rendered)
+        self.assertNotIn("add_id_participants-0-user", rendered)
+        self.assertNotIn("change_id_participants-0-user", rendered)
+
+    def test_user_search_returns_only_project_organization_members(self):
+        self.client.force_login(self.github_manager)
+        response = self.client.get(
+            reverse("admin:autocomplete"),
+            {
+                "app_label": "projects",
+                "model_name": "projectparticipant",
+                "field_name": "user",
+                "organization": str(self.organization.id),
+                "term": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        result_ids = {row["id"] for row in response.json()["results"]}
+        self.assertIn(str(self.member.id), result_ids)
+        self.assertNotIn(str(self.outsider.id), result_ids)
+
     def test_user_choices_limited_to_project_organization(self):
         formset_class = self.inline.get_formset(self.request, self.project)
         user_ids = set(formset_class.form.base_fields["user"].queryset.values_list("id", flat=True))
@@ -313,8 +349,81 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
         participant = self._participant()
         create_remaining_assignments(participant, self.github_manager)
         link = self.inline.monthly_assignments_link(participant)
-        self.assertIn(f"/projectmonthlyassignment/?participant={participant.pk}", link)
+        self.assertIn(f"/projectmonthlyassignment/?project__id__exact={self.project.id}&amp;participant={participant.pk}", link)
         self.assertIn("3", link)
+
+
+class MonthlyAssignmentChangelistParticipantFilterTestCase(ParticipantTestBase):
+    """月別割当 changelist opened from N件: the 参加者 filter can be cleared to list the whole project."""
+
+    def setUp(self):
+        super().setUp()
+        self.github_manager.is_superuser = True
+        self.github_manager.is_staff = True
+        self.github_manager.save()
+        self.client.force_login(self.github_manager)
+        self.member_participant = self._participant(percentage=40)
+        create_remaining_assignments(self.member_participant, self.github_manager)
+        self.user_participant = self._participant(user=self.user, percentage=20)
+        create_remaining_assignments(self.user_participant, self.github_manager)
+        self.url = reverse("admin:projects_projectmonthlyassignment_changelist")
+
+    def _listed_ids(self, params: dict) -> tuple[set[int], HttpResponse]:
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, 200)
+        return {row.pk for row in response.context["cl"].result_list}, response
+
+    def test_participant_filter_lists_only_that_participant(self):
+        ids, response = self._listed_ids({"project__id__exact": str(self.project.id), "participant": str(self.member_participant.pk)})
+        self.assertEqual(ids, set(self.member_participant.monthly_assignments.values_list("pk", flat=True)))
+        self.assertContains(response, f"参加者 ({self.project.name})")
+
+    def test_all_option_keeps_project_and_drops_participant(self):
+        _ids, response = self._listed_ids({"project__id__exact": str(self.project.id), "participant": str(self.member_participant.pk)})
+        participant_filter = next(f for f in response.context["cl"].filter_specs if f.parameter_name == "participant")
+        all_choice = next(iter(participant_filter.choices(response.context["cl"])))
+        self.assertIn(f"project__id__exact={self.project.id}", all_choice["query_string"])
+        self.assertNotIn("participant=", all_choice["query_string"])
+
+        ids, _response = self._listed_ids({"project__id__exact": str(self.project.id)})
+        expected = set(ProjectMonthlyAssignment.objects.filter(project=self.project).values_list("pk", flat=True))
+        self.assertEqual(ids, expected)
+        self.assertGreater(len(expected), self.member_participant.monthly_assignments.count())
+
+    def test_choices_are_the_project_participants(self):
+        _ids, response = self._listed_ids({"project__id__exact": str(self.project.id)})
+        participant_filter = next(f for f in response.context["cl"].filter_specs if f.parameter_name == "participant")
+        self.assertEqual(
+            {value for value, _label in participant_filter.lookup_choices}, {str(self.member_participant.pk), str(self.user_participant.pk)}
+        )
+
+    def _join(self, organization: KippoOrganization) -> None:
+        OrganizationMembership.objects.create(
+            user=self.github_manager, organization=organization, created_by=self.github_manager, updated_by=self.github_manager
+        )
+
+    def _organization_column_and_filter(self) -> tuple[bool, bool]:
+        _ids, response = self._listed_ids({"project__id__exact": str(self.project.id)})
+        cl = response.context["cl"]
+        filter_paths = [getattr(f, "field_path", None) for f in cl.filter_specs]
+        return "get_project_organization" in cl.list_display, "project__organization" in filter_paths
+
+    def test_organization_column_and_filter_hidden_for_single_organization_user(self):
+        self._join(self.organization)
+        self.assertEqual(self._organization_column_and_filter(), (False, False))
+
+    def test_organization_column_and_filter_shown_for_multi_organization_user(self):
+        self._join(self.organization)
+        self._join(
+            KippoOrganization.objects.create(
+                name="second-org", github_organization_name="secondorg", created_by=self.github_manager, updated_by=self.github_manager
+            )
+        )
+        self.assertEqual(self._organization_column_and_filter(), (True, True))
+
+    def test_legacy_participant_only_link_still_filters(self):
+        ids, _response = self._listed_ids({"participant": str(self.member_participant.pk)})
+        self.assertEqual(ids, set(self.member_participant.monthly_assignments.values_list("pk", flat=True)))
 
 
 class FillRemainingMonthsActionTestCase(ParticipantTestBase):
