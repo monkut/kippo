@@ -109,6 +109,19 @@
     });
 })();
 </script>
+<script>
+'use strict';
+// Open any collapsed section that holds a validation error. Django only skips collapsing an inline
+// whose OWN formset has errors; an error in the nested 請求エントリ inline would stay hidden inside a
+// collapsed 契約 section.
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('details').forEach(function (details) {
+        if (details.querySelector('.errorlist, .errors')) {
+            details.open = true;
+        }
+    });
+});
+</script>
 {% include "admin/projects/contract_monthly_amount_toggle.html" %}
 {% endblock %}
 

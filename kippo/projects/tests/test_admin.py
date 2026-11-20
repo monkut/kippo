@@ -2424,9 +2424,27 @@ class KippoProjectAddFormLayoutTestCase(KippoProjectAdminFixtureTestCaseBase):
         for obj in (None, self.existing_project):
             self.assertNotIn("columnset", self._all_fieldset_fields(modeladmin.get_fieldsets(self.super_user_request, obj=obj)))
 
-    def test_contract_inline_expanded_single_entry(self):
-        self.assertNotIn("collapse", getattr(KippoProjectContractInline, "classes", ()) or ())
+    def test_contract_inline_collapsible_single_entry(self):
+        # 契約 is change-form only (hidden on /add/), so it collapses like the other change-form inlines.
+        self.assertIn("collapse", KippoProjectContractInline.classes)
         self.assertEqual(KippoProjectContractInline.extra, 1)
+
+    def test_billing_entry_inline_collapsible_on_project_page_only(self):
+        from projects.admin import KippoProjectBillingEntryInline, KippoProjectContractAdmin, KippoProjectContractBillingEntryInline
+
+        self.assertEqual(KippoProjectContractInline.inlines, (KippoProjectContractBillingEntryInline,))
+        self.assertIn("collapse", KippoProjectContractBillingEntryInline.classes)
+        # The standalone contract admin keeps its billing ledger expanded.
+        self.assertIn(KippoProjectBillingEntryInline, KippoProjectContractAdmin.inlines)
+        self.assertNotIn("collapse", KippoProjectBillingEntryInline.classes or ())
+
+    def test_change_view_renders_contract_and_billing_entry_sections_collapsible(self):
+        url = reverse("admin:projects_kippoproject_change", args=[self.existing_project.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        content = response.content.decode()
+        for heading in ("契約", "請求エントリ"):
+            self.assertRegex(content, rf"<details><summary>\s*<h2>\s*{heading}")
 
     def test_billing_entry_inline_removed(self):
         from projects.admin import KippoProjectBillingEntryInline

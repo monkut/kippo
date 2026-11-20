@@ -439,8 +439,14 @@ def _validate_under_contract_gate(formset: BaseFormSet) -> None:
         raise ValidationError(CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG)
 
 
+class KippoProjectContractBillingEntryInline(KippoProjectBillingEntryInline):
+    # Collapsible on the project page only; the standalone contract admin keeps the ledger expanded.
+    classes = ("collapse",)
+
+
 class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdminMixin, nested_admin.NestedStackedInline):
     model = KippoProjectContract
+    classes = ("collapse",)
     extra = 1
     max_num = 1  # OneToOne — one contract per project (kippo#31)
     min_num = 0  # the contract is added on a later edit, not at registration (the inline is hidden on /add/)
@@ -448,7 +454,7 @@ class KippoProjectContractInline(LockWhenProjectClosedInlineMixin, AllowIsStaffA
     # 請求先 (billed_to) uses the same searchable autocomplete as the project's 顧客 field instead of an
     # unbounded all-organizations <select>; get_formset scopes it to the project's organization.
     autocomplete_fields = ("billed_to",)
-    inlines = (KippoProjectBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
+    inlines = (KippoProjectContractBillingEntryInline,)  # billing entries nested under the contract (django-nested-admin)
 
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         """Pre-fill the new contract row's period with the project's dates so the admin user
