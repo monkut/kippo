@@ -482,7 +482,7 @@ class MonthlyAssignmentChangelistParticipantFilterTestCase(ParticipantTestBase):
 
 
 class FillRemainingMonthsActionTestCase(ParticipantTestBase):
-    """G3: the 残りの月を補完 project admin action fills only missing remaining-period months."""
+    """G3: the 残り期間の月別割当を補完 project admin action fills only missing remaining-period months."""
 
     def setUp(self):
         super().setUp()
@@ -539,7 +539,7 @@ class FillRemainingMonthsActionTestCase(ParticipantTestBase):
 
 
 class ProjectAdminsParticipantFeaturesTestCase(ParticipantTestBase):
-    """The participants inline and 残りの月を補完 live on KippoProjectBaseAdmin, so every KippoProject admin has them."""
+    """The participants inline and 残り期間の月別割当を補完 live on KippoProjectBaseAdmin, so every KippoProject admin has them."""
 
     MODEL_NAMES = ("kippoproject", "activekippoproject", "saleskippoproject")
 

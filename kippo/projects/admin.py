@@ -1107,7 +1107,7 @@ def fill_remaining_participant_months_action(modeladmin: admin.ModelAdmin, reque
     modeladmin.message_user(request, _("Total rows created: %(count)d") % {"count": total_created}, level=messages.SUCCESS)
 
 
-fill_remaining_participant_months_action.short_description = _("残りの月を補完")  # noqa: E305
+fill_remaining_participant_months_action.short_description = _("残り期間の月別割当を補完")  # noqa: E305
 
 
 def add_calendar_links_to_slack_channels_action(modeladmin: admin.ModelAdmin, request: DjangoRequest, queryset: models.QuerySet):
