@@ -2442,6 +2442,7 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     list_display = ("project", "get_project_organization", "user", "month", "percentage", "user_assignment_percentage_total", "role")
     list_filter = (ParticipantListFilter, "role", "month", "project__organization")
+    list_select_related = ("project__organization", "user")
     ordering = ("project", "user__username", "month")
     search_fields = ("project__name", "user__username")
     exclude = ("is_confirmed",)  # deprecated 確定 field (kippo#69 D3)
