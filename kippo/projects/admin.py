@@ -330,6 +330,11 @@ class ProjectParticipantInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdm
     # Searchable user select (KippoUserAdmin.search_fields), pinned to the project's organization members.
     autocomplete_fields = ("user",)
 
+    def get_queryset(self, request: DjangoRequest) -> QuerySet:
+        # monthly_assignments_link renders every participant's months — fetch them in one query.
+        months = ProjectMonthlyAssignment.objects.filter(month__isnull=False).order_by("month")
+        return super().get_queryset(request).prefetch_related(Prefetch("monthly_assignments", queryset=months))
+
     def get_formset(self, request: DjangoRequest, obj: KippoProject | None = None, **kwargs):
         # Stash the project's org BEFORE super() builds the form so formfield_for_foreignkey can pin the
         # user autocomplete dropdown to it. The inline is only rendered on the change form, so obj is set.
@@ -368,7 +373,8 @@ class ProjectParticipantInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdm
         # project + participant: the changelist's 参加者 filter can then be cleared to see the whole project.
         query = urllib.parse.urlencode({PROJECT_ID_PARAM: obj.project_id, ParticipantListFilter.parameter_name: obj.pk})
         url = f"{reverse('admin:projects_projectmonthlyassignment_changelist')}?{query}"
-        assignments = obj.monthly_assignments.filter(month__isnull=False).order_by("month")
+        # Prefetched month-ordered (get_queryset); the filter/sort keeps a non-prefetched obj correct too.
+        assignments = sorted((a for a in obj.monthly_assignments.all() if a.month), key=lambda a: a.month)
         # "11月、12月" linked to the participant's changelist; each month's tooltip carries its year and
         # percentage (e.g. "2026年11月: 40%").
         months = format_html_join(
