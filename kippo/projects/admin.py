@@ -368,14 +368,15 @@ class ProjectParticipantInline(LockWhenProjectClosedInlineMixin, AllowIsStaffAdm
         # project + participant: the changelist's 参加者 filter can then be cleared to see the whole project.
         query = urllib.parse.urlencode({PROJECT_ID_PARAM: obj.project_id, ParticipantListFilter.parameter_name: obj.pk})
         url = f"{reverse('admin:projects_projectmonthlyassignment_changelist')}?{query}"
-        assignments = list(obj.monthly_assignments.filter(month__isnull=False).order_by("month"))
-        # "11月、12月" — each month's tooltip carries its year and percentage (e.g. "2026年11月: 40%").
+        assignments = obj.monthly_assignments.filter(month__isnull=False).order_by("month")
+        # "11月、12月" linked to the participant's changelist; each month's tooltip carries its year and
+        # percentage (e.g. "2026年11月: 40%").
         months = format_html_join(
             "、",
             '<span title="{}年{}月: {}%">{}月</span>',
             ((a.month.year, a.month.month, a.percentage, a.month.month) for a in assignments),
         )
-        return format_html('{} <a href="{}">{}</a>', months, url, _("(%(count)d件)") % {"count": len(assignments)})
+        return format_html('<a href="{}">{}</a>', url, months or "-")
 
 
 class KippoProjectBillingEntryInline(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):

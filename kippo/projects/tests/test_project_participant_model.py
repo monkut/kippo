@@ -355,7 +355,7 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
         create_remaining_assignments(participant, self.github_manager)
         link = self.inline.monthly_assignments_link(participant)
         self.assertIn(f"/projectmonthlyassignment/?project__id__exact={self.project.id}&amp;participant={participant.pk}", link)
-        self.assertIn("(3件)", link)
+        self.assertNotIn("件", link)
 
     def test_monthly_assignments_link_lists_months_with_percentage_tooltips(self):
         participant = self._participant(percentage=40)
