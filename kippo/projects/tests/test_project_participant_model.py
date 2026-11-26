@@ -355,7 +355,23 @@ class ProjectParticipantInlineTestCase(ParticipantTestBase):
         create_remaining_assignments(participant, self.github_manager)
         link = self.inline.monthly_assignments_link(participant)
         self.assertIn(f"/projectmonthlyassignment/?project__id__exact={self.project.id}&amp;participant={participant.pk}", link)
-        self.assertIn("3", link)
+        self.assertNotIn("件", link)
+
+    def test_monthly_assignments_link_without_months_shows_dash_link(self):
+        participant = self._participant()
+        participant.monthly_assignments.all().delete()
+        link = self.inline.monthly_assignments_link(participant)
+        self.assertRegex(link, rf'^<a href="[^"]+participant={participant.pk}">-</a>$')
+
+    def test_monthly_assignments_link_lists_months_with_percentage_tooltips(self):
+        participant = self._participant(percentage=40)
+        create_remaining_assignments(participant, self.github_manager)
+        link = self.inline.monthly_assignments_link(participant)
+        # remaining months from TODAY (2026-04), in date order, with year + percentage tooltips
+        self.assertIn(
+            '<span title="2026年4月: 40%">4月</span>、<span title="2026年5月: 40%">5月</span>、<span title="2026年6月: 40%">6月</span>',
+            link,
+        )
 
 
 class MonthlyAssignmentChangelistParticipantFilterTestCase(ParticipantTestBase):
