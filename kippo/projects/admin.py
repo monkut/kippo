@@ -2440,7 +2440,7 @@ auto_extend_projectmonthlyassignment_action.short_description = _("将来月の�
 
 @admin.register(ProjectMonthlyAssignment)
 class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
-    list_display = ("project", "get_project_organization", "user", "month", "percentage", "role")
+    list_display = ("project", "get_project_organization", "user", "month", "percentage", "user_assignment_percentage_total", "role")
     list_filter = (ParticipantListFilter, "role", "month", "project__organization")
     ordering = ("project", "user__username", "month")
     search_fields = ("project__name", "user__username")
@@ -2463,6 +2463,25 @@ class ProjectMonthlyAssignmentAdmin(UserCreatedBaseModelAdmin):
     def _has_multiple_organizations(request: DjangoRequest) -> bool:
         """The Organization column / filter only distinguish rows for users in more than one organization."""
         return len(organization_ids_for_user(request.user)) > 1
+
+    def get_queryset(self, request: DjangoRequest) -> QuerySet:
+        # The row user's total percentage for the row's month, scoped to the project's organization —
+        # the same grouping as the over-allocation warning in ProjectMonthlyAssignment.save().
+        month_total = (
+            ProjectMonthlyAssignment.objects.filter(
+                user=OuterRef("user"),
+                month=OuterRef("month"),
+                project__organization=OuterRef("project__organization"),
+            )
+            .values("user")
+            .annotate(total=Sum("percentage"))
+            .values("total")
+        )
+        return super().get_queryset(request).annotate(user_assignment_percentage_total=Subquery(month_total))
+
+    @admin.display(description=_("User assignment percentage total"), ordering="user_assignment_percentage_total")
+    def user_assignment_percentage_total(self, obj: ProjectMonthlyAssignment) -> int | None:
+        return obj.user_assignment_percentage_total
 
     def get_project_organization(self, obj: ProjectMonthlyAssignment):
         organization_name = obj.project.organization.name

@@ -430,6 +430,40 @@ class MonthlyAssignmentChangelistParticipantFilterTestCase(ParticipantTestBase):
         ids, _response = self._listed_ids({"participant": str(self.member_participant.pk)})
         self.assertEqual(ids, set(self.member_participant.monthly_assignments.values_list("pk", flat=True)))
 
+    def _assign(self, project: KippoProject, month: datetime.date, percentage: int) -> None:
+        make_participant(project, self.member, percentage=percentage)
+        ProjectMonthlyAssignment.objects.create(
+            project=project, user=self.member, month=month, percentage=percentage, created_by=self.github_manager, updated_by=self.github_manager
+        )
+
+    def _project(self, organization: KippoOrganization, name: str) -> KippoProject:
+        return KippoProject.objects.create(
+            organization=organization,
+            name=name,
+            columnset=self.project.columnset,
+            start_date=self.project.start_date,
+            target_date=self.project.target_date,
+            created_by=self.github_manager,
+            updated_by=self.github_manager,
+        )
+
+    def test_user_assignment_percentage_total_sums_user_month_in_organization(self):
+        month = datetime.date(2026, 5, 1)
+        # member: 40% (this project) + 30% (same-org project) → 70%; the other-org 50% is excluded
+        self._assign(self._project(self.organization, "same-org-project"), month, 30)
+        other_org = KippoOrganization.objects.get(name="other-org")
+        OrganizationMembership.objects.create(
+            user=self.member, organization=other_org, created_by=self.github_manager, updated_by=self.github_manager
+        )
+        self._assign(self._project(other_org, "other-org-project"), month, 50)
+
+        _ids, response = self._listed_ids({"project__id__exact": str(self.project.id)})
+        cl = response.context["cl"]
+        self.assertIn("user_assignment_percentage_total", cl.list_display)
+        totals = {(row.user_id, row.month): row.user_assignment_percentage_total for row in cl.result_list}
+        self.assertEqual(totals[(self.member.pk, month)], 70)
+        self.assertEqual(totals[(self.user.pk, month)], 20)
+
 
 class FillRemainingMonthsActionTestCase(ParticipantTestBase):
     """G3: the 残りの月を補完 project admin action fills only missing remaining-period months."""
