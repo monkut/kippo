@@ -7,12 +7,16 @@ from unittest import mock
 from commons.functions import country_timezone_names, single_timezone_name_for_country
 from commons.tests import IsStaffModelAdminTestCaseBase
 from commons.tests.utils import webhook_response_factory
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from freezegun import freeze_time
+from rest_framework.test import APIClient
 
 from accounts.definitions import AttendanceRecordCategory
-from accounts.models import AttendanceRecord, Country, OrganizationMembership, SlackCommand
+from accounts.models import AttendanceRecord, Country, KippoUser, OrganizationMembership, SlackCommand
 from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
 from accounts.slackcommand.subcommands.listusers import ListUsersSubCommand
 
@@ -101,6 +105,87 @@ class KippoUserGetTimezoneTestCase(UserTimezoneTestCaseBase):
         record = AttendanceRecord(organization=self.organization, created_by=self.user, entry_datetime=entry_datetime)
         record.clean()
         self.assertEqual(record.date, LOS_ANGELES_TODAY)
+
+
+class UserTimezoneApiTestCase(UserTimezoneTestCaseBase):
+    """timezone_name / effective_timezone_name on the current-user and organization-members endpoints."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.timezone_name = "Europe/London"
+        self.organization.save()
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.me_url = f"{settings.URL_PREFIX}/api/auth/me/"
+        self.members_url = f"{settings.URL_PREFIX}/api/organizations/{self.organization.id}/members/"
+
+    def _add_member(self, username: str, **user_fields) -> KippoUser:
+        member = KippoUser.objects.create(username=username, **user_fields)
+        OrganizationMembership.objects.create(
+            user=member, organization=self.organization, created_by=self.github_manager, updated_by=self.github_manager
+        )
+        return member
+
+    def _members_by_username(self) -> dict[str, dict]:
+        response = self.client.get(self.members_url)
+        self.assertEqual(response.status_code, 200, response.content)
+        return {member["username"]: member for member in response.json()["members"]}
+
+    def test_me_without_a_timezone_uses_the_first_organization(self):
+        data = self.client.get(self.me_url).json()
+        self.assertEqual(data["timezone_name"], "")
+        self.assertEqual(data["effective_timezone_name"], "Europe/London")
+
+    def test_me_with_own_timezone(self):
+        self.user.timezone_name = "America/Los_Angeles"
+        self.user.save()
+        data = self.client.get(self.me_url).json()
+        self.assertEqual(data["timezone_name"], "America/Los_Angeles")
+        self.assertEqual(data["effective_timezone_name"], "America/Los_Angeles")
+
+    def test_me_derives_from_the_holiday_country(self):
+        self.user.holiday_country = self.japan
+        self.user.save()
+        data = self.client.get(self.me_url).json()
+        self.assertEqual(data["timezone_name"], "")
+        self.assertEqual(data["effective_timezone_name"], "Asia/Tokyo")
+
+    def test_members_show_stored_and_effective_timezone(self):
+        self._add_member("in-la", timezone_name="America/Los_Angeles", holiday_country=self.united_states)
+        self._add_member("in-japan", holiday_country=self.japan)
+        self._add_member("in-us-no-timezone", holiday_country=self.united_states)
+        members = self._members_by_username()
+        expected = {
+            "in-la": ("America/Los_Angeles", "America/Los_Angeles"),
+            "in-japan": ("", "Asia/Tokyo"),  # derived: Japan has one timezone
+            "in-us-no-timezone": ("", "Europe/London"),  # the US has several: the organization's
+            self.user.username: ("", "Europe/London"),
+        }
+        for username, (timezone_name, effective_timezone_name) in expected.items():
+            with self.subTest(username=username):
+                self.assertEqual(members[username]["timezone_name"], timezone_name)
+                self.assertEqual(members[username]["effective_timezone_name"], effective_timezone_name)
+
+    def test_members_query_count_does_not_grow_with_members(self):
+        self._add_member("member-1", holiday_country=self.japan)
+        self._members_by_username()  # warm the per-user organization-id cache kept on the test's user object
+        with CaptureQueriesContext(connection) as few_members:
+            self._members_by_username()
+        for index in range(2, 6):
+            self._add_member(f"member-{index}", holiday_country=self.japan)
+        with CaptureQueriesContext(connection) as more_members:
+            self.assertGreaterEqual(len(self._members_by_username()), 6)
+        self.assertEqual(len(more_members), len(few_members))
+
+    def test_new_member_fields_are_optional_in_the_schema(self):
+        """Clients generated from an older schema build typed member objects; a new required field would break them."""
+        response = self.client.get(f"{settings.URL_PREFIX}/api/schema/", {"format": "json"})
+        schemas = response.json()["components"]["schemas"]
+        member = schemas["OrganizationMemberDetail"]
+        for field in ("timezone_name", "effective_timezone_name"):
+            with self.subTest(field=field):
+                self.assertIn(field, member["properties"])
+                self.assertNotIn(field, member.get("required", []))
 
 
 @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())

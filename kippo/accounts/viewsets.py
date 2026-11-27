@@ -267,7 +267,8 @@ class OrganizationViewSet(OrganizationFilterMixin, ListModelMixin, RetrieveModel
 
         memberships = list(
             OrganizationMembership.objects.filter(**membership_filters)
-            .select_related("user")
+            # holiday_country backs effective_timezone_name (KippoUser.get_timezone)
+            .select_related("user__holiday_country")
             .exclude(user__username__startswith=settings.UNASSIGNED_USER_GITHUB_LOGIN_PREFIX)
             .order_by("user__username")
         )
@@ -290,6 +291,8 @@ class OrganizationViewSet(OrganizationFilterMixin, ListModelMixin, RetrieveModel
                 "slack_username": m.slack_username or "",
                 "slack_user_id": m.slack_user_id or "",
                 "slack_image_url": m.slack_image_url or "",
+                "timezone_name": m.user.timezone_name,
+                "effective_timezone_name": m.user.get_timezone(organization).key,
                 "available_work_days": workdays_by_user.get(m.user_id) if month_start else None,
             }
             for m in memberships
