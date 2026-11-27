@@ -257,6 +257,7 @@ class ProjectResponsePhaseConfidenceChangesTestCase(TestCase):
 
     def test_query_count_does_not_grow_with_changes(self):
         other_project = KippoProject.objects.exclude(pk=self.project.pk).filter(organization=self.project.organization).first()
+        self.assertIsNotNone(other_project)
         self._change_phase(NEW_PHASE)
         list_queries, detail_queries = self._query_count(self.list_url), self._query_count(self.detail_url)
         for phase in (PHASE_COMPLETED, NEW_PHASE, PHASE_COMPLETED):

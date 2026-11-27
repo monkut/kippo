@@ -310,7 +310,8 @@ class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
     in the project response as ``phase_confidence_changes``. Read-only: KippoProject.save() writes the rows.
 
     ``*_phase`` is the phase key and ``*_phase_display`` its label. The ``changed_by_*`` fields
-    follow the status-comment author fields; both are null when the user has since been deleted.
+    follow the status-comment author fields; both are null when no user is recorded (the project
+    was saved with ``updated_by`` unset, or the user has since been deleted).
     """
 
     previous_phase_display = serializers.CharField(source="get_previous_phase_display", read_only=True)
@@ -867,17 +868,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
             created_by = latest_status.created_by
-            display_name = None
-            username = None
-            if created_by:
-                username = created_by.username
-                first_name = created_by.first_name or ""
-                last_name = created_by.last_name or ""
-                display_name = f"{first_name} {last_name}".strip() or username
             return {
                 "comment": latest_status.comment,
-                "created_by_username": username,
-                "created_by_display_name": display_name,
+                "created_by_username": created_by.username if created_by else None,
+                "created_by_display_name": _user_display_name(created_by),
                 "created_datetime": latest_status.created_datetime,
             }
         return None
