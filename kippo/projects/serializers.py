@@ -31,6 +31,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -278,6 +279,13 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
         return None
 
 
+def _user_display_name(user: KippoUser | None) -> str | None:
+    """The user's first and last name, falling back to the username. None when there is no user."""
+    if not user:
+        return None
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
+
+
 class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
     """A project's status comment (``KippoProjectStatus``, kippo#64), nested under
     ``/projects/{project_pk}/status-comments/``.
@@ -296,10 +304,42 @@ class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_created_by_display_name(self, obj: KippoProjectStatus) -> str | None:
-        created_by = obj.created_by
-        if not created_by:
-            return None
-        return f"{created_by.first_name or ''} {created_by.last_name or ''}".strip() or created_by.username
+        return _user_display_name(obj.created_by)
+
+
+class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
+    """One フェーズ / 確度 change on a project (``KippoProjectPhaseConfidenceChange``, kippo#77), embedded
+    in the project response as ``phase_confidence_changes``. Read-only: KippoProject.save() writes the rows.
+
+    ``*_phase`` is the phase key and ``*_phase_display`` its label. The ``changed_by_*`` fields
+    follow the status-comment author fields; both are null when no user is recorded (the project
+    was saved with ``updated_by`` unset, or the user has since been deleted).
+    """
+
+    previous_phase_display = serializers.CharField(source="get_previous_phase_display", read_only=True)
+    new_phase_display = serializers.CharField(source="get_new_phase_display", read_only=True)
+    changed_by_username = serializers.CharField(source="changed_by.username", read_only=True, allow_null=True)
+    changed_by_display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KippoProjectPhaseConfidenceChange
+        fields = [
+            "id",
+            "previous_phase",
+            "previous_phase_display",
+            "new_phase",
+            "new_phase_display",
+            "previous_confidence",
+            "new_confidence",
+            "changed_by_username",
+            "changed_by_display_name",
+            "changed_datetime",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_changed_by_display_name(self, obj: KippoProjectPhaseConfidenceChange) -> str | None:
+        return _user_display_name(obj.changed_by)
 
 
 class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
@@ -480,6 +520,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     has_requirements = serializers.SerializerMethodField()
     projectstatus_display = serializers.SerializerMethodField()
     latest_comment = serializers.SerializerMethodField()
+    # フェーズ / 確度 change log, newest first (kippo#79). Read-only: KippoProject.save() writes the rows,
+    # so a PATCH that changes phase or confidence returns the row it just added.
+    phase_confidence_changes = serializers.SerializerMethodField()
     weekly_effort_users = serializers.SerializerMethodField()
     survey_users = serializers.SerializerMethodField()
     github_repositories = serializers.SerializerMethodField()
@@ -567,6 +610,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "created_datetime",
@@ -595,6 +639,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "github_repositories",
@@ -854,6 +899,17 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "level": effort_level(project_progress_status),
         }
 
+    @extend_schema_field(KippoProjectPhaseConfidenceChangeSerializer(many=True))
+    def get_phase_confidence_changes(self, obj: KippoProject) -> list[dict]:
+        """The project's フェーズ / 確度 changes, newest first."""
+        # The viewset prefetches the log with changed_by. A response built without it (create,
+        # or update, which clears the prefetch cache) reads the log here in one query.
+        if "phase_confidence_changes" in getattr(obj, "_prefetched_objects_cache", {}):
+            changes = obj.phase_confidence_changes.all()
+        else:
+            changes = obj.phase_confidence_changes.select_related("changed_by")
+        return KippoProjectPhaseConfidenceChangeSerializer(changes, many=True).data
+
     @extend_schema_field(LatestCommentInlineSerializer(allow_null=True))
     def get_latest_comment(self, obj: KippoProject) -> dict | None:
         """Get the latest KippoProjectStatus comment with commentor info."""
@@ -866,17 +922,10 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
             created_by = latest_status.created_by
-            display_name = None
-            username = None
-            if created_by:
-                username = created_by.username
-                first_name = created_by.first_name or ""
-                last_name = created_by.last_name or ""
-                display_name = f"{first_name} {last_name}".strip() or username
             return {
                 "comment": latest_status.comment,
-                "created_by_username": username,
-                "created_by_display_name": display_name,
+                "created_by_username": created_by.username if created_by else None,
+                "created_by_display_name": _user_display_name(created_by),
                 "created_datetime": latest_status.created_datetime,
             }
         return None

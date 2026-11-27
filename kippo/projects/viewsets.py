@@ -29,6 +29,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -281,6 +282,15 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         from requirements.models import ProjectProblemDefinition
 
         queryset = queryset.annotate(has_requirements_annotated=Exists(ProjectProblemDefinition.objects.filter(project=OuterRef("pk"))))
+
+        # フェーズ / 確度 change log for the serializer's phase_confidence_changes (kippo#79), with
+        # changed_by for the author fields. Read actions only: update() clears the prefetch cache
+        # (the serializer then re-reads the log, so a PATCH response includes the change it made),
+        # and the other actions do not serialize the project.
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.prefetch_related(
+                Prefetch("phase_confidence_changes", queryset=KippoProjectPhaseConfidenceChange.objects.select_related("changed_by"))
+            )
 
         # Filter by user's organization memberships (skip for superusers)
         queryset = self.filter_by_organization(queryset)

@@ -2343,7 +2343,8 @@ class KippoProjectListQueryCountTestCase(TestCase):
         """The list endpoint issues a fixed number of queries independent of project/related-row count."""
         url = f"{settings.URL_PREFIX}/api/projects/?page_size=100"
         # Exact count after the N+1 fix (org filter + count + page + prefetches + batch aggregates).
-        expected_queries = 7
+        # 8 since kippo#79: one more prefetch, for the embedded phase_confidence_changes.
+        expected_queries = 8
         with self.assertNumQueries(expected_queries):
             response = self.client.get(url)
         self.assertEqual(response.status_code, HTTPStatus.OK)
