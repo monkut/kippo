@@ -30,6 +30,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -276,6 +277,13 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
         return None
 
 
+def _user_display_name(user: KippoUser | None) -> str | None:
+    """The user's first and last name, falling back to the username. None when there is no user."""
+    if not user:
+        return None
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
+
+
 class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
     """A project's status comment (``KippoProjectStatus``, kippo#64), nested under
     ``/projects/{project_pk}/status-comments/``.
@@ -294,10 +302,42 @@ class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_created_by_display_name(self, obj: KippoProjectStatus) -> str | None:
-        created_by = obj.created_by
-        if not created_by:
-            return None
-        return f"{created_by.first_name or ''} {created_by.last_name or ''}".strip() or created_by.username
+        return _user_display_name(obj.created_by)
+
+
+class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
+    """One フェーズ / 確度 change on a project (``KippoProjectPhaseConfidenceChange``, kippo#77), nested
+    under ``/projects/{project_pk}/phase-confidence-changes/``. Read-only: KippoProject.save() writes the rows.
+
+    ``*_phase`` is the phase key and ``*_phase_display`` its label. The ``changed_by_*`` fields
+    follow the status-comment author fields; both are null when the user has since been deleted.
+    """
+
+    previous_phase_display = serializers.CharField(source="get_previous_phase_display", read_only=True)
+    new_phase_display = serializers.CharField(source="get_new_phase_display", read_only=True)
+    changed_by_username = serializers.CharField(source="changed_by.username", read_only=True, allow_null=True)
+    changed_by_display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KippoProjectPhaseConfidenceChange
+        fields = [
+            "id",
+            "project",
+            "previous_phase",
+            "previous_phase_display",
+            "new_phase",
+            "new_phase_display",
+            "previous_confidence",
+            "new_confidence",
+            "changed_by_username",
+            "changed_by_display_name",
+            "changed_datetime",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_changed_by_display_name(self, obj: KippoProjectPhaseConfidenceChange) -> str | None:
+        return _user_display_name(obj.changed_by)
 
 
 class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):

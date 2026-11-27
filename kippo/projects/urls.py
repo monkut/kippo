@@ -19,6 +19,7 @@ from .viewsets import (
     KippoProjectBillingEntryViewSet,
     KippoProjectContractViewSet,
     KippoProjectOrganizationCategoryViewSet,
+    KippoProjectPhaseConfidenceChangeViewSet,
     KippoProjectStatusCommentViewSet,
     KippoProjectUserStatisfactionResultViewSet,
     KippoProjectViewSet,
@@ -52,6 +53,8 @@ projects_nested_router.register(r"contract", KippoProjectContractViewSet, basena
 projects_nested_router.register(r"billing-entries", KippoProjectBillingEntryViewSet, basename="project-billing-entry")
 # Status comments (kippo#64) — append-only, org-scoped. /api/projects/{project_pk}/status-comments/
 projects_nested_router.register(r"status-comments", KippoProjectStatusCommentViewSet, basename="project-status-comment")
+# フェーズ / 確度 change log (kippo#77) — read-only, org-scoped. /api/projects/{project_pk}/phase-confidence-changes/
+projects_nested_router.register(r"phase-confidence-changes", KippoProjectPhaseConfidenceChangeViewSet, basename="project-phase-confidence-change")
 
 # Manually define weeklyeffort viewset URLs to nest under projects/
 weeklyeffort_list = ProjectWeeklyEffortViewSet.as_view(

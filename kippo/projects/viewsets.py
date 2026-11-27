@@ -30,6 +30,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -46,6 +47,7 @@ from .serializers import (
     KippoProjectBillingEntrySerializer,
     KippoProjectContractSerializer,
     KippoProjectOrganizationCategorySerializer,
+    KippoProjectPhaseConfidenceChangeSerializer,
     KippoProjectSerializer,
     KippoProjectStatusCommentSerializer,
     KippoProjectUserStatisfactionResultSerializer,
@@ -791,6 +793,27 @@ class KippoProjectStatusCommentViewSet(mixins.ListModelMixin, mixins.RetrieveMod
         if project.is_closed:
             raise ValidationError("This project is closed; status comments cannot be added.")
         serializer.save(project=project, created_by=self.request.user, updated_by=self.request.user)
+
+
+class KippoProjectPhaseConfidenceChangeViewSet(viewsets.ReadOnlyModelViewSet):
+    """フェーズ / 確度 change log (``KippoProjectPhaseConfidenceChange``, kippo#77) for a project, nested
+    under ``/projects/{project_pk}/phase-confidence-changes/``.
+
+    Read-only: list (newest first) and retrieve. KippoProject.save() writes one row whenever
+    フェーズ or 確度 changes, from the admin, the API or a command. Org-scoped via the project.
+    """
+
+    serializer_class = KippoProjectPhaseConfidenceChangeSerializer
+    permission_classes = [IsAuthenticated]
+    # "-id" breaks ties between changes saved in the same instant, so pages are stable.
+    queryset = KippoProjectPhaseConfidenceChange.objects.all().select_related("changed_by").order_by("-changed_datetime", "-id")
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(project__in=_user_accessible_projects(self.request.user))
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            queryset = queryset.filter(project_id=project_pk)
+        return queryset
 
 
 class KippoProjectBillingEntryViewSet(viewsets.ModelViewSet):
