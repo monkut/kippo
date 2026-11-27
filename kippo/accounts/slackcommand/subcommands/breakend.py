@@ -120,7 +120,7 @@ class BreakEndSubCommand(SubCommandBase):
             .order_by("-entry_datetime")
             .first()
         )
-        logger.debug(f"latest_attendance_record={latest_attendance_record}, category={latest_attendance_record.category}")
+        logger.debug(f"latest_attendance_record={latest_attendance_record}")
 
         if latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_START:
             logger.info(f"Valid latest_attendance_record.category='{latest_attendance_record.category}'")

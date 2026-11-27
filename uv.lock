@@ -530,6 +530,7 @@ dependencies = [
     { name = "requests" },
     { name = "slack-sdk" },
     { name = "social-auth-app-django" },
+    { name = "tzdata" },
     { name = "whitenoise" },
     { name = "zappa" },
 ]
@@ -562,6 +563,7 @@ requires-dist = [
     { name = "requests" },
     { name = "slack-sdk" },
     { name = "social-auth-app-django" },
+    { name = "tzdata", specifier = ">=2025.2" },
     { name = "whitenoise" },
     { name = "zappa", specifier = ">=0.60.0,<0.61.0" },
 ]

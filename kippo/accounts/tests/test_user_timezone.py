@@ -4,7 +4,7 @@ import datetime
 import zoneinfo
 from unittest import mock
 
-from commons.functions import country_timezone_names, single_timezone_name_for_country
+from commons.functions import country_timezone_names, timezone_name_for_country
 from commons.tests import IsStaffModelAdminTestCaseBase
 from commons.tests.utils import webhook_response_factory
 from django.conf import settings
@@ -16,7 +16,10 @@ from freezegun import freeze_time
 from rest_framework.test import APIClient
 
 from accounts.definitions import AttendanceRecordCategory
-from accounts.models import AttendanceRecord, Country, KippoUser, OrganizationMembership, SlackCommand
+from accounts.models import AttendanceRecord, Country, KippoUser, OrganizationMembership, PersonalHoliday, SlackCommand
+from accounts.slackcommand.subcommands.attendancecancel import AttendanceCancelSubCommand
+from accounts.slackcommand.subcommands.breakend import BreakEndSubCommand
+from accounts.slackcommand.subcommands.breakstart import BreakStartSubCommand
 from accounts.slackcommand.subcommands.clockin import ClockInSubCommand
 from accounts.slackcommand.subcommands.listusers import ListUsersSubCommand
 
@@ -29,27 +32,42 @@ SUNDAY_EVENING_LOS_ANGELES = "2026-03-02 02:00:00"
 LOS_ANGELES_TODAY = datetime.date(2026, 3, 1)
 # 2025-12-31 18:00 in Los Angeles == 2026-01-01 11:00 JST
 NEW_YEARS_EVE_LOS_ANGELES = "2026-01-01 02:00:00"
+# 03:02 PDT on 2026-03-08, two minutes after Los Angeles clocks jumped from 02:00 PST to 03:00 PDT
+JUST_AFTER_SPRING_FORWARD_LOS_ANGELES = "2026-03-08 10:02:00"
 
 
-class SingleTimezoneNameForCountryTestCase(SimpleTestCase):
+class TimezoneNameForCountryTestCase(SimpleTestCase):
     def test_country_with_one_timezone(self):
-        self.assertEqual(single_timezone_name_for_country("JP"), "Asia/Tokyo")
+        self.assertEqual(timezone_name_for_country("JP"), "Asia/Tokyo")
 
     def test_country_code_is_case_insensitive(self):
-        self.assertEqual(single_timezone_name_for_country("jp"), "Asia/Tokyo")
+        self.assertEqual(timezone_name_for_country("jp"), "Asia/Tokyo")
 
-    def test_country_with_several_timezones_gives_none(self):
+    def test_country_spanning_different_times_gives_none(self):
         self.assertGreater(len(country_timezone_names()["US"]), 1)
-        self.assertIsNone(single_timezone_name_for_country("US"))
+        for alpha_2 in ("US", "AU", "ES", "CN"):
+            with self.subTest(alpha_2=alpha_2):
+                self.assertIsNone(timezone_name_for_country(alpha_2))
+
+    def test_country_whose_zones_all_keep_the_same_time(self):
+        # Germany has two zones (Europe/Berlin, Europe/Busingen) on the same time year-round
+        self.assertGreater(len(country_timezone_names()["DE"]), 1)
+        self.assertEqual(timezone_name_for_country("DE"), "Europe/Berlin")
 
     def test_unknown_country_gives_none(self):
-        self.assertIsNone(single_timezone_name_for_country("ZZ"))
+        self.assertIsNone(timezone_name_for_country("ZZ"))
+
+    def test_zone_table_comes_from_the_tzdata_package_without_a_system_tz_database(self):
+        country_timezone_names.cache_clear()
+        self.addCleanup(country_timezone_names.cache_clear)
+        with mock.patch("commons.functions.zoneinfo.TZPATH", ()):
+            self.assertEqual(country_timezone_names()["JP"], ("Asia/Tokyo",))
 
     def test_missing_zone_table_derives_nothing(self):
         country_timezone_names.cache_clear()
         self.addCleanup(country_timezone_names.cache_clear)
         with mock.patch("commons.functions._read_zone_table", return_value=""):
-            self.assertIsNone(single_timezone_name_for_country("JP"))
+            self.assertIsNone(timezone_name_for_country("JP"))
 
 
 class UserTimezoneTestCaseBase(IsStaffModelAdminTestCaseBase):
@@ -188,7 +206,11 @@ class UserTimezoneApiTestCase(UserTimezoneTestCaseBase):
                 self.assertNotIn(field, member.get("required", []))
 
 
+@mock.patch("accounts.slackcommand.subcommands.attendancecancel.WebhookClient.send", return_value=webhook_response_factory())
+@mock.patch("accounts.slackcommand.subcommands.breakend.WebhookClient.send", return_value=webhook_response_factory())
+@mock.patch("accounts.slackcommand.subcommands.breakstart.WebhookClient.send", return_value=webhook_response_factory())
 @mock.patch("accounts.slackcommand.subcommands.clockin.WebhookClient.send", return_value=webhook_response_factory())
+@mock.patch("accounts.slackcommand.subcommands.clockin.WebClient.chat_postMessage", return_value=None)
 @mock.patch("accounts.slackcommand.subcommands.listusers.WebhookClient.send", return_value=webhook_response_factory())
 @mock.patch("commons.slackcommand.base.WebClient.users_info", return_value={"user": {"profile": {"image_192": "https://example.com/image.png"}}})
 class SlackCommandMemberTimezoneTestCase(UserTimezoneTestCaseBase):
@@ -240,3 +262,42 @@ class SlackCommandMemberTimezoneTestCase(UserTimezoneTestCaseBase):
         rendered = str(blocks)
         self.assertIn("今日（2026-03-01）の出勤記録", rendered)
         self.assertIn("3/1 1:00", rendered)
+
+    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
+    def test_list_users_holidays_are_looked_up_for_the_members_today(self, *_):
+        colleague = KippoUser.objects.create(username="colleague", first_name="Hana", last_name="Sato")
+        OrganizationMembership.objects.create(
+            user=colleague, organization=self.organization, created_by=self.github_manager, updated_by=self.github_manager
+        )
+        PersonalHoliday.objects.create(user=colleague, day=LOS_ANGELES_TODAY)
+        blocks, *_ = ListUsersSubCommand.handle(self._command("listusers", "listusers"))
+        rendered = str(blocks)
+        self.assertIn("今日（2026-03-01）休予定のメンバー", rendered)
+        self.assertIn("Hana Sato", rendered)
+        self.assertNotIn("2026-03-02", rendered)
+
+    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
+    def test_record_date_is_the_members_date_when_saved_by_a_command(self, *_):
+        ClockInSubCommand.handle(self._command("clockin", "clockin"))
+        record = AttendanceRecord.objects.get(category=AttendanceRecordCategory.START)
+        self.assertEqual(record.date, LOS_ANGELES_TODAY)  # 03-02 on the JST server
+
+    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
+    def test_record_date_follows_a_typed_entry_time(self, *_):
+        ClockInSubCommand.handle(self._command("clockin", "clockin 02/27 09:00"))
+        record = AttendanceRecord.objects.get(category=AttendanceRecordCategory.START)
+        self.assertEqual(record.date, datetime.date(2026, 2, 27))
+
+    def test_cancel_window_is_elapsed_time_across_a_dst_change(self, *_):
+        with freeze_time(JUST_AFTER_SPRING_FORWARD_LOS_ANGELES):
+            ClockInSubCommand.handle(self._command("clockin", "clockin"))
+            self.assertEqual(AttendanceRecord.objects.count(), 1)
+            AttendanceCancelSubCommand.handle(self._command("attendance-cancel", "attendance-cancel"))
+        self.assertEqual(AttendanceRecord.objects.count(), 0)
+
+    def test_break_commands_without_any_attendance_record_do_not_crash(self, *_):
+        for subcommand_class, sub_command in ((BreakStartSubCommand, "breakstart"), (BreakEndSubCommand, "breakend")):
+            with self.subTest(sub_command=sub_command):
+                blocks, *_ = subcommand_class.handle(self._command(sub_command, sub_command))
+                self.assertTrue(blocks)
+                self.assertEqual(AttendanceRecord.objects.count(), 0)

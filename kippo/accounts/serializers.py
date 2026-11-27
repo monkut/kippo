@@ -57,7 +57,7 @@ class OrganizationMemberDetailSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "IANA timezone the member works in: timezone_name, else the holiday country's timezone "
-            "(when that country has exactly one), else this organization's, else Asia/Tokyo (kippo#80)."
+            "(when the whole country keeps one time), else this organization's, else Asia/Tokyo (kippo#80)."
         ),
     )
     available_work_days = serializers.IntegerField(

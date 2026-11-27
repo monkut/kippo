@@ -582,7 +582,7 @@ class CurrentUserView(APIView):
                         "type": "string",
                         "description": (
                             "IANA timezone the user works in: timezone_name, else the holiday country's timezone "
-                            "(when that country has exactly one), else the user's first organization's, else Asia/Tokyo (kippo#80)."
+                            "(when the whole country keeps one time), else the user's first organization's, else Asia/Tokyo (kippo#80)."
                         ),
                     },
                 },

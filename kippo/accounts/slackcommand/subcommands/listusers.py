@@ -99,7 +99,7 @@ class ListUsersSubCommand(SubCommandBase):
         # get personal holidays for the organization
         web_client = WebClient(token=command.organization.slack_api_token)  # needed to get user images
         user_status_blocks, _ = _prepare_organization_user_status_blocks(
-            command.organization, web_client=web_client, include_no_personalholidays=True
+            command.organization, web_client=web_client, include_no_personalholidays=True, today=today_start_datetime.date()
         )
         command_response_blocks.append(
             {

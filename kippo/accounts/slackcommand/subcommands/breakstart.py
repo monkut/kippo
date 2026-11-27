@@ -115,7 +115,7 @@ class BreakStartSubCommand(SubCommandBase):
             .order_by("-entry_datetime")
             .first()
         )
-        logger.debug(f"latest_attendance_record={latest_attendance_record}, category={latest_attendance_record.category}")
+        logger.debug(f"latest_attendance_record={latest_attendance_record}")
 
         valid_prior_categories = (
             AttendanceRecordCategory.START,

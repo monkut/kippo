@@ -1,3 +1,4 @@
+import datetime
 import logging
 from collections.abc import Iterable
 
@@ -11,13 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 def _get_persionalholidays_for_date(
-    users: Iterable[KippoUser], read_behind_buffer_days: int = settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS
+    users: Iterable[KippoUser],
+    read_behind_buffer_days: int = settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
+    today: datetime.date | None = None,
 ) -> list[tuple[KippoUser, PersonalHoliday]]:
     """
-    Get PersonalHoliday entries from the last {read_behind_buffer_days} days that cover today and return,
-    a list of (KippoUser, PersonalHoliday) with one entry per user
+    Get PersonalHoliday entries from the last {read_behind_buffer_days} days that cover `today`
+    (default: the server's local date) and return a list of (KippoUser, PersonalHoliday) with one entry per user
     """
-    today = timezone.localdate()
+    today = today or timezone.localdate()
     search_start_date = today - timezone.timedelta(days=read_behind_buffer_days)
     existing_personalholiday_entries = PersonalHoliday.objects.filter(
         user__in=users,
@@ -37,9 +40,12 @@ def _get_persionalholidays_for_date(
 
 
 def _prepare_organization_user_status_blocks(
-    organization: KippoOrganization, web_client: WebClient, include_no_personalholidays: bool = False
+    organization: KippoOrganization, web_client: WebClient, include_no_personalholidays: bool = False, today: datetime.date | None = None
 ) -> tuple[list[dict], list[tuple[KippoUser, PersonalHoliday]]]:
+    """Blocks for the members on holiday `today` (default: the server's local date)."""
     from commons.slackcommand.base import SubCommandBase
+
+    today = today or timezone.localdate()
 
     # get organization members
     organization_memberships = list(OrganizationMembership.objects.filter(organization=organization).order_by("user__last_name", "user__first_name"))
@@ -49,6 +55,7 @@ def _prepare_organization_user_status_blocks(
     user_persionalholidays = _get_persionalholidays_for_date(
         organization_users,
         read_behind_buffer_days=settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
+        today=today,
     )
     logger.info(f"Found {len(user_persionalholidays)} users with PersonalHoliday in organization {organization.name}")
     if not user_persionalholidays:
@@ -97,13 +104,13 @@ def _prepare_organization_user_status_blocks(
                 }
             )
     if not user_status_blocks and include_no_personalholidays:
-        logger.info(f"No PersonalHoliday entries found for organization {organization.name} on {timezone.localdate()}")
+        logger.info(f"No PersonalHoliday entries found for organization {organization.name} on {today}")
         user_status_blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"今日（{timezone.localdate()}）休む予定のメンバーはみつかりません。",
+                    "text": f"今日（{today}）休む予定のメンバーはみつかりません。",
                 },
             }
         )

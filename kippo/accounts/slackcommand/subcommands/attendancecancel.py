@@ -33,7 +33,8 @@ class AttendanceCancelSubCommand(SubCommandBase):
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
         # get latest attendance record for each user/organization for the today
-        min_datetime = timezone.localtime(timezone=member_timezone) - datetime.timedelta(minutes=settings.ATTENDANCECANCEL_SUBCOMMAND_MINUTES)
+        # elapsed time: subtract from the UTC instant (wall-clock arithmetic in the member's timezone is off by an hour across a DST change)
+        min_datetime = timezone.now() - datetime.timedelta(minutes=settings.ATTENDANCECANCEL_SUBCOMMAND_MINUTES)
         latest_user_attendance_record = (
             AttendanceRecord.objects.filter(
                 created_by=command.user,

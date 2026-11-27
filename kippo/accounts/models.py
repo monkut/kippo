@@ -9,7 +9,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from commons.definitions import SATURDAY, SUNDAY
-from commons.functions import last_of_month, single_timezone_name_for_country
+from commons.functions import last_of_month, timezone_name_for_country
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -479,17 +479,17 @@ class KippoUser(AbstractUser):
         verbose_name=_("タイムゾーン"),
         help_text=_(
             "IANA timezone the user works in (e.g. Asia/Tokyo). Leave blank to use the holiday country's "
-            "timezone (when that country has exactly one), otherwise the organization's."
+            "timezone (when the whole country keeps one time), otherwise the organization's."
         ),
     )
 
     def get_timezone(self, organization: KippoOrganization | None = None) -> zoneinfo.ZoneInfo:
         """The timezone this user works in.
 
-        In order: the user's own timezone_name; the holiday country's timezone, when that country
-        has exactly one; `organization`'s timezone; JST.
+        In order: the user's own timezone_name; the holiday country's timezone, when the whole
+        country keeps one time; `organization`'s timezone; JST.
         """
-        country_timezone_name = single_timezone_name_for_country(self.holiday_country.alpha_2) if self.holiday_country_id else None
+        country_timezone_name = timezone_name_for_country(self.holiday_country.alpha_2) if self.holiday_country_id else None
         user_timezone = zoneinfo_or_none(self.timezone_name) or zoneinfo_or_none(country_timezone_name)
         if user_timezone:
             return user_timezone
@@ -761,15 +761,33 @@ class AttendanceRecord(UserCreatedBaseModel):
     def __str__(self) -> str:
         return f"AttendanceRecord({self.organization.github_organization_name}-{self.created_by.username} [{self.entry_datetime}] {self.category})"
 
-    def clean(self):
+    def _member_timezone(self) -> zoneinfo.ZoneInfo:
+        """The timezone of the member the record belongs to (the organization's, then JST, when unknown)."""
+        organization = self.organization if self.organization_id else None
+        if self.created_by_id:
+            return self.created_by.get_timezone(organization)
+        return organization.get_timezone() if organization else zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
+
+    def _set_date_from_entry_datetime(self) -> None:
         # date is the entry's calendar date where the member works. entry_datetime read back from the
         # database is UTC, so it is converted first; a naive value is taken as already local.
-        if self.entry_datetime:
-            entry_datetime = self.entry_datetime
-            if timezone.is_aware(entry_datetime):
-                member_timezone = self.created_by.get_timezone(self.organization) if self.created_by_id else self.organization.get_timezone()
-                entry_datetime = entry_datetime.astimezone(member_timezone)
-            self.date = entry_datetime.date()
+        if not self.entry_datetime:
+            return
+        entry_datetime = self.entry_datetime
+        if timezone.is_aware(entry_datetime):
+            entry_datetime = entry_datetime.astimezone(self._member_timezone())
+        self.date = entry_datetime.date()
+
+    def clean(self):
+        self._set_date_from_entry_datetime()
+
+    def save(self, *args, **kwargs):
+        # The Slack commands save without clean(): derive date here so every write path agrees.
+        self._set_date_from_entry_datetime()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "entry_datetime" in update_fields and "date" not in update_fields:
+            kwargs["update_fields"] = [*update_fields, "date"]
+        super().save(*args, **kwargs)
 
     def get_duration_timedelta(self) -> timezone.timedelta:
         """Get the timedelta for the duration the current AttendanceRecord to it's related START/BREAK_START record."""

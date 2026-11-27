@@ -96,7 +96,25 @@ def country_timezone_names() -> dict[str, tuple[str, ...]]:
     return {country_code: tuple(zone_names) for country_code, zone_names in zones_by_country.items()}
 
 
-def single_timezone_name_for_country(alpha_2: str) -> str | None:
-    """The country's timezone when it has exactly one (e.g. JP -> Asia/Tokyo). None for a country with several, or an unknown code."""
+def _keep_the_same_time(zone_names: tuple[str, ...]) -> bool:
+    """True when every zone has the same UTC offset in both January and July of the current year."""
+    year = timezone.localdate().year
+    probes = (datetime.datetime(year, 1, 1, 12), datetime.datetime(year, 7, 1, 12))  # noqa: DTZ001 -- zone applied below
+    offsets = {tuple(probe.replace(tzinfo=zoneinfo.ZoneInfo(zone_name)).utcoffset() for probe in probes) for zone_name in zone_names}
+    return len(offsets) == 1
+
+
+def timezone_name_for_country(alpha_2: str) -> str | None:
+    """The country's timezone, when the whole country keeps one time.
+
+    That is a country with one zone (JP -> Asia/Tokyo), or whose zones all share the same UTC offset
+    year-round (DE -> Europe/Berlin; its other zone, Europe/Busingen, keeps the same time). None for
+    a country spanning different times (US, AU, ES, ...) and for an unknown code.
+    """
     zone_names = country_timezone_names().get(alpha_2.upper(), ())
-    return zone_names[0] if len(zone_names) == 1 else None
+    if not zone_names:
+        return None
+    try:
+        return zone_names[0] if _keep_the_same_time(zone_names) else None
+    except zoneinfo.ZoneInfoNotFoundError:
+        return None
