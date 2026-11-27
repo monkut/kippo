@@ -4,7 +4,7 @@ import datetime
 import zoneinfo
 from unittest import mock
 
-from commons.functions import country_timezone_names, timezone_name_for_country
+from commons.functions import _timezone_name_for_country_in_year, country_timezone_names, timezone_name_for_country
 from commons.tests import IsStaffModelAdminTestCaseBase
 from commons.tests.utils import webhook_response_factory
 from django.conf import settings
@@ -37,6 +37,12 @@ JUST_AFTER_SPRING_FORWARD_LOS_ANGELES = "2026-03-08 10:02:00"
 
 
 class TimezoneNameForCountryTestCase(SimpleTestCase):
+    def _clear_zone_table_caches(self) -> None:
+        """Drop the cached zone table now and again after the test, so a patched table does not leak."""
+        for cached in (country_timezone_names, _timezone_name_for_country_in_year):
+            cached.cache_clear()
+            self.addCleanup(cached.cache_clear)
+
     def test_country_with_one_timezone(self):
         self.assertEqual(timezone_name_for_country("JP"), "Asia/Tokyo")
 
@@ -58,14 +64,18 @@ class TimezoneNameForCountryTestCase(SimpleTestCase):
         self.assertIsNone(timezone_name_for_country("ZZ"))
 
     def test_zone_table_comes_from_the_tzdata_package_without_a_system_tz_database(self):
-        country_timezone_names.cache_clear()
-        self.addCleanup(country_timezone_names.cache_clear)
+        self._clear_zone_table_caches()
         with mock.patch("commons.functions.zoneinfo.TZPATH", ()):
             self.assertEqual(country_timezone_names()["JP"], ("Asia/Tokyo",))
 
+    def test_malformed_zone_table_lines_are_skipped(self):
+        self._clear_zone_table_caches()
+        table = "# comment\n\n   \nJP +353916+1394441 Asia/Tokyo\nJP\t+353916+1394441\tAsia/Tokyo\n"
+        with mock.patch("commons.functions._read_zone_table", return_value=table):
+            self.assertEqual(country_timezone_names(), {"JP": ("Asia/Tokyo",)})
+
     def test_missing_zone_table_derives_nothing(self):
-        country_timezone_names.cache_clear()
-        self.addCleanup(country_timezone_names.cache_clear)
+        self._clear_zone_table_caches()
         with mock.patch("commons.functions._read_zone_table", return_value=""):
             self.assertIsNone(timezone_name_for_country("JP"))
 
@@ -114,6 +124,26 @@ class KippoUserGetTimezoneTestCase(UserTimezoneTestCaseBase):
         self.assertEqual(field.clean("America/Los_Angeles", self.user), "America/Los_Angeles")
         with self.assertRaises(ValidationError):
             field.clean("Not/AZone", self.user)
+
+    def test_attendance_record_date_is_set_on_create_and_kept_on_later_saves(self):
+        self.user.timezone_name = "America/Los_Angeles"
+        self.user.save()
+        record = AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            updated_by=self.user,
+            category=AttendanceRecordCategory.START,
+            entry_datetime="2026-03-02T02:00:00+00:00",  # an ISO string, as Django accepts for a DateTimeField
+        )
+        self.assertEqual(record.date, LOS_ANGELES_TODAY)
+
+        # the member's timezone changes later: an unrelated save must not move the stored date
+        self.user.timezone_name = "Asia/Tokyo"
+        self.user.save()
+        record = AttendanceRecord.objects.get(pk=record.pk)
+        record.category = AttendanceRecordCategory.END
+        record.save()
+        self.assertEqual(AttendanceRecord.objects.get(pk=record.pk).date, LOS_ANGELES_TODAY)
 
     def test_attendance_record_date_is_the_date_where_the_member_works(self):
         self.user.timezone_name = "America/Los_Angeles"
@@ -263,18 +293,71 @@ class SlackCommandMemberTimezoneTestCase(UserTimezoneTestCaseBase):
         self.assertIn("今日（2026-03-01）の出勤記録", rendered)
         self.assertIn("3/1 1:00", rendered)
 
-    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
-    def test_list_users_holidays_are_looked_up_for_the_members_today(self, *_):
-        colleague = KippoUser.objects.create(username="colleague", first_name="Hana", last_name="Sato")
+    def _add_colleague(self, username: str, last_name: str, timezone_name: str = "") -> KippoUser:
+        colleague = KippoUser.objects.create(username=username, first_name="Hana", last_name=last_name, timezone_name=timezone_name)
         OrganizationMembership.objects.create(
             user=colleague, organization=self.organization, created_by=self.github_manager, updated_by=self.github_manager
         )
-        PersonalHoliday.objects.create(user=colleague, day=LOS_ANGELES_TODAY)
+        return colleague
+
+    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
+    def test_list_users_holidays_are_judged_by_each_members_own_today(self, *_):
+        """It is Sunday 03-01 in Los Angeles and Monday 03-02 in Tokyo."""
+        off_today_in_tokyo = self._add_colleague("tokyo-off-monday", "OffMondayTokyo")  # organization timezone: JST
+        was_off_yesterday_in_tokyo = self._add_colleague("tokyo-off-sunday", "OffSundayTokyo")
+        off_today_in_los_angeles = self._add_colleague("la-off-sunday", "OffSundayLosAngeles", timezone_name="America/Los_Angeles")
+        PersonalHoliday.objects.create(user=off_today_in_tokyo, day=datetime.date(2026, 3, 2))
+        PersonalHoliday.objects.create(user=was_off_yesterday_in_tokyo, day=datetime.date(2026, 3, 1))
+        PersonalHoliday.objects.create(user=off_today_in_los_angeles, day=datetime.date(2026, 3, 1))
+
         blocks, *_ = ListUsersSubCommand.handle(self._command("listusers", "listusers"))
         rendered = str(blocks)
-        self.assertIn("今日（2026-03-01）休予定のメンバー", rendered)
-        self.assertIn("Hana Sato", rendered)
-        self.assertNotIn("2026-03-02", rendered)
+        self.assertIn("OffMondayTokyo", rendered)
+        self.assertIn("OffSundayLosAngeles", rendered)
+        self.assertNotIn("OffSundayTokyo", rendered)
+
+    @freeze_time("2026-03-02 09:00:00")  # Monday 01:00 in Los Angeles, Monday 18:00 in Tokyo
+    def test_list_users_shows_a_colleague_whose_day_started_before_the_viewers(self, *_):
+        colleague = self._add_colleague("tokyo-working", "WorkingTokyo")
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=colleague,
+            updated_by=colleague,
+            category=AttendanceRecordCategory.START,
+            entry_datetime=datetime.datetime(2026, 3, 2, 9, 0, tzinfo=TOKYO),  # Sunday 16:00 in Los Angeles
+        )
+        blocks, *_ = ListUsersSubCommand.handle(self._command("listusers", "listusers"))
+        self.assertIn("WorkingTokyo", str(blocks))
+
+    @freeze_time("2026-03-02 16:00:00")  # Monday 08:00 in Los Angeles, Tuesday 01:00 in Tokyo
+    def test_list_users_drops_a_record_from_its_owners_yesterday(self, *_):
+        colleague = self._add_colleague("tokyo-yesterday", "YesterdayTokyo")
+        AttendanceRecord.objects.create(
+            organization=self.organization,
+            created_by=colleague,
+            updated_by=colleague,
+            category=AttendanceRecordCategory.END,
+            entry_datetime=datetime.datetime(2026, 3, 2, 18, 0, tzinfo=TOKYO),  # Monday in Tokyo; it is now Tuesday there
+        )
+        blocks, *_ = ListUsersSubCommand.handle(self._command("listusers", "listusers"))
+        self.assertNotIn("YesterdayTokyo", str(blocks))
+
+    def _planned_break_channel_message(self) -> str:
+        """Clock in, plan a break for 19:00 today, and return the message posted to the attendance channel."""
+        ClockInSubCommand.handle(self._command("clockin", "clockin"))
+        with mock.patch("accounts.slackcommand.subcommands.breakstart.WebClient.chat_postMessage") as post_to_channel:
+            BreakStartSubCommand.handle(self._command("breakstart", "breakstart 03/01 19:00"))
+        return str(post_to_channel.call_args.kwargs["blocks"])
+
+    @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
+    def test_channel_time_is_labelled_when_the_member_is_not_on_organization_time(self, *_):
+        self.assertIn("19:00 (PST) に休憩とる予定", self._planned_break_channel_message())
+
+    @freeze_time("2026-03-01 09:00:00")  # Sunday 18:00 JST
+    def test_channel_time_is_not_labelled_for_a_member_on_organization_time(self, *_):
+        self.user.timezone_name = ""
+        self.user.save()
+        self.assertIn("19:00 に休憩とる予定", self._planned_break_channel_message())
 
     @freeze_time(SUNDAY_EVENING_LOS_ANGELES)
     def test_record_date_is_the_members_date_when_saved_by_a_command(self, *_):

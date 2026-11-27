@@ -41,6 +41,18 @@ class SubCommandBase:
         return command.organization.get_timezone()
 
     @staticmethod
+    def _channel_time_display(entry_datetime: datetime.datetime, command: "SlackCommand", format_string: str = "%H:%M") -> str:
+        """`entry_datetime` as shown in the organization's shared channel.
+
+        The member's local time. When that is not the organization's time, the zone is appended
+        ("15:00 (PST)") so colleagues elsewhere do not read it as theirs.
+        """
+        display = entry_datetime.strftime(format_string)
+        if entry_datetime.utcoffset() != entry_datetime.astimezone(command.organization.get_timezone()).utcoffset():
+            display = f"{display} ({entry_datetime.tzname()})"
+        return display
+
+    @staticmethod
     def __add_year_to_text(text: str, current_year: int) -> str:
         """
         Add the current year to the text if it does not contain a full date.

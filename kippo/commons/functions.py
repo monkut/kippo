@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 DECEMBER = 12
 # tz database table: one line per (country, zone) as "<ISO-3166 alpha-2>\t<coordinates>\t<zone name>[\t<comment>]"
 ZONE_TABLE_FILENAME = "zone.tab"
+ZONE_TABLE_MIN_FIELDS = 3
 
 
 def is_uuid(value: str) -> bool:
@@ -101,17 +102,30 @@ def country_timezone_names() -> dict[str, tuple[str, ...]]:
     for line in _read_zone_table().splitlines():
         if not line or line.startswith("#"):
             continue
-        country_code, _coordinates, zone_name = line.split("\t")[:3]
+        fields = line.split("\t")
+        if len(fields) < ZONE_TABLE_MIN_FIELDS:
+            continue  # not a "<country>\t<coordinates>\t<zone>" row
+        country_code, _coordinates, zone_name = fields[:ZONE_TABLE_MIN_FIELDS]
         zones_by_country.setdefault(country_code, []).append(zone_name)
     return {country_code: tuple(zone_names) for country_code, zone_names in zones_by_country.items()}
 
 
-def _keep_the_same_time(zone_names: tuple[str, ...]) -> bool:
-    """True when every zone has the same UTC offset in both January and July of the current year."""
-    year = timezone.localdate().year
+def _keep_the_same_time(zone_names: tuple[str, ...], year: int) -> bool:
+    """True when every zone has the same UTC offset in both January and July of `year`."""
     probes = (datetime.datetime(year, 1, 1, 12), datetime.datetime(year, 7, 1, 12))  # noqa: DTZ001 -- zone applied below
     offsets = {tuple(probe.replace(tzinfo=zoneinfo.ZoneInfo(zone_name)).utcoffset() for probe in probes) for zone_name in zone_names}
     return len(offsets) == 1
+
+
+@functools.cache
+def _timezone_name_for_country_in_year(country_code: str, year: int) -> str | None:
+    zone_names = country_timezone_names().get(country_code, ())
+    if not zone_names:
+        return None
+    try:
+        return zone_names[0] if _keep_the_same_time(zone_names, year) else None
+    except zoneinfo.ZoneInfoNotFoundError:
+        return None
 
 
 def timezone_name_for_country(alpha_2: str) -> str | None:
@@ -121,10 +135,4 @@ def timezone_name_for_country(alpha_2: str) -> str | None:
     year-round (DE -> Europe/Berlin; its other zone, Europe/Busingen, keeps the same time). None for
     a country spanning different times (US, AU, ES, ...) and for an unknown code.
     """
-    zone_names = country_timezone_names().get(alpha_2.upper(), ())
-    if not zone_names:
-        return None
-    try:
-        return zone_names[0] if _keep_the_same_time(zone_names) else None
-    except zoneinfo.ZoneInfoNotFoundError:
-        return None
+    return _timezone_name_for_country_in_year(alpha_2.upper(), timezone.localdate().year)

@@ -60,6 +60,17 @@ def zoneinfo_or_none(timezone_name: str | None) -> zoneinfo.ZoneInfo | None:
         return None
 
 
+def resolve_timezone(user: "KippoUser | None", organization: "KippoOrganization | None") -> zoneinfo.ZoneInfo:
+    """The timezone `user` works in within `organization`. Either may be None.
+
+    In order: the user's own timezone (KippoUser.get_own_timezone); the organization's; JST.
+    """
+    own_timezone = user.get_own_timezone() if user else None
+    if own_timezone:
+        return own_timezone
+    return organization.get_timezone() if organization else zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
+
+
 class KippoOrganization(UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=256)
@@ -483,17 +494,16 @@ class KippoUser(AbstractUser):
         ),
     )
 
-    def get_timezone(self, organization: KippoOrganization | None = None) -> zoneinfo.ZoneInfo:
-        """The timezone this user works in.
+    def get_own_timezone(self) -> zoneinfo.ZoneInfo | None:
+        """The user's timezone_name, else the holiday country's timezone when the whole country keeps one time. None when neither."""
+        own_timezone = zoneinfo_or_none(self.timezone_name)
+        if own_timezone or not self.holiday_country_id:
+            return own_timezone
+        return zoneinfo_or_none(timezone_name_for_country(self.holiday_country.alpha_2))
 
-        In order: the user's own timezone_name; the holiday country's timezone, when the whole
-        country keeps one time; `organization`'s timezone; JST.
-        """
-        country_timezone_name = timezone_name_for_country(self.holiday_country.alpha_2) if self.holiday_country_id else None
-        user_timezone = zoneinfo_or_none(self.timezone_name) or zoneinfo_or_none(country_timezone_name)
-        if user_timezone:
-            return user_timezone
-        return organization.get_timezone() if organization else zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
+    def get_timezone(self, organization: KippoOrganization | None = None) -> zoneinfo.ZoneInfo:
+        """The timezone this user works in: their own (get_own_timezone), else `organization`'s, else JST."""
+        return resolve_timezone(self, organization)
 
     @property
     def display_name(self):
@@ -761,32 +771,24 @@ class AttendanceRecord(UserCreatedBaseModel):
     def __str__(self) -> str:
         return f"AttendanceRecord({self.organization.github_organization_name}-{self.created_by.username} [{self.entry_datetime}] {self.category})"
 
-    def _member_timezone(self) -> zoneinfo.ZoneInfo:
-        """The timezone of the member the record belongs to (the organization's, then JST, when unknown)."""
-        organization = self.organization if self.organization_id else None
-        if self.created_by_id:
-            return self.created_by.get_timezone(organization)
-        return organization.get_timezone() if organization else zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
-
     def _set_date_from_entry_datetime(self) -> None:
-        # date is the entry's calendar date where the member works. entry_datetime read back from the
-        # database is UTC, so it is converted first; a naive value is taken as already local.
+        """Set date to the entry's calendar date where the member (created_by) works."""
         if not self.entry_datetime:
             return
-        entry_datetime = self.entry_datetime
-        if timezone.is_aware(entry_datetime):
-            entry_datetime = entry_datetime.astimezone(self._member_timezone())
-        self.date = entry_datetime.date()
+        entry_datetime = self._meta.get_field("entry_datetime").to_python(self.entry_datetime)
+        if timezone.is_naive(entry_datetime):
+            entry_datetime = timezone.make_aware(entry_datetime)  # the instant Django stores for a naive value
+        member_timezone = resolve_timezone(self.created_by if self.created_by_id else None, self.organization if self.organization_id else None)
+        self.date = entry_datetime.astimezone(member_timezone).date()
 
     def clean(self):
         self._set_date_from_entry_datetime()
 
     def save(self, *args, **kwargs):
-        # The Slack commands save without clean(): derive date here so every write path agrees.
-        self._set_date_from_entry_datetime()
-        update_fields = kwargs.get("update_fields")
-        if update_fields is not None and "entry_datetime" in update_fields and "date" not in update_fields:
-            kwargs["update_fields"] = [*update_fields, "date"]
+        # The Slack commands save without clean(), so date is derived when the row is created.
+        # Later saves leave it alone; an edit of entry_datetime in the admin goes through clean().
+        if self._state.adding:
+            self._set_date_from_entry_datetime()
         super().save(*args, **kwargs)
 
     def get_duration_timedelta(self) -> timezone.timedelta:

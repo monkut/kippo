@@ -41,11 +41,12 @@ class BreakStartSubCommand(SubCommandBase):
             entry_datetime = current_localtime
             message = f"*{command.user.display_name}* 休憩開始します！{comment_display_text}"
 
-        is_future_datetime = entry_datetime and entry_datetime > current_localtime
+        # compare instants: two datetimes in the same DST timezone compare by wall clock, which is wrong in a repeated hour
+        is_future_datetime = entry_datetime and entry_datetime.timestamp() > current_localtime.timestamp()
         if is_future_datetime:
             if entry_datetime.date() == current_localtime.date():
                 send_channel_notification = True
-                display_time = entry_datetime.strftime("%H:%M")
+                display_time = cls._channel_time_display(entry_datetime, command)
                 message = f"*{command.user.display_name}* {display_time} に休憩とる予定！{comment_display_text}"
             else:
                 logger.warning(f"entry_datetime({entry_datetime}) is not today({current_localtime}), message will not be sent.")
