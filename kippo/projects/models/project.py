@@ -34,7 +34,7 @@ from ..functions import previous_week_startdate
 from ..services.progress import expected_effort_hours
 from .category import KippoProjectOrganizationCategory, get_default_project_category
 from .columnset import ProjectColumnSet
-from .constants import (
+from .definitions import (
     _COMPUTE,
     DEFAULT_PROJECT_PHASE,
     PHASE_CONFIDENCE,
@@ -553,7 +553,7 @@ class KippoProject(PersistedFieldSnapshotMixin, UserCreatedBaseModel):
         return url
 
     def active_milestones(self):
-        today = timezone.now().date()
+        today = timezone.localdate()
         return self.kippomilestone_set.filter(target_date__gte=today).order_by("-target_date")
 
     def related_github_repositories(self) -> QuerySet:

@@ -219,7 +219,7 @@ def _project_effort_chart_data(project: KippoProject) -> dict:
     expected_effort = [(expected_hours[date] or 0) if date in expected_hours else None for date in sorted_dates]
 
     # Cumulative and weekly effort per user. Future weeks are null.
-    today = timezone.now().date()
+    today = timezone.localdate()
     effort_by_user = {}
     weekly_effort_by_user = {}
     total_effort_by_user = {}

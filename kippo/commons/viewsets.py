@@ -43,10 +43,13 @@ def scope_to_user_organizations(queryset: QuerySet, user: Any, organization_look
 
     `organization_lookup` is the full ORM path from the model to its organization FK
     (e.g. `"organization"`, `"project__organization"`, or `"id"` when the model *is* the organization).
-    Users without `organizationmembership_set` are left unfiltered (the historical per-viewset guard).
+    A user without `organizationmembership_set` (e.g. AnonymousUser) gets no rows, matching
+    `user_can_access_organization`.
     """
-    if user.is_superuser or not hasattr(user, "organizationmembership_set"):
+    if user.is_superuser:
         return queryset
+    if not hasattr(user, "organizationmembership_set"):
+        return queryset.none()
     # Reuse the request-scoped org-id cache when a prior helper call (permission check, serializer
     # validator) already populated it, so a detail request fetches the ids once. When the cache is
     # cold (a list request whose only org use is this filter), fall back to the lazy membership
