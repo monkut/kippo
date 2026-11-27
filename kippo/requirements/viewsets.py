@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 import requests
-from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
+from commons.viewsets import OrganizationFilterMixin, user_can_access_organization
 from django.db.models import Count, FloatField, OuterRef, Subquery, Sum
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from projects.models import KippoProject
@@ -647,9 +647,7 @@ class ScheduleEstimationAPIView(APIView):
         except KippoProject.DoesNotExist:
             return Response({"error": f"Project not found: {project_id}"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Check organization access for non-superusers
-        user = request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set") and project.organization_id not in organization_ids_for_user(user):
+        if not user_can_access_organization(request.user, project.organization_id):
             return Response(
                 {"error": "You do not have access to this project"},
                 status=status.HTTP_404_NOT_FOUND,

@@ -5,7 +5,7 @@ from typing import Any
 
 from accounts.models import KippoUser
 from commons.functions import is_uuid
-from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
+from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user, scope_to_user_organizations, user_can_access_organization
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -712,11 +712,7 @@ class ProjectAssignmentRateViewSet(OrganizationFilterMixin, viewsets.ModelViewSe
 
 def _user_accessible_projects(user: KippoUser) -> QuerySet:
     """Projects visible to ``user`` — all for a superuser, else those in the user's organizations."""
-    projects = KippoProject.objects.all()
-    if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-        projects = projects.filter(organization__in=user_organizations)
-    return projects
+    return scope_to_user_organizations(KippoProject.objects.all(), user)
 
 
 class KippoProjectContractViewSet(viewsets.ModelViewSet):
@@ -1050,7 +1046,7 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
             return Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
 
         user = request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set") and project.organization_id not in organization_ids_for_user(user):
+        if not user_can_access_organization(user, project.organization_id):
             return Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
 
         triggered_by = user if user.is_authenticated else None
@@ -1150,8 +1146,7 @@ class ProjectMonthlyAssignmentViewSet(OrganizationFilterMixin, viewsets.ModelVie
             project = KippoProject.objects.select_related("organization").get(pk=project_id)
         except KippoProject.DoesNotExist:
             return None, Response({"detail": "Project not found"}, status=HTTPStatus.NOT_FOUND)
-        user = request.user
-        if not user.is_superuser and project.organization_id not in organization_ids_for_user(user):
+        if not user_can_access_organization(request.user, project.organization_id):
             return None, Response({"detail": "Forbidden"}, status=HTTPStatus.FORBIDDEN)
         return project, None
 

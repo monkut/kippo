@@ -33,6 +33,30 @@ def organization_ids_for_user(user: Any) -> set:  # noqa: ANN401
     return cached
 
 
+def user_can_access_organization(user: Any, organization_id: Any) -> bool:  # noqa: ANN401
+    """True when the user is a superuser or a member of the organization with pk `organization_id`."""
+    return bool(user.is_superuser) or organization_id in organization_ids_for_user(user)
+
+
+def scope_to_user_organizations(queryset: QuerySet, user: Any, organization_lookup: str = "organization") -> QuerySet:  # noqa: ANN401
+    """Filter `queryset` to the user's organization memberships. Superusers are not filtered.
+
+    `organization_lookup` is the full ORM path from the model to its organization FK
+    (e.g. `"organization"`, `"project__organization"`, or `"id"` when the model *is* the organization).
+    Users without `organizationmembership_set` are left unfiltered (the historical per-viewset guard).
+    """
+    if user.is_superuser or not hasattr(user, "organizationmembership_set"):
+        return queryset
+    # Reuse the request-scoped org-id cache when a prior helper call (permission check, serializer
+    # validator) already populated it, so a detail request fetches the ids once. When the cache is
+    # cold (a list request whose only org use is this filter), fall back to the lazy membership
+    # queryset so Django inlines it as a SQL subquery and adds no extra round-trip.
+    user_organizations = getattr(user, "_organization_ids_cache", None)
+    if user_organizations is None:
+        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
+    return queryset.filter(**{f"{organization_lookup}__in": user_organizations})
+
+
 class OrganizationFilterMixin:
     """Filter a viewset queryset to the request user's organization memberships.
 
@@ -49,16 +73,4 @@ class OrganizationFilterMixin:
     organization_lookup: str = "organization"
 
     def filter_by_organization(self, queryset: QuerySet, organization_lookup: str | None = None) -> QuerySet:
-        user = self.request.user
-        if not user.is_superuser and hasattr(user, "organizationmembership_set"):
-            lookup = organization_lookup or self.organization_lookup
-            # Reuse the request-scoped org-id cache when a prior helper call (permission check,
-            # serializer validator) already populated it — so a detail request fetches the ids
-            # once. When the cache is cold (a list request whose only org use is this filter),
-            # fall back to the lazy membership queryset so Django inlines it as a SQL subquery
-            # and adds no extra round-trip.
-            user_organizations = getattr(user, "_organization_ids_cache", None)
-            if user_organizations is None:
-                user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-            queryset = queryset.filter(**{f"{lookup}__in": user_organizations})
-        return queryset
+        return scope_to_user_organizations(queryset, self.request.user, organization_lookup or self.organization_lookup)

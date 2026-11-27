@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.fields import CommaSeparatedField
-from commons.viewsets import organization_ids_for_user
+from commons.viewsets import organization_ids_for_user, scope_to_user_organizations, user_can_access_organization
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
@@ -189,16 +189,11 @@ def _restrict_customer_field_to_user_organizations(serializer: serializers.Model
     field = serializer.fields.get(field_name)
     request = serializer.context.get("request")
     user = getattr(request, "user", None)
-    if field is None or user is None or getattr(user, "is_superuser", False) or not hasattr(user, "organizationmembership_set"):
+    if field is None or user is None:
         return
-    # Reuse the request-scoped org-id cache when warm, else the LAZY membership queryset so Django
-    # inlines it as a subquery (mirrors OrganizationFilterMixin.filter_by_organization). The field
-    # queryset is only evaluated for write validation / browsable-API choices — never on a JSON GET —
-    # so this adds no query to list/detail reads.
-    user_organizations = getattr(user, "_organization_ids_cache", None)
-    if user_organizations is None:
-        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-    field.queryset = field.queryset.filter(organization__in=user_organizations)
+    # The field queryset is only evaluated for write validation / browsable-API choices — never on a
+    # JSON GET — so this adds no query to list/detail reads.
+    field.queryset = scope_to_user_organizations(field.queryset, user)
 
 
 class KippoProjectContractSerializer(serializers.ModelSerializer):
@@ -1090,10 +1085,8 @@ class ProjectWeeklyEffortUnlockSerializer(serializers.ModelSerializer):
         """申請者は所属する組織のアンロックのみ申請できる (superuser を除く)。"""
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if user is not None and not user.is_superuser:
-            member_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
-            if organization.pk not in member_org_ids:
-                raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
+        if user is not None and not user_can_access_organization(user, organization.pk):
+            raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
         return organization
 
     def validate(self, attrs: dict) -> dict:

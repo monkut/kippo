@@ -1,5 +1,6 @@
 from typing import Any
 
+from commons.viewsets import organization_ids_for_user
 from django.db.models import Q, QuerySet
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -26,8 +27,7 @@ class FeedbackViewSet(viewsets.ModelViewSet):
         qs = Feedback.objects.select_related("created_by", "organization")
         if user.is_superuser:
             return qs
-        user_organizations = user.organizationmembership_set.values_list("organization_id", flat=True)
-        return qs.filter(Q(created_by=user) | Q(organization__in=user_organizations))
+        return qs.filter(Q(created_by=user) | Q(organization__in=organization_ids_for_user(user)))
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         user = self.request.user
