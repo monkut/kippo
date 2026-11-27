@@ -1,11 +1,20 @@
 import datetime
+import functools
+import importlib.resources
+import logging
+import pathlib
 import uuid
+import zoneinfo
 from calendar import monthrange
 
 from django.conf import settings
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 DECEMBER = 12
+# tz database table: one line per (country, zone) as "<ISO-3166 alpha-2>\t<coordinates>\t<zone name>[\t<comment>]"
+ZONE_TABLE_FILENAME = "zone.tab"
 
 
 def is_uuid(value: str) -> bool:
@@ -60,3 +69,34 @@ def add_months(reference: datetime.date, months: int) -> datetime.date:
     month_index = reference.year * 12 + reference.month - 1 + months
     year, month = divmod(month_index, 12)
     return datetime.date(year, month + 1, min(reference.day, monthrange(year, month + 1)[1]))
+
+
+def _read_zone_table() -> str:
+    """Text of the tz database's zone.tab, from the system tz database or else the `tzdata` package."""
+    for directory in zoneinfo.TZPATH:
+        path = pathlib.Path(directory) / ZONE_TABLE_FILENAME
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    try:
+        return importlib.resources.files("tzdata").joinpath("zoneinfo", ZONE_TABLE_FILENAME).read_text(encoding="utf-8")
+    except (ModuleNotFoundError, FileNotFoundError):
+        logger.warning(f"{ZONE_TABLE_FILENAME} not found in {zoneinfo.TZPATH} or the tzdata package: no timezone can be derived from a country")
+        return ""
+
+
+@functools.cache
+def country_timezone_names() -> dict[str, tuple[str, ...]]:
+    """ISO-3166 alpha-2 country code -> the tz database zones of that country."""
+    zones_by_country: dict[str, list[str]] = {}
+    for line in _read_zone_table().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        country_code, _coordinates, zone_name = line.split("\t")[:3]
+        zones_by_country.setdefault(country_code, []).append(zone_name)
+    return {country_code: tuple(zone_names) for country_code, zone_names in zones_by_country.items()}
+
+
+def single_timezone_name_for_country(alpha_2: str) -> str | None:
+    """The country's timezone when it has exactly one (e.g. JP -> Asia/Tokyo). None for a country with several, or an unknown code."""
+    zone_names = country_timezone_names().get(alpha_2.upper(), ())
+    return zone_names[0] if len(zone_names) == 1 else None

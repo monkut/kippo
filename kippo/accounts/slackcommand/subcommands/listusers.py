@@ -4,7 +4,6 @@ from operator import attrgetter
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.conf import settings
 from django.utils import timezone
 from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
@@ -30,12 +29,15 @@ class ListUsersSubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
 
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
         # get latest attendance record for each user/organization for the today
-        today_start_datetime = datetime.datetime.combine(timezone.localdate(), datetime.time.min).replace(tzinfo=settings.JST)
+        today_start_datetime = datetime.datetime.combine(timezone.localdate(timezone=member_timezone), datetime.time.min).replace(
+            tzinfo=member_timezone
+        )
         latest_user_attendance_records = list(
             AttendanceRecord.objects.filter(
                 organization=command.organization,
@@ -62,7 +64,7 @@ class ListUsersSubCommand(SubCommandBase):
             for record in sorted(latest_user_attendance_records, key=attrgetter("entry_datetime")):
                 user_organization_membership = organizationmembership_by_username.get(record.created_by.username, None)
                 user_display_name = f"*{record.created_by.display_name}*"
-                local_entry_datetime = record.entry_datetime.astimezone(settings.JST)
+                local_entry_datetime = record.entry_datetime.astimezone(member_timezone)
                 local_entry_datetime_display = local_entry_datetime.strftime("%-m/%-d %-H:%M")
                 category_display = category_display_mapping.get(record.category, record.category)
                 message = f" {user_display_name:<{max_display_name_length}} {local_entry_datetime_display:>25} {category_display}"

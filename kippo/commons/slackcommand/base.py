@@ -31,7 +31,17 @@ class SubCommandBase:
         return True
 
     @staticmethod
-    def __add_year_to_text(text: str) -> str:
+    def _member_timezone(command: "SlackCommand") -> datetime.tzinfo:
+        """The timezone of the member who sent `command` (see KippoUser.get_timezone).
+
+        Dates and times a member types, and the ones shown back, are in the timezone the member works in.
+        """
+        if command.user:
+            return command.user.get_timezone(command.organization)
+        return command.organization.get_timezone()
+
+    @staticmethod
+    def __add_year_to_text(text: str, current_year: int) -> str:
         """
         Add the current year to the text if it does not contain a full date.
         - MM/DD HH:MM -> YYYY/MM/DD HH:MM
@@ -40,16 +50,16 @@ class SubCommandBase:
         if text.count(":"):
             if text.count("/") == 1:
                 # add year to text_without_subcommand
-                text = f"{timezone.localdate().year}/{text}"
+                text = f"{current_year}/{text}"
             elif text.count("-") == 1:
                 # add year to text_without_subcommand
-                text = f"{timezone.localdate().year}-{text}"
+                text = f"{current_year}-{text}"
         return text
 
     @classmethod
-    def _get_datetime_from_text(cls, text: str, tzinfo: datetime.timezone = settings.JST) -> datetime.datetime | None:
-        """Extract the first datetime from text"""
-        text = cls.__add_year_to_text(text)
+    def _get_datetime_from_text(cls, text: str, tzinfo: datetime.tzinfo = settings.JST) -> datetime.datetime | None:
+        """Extract the first datetime from text, read as a time in `tzinfo`. A missing year is the current year there."""
+        text = cls.__add_year_to_text(text, current_year=timezone.localdate(timezone=tzinfo).year)
         match_str = r"^(\d{2,4}(\/|-)\d{1,2}(\/|-)\d{1,2}\s\d{1,2}:\d{2})"
         m = re.match(match_str, text)
 

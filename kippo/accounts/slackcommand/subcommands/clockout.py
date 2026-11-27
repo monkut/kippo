@@ -2,7 +2,6 @@ import logging
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.conf import settings
 from django.utils import timezone
 from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
@@ -41,16 +40,17 @@ class ClockOutSubCommand(SubCommandBase):
     @classmethod
     def _prepare_valid_response_blocks(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None]:
         """Prepare response blocks for a valid clock-out."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
         text_without_subcommand = command.get_text_without_subcommand()
         # check if datetime is given in 'text'
         logger.debug(f"text_without_subcommand={text_without_subcommand}")
-        entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
+        entry_datetime = cls._get_datetime_from_text(text_without_subcommand, member_timezone)
 
         send_channel_notification = False
         if not entry_datetime:
             send_channel_notification = True
-            entry_datetime = timezone.localtime()
+            entry_datetime = timezone.localtime(timezone=member_timezone)
             logger.debug(f">>> `entry_datetime` not given, using localtime: {entry_datetime}")
         else:
             logger.warning(f">>> Using user defined `entry_datetime`: {entry_datetime}")
@@ -123,6 +123,7 @@ class ClockOutSubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
 
         assert cls._is_valid_subcommand_alias(command.sub_command)
@@ -150,7 +151,7 @@ class ClockOutSubCommand(SubCommandBase):
                 # Respond to user that they have already checked in today
                 message = cls._get_invalid_message(category=latest_attendance_record.category, organization_command_name=organization_command_name)
 
-                local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+                local_created_datetime = latest_attendance_record.created_datetime.astimezone(member_timezone)
                 local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
                 command_response_blocks = [
                     {

@@ -71,6 +71,7 @@ class SetHolidaySubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the check-in command."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
 
         assert cls._is_valid_subcommand_alias(command.sub_command)
@@ -88,7 +89,7 @@ class SetHolidaySubCommand(SubCommandBase):
             text_without_subcommand = f"{text_without_subcommand} 00:00"
             logger.debug(f"updated text_without_subcommand to include 00:00 for parsing: {text_without_subcommand}")
 
-        entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
+        entry_datetime = cls._get_datetime_from_text(text_without_subcommand, member_timezone)
         if not entry_datetime:
             logger.error(f"`entry_datetime` not parsed from text (expected YYYY/MM/DD): {text_without_subcommand}")
             command_response_blocks = [

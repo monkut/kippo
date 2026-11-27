@@ -2,7 +2,6 @@ import logging
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.conf import settings
 from django.utils import timezone
 from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
@@ -29,11 +28,12 @@ class BreakStartSubCommand(SubCommandBase):
     @classmethod
     def _prepare_valid_response_blocks(cls, command: SlackCommand, text_without_subcommand: str) -> tuple[list[dict], SlackResponse | None]:
         # VALID: User has started work, can take a break
-        entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
+        member_timezone = cls._member_timezone(command)
+        entry_datetime = cls._get_datetime_from_text(text_without_subcommand, member_timezone)
         web_send_response = None
         message = None
         send_channel_notification = False
-        current_localtime = timezone.localtime()
+        current_localtime = timezone.localtime(timezone=member_timezone)
         comment_display_text = f"\n> {text_without_subcommand}" if text_without_subcommand else ""
         if not entry_datetime:
             logger.info(f"`entry_datetime` not parsed from text (expected YYYY/MM/DD): {text_without_subcommand}")
@@ -43,7 +43,7 @@ class BreakStartSubCommand(SubCommandBase):
 
         is_future_datetime = entry_datetime and entry_datetime > current_localtime
         if is_future_datetime:
-            if entry_datetime.date() == timezone.localdate():
+            if entry_datetime.date() == current_localtime.date():
                 send_channel_notification = True
                 display_time = entry_datetime.strftime("%H:%M")
                 message = f"*{command.user.display_name}* {display_time} に休憩とる予定！{comment_display_text}"
@@ -98,6 +98,7 @@ class BreakStartSubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the break-start command."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
@@ -124,7 +125,7 @@ class BreakStartSubCommand(SubCommandBase):
             command_response_blocks, web_send_response = cls._prepare_valid_response_blocks(command, text_without_subcommand)
         elif latest_attendance_record and latest_attendance_record.category == AttendanceRecordCategory.BREAK_START:
             # INVALID: User is already on a break, cannot take another break
-            local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+            local_created_datetime = latest_attendance_record.created_datetime.astimezone(member_timezone)
             local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             message = f":warning: すでに休憩中です。\n最新休憩記録 > {latest_attendance_record.category} {local_created_datetime_display_str}\n"
             command_response_blocks = [
@@ -144,7 +145,7 @@ class BreakStartSubCommand(SubCommandBase):
                 logger.warning(
                     f"User {command.user.username} latest AttendanceRecord is not in ({valid_prior_categories}): {latest_attendance_record.category}"
                 )
-                local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+                local_created_datetime = latest_attendance_record.created_datetime.astimezone(member_timezone)
                 local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
                 message = (
                     f":warning: 出勤中になっていません！。\n"
