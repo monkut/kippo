@@ -1,6 +1,6 @@
 """Models of the projects app, one module per domain. Import them from `projects.models`."""
 
-from .constants import (
+from .definitions import (
     ACTIVE_PROJECT_PHASE_GROUPS,
     ACTIVE_PROJECT_PHASE_RANK,
     DEFAULT_ACTIVE_PROJECT_PHASES,

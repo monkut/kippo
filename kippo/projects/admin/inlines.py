@@ -43,7 +43,7 @@ from ..models import (
     ProjectParticipant,
     ProjectWeeklyEffort,
 )
-from .constants import CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG
+from .definitions import CONTRACT_REQUIRED_FOR_UNDER_CONTRACT_MSG
 from .widgets import _customer_autocomplete_widget, _project_manager_autocomplete_widget
 
 

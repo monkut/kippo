@@ -36,7 +36,7 @@ from ..models import (
     participant_period_error,
 )
 from ..services.participants import create_remaining_assignments, remaining_months
-from .constants import CLOSE_ORIGIN_PARAM, CLOSE_PROJECT_NO_CONTINUATION_VALUE, CONTINUATION_SOURCE_PARAM, CONTINUATION_SOURCE_VALUE
+from .definitions import CLOSE_ORIGIN_PARAM, CLOSE_PROJECT_NO_CONTINUATION_VALUE, CONTINUATION_SOURCE_PARAM, CONTINUATION_SOURCE_VALUE
 
 logger = logging.getLogger(__name__)
 

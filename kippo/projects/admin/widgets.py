@@ -16,7 +16,7 @@ from ..definitions import (
 from ..models import (
     KippoProject,
 )
-from .constants import CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM, SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM, SURVEY_SCOPE_MONTHLY
+from .definitions import CUSTOMER_AUTOCOMPLETE_ORGANIZATION_PARAM, SURVEY_PROJECT_AUTOCOMPLETE_SCOPE_PARAM, SURVEY_SCOPE_MONTHLY
 
 
 class OrganizationScopedAutocompleteSelect(AutocompleteSelect):

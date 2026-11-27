@@ -74,7 +74,7 @@ from .actions import (
     request_employee_survey_action,
 )
 from .assignment_rates import _default_assignment_rate_initial
-from .constants import (
+from .definitions import (
     CONTINUATION_SOURCE_PARAM,
     CONTINUATION_SOURCE_VALUE,
     FULL_CONFIDENCE,

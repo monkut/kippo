@@ -1,6 +1,6 @@
 """Django admin for the projects app. Each submodule registers its ModelAdmins on import."""
 
-from .constants import (
+from .definitions import (
     CLOSE_ORIGIN_PARAM,
     CLOSE_PROJECT_NO_CONTINUATION_VALUE,
     CONTINUATION_SOURCE_PARAM,

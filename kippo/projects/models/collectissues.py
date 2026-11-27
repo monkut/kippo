@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models import Sum
 from django.utils import timezone
 
-from .constants import VALID_COLLECTISSUESPROJECTRESULT_STATES
+from .definitions import VALID_COLLECTISSUESPROJECTRESULT_STATES
 
 
 class CollectIssuesAction(UserCreatedBaseModel):

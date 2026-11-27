@@ -18,7 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from ghorgs.managers import GithubOrganizationManager
 from tasks.models import KippoTaskStatus
 
-from .constants import GITHUB_MANAGER_USERNAME, UNPROCESSABLE_ENTITY_422
+from .definitions import GITHUB_MANAGER_USERNAME, UNPROCESSABLE_ENTITY_422
 from .project import KippoProject
 
 logger = logging.getLogger(__name__)

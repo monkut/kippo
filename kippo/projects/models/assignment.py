@@ -16,7 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from ..definitions import (
     ProjectRoles,
 )
-from .constants import MAX_ASSIGNMENT_PERCENTAGE, PARTICIPANT_MAX_START_MONTHS_AHEAD, UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
+from .definitions import MAX_ASSIGNMENT_PERCENTAGE, PARTICIPANT_MAX_START_MONTHS_AHEAD, UNASSIGNED_USER_GITHUB_LOGIN_PREFIX
 from .project import KippoProject
 
 logger = logging.getLogger(__name__)

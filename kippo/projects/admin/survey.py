@@ -27,7 +27,7 @@ from ..models import (
     KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
 )
-from .constants import SURVEY_SCOPE_MONTHLY, SURVEY_SCOPE_RETROSPECTIVE
+from .definitions import SURVEY_SCOPE_MONTHLY, SURVEY_SCOPE_RETROSPECTIVE
 from .widgets import SurveyScopedProjectAutocompleteSelect, survey_project_display_label, survey_project_queryset
 
 
