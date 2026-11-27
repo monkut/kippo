@@ -27,7 +27,7 @@ class MonthYearWidget(Widget):
             self.years = range(this_year - 1, this_year + 1)
 
     def render(self, name: str, value: str, attrs: dict | None = None, renderer: Any | None = None):  # noqa: ANN401
-        now = timezone.now()
+        now = timezone.localtime()
         try:
             year_val, month_val = value.year, value.month
         except AttributeError:

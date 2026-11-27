@@ -112,6 +112,54 @@ class AllowIsSuperuserAdminMixin:
         return self.check_perm(request.user)
 
 
+class SuperuserViewOnlyAdminMixin:
+    """Read-only admin visible to superusers. NOTE: Must be placed BEFORE admin.ModelAdmin"""
+
+    def has_view_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        # only for superusers, cannot return False, the module
+        # wouldn't be visible in admin
+        return request.user.is_superuser and request.method != "POST"
+
+
+class OrganizationAdminScopedAdminMixin:
+    """Add / change rights and rows limited to the organizations the user administers.
+
+    For a ModelAdmin whose model has an `organization` FK. Gates read `KippoUser.admin_organizations`,
+    never plain membership. NOTE: Must be placed BEFORE the AllowIs* mixins and admin.ModelAdmin.
+    """
+
+    @staticmethod
+    def _is_any_organization_admin(user: "KippoUser") -> bool:
+        if not user.is_active or user.is_anonymous:
+            return False
+        return user.is_superuser or user.admin_organizations.exists()
+
+    def _may_write(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        user = request.user
+        if not user.is_active or user.is_anonymous:
+            return False
+        if user.is_superuser:
+            return True
+        if obj is None:
+            # changelist/add-button rendering: any administered organization is enough
+            return self._is_any_organization_admin(user)
+        return user.is_organization_admin_of(obj.organization)
+
+    def has_add_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        return self._may_write(request, obj)
+
+    def has_change_permission(self, request: DjangoRequest, obj: Model | None = None) -> bool:
+        return self._may_write(request, obj)
+
+    def get_queryset(self, request: DjangoRequest) -> QuerySet:
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        # scoped to ADMINISTERED organizations, not merely joined ones -- this queryset also
+        # backs get_object(), so it bounds which rows the change / delete views can load.
+        return qs.filter(organization__in=request.user.admin_organizations)
+
+
 class OrganizationTaskQuerysetModelAdminMixin:
     def get_queryset(self, request: DjangoRequest) -> QuerySet:
         qs = super().get_queryset(request)

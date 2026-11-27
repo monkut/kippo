@@ -1,12 +1,13 @@
+import datetime
 import json
 import logging
 import urllib.parse
+from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from collections import Counter
 
-# from tasks.functions import prepare_project_engineering_load_plot_data
 from commons.functions import ui_url
 from django.conf import settings
 from django.contrib import messages
@@ -27,13 +28,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from tasks.models import KippoTask, KippoTaskStatus
+from tasks.models import KippoTaskStatus
 
 from kippo.awsclients import get_s3_client, s3_key_exists
 
-# from .charts.functions import prepare_burndown_chart_components
 from .functions import get_user_session_organization
-from .models import KippoMilestone, KippoProject
+from .models import KippoMilestone, KippoProject, ProjectWeeklyEffort
+from .services.progress import effort_meter, expected_effort_hours
 
 logger = logging.getLogger(__name__)
 
@@ -44,139 +45,6 @@ class AssigneeStatus(NamedTuple):
     available_workdays: int
     estimated_workdays: int
     load_percentage: str
-
-
-def project_assignee_keyfunc(task: KippoTask) -> tuple:
-    """A keying function that returns the values to use for sorting"""
-    username = ""
-    if task.assignee:
-        username = task.assignee.username
-
-    project = ""
-    if task.project:
-        project = task.project.name
-
-    milestone = ""
-    if task.milestone:
-        milestone = task.milestone.target_date.isoformat()
-
-    return project, username, milestone
-
-
-def _get_task_details(active_taskstatus: list[KippoTaskStatus]) -> tuple[list[int], list[KippoTask]]:
-    collected_task_ids = []
-    unique_tasks = []
-    for taskstatus in active_taskstatus:
-        if taskstatus.task.id not in collected_task_ids:
-            unique_tasks.append(taskstatus.task)
-            collected_task_ids.append(taskstatus.task.id)
-    return collected_task_ids, unique_tasks
-
-
-#
-# @staff_member_required
-# def view_inprogress_projects_status(request: HttpRequest) -> HttpResponse:
-#     warning = None
-#
-#     try:
-#         selected_organization, user_organizations = get_user_session_organization(request)
-#     except ValueError as e:
-#         return HttpResponseBadRequest(str(e.args))
-#
-#     slug = request.GET.get("slug", None)
-#     if slug:
-#         project = get_object_or_404(KippoProject, slug=slug, organization=selected_organization)
-#         projects = [project]
-#     else:
-#         projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization)
-#     active_projects = KippoProject.objects.filter(is_closed=False, organization=selected_organization).order_by("name")
-#
-#     # Collect KippoTaskStatus for projects
-#     active_taskstatus = []
-#     all_has_estimates = False
-#     for project in projects:
-#         project_active_taskstatus, has_estimates = project.get_active_taskstatus()
-#         if has_estimates:
-#             all_has_estimates = True
-#         active_taskstatus.extend(project_active_taskstatus)
-#
-#     if not all_has_estimates:
-#         msg = 'No Estimates defined in tasks (Expect "estimate labels")'
-#         messages.add_message(request, messages.WARNING, msg)
-#
-#     project = None
-#     script = None
-#     div = None
-#     latest_effort_date = None
-#     if slug:
-#         assert len(projects) == 1
-#         project = projects[0]
-#         # generate burn-down chart
-#         try:
-#             script, div = prepare_burndown_chart_components(project)
-#         except TaskStatusError as e:
-#             warning = f"Data not available for project({project.name}): {e.args}"
-#             messages.add_message(request, messages.WARNING, warning)
-#             logger.warning(warning)
-#         except ProjectDatesError as e:
-#             warning = f"start_date or target_date not set for project: {e.args}"
-#             messages.add_message(request, messages.WARNING, warning)
-#             logger.warning(warning)
-#     else:
-#         # show project schedule chart
-#         if not selected_organization:
-#             return HttpResponseBadRequest("KippoUser not registered with an Organization!")
-#
-#         # check projects for start_date, target_date
-#         projects_missing_dates = KippoProject.objects.filter(Q(start_date__isnull=True) | Q(target_date__isnull=True))
-#         projects_missing_dates = projects_missing_dates.filter(
-#             organization=selected_organization, github_project_api_nodeid__isnull=False, is_closed=False
-#         )
-#         if projects_missing_dates:
-#             for p in projects_missing_dates:
-#                 warning = (
-#                     f"Project({p.name}) start_date({p.start_date}) or target_date({p.target_date}) not defined! "
-#                     f"(Will not be displayed in chart) "
-#                 )
-#                 messages.add_message(request, messages.WARNING, warning)
-#                 logger.warning(warning)
-#         try:
-#             (script, div), latest_effort_date = prepare_project_engineering_load_plot_data(selected_organization)
-#             logger.debug(f"latest_effort_date: {latest_effort_date}")
-#         except ProjectConfigurationError as e:
-#             logger.warning(f"No projects with start_date or target_date defined: {e.args}")
-#         except ValueError as e:
-#             logger.exception(e)
-#             logger.error(str(e.args))
-#             error = f"Unable to process tasks: {e.args}"
-#             messages.add_message(request, messages.ERROR, error)
-#
-#     # collect unique Tasks
-#     collected_task_ids, unique_tasks = _get_task_details(active_taskstatus)
-#
-#     # get user totals
-#     user_effort_totals = Counter()
-#     for task in unique_tasks:
-#         if task.assignee:
-#             days_remaining = task.effort_days_remaining() if task.effort_days_remaining() else 0
-#             user_effort_totals[task.assignee.username] += days_remaining
-#
-#     # sort tasks by assignee.username, project.name
-#     sorted_tasks = sorted(unique_tasks, key=project_assignee_keyfunc)
-#     context = {
-#         "project": project,
-#         "tasks": sorted_tasks,
-#         "user_effort_totals": dict(user_effort_totals),
-#         "chart_script": script,
-#         "chart_div": div,
-#         "latest_effort_date": latest_effort_date,
-#         "active_projects": active_projects,
-#         "messages": messages.get_messages(request),
-#         "selected_organization": selected_organization,
-#         "organizations": user_organizations,
-#     }
-#
-#     return render(request, "projects/view_inprogress_projects_status.html", context)
 
 
 @staff_member_required
@@ -322,8 +190,71 @@ def data_download_done(request: DjangoRequest):
     return render(request, "projects/download_done.html", {"back_path": back_path})
 
 
+def _week_starts_in_period(start_date: datetime.date, target_date: datetime.date) -> set[datetime.date]:
+    """Every Monday from the Monday on or before `start_date` up to and including `target_date`."""
+    week_starts = set()
+    current = start_date - datetime.timedelta(days=start_date.weekday())
+    while current <= target_date:
+        week_starts.add(current)
+        current += datetime.timedelta(days=7)
+    return week_starts
+
+
+def _project_effort_chart_data(project: KippoProject) -> dict:
+    """Chart data for the project status page: per-user weekly and cumulative effort, and the expected-effort line."""
+    effort_by_date = defaultdict(dict)
+    for effort in ProjectWeeklyEffort.objects.filter(project=project).order_by("week_start", "user__first_name", "user__last_name"):
+        effort_by_date[effort.week_start][effort.user.display_name] = effort.hours
+
+    has_period = bool(project.start_date and project.target_date)
+    week_starts = _week_starts_in_period(project.start_date, project.target_date) if has_period else set()
+    # effort logged outside the project period is still shown
+    week_starts.update(effort_by_date)
+    sorted_dates = sorted(week_starts)
+    sorted_users = sorted({user for efforts in effort_by_date.values() for user in efforts})
+
+    # The expected-effort line is drawn inside the project period only (null outside it).
+    dates_in_period = [date for date in sorted_dates if has_period and project.start_date <= date <= project.target_date]
+    expected_hours = expected_effort_hours(project, dates_in_period)
+    expected_effort = [(expected_hours[date] or 0) if date in expected_hours else None for date in sorted_dates]
+
+    # Cumulative and weekly effort per user. Future weeks are null.
+    today = timezone.localdate()
+    effort_by_user = {}
+    weekly_effort_by_user = {}
+    total_effort_by_user = {}
+    for user in sorted_users:
+        effort_by_user[user] = []
+        weekly_effort_by_user[user] = []
+        cumulative_hours = 0
+        for date in sorted_dates:
+            hours = effort_by_date[date].get(user, 0)
+            cumulative_hours += hours
+            effort_by_user[user].append(cumulative_hours if date <= today else None)
+            weekly_effort_by_user[user].append(hours if date <= today else None)
+        total_effort_by_user[user] = cumulative_hours
+
+    return {
+        "labels": [date.isoformat() for date in sorted_dates],
+        "users": sorted_users,
+        "effort_by_user": effort_by_user,
+        "weekly_effort_by_user": weekly_effort_by_user,
+        "expected_effort": expected_effort,
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "target_date": project.target_date.isoformat() if project.target_date else None,
+        "allocated_hours": project.allocated_effort_hours,
+        "pie_chart": {
+            "users": sorted_users,
+            "effort": [total_effort_by_user[user] for user in sorted_users],
+        },
+    }
+
+
+PROJECT_STATUS_VERBOSE_NAME_FIELDS = ("organization", "phase", "start_date", "target_date", "allocated_staff_days", "project_manager")
+
+
 @staff_member_required
-def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpResponse:  # noqa: PLR0915, C901, PLR0912
+def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpResponse:
     """
     Display project status details with a stacked bar chart showing effort over time.
 
@@ -344,154 +275,21 @@ def get_projectstatus_details(request: DjangoRequest, project_id: str) -> HttpRe
     except KippoProject.DoesNotExist:
         return HttpResponseBadRequest(f"Project with id {project_id} not found or access denied")
 
-    # Get all ProjectWeeklyEffort entries for this project
-    import datetime
-    from collections import defaultdict
-
-    from commons.definitions import MONDAY
-
-    from .models import ProjectWeeklyEffort
-
-    project_weekly_efforts = ProjectWeeklyEffort.objects.filter(project=project).order_by("week_start", "user__first_name", "user__last_name")
-
-    # Prepare data for the chart
-    # Group by date and collect user efforts
-    effort_by_date = defaultdict(dict)
-    all_users = set()
-
-    for effort in project_weekly_efforts:
-        effort_by_date[effort.week_start][effort.user.display_name] = effort.hours
-        all_users.add(effort.user.display_name)
-
-    # Generate all week start dates from start_date to target_date
-    all_week_starts = set()
-    if project.start_date and project.target_date:
-        # Find the Monday on or before start_date
-        current = project.start_date
-        while current.weekday() != MONDAY:
-            current -= datetime.timedelta(days=1)
-
-        # Generate all Mondays up to and including target_date
-        while current <= project.target_date:
-            all_week_starts.add(current)
-            current += datetime.timedelta(days=7)
-
-    # Include all dates from effort_by_date (to show effort beyond target_date)
-    all_week_starts.update(effort_by_date.keys())
-
-    # Sort dates and users for consistent ordering
-    sorted_dates = sorted(all_week_starts)
-    sorted_users = sorted(all_users)
-
-    # Calculate expected effort for each date
-    # Only calculate expected effort for dates within start_date to target_date range
-    expected_effort_data = []
-    for date in sorted_dates:
-        if project.start_date and project.target_date and project.start_date <= date <= project.target_date:
-            _, expected_hours = project.get_expected_effort(at_date=date)
-            expected_effort_data.append(
-                {
-                    "date": date.isoformat(),
-                    "expected_hours": expected_hours if expected_hours else 0,
-                }
-            )
-        else:
-            # No expected effort outside the project date range
-            expected_effort_data.append(
-                {
-                    "date": date.isoformat(),
-                    "expected_hours": None,  # null for dates outside range
-                }
-            )
-
-    # Prepare chart data structure
-    chart_data = {
-        "labels": [date.isoformat() for date in sorted_dates],
-        "users": sorted_users,
-        "effort_by_user": {},
-        "weekly_effort_by_user": {},
-        "expected_effort": [item["expected_hours"] for item in expected_effort_data],
-        "start_date": project.start_date.isoformat() if project.start_date else None,
-        "target_date": project.target_date.isoformat() if project.target_date else None,
-        "allocated_hours": project.allocated_effort_hours,
-    }
-
-    # Fill in effort data for each user (cumulative and weekly)
-    # Do not show cumulative effort for future dates
-    today = timezone.now().date()
-    latest_cumulative_effort = {}
-    for user in sorted_users:
-        chart_data["effort_by_user"][user] = []
-        chart_data["weekly_effort_by_user"][user] = []
-        cumulative_hours = 0
-        for date in sorted_dates:
-            hours = effort_by_date[date].get(user, 0)
-            cumulative_hours += hours
-            # Only show cumulative effort for dates up to today
-            if date <= today:
-                chart_data["effort_by_user"][user].append(cumulative_hours)
-                chart_data["weekly_effort_by_user"][user].append(hours)
-            else:
-                # Future dates: show null for cumulative and weekly effort
-                chart_data["effort_by_user"][user].append(None)
-                chart_data["weekly_effort_by_user"][user].append(None)
-        # Store the latest (final) cumulative value for pie chart
-        latest_cumulative_effort[user] = cumulative_hours
-
-    # Add pie chart data (percentage of effort per user)
-    chart_data["pie_chart"] = {
-        "users": sorted_users,
-        "effort": [latest_cumulative_effort[user] for user in sorted_users],
-    }
-
-    # Get verbose names from model
-    verbose_names = {
-        "model": project._meta.verbose_name,
-        "organization": project._meta.get_field("organization").verbose_name,
-        "phase": project._meta.get_field("phase").verbose_name,
-        "start_date": project._meta.get_field("start_date").verbose_name,
-        "target_date": project._meta.get_field("target_date").verbose_name,
-        "allocated_staff_days": project._meta.get_field("allocated_staff_days").verbose_name,
-        "project_manager": project._meta.get_field("project_manager").verbose_name,
-    }
-
-    # Get project progress status for meter display
     project_progress_status = project.get_projectprogressstatus_values()
-
-    # Effort meter values, matching kippo-ui ProjectStatusMeter (routes/project-status.tsx):
-    # fill = current / max(allocated, current); colour from difference_percentage (effort vs. schedule).
-    effort_meter = None
-    if project_progress_status.allocated_effort_hours and project_progress_status.expected_effort_hours:
-        current_hours = project_progress_status.current_effort_hours or 0
-        max_hours = max(project_progress_status.allocated_effort_hours, current_hours)
-        difference_percentage = project_progress_status.get_difference_percentage()
-        level = "neutral"
-        if difference_percentage is not None:
-            level = "success"
-            if difference_percentage > 0:
-                level = "warning"
-            if difference_percentage > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
-                level = "danger"
-        effort_meter = {
-            "level": level,
-            "fill_percentage": round(current_hours / max_hours * 100, 1) if current_hours > 0 else 0,
-            "difference_percentage": difference_percentage,
-        }
-
-    # Calculate remaining hours
     remaining_hours = None
     if project_progress_status.allocated_effort_hours is not None and project_progress_status.current_effort_hours is not None:
         remaining_hours = project_progress_status.allocated_effort_hours - project_progress_status.current_effort_hours
 
-    # Convert chart_data to JSON to properly handle None -> null conversion
-    chart_data_json = json.dumps(chart_data)
+    verbose_names = {field: project._meta.get_field(field).verbose_name for field in PROJECT_STATUS_VERBOSE_NAME_FIELDS}
+    verbose_names["model"] = project._meta.verbose_name
 
     context = {
         "project": project,
-        "chart_data_json": chart_data_json,
+        # json.dumps so None becomes null in the template
+        "chart_data_json": json.dumps(_project_effort_chart_data(project)),
         "verbose_names": verbose_names,
         "project_progress_status": project_progress_status,
-        "effort_meter": effort_meter,
+        "effort_meter": effort_meter(project_progress_status),
         "remaining_hours": remaining_hours,
         "URL_PREFIX": settings.URL_PREFIX,
         "ui_project_status_url": ui_url("project-status"),
@@ -654,7 +452,7 @@ class WeeklyEffortMissingWeeksView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         from accounts.functions import get_allholiday_weekstarts
 
@@ -672,12 +470,8 @@ class WeeklyEffortMissingWeeksView(APIView):
                 }
             )
 
-        # Calculate fiscal year start date
-        now = timezone.now()
-        if now.month < user_first_org.fiscalyear_start_month:
-            fiscal_year_start = date(now.year - 1, user_first_org.fiscalyear_start_month, 1)
-        else:
-            fiscal_year_start = date(now.year, user_first_org.fiscalyear_start_month, 1)
+        today = timezone.localdate()
+        fiscal_year_start = user_first_org.current_fiscal_year_start()
 
         # Get all week_starts where user has entries since fiscal year start
         user_weekstarts = set(
@@ -693,12 +487,12 @@ class WeeklyEffortMissingWeeksView(APIView):
         current = fiscal_year_start
         while current.weekday() != 0:  # Find first Monday
             current += timedelta(days=1)
-        while current <= now.date():
+        while current <= today:
             all_mondays.append(current)
             current += timedelta(days=7)
 
         # Calculate current week's Monday to exclude
-        this_week_start = now.date()
+        this_week_start = today
         while this_week_start.weekday() != 0:
             this_week_start -= timedelta(days=1)
 

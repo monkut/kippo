@@ -34,7 +34,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         github_organization_name = options["github_organization_name"]
 
-        status_effort_date = timezone.now().date()
+        status_effort_date = timezone.localdate()
         if options["date"]:
             try:
                 status_effort_date = timezone.datetime.strptime(options["date"], "%Y-%m-%d").date()

@@ -37,15 +37,9 @@ def _get_organization_monthly_available_workdays(organization: KippoOrganization
     member_personal_holiday_dates = {m.user.github_login: tuple(m.user.personal_holiday_dates()) for m in organization_memberships}
     member_public_holiday_dates = {m.user.github_login: tuple(m.user.public_holiday_dates()) for m in organization_memberships}
 
-    current_datetime = timezone.now()
-    start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, 1, tzinfo=datetime.UTC)
-
-    # get the last full month 2 years from now
-    end_datetime = start_datetime + relativedelta(months=1, years=2)
-    end_datetime = end_datetime.replace(day=1)
-
-    current_date = start_datetime.date()
-    end_date = end_datetime.date()
+    # from the first day of the current month to the last full month 2 years from now
+    current_date = timezone.localdate().replace(day=1)
+    end_date = current_date + relativedelta(months=1, years=2)
 
     monthly_available_workdays = defaultdict(Counter)
     while current_date < end_date:

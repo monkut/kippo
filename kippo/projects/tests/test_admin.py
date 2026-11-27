@@ -2315,7 +2315,7 @@ class DefaultAssignmentRateLoaderTestCase(SimpleTestCase):
 
         from django.conf import settings
 
-        from projects import admin as projects_admin
+        from projects.admin import assignment_rates as projects_admin
 
         rows = [
             {"role": "developer", "rate_per_day": 123456},
@@ -2339,7 +2339,7 @@ class DefaultAssignmentRateLoaderTestCase(SimpleTestCase):
         from pathlib import Path
         from unittest.mock import patch
 
-        from projects import admin as projects_admin
+        from projects.admin import assignment_rates as projects_admin
 
         with (
             patch.object(projects_admin, "DEFAULT_ASSIGNMENT_RATES_FIXTURE", Path("/nonexistent/does-not-exist.json")),

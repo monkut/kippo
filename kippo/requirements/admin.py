@@ -1,5 +1,5 @@
+from commons.admin import SuperuserViewOnlyAdminMixin
 from django.contrib import admin
-from django.http import request as DjangoRequest  # noqa: N812
 
 from .models import (
     AssumptionEvaluation,
@@ -20,162 +20,100 @@ from .models import (
 
 
 @admin.register(ProjectProblemDefinition)
-class ProjectProblemDefinitionAdmin(admin.ModelAdmin):
+class ProjectProblemDefinitionAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("display_id", "project", "title", "created_datetime")
     list_filter = ("project",)
     search_fields = ("title", "details", "project__name")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectProblemDefinition | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectAssumption)
-class ProjectAssumptionAdmin(admin.ModelAdmin):
+class ProjectAssumptionAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("display_id", "project", "category", "is_internal", "title", "created_datetime")
     list_filter = ("project", "category", "is_internal")
     search_fields = ("title", "details", "project__name")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectAssumption | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectBusinessRequirementCategory)
-class ProjectBusinessRequirementCategoryAdmin(admin.ModelAdmin):
+class ProjectBusinessRequirementCategoryAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("name", "project", "created_datetime")
     list_filter = ("project",)
     search_fields = ("name", "project__name")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectBusinessRequirementCategory | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectBusinessRequirement)
-class ProjectBusinessRequirementAdmin(admin.ModelAdmin):
+class ProjectBusinessRequirementAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("display_id", "project", "category", "title", "created_datetime")
     list_filter = ("project", "category")
     search_fields = ("title", "details", "project__name")
     filter_horizontal = ("problems",)
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectBusinessRequirement | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectBusinessRequirementComment)
-class ProjectBusinessRequirementCommentAdmin(admin.ModelAdmin):
+class ProjectBusinessRequirementCommentAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "created_by", "is_resolved", "created_datetime")
     list_filter = ("requirement__project", "is_resolved")
     search_fields = ("comment", "requirement__title")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectBusinessRequirementComment | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectTechnicalRequirementCategory)
-class ProjectTechnicalRequirementCategoryAdmin(admin.ModelAdmin):
+class ProjectTechnicalRequirementCategoryAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("name", "project", "created_datetime")
     list_filter = ("project",)
     search_fields = ("name", "project__name")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectTechnicalRequirementCategory | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectTechnicalRequirement)
-class ProjectTechnicalRequirementAdmin(admin.ModelAdmin):
+class ProjectTechnicalRequirementAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("display_id", "project", "category", "title", "created_datetime")
     list_filter = ("project", "category")
     search_fields = ("title", "details", "project__name")
     filter_horizontal = ("business_requirements",)
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectTechnicalRequirement | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectTechnicalRequirementComment)
-class ProjectTechnicalRequirementCommentAdmin(admin.ModelAdmin):
+class ProjectTechnicalRequirementCommentAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "created_by", "created_datetime")
     list_filter = ("requirement__project",)
     search_fields = ("comment", "requirement__title")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectTechnicalRequirementComment | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectBusinessRequirementEstimate)
-class ProjectBusinessRequirementEstimateAdmin(admin.ModelAdmin):
+class ProjectBusinessRequirementEstimateAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "days", "confidence", "created_by", "created_datetime")
     list_filter = ("requirement__project",)
     search_fields = ("requirement__title",)
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectBusinessRequirementEstimate | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProjectTechnicalRequirementGithubIssue)
-class ProjectTechnicalRequirementGithubIssueAdmin(admin.ModelAdmin):
+class ProjectTechnicalRequirementGithubIssueAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("technical_requirement", "url", "created_datetime")
     list_filter = ("technical_requirement__project",)
     search_fields = ("url", "technical_requirement__title")
 
-    def has_view_permission(self, request: DjangoRequest, obj: ProjectTechnicalRequirementGithubIssue | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
-
 
 @admin.register(ProblemDefinitionEvaluation)
-class ProblemDefinitionEvaluationAdmin(admin.ModelAdmin):
+class ProblemDefinitionEvaluationAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
     list_filter = ("evaluation_result",)
     search_fields = ("requirement__title", "feedback")
-
-    def has_view_permission(self, request: DjangoRequest, obj: ProblemDefinitionEvaluation | None = None) -> bool:
-        return request.user.is_superuser and request.method != "POST"
 
 
 @admin.register(AssumptionEvaluation)
-class AssumptionEvaluationAdmin(admin.ModelAdmin):
+class AssumptionEvaluationAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
     list_filter = ("evaluation_result",)
     search_fields = ("requirement__title", "feedback")
-
-    def has_view_permission(self, request: DjangoRequest, obj: AssumptionEvaluation | None = None) -> bool:
-        return request.user.is_superuser and request.method != "POST"
 
 
 @admin.register(BusinessRequirementEvaluation)
-class BusinessRequirementEvaluationAdmin(admin.ModelAdmin):
+class BusinessRequirementEvaluationAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
     list_filter = ("evaluation_result",)
     search_fields = ("requirement__title", "feedback")
-
-    def has_view_permission(self, request: DjangoRequest, obj: BusinessRequirementEvaluation | None = None) -> bool:
-        return request.user.is_superuser and request.method != "POST"
 
 
 @admin.register(TechnicalRequirementEvaluation)
-class TechnicalRequirementEvaluationAdmin(admin.ModelAdmin):
+class TechnicalRequirementEvaluationAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     list_display = ("requirement", "evaluation_result", "created_by", "created_datetime")
     list_filter = ("evaluation_result",)
     search_fields = ("requirement__title", "feedback")
-
-    def has_view_permission(self, request: DjangoRequest, obj: TechnicalRequirementEvaluation | None = None) -> bool:
-        return request.user.is_superuser and request.method != "POST"

@@ -3,7 +3,7 @@
 from http import HTTPStatus
 from typing import Any
 
-from commons.viewsets import organization_ids_for_user
+from commons.viewsets import scope_to_user_organizations, user_can_access_organization
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from projects.models import KippoProject
@@ -43,11 +43,7 @@ class GithubRepositoryViewSet(
     queryset = GithubRepository.objects.all().select_related("organization", "project").order_by("name")
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        if not user.is_superuser:
-            queryset = queryset.filter(organization__in=organization_ids_for_user(user))
-        return queryset
+        return scope_to_user_organizations(super().get_queryset(), self.request.user)
 
     @extend_schema(
         responses={
@@ -106,8 +102,7 @@ class ProjectGithubRepositoryViewSet(
     def _get_project_or_403(self) -> KippoProject:
         project_id = self.kwargs["project_id"]
         project = get_object_or_404(KippoProject, pk=project_id)
-        user = self.request.user
-        if not user.is_superuser and project.organization_id not in organization_ids_for_user(user):
+        if not user_can_access_organization(self.request.user, project.organization_id):
             # Mirror DRF's PermissionDenied -> 403 without leaking existence.
             self.permission_denied(self.request, message="Project is not in any of your organizations.")
         return project

@@ -27,6 +27,16 @@ def ui_url(path: str) -> str:
     return f"{settings.UI_BASE_URL}{settings.URL_PREFIX}/ui/{path.lstrip('/')}"
 
 
+def local_date(value: datetime.datetime) -> datetime.date:
+    """The calendar date of `value` in the current time zone (JST).
+
+    `value.date()` on an aware datetime returns the date in that datetime's own zone: for a value
+    read from the database or built with `timezone.now()` that is UTC, which is still yesterday for
+    the first nine hours of a JST day. A naive datetime is taken as already local.
+    """
+    return timezone.localtime(value).date() if timezone.is_aware(value) else value.date()
+
+
 def get_current_month_date_range() -> tuple[timezone.datetime, timezone.datetime]:
     """Get the start and end datetime.date objects of the current month."""
     today = timezone.localtime()
