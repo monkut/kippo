@@ -10,7 +10,7 @@ from urllib.parse import quote, urlencode
 from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.fields import CommaSeparatedCharField
 from commons.functions import add_months, first_of_month, first_of_next_month, last_of_month
-from commons.models import TimestampedModel, UserCreatedBaseModel
+from commons.models import PersistedFieldSnapshotMixin, TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -354,7 +354,7 @@ def seed_organization_project_categories(sender: type[KippoOrganization], instan
         KippoProjectOrganizationCategory.seed_for_organization(instance)
 
 
-class KippoProject(UserCreatedBaseModel):
+class KippoProject(PersistedFieldSnapshotMixin, UserCreatedBaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("accounts.KippoOrganization", on_delete=models.CASCADE, verbose_name=_("組織"))
     name = models.CharField(max_length=256, unique=True, verbose_name=_("プロジェクト名"), help_text=_("プロジェクトの名称"))
@@ -899,26 +899,7 @@ class KippoProject(UserCreatedBaseModel):
     # feed the フェーズ / 確度 change log (kippo#77). Field name -> snapshot attribute.
     PERSISTED_SNAPSHOT_ATTRIBUTES = {"phase": "_confidence_synced_phase", "confidence": "_persisted_confidence"}
 
-    def _snapshot_persisted_state(self, fields: Iterable[str] | None = None) -> None:
-        # Read loaded values from __dict__ only: touching a deferred attribute would trigger
-        # refresh_from_db -> from_db -> this snapshot again (RecursionError on .only() / cascade deletes).
-        # A deferred field is snapshotted later, when its lazy load runs refresh_from_db(fields=[...]).
-        for field_name, attribute in self.PERSISTED_SNAPSHOT_ATTRIBUTES.items():
-            if (fields is None or field_name in fields) and field_name in self.__dict__:
-                setattr(self, attribute, self.__dict__[field_name])
-
-    @classmethod
-    def from_db(cls, db: str, field_names: list[str], values: list[Any]) -> "KippoProject":
-        instance = super().from_db(db, field_names, values)
-        instance._snapshot_persisted_state()
-        return instance
-
-    def refresh_from_db(self, using: str | None = None, fields: Iterable[str] | None = None, from_queryset: QuerySet | None = None) -> None:
-        fields = list(fields) if fields is not None else None
-        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
-        self._snapshot_persisted_state(fields)
-
-    def save(self, *args, **kwargs):
+    def _stamp_status_datetimes(self) -> None:
         if self.survey_issued and not self.survey_issued_datetime:
             self.survey_issued_datetime = timezone.now()
 
@@ -927,36 +908,67 @@ class KippoProject(UserCreatedBaseModel):
         elif not self.is_closed and self.closed_datetime:
             self.closed_datetime = None
 
-        # confidence (確度) tracks phase, but is re-derived ONLY when phase changes (or on create).
-        # An existing or manually-set confidence is otherwise preserved (kippo#36 / T09). The
-        # migration that introduced phase set the initial values; ordinary edits leave them alone.
-        # A partial save (update_fields) that does not write phase must NOT touch confidence either,
-        # or the DB would hold a new confidence against the old phase.
-        update_fields = kwargs.get("update_fields")
+    def _sync_confidence_with_phase(self, save_kwargs: dict) -> None:
+        """Re-derive confidence (確度) from phase when phase changes or on create. May add to update_fields.
+
+        An existing or manually-set confidence is otherwise preserved (kippo#36 / T09). The
+        migration that introduced phase set the initial values; ordinary edits leave them alone.
+        A partial save (update_fields) that does not write phase must NOT touch confidence either,
+        or the DB would hold a new confidence against the old phase.
+        """
+        update_fields = save_kwargs.get("update_fields")
         phase_persisted = update_fields is None or "phase" in update_fields
         if self._state.adding or (phase_persisted and self.phase != getattr(self, "_confidence_synced_phase", None)):
             self.confidence = PHASE_CONFIDENCE.get(self.phase, self.confidence)
             if update_fields is not None and "confidence" not in update_fields:
-                kwargs["update_fields"] = [*update_fields, "confidence"]
+                save_kwargs["update_fields"] = [*update_fields, "confidence"]
 
-        if self._state.adding:  # created
-            # perform initial creation tasks
+    def _use_organization_category(self) -> None:
+        """Point a new project at its organization's copy of the category.
+
+        copy-on-create (kippo#49): a project references its ORG's category copy, never a global
+        template row. The category resolves to a global only when the caller made no explicit
+        choice (the field default), so prefer the org's configured default (kippo#50), then the
+        org's copy of the same key, then the org's 'other'.
+        """
+        if not (self.category_id and self.organization_id and self.category.organization_id is None):
+            return
+        org_categories = KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id)
+        org_category = (
+            org_categories.filter(is_default=True, is_active=True).first()
+            or org_categories.filter(key=self.category.key).first()
+            or org_categories.filter(key=DEFAULT_PROJECT_CATEGORY_VALUE).first()
+        )
+        if org_category:
+            self.category = org_category
+
+    def _phase_confidence_change(self, written_fields: Iterable[str] | None) -> dict | None:
+        """The フェーズ / 確度 change this save makes to an existing project, or None (kippo#77).
+
+        Only fields this save actually writes count: a field the save does not write keeps its
+        snapshot. A create is not logged (created_by / created_datetime record the initial state).
+        """
+        previous_phase = getattr(self, "_confidence_synced_phase", None)
+        previous_confidence = getattr(self, "_persisted_confidence", None)
+        if self._state.adding or previous_phase is None or previous_confidence is None:
+            return None
+        saved_phase = self.phase if written_fields is None or "phase" in written_fields else previous_phase
+        saved_confidence = self.confidence if written_fields is None or "confidence" in written_fields else previous_confidence
+        if saved_phase == previous_phase and saved_confidence == previous_confidence:
+            return None
+        return {
+            "previous_phase": previous_phase,
+            "new_phase": saved_phase,
+            "previous_confidence": previous_confidence,
+            "new_confidence": saved_confidence,
+        }
+
+    def save(self, *args, **kwargs):
+        self._stamp_status_datetimes()
+        self._sync_confidence_with_phase(kwargs)
+        if self._state.adding:
             self.slug = slugify(self.name, allow_unicode=True)
-
-            # copy-on-create (kippo#49): a project references its ORG's category copy, never a global
-            # template row. The category resolves to a global only when the caller made no explicit
-            # choice (the field default), so prefer the org's configured default (kippo#50), then the
-            # org's copy of the same key, then the org's 'other'.
-            if self.category_id and self.organization_id and self.category.organization_id is None:
-                org_category = (
-                    KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, is_default=True, is_active=True).first()
-                    or KippoProjectOrganizationCategory.objects.filter(organization_id=self.organization_id, key=self.category.key).first()
-                    or KippoProjectOrganizationCategory.objects.filter(
-                        organization_id=self.organization_id, key=DEFAULT_PROJECT_CATEGORY_VALUE
-                    ).first()
-                )
-                if org_category:
-                    self.category = org_category
+            self._use_organization_category()
 
         # Slack's slash-command payload sends "channel_name" without a leading "#",
         # so the slash-command project lookup ("...subcommands/projectstatus.py") does
@@ -965,39 +977,15 @@ class KippoProject(UserCreatedBaseModel):
         self.slack_channel_name = _normalize_slack_channel_name(self.slack_channel_name)
         self.slack_notification_channel_name = _normalize_slack_channel_name(self.slack_notification_channel_name)
 
-        # Log フェーズ / 確度 changes on an existing project (kippo#77). Only fields this save actually
-        # writes count; a create is not logged (created_by / created_datetime record the initial state).
         written_fields = kwargs.get("update_fields")
-        confidence_persisted = written_fields is None or "confidence" in written_fields
-        previous_phase = getattr(self, "_confidence_synced_phase", None)
-        previous_confidence = getattr(self, "_persisted_confidence", None)
-        # The values the DB holds after this save: a field the save does not write keeps its snapshot.
-        saved_phase = self.phase if phase_persisted else previous_phase
-        saved_confidence = self.confidence if confidence_persisted else previous_confidence
-        is_logged_change = (
-            not self._state.adding
-            and previous_phase is not None
-            and previous_confidence is not None
-            and (saved_phase != previous_phase or saved_confidence != previous_confidence)
-        )
-
+        change = self._phase_confidence_change(written_fields)
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if is_logged_change:
-                KippoProjectPhaseConfidenceChange.objects.create(
-                    project=self,
-                    previous_phase=previous_phase,
-                    new_phase=saved_phase,
-                    previous_confidence=previous_confidence,
-                    new_confidence=saved_confidence,
-                    changed_by_id=self.updated_by_id,
-                )
-        # Refresh the snapshot only when phase was actually written, so a partial save that skipped
+            if change:
+                KippoProjectPhaseConfidenceChange.objects.create(project=self, changed_by_id=self.updated_by_id, **change)
+        # Refresh only the snapshots of fields this save wrote, so a partial save that skipped
         # phase doesn't poison the comparison for the next full save.
-        if phase_persisted:
-            self._confidence_synced_phase = self.phase
-        if confidence_persisted:
-            self._persisted_confidence = self.confidence
+        self._snapshot_persisted_state(written_fields)
 
     @property
     def display_label(self) -> str:
