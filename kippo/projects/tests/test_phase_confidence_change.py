@@ -8,6 +8,7 @@ from commons.tests import DEFAULT_FIXTURES, IsStaffModelAdminTestCaseBase, setup
 from django.conf import settings
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.sites import AdminSite
+from django.db.models.deletion import ProtectedError
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -60,6 +61,36 @@ class PhaseConfidenceChangeModelTestCase(TestCase):
         self.project.phase = NEW_PHASE  # not written: update_fields excludes phase
         self.project.save(update_fields=["name"])
         self.assertFalse(KippoProjectPhaseConfidenceChange.objects.filter(project=self.project).exists())
+
+    def test_deferred_load_does_not_recurse(self):
+        project = KippoProject.objects.only("id").get(pk=self.project.pk)
+        self.assertEqual(project.confidence, self.project.confidence)  # lazy load snapshots the DB value
+        project.save()
+        self.assertFalse(KippoProjectPhaseConfidenceChange.objects.filter(project=self.project).exists())
+
+    def test_organization_cascade_delete_does_not_recurse(self):
+        # The deletion Collector loads cascaded projects with .only(<referenced fields>). The org's
+        # project categories PROTECT it, so the expected outcome is ProtectedError (not RecursionError).
+        with self.assertRaises(ProtectedError):
+            self.project.organization.delete()
+
+    def test_confidence_only_partial_save_logs_persisted_phase(self):
+        persisted_phase = self.project.phase
+        self.project.phase = NEW_PHASE  # in memory only: update_fields writes confidence alone
+        self.project.confidence = MANUAL_CONFIDENCE
+        self.project.save(update_fields=["confidence"])
+
+        change = KippoProjectPhaseConfidenceChange.objects.get(project=self.project)
+        self.assertEqual(change.previous_phase, persisted_phase)
+        self.assertEqual(change.new_phase, persisted_phase)
+        self.assertEqual(change.new_confidence, MANUAL_CONFIDENCE)
+
+    def test_refresh_from_db_resnapshots(self):
+        KippoProject.objects.filter(pk=self.project.pk).update(confidence=MANUAL_CONFIDENCE)  # another writer
+        self.project.refresh_from_db()
+        self.project.save()
+        self.assertFalse(KippoProjectPhaseConfidenceChange.objects.filter(project=self.project).exists())
+        self.assertEqual(self.project.confidence, MANUAL_CONFIDENCE)
 
     def test_consecutive_changes_log_one_row_each(self):
         self.project.confidence = MANUAL_CONFIDENCE

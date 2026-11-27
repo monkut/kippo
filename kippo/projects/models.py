@@ -2,6 +2,7 @@ import datetime
 import logging
 import uuid
 from collections import Counter
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -938,14 +939,28 @@ class KippoProject(UserCreatedBaseModel):
         )
         return description
 
+    # Persisted-value snapshots read by save(): phase gates the confidence re-derivation, and both
+    # feed the フェーズ / 確度 change log (kippo#77). Field name -> snapshot attribute.
+    PERSISTED_SNAPSHOT_ATTRIBUTES = {"phase": "_confidence_synced_phase", "confidence": "_persisted_confidence"}
+
+    def _snapshot_persisted_state(self, fields: Iterable[str] | None = None) -> None:
+        # Read loaded values from __dict__ only: touching a deferred attribute would trigger
+        # refresh_from_db -> from_db -> this snapshot again (RecursionError on .only() / cascade deletes).
+        # A deferred field is snapshotted later, when its lazy load runs refresh_from_db(fields=[...]).
+        for field_name, attribute in self.PERSISTED_SNAPSHOT_ATTRIBUTES.items():
+            if (fields is None or field_name in fields) and field_name in self.__dict__:
+                setattr(self, attribute, self.__dict__[field_name])
+
     @classmethod
     def from_db(cls, db: str, field_names: list[str], values: list[Any]) -> "KippoProject":
-        # Snapshot the persisted phase so save() can re-derive confidence only when phase changes.
         instance = super().from_db(db, field_names, values)
-        instance._confidence_synced_phase = instance.phase
-        # Snapshot the persisted confidence so save() can log a 確度 change (kippo#77).
-        instance._persisted_confidence = instance.confidence
+        instance._snapshot_persisted_state()
         return instance
+
+    def refresh_from_db(self, using: str | None = None, fields: Iterable[str] | None = None, from_queryset: QuerySet | None = None) -> None:
+        fields = list(fields) if fields is not None else None
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        self._snapshot_persisted_state(fields)
 
     def save(self, *args, **kwargs):
         if self.survey_issued and not self.survey_issued_datetime:
@@ -1000,9 +1015,14 @@ class KippoProject(UserCreatedBaseModel):
         confidence_persisted = written_fields is None or "confidence" in written_fields
         previous_phase = getattr(self, "_confidence_synced_phase", None)
         previous_confidence = getattr(self, "_persisted_confidence", None)
-        is_logged_change = not self._state.adding and (
-            (phase_persisted and previous_phase is not None and self.phase != previous_phase)
-            or (confidence_persisted and previous_confidence is not None and self.confidence != previous_confidence)
+        # The values the DB holds after this save: a field the save does not write keeps its snapshot.
+        saved_phase = self.phase if phase_persisted else previous_phase
+        saved_confidence = self.confidence if confidence_persisted else previous_confidence
+        is_logged_change = (
+            not self._state.adding
+            and previous_phase is not None
+            and previous_confidence is not None
+            and (saved_phase != previous_phase or saved_confidence != previous_confidence)
         )
 
         with transaction.atomic():
@@ -1011,9 +1031,9 @@ class KippoProject(UserCreatedBaseModel):
                 KippoProjectPhaseConfidenceChange.objects.create(
                     project=self,
                     previous_phase=previous_phase,
-                    new_phase=self.phase,
+                    new_phase=saved_phase,
                     previous_confidence=previous_confidence,
-                    new_confidence=self.confidence,
+                    new_confidence=saved_confidence,
                     changed_by_id=self.updated_by_id,
                 )
         # Refresh the snapshot only when phase was actually written, so a partial save that skipped
