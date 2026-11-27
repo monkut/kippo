@@ -13,7 +13,7 @@ from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Max, QuerySet, Sum
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -943,6 +943,8 @@ class KippoProject(UserCreatedBaseModel):
         # Snapshot the persisted phase so save() can re-derive confidence only when phase changes.
         instance = super().from_db(db, field_names, values)
         instance._confidence_synced_phase = instance.phase
+        # Snapshot the persisted confidence so save() can log a 確度 change (kippo#77).
+        instance._persisted_confidence = instance.confidence
         return instance
 
     def save(self, *args, **kwargs):
@@ -992,11 +994,34 @@ class KippoProject(UserCreatedBaseModel):
         self.slack_channel_name = _normalize_slack_channel_name(self.slack_channel_name)
         self.slack_notification_channel_name = _normalize_slack_channel_name(self.slack_notification_channel_name)
 
-        super().save(*args, **kwargs)
+        # Log フェーズ / 確度 changes on an existing project (kippo#77). Only fields this save actually
+        # writes count; a create is not logged (created_by / created_datetime record the initial state).
+        written_fields = kwargs.get("update_fields")
+        confidence_persisted = written_fields is None or "confidence" in written_fields
+        previous_phase = getattr(self, "_confidence_synced_phase", None)
+        previous_confidence = getattr(self, "_persisted_confidence", None)
+        is_logged_change = not self._state.adding and (
+            (phase_persisted and previous_phase is not None and self.phase != previous_phase)
+            or (confidence_persisted and previous_confidence is not None and self.confidence != previous_confidence)
+        )
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if is_logged_change:
+                KippoProjectPhaseConfidenceChange.objects.create(
+                    project=self,
+                    previous_phase=previous_phase,
+                    new_phase=self.phase,
+                    previous_confidence=previous_confidence,
+                    new_confidence=self.confidence,
+                    changed_by_id=self.updated_by_id,
+                )
         # Refresh the snapshot only when phase was actually written, so a partial save that skipped
         # phase doesn't poison the comparison for the next full save.
         if phase_persisted:
             self._confidence_synced_phase = self.phase
+        if confidence_persisted:
+            self._persisted_confidence = self.confidence
 
     @property
     def display_label(self) -> str:
@@ -1443,6 +1468,32 @@ class KippoProjectBillingEntry(UserCreatedBaseModel):
             self.received_datetime = None
             self.received_by = None
         super().save(*args, **kwargs)
+
+
+class KippoProjectPhaseConfidenceChange(models.Model):
+    """One フェーズ / 確度 change on a KippoProject (kippo#77). Written by KippoProject.save(); read-only.
+
+    ``changed_by`` is the project's ``updated_by`` at save time. Every admin / API write path sets it;
+    a script that saves without setting it attributes the change to the previous editor.
+    """
+
+    project = models.ForeignKey(KippoProject, on_delete=models.CASCADE, related_name="phase_confidence_changes", verbose_name=_("プロジェクト"))
+    previous_phase = models.CharField(max_length=150, choices=VALID_PROJECT_PHASES, verbose_name=_("変更前フェーズ"))
+    new_phase = models.CharField(max_length=150, choices=VALID_PROJECT_PHASES, verbose_name=_("変更後フェーズ"))
+    previous_confidence = models.PositiveSmallIntegerField(verbose_name=_("変更前確度"))
+    new_confidence = models.PositiveSmallIntegerField(verbose_name=_("変更後確度"))
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", verbose_name=_("変更者")
+    )
+    changed_datetime = models.DateTimeField(auto_now_add=True, verbose_name=_("変更日時"))
+
+    class Meta:
+        ordering = ("-changed_datetime",)
+        verbose_name = _("フェーズ・確度変更履歴")
+        verbose_name_plural = verbose_name
+
+    def __str__(self) -> str:
+        return f"PhaseConfidenceChange({self.project_id} {self.previous_phase}->{self.new_phase} {self.previous_confidence}->{self.new_confidence})"
 
 
 class KippoProjectStatus(UserCreatedBaseModel):

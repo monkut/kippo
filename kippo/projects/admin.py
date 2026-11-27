@@ -82,6 +82,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserMonthlyStatisfactionResult,
     KippoProjectUserStatisfactionResult,
@@ -615,6 +616,40 @@ class ProjectWeeklyEffortAdminInline(LockWhenProjectClosedInlineMixin, AllowIsSt
                 formset.form.base_fields["user"].queryset = KippoUser.objects.filter(id=request.user.id)
 
         return formset
+
+
+class KippoProjectPhaseConfidenceChangeInline(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
+    """Read-only フェーズ / 確度 change history (kippo#77), newest first, collapsed by default."""
+
+    model = KippoProjectPhaseConfidenceChange
+    extra = 0
+    fields = ("changed_datetime", "changed_by", "phase_change", "confidence_change")
+    readonly_fields = fields
+    classes = ["collapse"]
+
+    def has_add_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
+        return False
+
+    def has_change_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: DjangoRequest, obj: models.Model | None = None) -> bool:
+        return False
+
+    def get_queryset(self, request: DjangoRequest):
+        return super().get_queryset(request).select_related("changed_by")
+
+    @admin.display(description=_("フェーズ"))
+    def phase_change(self, obj: KippoProjectPhaseConfidenceChange) -> str:
+        if obj.previous_phase == obj.new_phase:
+            return obj.get_new_phase_display()
+        return f"{obj.get_previous_phase_display()} → {obj.get_new_phase_display()}"
+
+    @admin.display(description=_("確度"))
+    def confidence_change(self, obj: KippoProjectPhaseConfidenceChange) -> str:
+        if obj.previous_confidence == obj.new_confidence:
+            return f"{obj.new_confidence}%"
+        return f"{obj.previous_confidence}% → {obj.new_confidence}%"
 
 
 class KippoProjectStatusReadOnlyInine(AllowIsStaffAdminMixin, nested_admin.NestedTabularInline):
@@ -1377,6 +1412,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
+        KippoProjectPhaseConfidenceChangeInline,
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     )
@@ -1501,6 +1537,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         GithubRepositoryProjectInline,
         ProjectWeeklyEffortReadOnlyInine,
         ProjectWeeklyEffortAdminInline,
+        KippoProjectPhaseConfidenceChangeInline,
         KippoProjectStatusReadOnlyInine,
         KippoProjectStatusAdminInline,
     ]
