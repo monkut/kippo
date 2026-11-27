@@ -306,8 +306,8 @@ class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
 
 
 class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
-    """One フェーズ / 確度 change on a project (``KippoProjectPhaseConfidenceChange``, kippo#77), nested
-    under ``/projects/{project_pk}/phase-confidence-changes/``. Read-only: KippoProject.save() writes the rows.
+    """One フェーズ / 確度 change on a project (``KippoProjectPhaseConfidenceChange``, kippo#77), embedded
+    in the project response as ``phase_confidence_changes``. Read-only: KippoProject.save() writes the rows.
 
     ``*_phase`` is the phase key and ``*_phase_display`` its label. The ``changed_by_*`` fields
     follow the status-comment author fields; both are null when the user has since been deleted.
@@ -322,7 +322,6 @@ class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
         model = KippoProjectPhaseConfidenceChange
         fields = [
             "id",
-            "project",
             "previous_phase",
             "previous_phase_display",
             "new_phase",
@@ -475,6 +474,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     has_requirements = serializers.SerializerMethodField()
     projectstatus_display = serializers.SerializerMethodField()
     latest_comment = serializers.SerializerMethodField()
+    # フェーズ / 確度 change log, newest first (kippo#79). Read-only: KippoProject.save() writes the rows,
+    # so a PATCH that changes phase or confidence returns the row it just added.
+    phase_confidence_changes = serializers.SerializerMethodField()
     weekly_effort_users = serializers.SerializerMethodField()
     survey_users = serializers.SerializerMethodField()
     github_repositories = serializers.SerializerMethodField()
@@ -562,6 +564,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "created_datetime",
@@ -590,6 +593,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "github_repositories",
@@ -839,6 +843,17 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "is_estimated_allocated_effort_hours": project_progress_status.is_estimated_allocated_effort_hours,
             "difference_percentage": project_progress_status.get_difference_percentage(),
         }
+
+    @extend_schema_field(KippoProjectPhaseConfidenceChangeSerializer(many=True))
+    def get_phase_confidence_changes(self, obj: KippoProject) -> list[dict]:
+        """The project's フェーズ / 確度 changes, newest first."""
+        # The viewset prefetches the log with changed_by. A response built without it (create,
+        # or update, which clears the prefetch cache) reads the log here in one query.
+        if "phase_confidence_changes" in getattr(obj, "_prefetched_objects_cache", {}):
+            changes = obj.phase_confidence_changes.all()
+        else:
+            changes = obj.phase_confidence_changes.select_related("changed_by")
+        return KippoProjectPhaseConfidenceChangeSerializer(changes, many=True).data
 
     @extend_schema_field(LatestCommentInlineSerializer(allow_null=True))
     def get_latest_comment(self, obj: KippoProject) -> dict | None:

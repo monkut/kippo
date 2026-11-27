@@ -132,8 +132,8 @@ class PhaseConfidenceChangeApiTestCase(TestCase):
         self.assertEqual(change.changed_by, self.user)
 
 
-class PhaseConfidenceChangeListApiTestCase(TestCase):
-    """GET /api/projects/{project_pk}/phase-confidence-changes/ — kiconiaworks/kippo#79."""
+class ProjectResponsePhaseConfidenceChangesTestCase(TestCase):
+    """`phase_confidence_changes` in the project API response — kiconiaworks/kippo#79."""
 
     fixtures = DEFAULT_FIXTURES
 
@@ -146,30 +146,37 @@ class PhaseConfidenceChangeListApiTestCase(TestCase):
         self.project = KippoProject.objects.get(pk=created["KippoProject"].pk)  # loaded via from_db
         self.initial_phase = self.project.phase
         self.initial_confidence = self.project.confidence
-        self.url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/phase-confidence-changes/"
+        self.list_url = f"{settings.URL_PREFIX}/api/projects/"
+        self.detail_url = f"{self.list_url}{self.project.id}/"
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    def _change_phase(self, phase: str) -> None:
-        self.project.phase = phase
-        self.project.updated_by = self.user
-        self.project.save()
+    def _change_phase(self, phase: str, project: KippoProject | None = None) -> None:
+        project = project or self.project
+        project.phase = phase
+        project.updated_by = self.user
+        project.save()
 
-    def test_lists_changes_newest_first_with_labels_and_user(self):
+    def _detail_changes(self) -> list[dict]:
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        return response.json()["phase_confidence_changes"]
+
+    def test_project_without_changes_has_an_empty_list(self):
+        self.assertEqual(self._detail_changes(), [])
+
+    def test_detail_lists_changes_newest_first_with_labels_and_user(self):
         self._change_phase(NEW_PHASE)
         self._change_phase(PHASE_COMPLETED)
 
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        results = response.json()["results"]
-        self.assertEqual([result["new_phase"] for result in results], [PHASE_COMPLETED, NEW_PHASE])
+        changes = self._detail_changes()
+        self.assertEqual([change["new_phase"] for change in changes], [PHASE_COMPLETED, NEW_PHASE])
 
         phase_labels = dict(KippoProject._meta.get_field("phase").choices)
-        oldest = results[-1]
+        oldest = changes[-1]
         self.assertEqual(
             {key: value for key, value in oldest.items() if key not in ("id", "changed_datetime")},
             {
-                "project": str(self.project.id),
                 "previous_phase": self.initial_phase,
                 "previous_phase_display": str(phase_labels[self.initial_phase]),
                 "new_phase": NEW_PHASE,
@@ -180,30 +187,39 @@ class PhaseConfidenceChangeListApiTestCase(TestCase):
                 "changed_by_display_name": "Taro Yamada",
             },
         )
+        self.assertIsNotNone(oldest["id"])
         self.assertIsNotNone(oldest["changed_datetime"])
 
-    def test_change_made_through_the_api_is_listed(self):
-        project_url = f"{settings.URL_PREFIX}/api/projects/{self.project.id}/"
-        self.assertEqual(self.client.patch(project_url, {"confidence": MANUAL_CONFIDENCE}, format="json").status_code, HTTPStatus.OK)
-
-        results = self.client.get(self.url).json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["previous_confidence"], self.initial_confidence)
-        self.assertEqual(results[0]["new_confidence"], MANUAL_CONFIDENCE)
-
-    def test_retrieve_returns_one_change(self):
-        self._change_phase(NEW_PHASE)
-        change = KippoProjectPhaseConfidenceChange.objects.get(project=self.project)
-        response = self.client.get(f"{self.url}{change.id}/")
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertEqual(response.json()["id"], change.id)
-
-    def test_lists_only_the_requested_project(self):
+    def test_list_returns_each_projects_own_changes(self):
         other_project = KippoProject.objects.exclude(pk=self.project.pk).filter(organization=self.project.organization).first()
         self.assertIsNotNone(other_project)
-        other_project.phase = NEW_PHASE
-        other_project.save()
-        self.assertEqual(self.client.get(self.url).json()["results"], [])
+        self._change_phase(NEW_PHASE)
+        self._change_phase(PHASE_COMPLETED, project=other_project)
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        changes_by_project = {project["id"]: project["phase_confidence_changes"] for project in response.json()["results"]}
+        self.assertEqual([change["new_phase"] for change in changes_by_project[str(self.project.id)]], [NEW_PHASE])
+        self.assertEqual([change["new_phase"] for change in changes_by_project[str(other_project.id)]], [PHASE_COMPLETED])
+        self.assertEqual(changes_by_project[str(self.project.id)], self._detail_changes())
+
+    def test_patch_response_includes_the_change_it_made(self):
+        self._change_phase(NEW_PHASE)
+        response = self.client.patch(self.detail_url, {"confidence": MANUAL_CONFIDENCE}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        changes = response.json()["phase_confidence_changes"]
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(changes[0]["previous_confidence"], PHASE_CONFIDENCE[NEW_PHASE])
+        self.assertEqual(changes[0]["new_confidence"], MANUAL_CONFIDENCE)
+        self.assertEqual(changes, self._detail_changes())
+
+    def test_changes_cannot_be_written_through_the_project(self):
+        self._change_phase(NEW_PHASE)
+        forged = [{"previous_phase": NEW_PHASE, "new_phase": PHASE_COMPLETED, "previous_confidence": 1, "new_confidence": 2}]
+        response = self.client.patch(self.detail_url, {"phase_confidence_changes": forged}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+        self.assertEqual(KippoProjectPhaseConfidenceChange.objects.filter(project=self.project).count(), 1)
+        self.assertEqual([change["new_phase"] for change in response.json()["phase_confidence_changes"]], [NEW_PHASE])
 
     def test_deleted_user_leaves_null_author_fields(self):
         editor = KippoUser.objects.create(username="editor", email="editor@example.com")
@@ -212,30 +228,13 @@ class PhaseConfidenceChangeListApiTestCase(TestCase):
         self.project.save()
         editor.delete()
 
-        result = self.client.get(self.url).json()["results"][0]
-        self.assertIsNone(result["changed_by_username"])
-        self.assertIsNone(result["changed_by_display_name"])
+        change = self._detail_changes()[0]
+        self.assertIsNone(change["changed_by_username"])
+        self.assertIsNone(change["changed_by_display_name"])
 
-    def test_non_member_sees_no_rows(self):
-        self._change_phase(NEW_PHASE)
-        outsider = KippoUser.objects.create(username="outsider", email="outsider@example.com")
-        self.client.force_authenticate(user=outsider)
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-        self.assertEqual(response.json()["results"], [])
-
-    def test_unauthenticated_is_rejected(self):
-        self.assertEqual(APIClient().get(self.url).status_code, HTTPStatus.UNAUTHORIZED)
-
-    def test_endpoint_is_read_only(self):
-        self._change_phase(NEW_PHASE)
-        change = KippoProjectPhaseConfidenceChange.objects.get(project=self.project)
-        detail_url = f"{self.url}{change.id}/"
-        self.assertEqual(self.client.post(self.url, {"new_phase": PHASE_COMPLETED}, format="json").status_code, HTTPStatus.METHOD_NOT_ALLOWED)
-        for method in (self.client.put, self.client.patch, self.client.delete):
-            with self.subTest(method=method.__name__):
-                self.assertEqual(method(detail_url, {"new_confidence": 1}, format="json").status_code, HTTPStatus.METHOD_NOT_ALLOWED)
-        self.assertEqual(KippoProjectPhaseConfidenceChange.objects.filter(project=self.project).count(), 1)
+    def test_no_separate_endpoint(self):
+        response = self.client.get(f"{self.detail_url}phase-confidence-changes/")
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
 
     def test_schema_keeps_the_phase_enum_name(self):
         """The change log shares KippoProject.phase's choices; clients import that enum as `PhaseEnum`."""
@@ -245,21 +244,26 @@ class PhaseConfidenceChangeListApiTestCase(TestCase):
         self.assertIn("PhaseEnum", schemas)
         self.assertNotIn("NewPhaseEnum", schemas)
         self.assertNotIn("PreviousPhaseEnum", schemas)
+        self.assertIn("phase_confidence_changes", schemas["KippoProject"]["properties"])
         change_properties = schemas["KippoProjectPhaseConfidenceChange"]["properties"]
         for field in ("previous_phase", "new_phase"):
             with self.subTest(field=field):
                 self.assertIn("#/components/schemas/PhaseEnum", str(change_properties[field]))
 
-    def test_list_does_not_query_per_row(self):
-        for phase in (NEW_PHASE, PHASE_COMPLETED, NEW_PHASE):
-            self._change_phase(phase)
-        with CaptureQueriesContext(connection) as three_rows:
-            self.client.get(self.url)
+    def _query_count(self, url: str) -> int:
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.client.get(url).status_code, HTTPStatus.OK)
+        return len(queries)
+
+    def test_query_count_does_not_grow_with_changes(self):
+        other_project = KippoProject.objects.exclude(pk=self.project.pk).filter(organization=self.project.organization).first()
+        self._change_phase(NEW_PHASE)
+        list_queries, detail_queries = self._query_count(self.list_url), self._query_count(self.detail_url)
         for phase in (PHASE_COMPLETED, NEW_PHASE, PHASE_COMPLETED):
             self._change_phase(phase)
-        with CaptureQueriesContext(connection) as six_rows:
-            self.assertEqual(len(self.client.get(self.url).json()["results"]), 6)
-        self.assertEqual(len(six_rows), len(three_rows))
+            self._change_phase(phase, project=other_project)
+        self.assertEqual(self._query_count(self.list_url), list_queries)
+        self.assertEqual(self._query_count(self.detail_url), detail_queries)
 
 
 class PhaseConfidenceChangeAdminTestCase(IsStaffModelAdminTestCaseBase):
