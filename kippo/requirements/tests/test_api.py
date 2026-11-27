@@ -26,6 +26,7 @@ from ..models import (
     ProjectProblemDefinitionComment,
     ProjectTechnicalRequirement,
     ProjectTechnicalRequirementCategory,
+    ProjectTechnicalRequirementComment,
     ProjectTechnicalRequirementGithubIssue,
     TechnicalRequirementEvaluation,
 )
@@ -833,6 +834,71 @@ class OrganizationScopingTestCase(TestCase):
         self.assertEqual(response.status_code, HTTPStatus.OK)
         data = response.json()
         self.assertEqual(data["count"], 2)
+
+
+class NestedCreateOrganizationScopingTestCase(OrganizationScopingTestCase):
+    """Rows nested under a requirement can only be created under a requirement the user can access."""
+
+    def setUp(self):
+        super().setUp()
+        other_business_category = ProjectBusinessRequirementCategory.objects.create(project=self.other_project, name="Other Category")
+        self.other_business_requirement = ProjectBusinessRequirement.objects.create(
+            project=self.other_project, category=other_business_category, title="Other's Business Requirement"
+        )
+        other_technical_category = ProjectTechnicalRequirementCategory.objects.create(project=self.other_project, name="Other Tech Category")
+        self.other_technical_requirement = ProjectTechnicalRequirement.objects.create(
+            project=self.other_project, category=other_technical_category, title="Other's Tech Requirement"
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def _nested_create_cases(self) -> tuple:
+        """(url under another organization's parent, payload, model of the row it would create)"""
+        tech_url = f"{API_PREFIX}/technical-requirements/{self.other_technical_requirement.id}"
+        return (
+            (f"{API_PREFIX}/problem-definitions/{self.other_problem.id}/comments/", {"comment": "x"}, ProjectProblemDefinitionComment),
+            (
+                f"{API_PREFIX}/business-requirements/{self.other_business_requirement.id}/comments/",
+                {"comment": "x"},
+                ProjectBusinessRequirementComment,
+            ),
+            (f"{tech_url}/comments/", {"comment": "x"}, ProjectTechnicalRequirementComment),
+            (f"{tech_url}/estimates/", {"days": 1, "confidence": 0.5}, ProjectBusinessRequirementEstimate),
+            (f"{tech_url}/github-issues/", {"url": "https://github.com/org/repo/issues/9"}, ProjectTechnicalRequirementGithubIssue),
+        )
+
+    def test_cannot_create_under_another_organizations_requirement(self):
+        for url, payload, model in self._nested_create_cases():
+            with self.subTest(url=url):
+                response = self.client.post(url, payload, format="json")
+                self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND, response.content)
+                self.assertFalse(model.objects.exists())
+
+    def test_member_can_create_under_the_same_requirement(self):
+        self.client.force_authenticate(user=self.other_user)
+        for url, payload, model in self._nested_create_cases():
+            with self.subTest(url=url):
+                response = self.client.post(url, payload, format="json")
+                self.assertEqual(response.status_code, HTTPStatus.CREATED, response.content)
+                self.assertEqual(model.objects.count(), 1)
+
+    def test_create_under_missing_requirement_is_not_found(self):
+        missing_id = ProjectProblemDefinition.objects.order_by("-id").first().id + 1000
+        response = self.client.post(f"{API_PREFIX}/problem-definitions/{missing_id}/comments/", {"comment": "x"}, format="json")
+        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND, response.content)
+
+    def test_invalid_project_filter_is_bad_request(self):
+        for resource in (
+            "problem-definitions",
+            "assumptions",
+            "business-requirement-categories",
+            "technical-requirement-categories",
+            "business-requirements",
+            "technical-requirements",
+        ):
+            with self.subTest(resource=resource):
+                response = self.client.get(f"{API_PREFIX}/{resource}/?project=not-a-uuid")
+                self.assertEqual(response.status_code, HTTPStatus.BAD_REQUEST, response.content)
+                self.assertIn("project", response.json())
 
 
 class ScheduleEstimationAPITestCase(TestCase):

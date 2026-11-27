@@ -2,12 +2,15 @@ import logging
 from typing import Any
 
 import requests
-from commons.viewsets import OrganizationFilterMixin, user_can_access_organization
-from django.db.models import Count, FloatField, OuterRef, Subquery, Sum
+from commons.functions import is_uuid
+from commons.viewsets import OrganizationFilterMixin, scope_to_user_organizations, user_can_access_organization
+from django.db.models import Count, FloatField, Model, OuterRef, Subquery, Sum
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from projects.models import KippoProject
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -105,9 +108,11 @@ class ProjectFilterMixin(OrganizationFilterMixin):
     def get_queryset(self):
         queryset = self.filter_by_organization(super().get_queryset(), "project__organization")  # type: ignore[misc]
         project_id = self.request.query_params.get("project")
-        if project_id:
-            queryset = queryset.filter(project_id=project_id)
-        return queryset
+        if not project_id:
+            return queryset
+        if not is_uuid(project_id):
+            raise ValidationError({"project": "Must be a valid UUID."})
+        return queryset.filter(project_id=project_id)
 
 
 class EvaluateActionMixin:
@@ -154,15 +159,21 @@ class NestedUnderRequirementMixin(OrganizationFilterMixin):
         queryset = self.filter_by_organization(super().get_queryset(), f"{self.parent_field}__project__organization")  # type: ignore[misc]
         return queryset.filter(**self.parent_id_filter())
 
+    def get_parent(self) -> Model:
+        """The parent element named in the URL. 404 when it does not exist or is outside the user's organizations."""
+        parent_model = self.queryset.model._meta.get_field(self.parent_field).related_model  # type: ignore[attr-defined]
+        accessible_parents = scope_to_user_organizations(parent_model.objects.all(), self.request.user, "project__organization")
+        return get_object_or_404(accessible_parents, pk=self.kwargs[self.parent_lookup_kwarg])  # type: ignore[attr-defined]
+
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        serializer.save(**self.parent_id_filter())
+        serializer.save(**{self.parent_field: self.get_parent()})
 
 
 class UserStampedNestedMixin(NestedUnderRequirementMixin):
     """Nested viewset whose rows record `created_by` / `updated_by`."""
 
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
-        serializer.save(**self.parent_id_filter(), created_by=self.request.user, updated_by=self.request.user)
+        serializer.save(**{self.parent_field: self.get_parent()}, created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         serializer.save(updated_by=self.request.user)
