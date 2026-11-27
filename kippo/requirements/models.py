@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from commons.models import TimestampedModel, UserCreatedBaseModel
@@ -46,6 +47,12 @@ class EvaluationResetMixin:
             if update_fields is not None and "evaluation_state" not in update_fields:
                 kwargs["update_fields"] = list(update_fields) + ["evaluation_state"]
         return kwargs
+
+    def save_evaluation_state(self, evaluation_state: str, update_fields: Iterable[str] = ()) -> None:
+        """Persist an evaluation outcome, skipping the title/details reset a normal save applies."""
+        self.evaluation_state = evaluation_state
+        self._skip_evaluation_reset = True
+        self.save(update_fields=[*update_fields, "evaluation_state", "updated_datetime"])  # type: ignore[attr-defined]
 
 
 class ProjectProblemDefinition(EvaluationResetMixin, TimestampedModel):
