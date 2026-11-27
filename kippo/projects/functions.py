@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from accounts.functions import get_personal_holidays_generator
 from accounts.models import KippoOrganization, KippoUser
 from commons.definitions import MONDAY
+from commons.functions import local_date
 from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
@@ -136,7 +137,7 @@ def previous_week_startdate(today: datetime.date | None = None) -> datetime.date
     """Get the previous week's start date"""
     week_start_day = MONDAY
     if not today:
-        today = timezone.now().date()
+        today = timezone.localdate()
     last_week = today - datetime.timedelta(days=5)
     current_date = last_week
     while current_date.weekday() != week_start_day:
@@ -147,7 +148,7 @@ def previous_week_startdate(today: datetime.date | None = None) -> datetime.date
 def current_week_startdate() -> datetime.datetime:
     """Get the current week's start date"""
     week_start_day = MONDAY
-    today = timezone.now().date()
+    today = timezone.localdate()
     current_date = today
     while current_date.weekday() != week_start_day:
         current_date -= datetime.timedelta(days=1)
@@ -168,7 +169,7 @@ def generate_projectweeklyeffort_csv(user_id: str, key: str, effort_ids: list[in
         if from_datetime_isoformat:
             from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
             logger.info(f"applying datetime filter: from_datetime={from_datetime}")
-            effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
+            effort_entries = effort_entries.filter(week_start__gte=local_date(from_datetime))
 
         headers = {"project": "project", "week_start": "week_start", "user": "user", "hours": "hours"}
         weeklyeffort_generator = (
@@ -203,7 +204,7 @@ def generate_projectmonthlyeffort_csv(user_id: str, key: str, effort_ids: list[i
     if from_datetime_isoformat:
         from_datetime = datetime.datetime.fromisoformat(from_datetime_isoformat)
         logger.info(f"applying datetime filter: from_datetime={from_datetime}")
-        effort_entries = effort_entries.filter(week_start__gte=from_datetime.date())
+        effort_entries = effort_entries.filter(week_start__gte=local_date(from_datetime))
 
     monthly_effort = Counter()
 
@@ -258,7 +259,7 @@ def generate_projectstatuscomments_csv(project_ids: list[str], key: str) -> None
     g = (
         {
             "project": status.project.name,
-            "created_datetime": status.created_datetime.strftime("%Y%m%d"),
+            "created_datetime": local_date(status.created_datetime).strftime("%Y%m%d"),
             "created_by": status.created_by.username,
             "comment": status.comment,
         }

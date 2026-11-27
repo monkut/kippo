@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 def get_target_date_default() -> datetime.date:
     # TODO: update to take into account configured holidays
-    return (timezone.now() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)).date()
+    return timezone.localdate() + timezone.timedelta(days=settings.DEFAULT_KIPPORPOJECT_TARGET_DATE_DAYS)
 
 
 def _normalize_slack_channel_name(value: str) -> str:
@@ -216,7 +216,7 @@ class KippoProject(PersistedFieldSnapshotMixin, UserCreatedBaseModel):
         verbose_name_plural = verbose_name
 
     def clean(self):
-        if self.actual_date and self.actual_date > timezone.now().date():
+        if self.actual_date and self.actual_date > timezone.localdate():
             raise ValidationError(_("指定された日付が未来の日付です"))
         if self.enable_cost_report and not self.slack_channel_name:
             raise ValidationError(_("コストレポートを有効にする場合はSlack会話チャンネル名が必須です"))
@@ -519,7 +519,7 @@ class KippoProject(PersistedFieldSnapshotMixin, UserCreatedBaseModel):
     def get_latest_taskstatuses(self, current_date: datetime.date | None = None, active_only: bool = False) -> QuerySet:  # KippoTaskStatus
         """Get the latest KippoTaskStatus entries for active tasks for the given Project(s)"""
         if not current_date:
-            current_date = timezone.now().date()
+            current_date = timezone.localdate()
 
         target_kippotaskstatus_ids = (
             KippoTaskStatus.objects.filter(

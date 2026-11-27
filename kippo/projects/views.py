@@ -452,7 +452,7 @@ class WeeklyEffortMissingWeeksView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         from accounts.functions import get_allholiday_weekstarts
 
@@ -470,12 +470,8 @@ class WeeklyEffortMissingWeeksView(APIView):
                 }
             )
 
-        # Calculate fiscal year start date
-        now = timezone.now()
-        if now.month < user_first_org.fiscalyear_start_month:
-            fiscal_year_start = date(now.year - 1, user_first_org.fiscalyear_start_month, 1)
-        else:
-            fiscal_year_start = date(now.year, user_first_org.fiscalyear_start_month, 1)
+        today = timezone.localdate()
+        fiscal_year_start = user_first_org.current_fiscal_year_start()
 
         # Get all week_starts where user has entries since fiscal year start
         user_weekstarts = set(
@@ -491,12 +487,12 @@ class WeeklyEffortMissingWeeksView(APIView):
         current = fiscal_year_start
         while current.weekday() != 0:  # Find first Monday
             current += timedelta(days=1)
-        while current <= now.date():
+        while current <= today:
             all_mondays.append(current)
             current += timedelta(days=7)
 
         # Calculate current week's Monday to exclude
-        this_week_start = now.date()
+        this_week_start = today
         while this_week_start.weekday() != 0:
             this_week_start -= timedelta(days=1)
 

@@ -122,7 +122,7 @@ class KippoProjectUserStatisfactionResultAdmin(AllowIsStaffAdminMixin, UserCreat
             return None
         self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
         # initiate creation
-        now = timezone.now()
+        now = timezone.localtime()
         filename = now.strftime("project-userstatisfactionresult-%Y%m%d%H%M%S.csv")
         key = f"tmp/download/{filename}"
         organization_pks = [str(org.pk) for org in request.user.organizations]
@@ -245,7 +245,7 @@ class KippoProjectUserMonthlyStatisfactionResultAdmin(AllowIsStaffAdminMixin, Us
             return None
         self.message_user(request, _("Preparing CSV..."), level=messages.INFO)
         # initiate creation
-        now = timezone.now()
+        now = timezone.localtime()
         filename = now.strftime("project-monthlystatisfaction-%Y%m%d%H%M%S.csv")
         key = f"tmp/download/{filename}"
         organization_pks = [str(org.pk) for org in request.user.organizations]

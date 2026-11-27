@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import nested_admin
 from accounts.models import KippoOrganization, KippoUser
 from commons.admin import AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
+from commons.functions import local_date
 from commons.viewsets import organization_ids_for_user
 from customers.models import KippoCustomer
 from django import forms
@@ -568,7 +569,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         project_slug = "".join(c for c in project.name.replace(" ", "").lower() if c in ascii_lowercase)
         if not project_slug:
             project_slug = project.id
-        filename = f"{project_slug}_{timezone.now().strftime('%Y%m%d_%H%M%Z')}.csv"
+        filename = f"{project_slug}_{timezone.localtime().strftime('%Y%m%d_%H%M%Z')}.csv"
         logger.debug(f"filename: {filename}")
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = f"attachment; filename={filename}"
@@ -588,7 +589,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         project_ids = [str(i) for i in queryset.values_list("id", flat=True)]
         if project_ids:
             # initiate creation
-            now = timezone.now()
+            now = timezone.localtime()
             filename = now.strftime("project-statuscomments-%Y%m%d%H%M%S.csv")
             key = f"tmp/download/{filename}"
             generate_projectstatuscomments_csv(project_ids=project_ids, key=key)
@@ -634,7 +635,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
             comment = latest_status.comment if latest_status else None
             created_datetime = latest_status.created_datetime if latest_status else None
         if comment is not None and created_datetime is not None:
-            display_date = created_datetime.strftime("(%m/%d) ")
+            display_date = local_date(created_datetime).strftime("(%m/%d) ")
             spaces = "&nbsp;" * 75
             result = format_html("{display_date}{result}<br/>" + spaces, display_date=display_date, result=comment)
         return result

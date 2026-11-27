@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from accounts.exceptions import OrganizationConfigurationError
 from accounts.models import KippoOrganization, KippoUser
+from commons.functions import local_date
 from commons.github import (
     build_latest_comment,
     get_github_issue_category_label,
@@ -355,9 +356,9 @@ def collect_github_project_issues(
     assert action_tracker_id
     kippo_organization = KippoOrganization.objects.get(id=kippo_organization_id)
     if not status_effort_date_iso8601:
-        status_effort_date = timezone.now().date()
+        status_effort_date = timezone.localdate()
     else:
-        status_effort_date = datetime.datetime.fromisoformat(status_effort_date_iso8601).date()
+        status_effort_date = local_date(datetime.datetime.fromisoformat(status_effort_date_iso8601))
 
     if not kippo_organization.githubaccesstoken or not kippo_organization.githubaccesstoken.token:
         raise OrganizationConfigurationError(f"Token Not configured for: {kippo_organization.name}")

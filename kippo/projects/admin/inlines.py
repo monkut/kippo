@@ -313,7 +313,7 @@ class ProjectWeeklyEffortReadOnlyInine(AllowIsStaffAdminMixin, nested_admin.Nest
 
     def get_queryset(self, request: DjangoRequest):
         # order milestones as expected
-        three_weeks_ago = (timezone.now() - timezone.timedelta(days=21)).date()
+        three_weeks_ago = timezone.localdate() - timezone.timedelta(days=21)
         # filter output
         qs = super().get_queryset(request).filter(week_start__gte=three_weeks_ago).order_by("week_start")
         return qs

@@ -26,7 +26,7 @@ class KippoProjectUserStatisfactionResult(UserCreatedBaseModel):
 
 
 def get_current_month() -> datetime.date:
-    return timezone.now().replace(day=1).date()
+    return timezone.localdate().replace(day=1)
 
 
 class KippoProjectUserMonthlyStatisfactionResult(UserCreatedBaseModel):

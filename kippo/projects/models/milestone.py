@@ -55,7 +55,7 @@ class KippoMilestone(UserCreatedBaseModel):
         return "open" if not self.is_completed else "closed"
 
     def clean(self):
-        if self.actual_date and (self.actual_date > timezone.now().date()):
+        if self.actual_date and (self.actual_date > timezone.localdate()):
             raise ValidationError(_("Given date is in the future"))
 
         # check start/target date
@@ -71,7 +71,7 @@ class KippoMilestone(UserCreatedBaseModel):
 
     @property
     def is_delayed(self):
-        return not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.now().date()
+        return not self.is_completed and not self.actual_date and self.target_date and self.target_date < timezone.localdate()
 
     @property
     def estimated_completion_date(self) -> datetime.date | None:
@@ -109,11 +109,8 @@ class KippoMilestone(UserCreatedBaseModel):
 
     def get_assignee_workdays(self, start_date: datetime.date | None = None) -> Counter:
         if not start_date:
-            current_datetime = timezone.now()
             # TODO: review -- this was set to day = 1... not sure if there was a specific reason for that
-            start_datetime = datetime.datetime(current_datetime.year, current_datetime.month, current_datetime.day, tzinfo=datetime.UTC)
-            start_date = start_datetime.date()
-            start_date = max(start_date, self.start_date)
+            start_date = max(timezone.localdate(), self.start_date)
 
         # get organization memberships
         organization_memberships = list(
@@ -302,12 +299,12 @@ class KippoMilestone(UserCreatedBaseModel):
                 self.number = 0
 
         # auto-update is_completed field if actual_date is entered
-        if self.actual_date and self.actual_date < timezone.now().date():
+        if self.actual_date and self.actual_date < timezone.localdate():
             self.is_completed = True
 
         # auto-set actual date if complete is set and actual not defined
         if self.is_completed and not self.actual_date:
-            self.actual_date = timezone.now().date()
+            self.actual_date = timezone.localdate()
         elif not self.is_completed and self.actual_date:
             # clear set date if is_completed returns to False
             self.actual_date = None

@@ -100,7 +100,7 @@ class GithubWebhookProcessor:
         org_id = organization.id
         processor = self.organization_issue_processors.get(org_id, None)
         if not processor:
-            processor = OrganizationIssueProcessor(organization=organization, status_effort_date=timezone.now().date())
+            processor = OrganizationIssueProcessor(organization=organization, status_effort_date=timezone.localdate())
             self.organization_issue_processors[org_id] = processor
         return processor
 

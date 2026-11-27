@@ -11,7 +11,7 @@ import logging
 
 from accounts.functions import get_allholiday_weekstarts
 from accounts.models import KippoOrganization, OrganizationMembership
-from commons.functions import first_of_month, last_of_month
+from commons.functions import first_of_month, last_of_month, local_date
 from django.conf import settings
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -54,7 +54,7 @@ class WeeklyEffortCloseReminderManager:
     def get_upcoming_close(self, within: datetime.timedelta = DEFAULT_REMINDER_WINDOW) -> tuple[datetime.datetime, datetime.date] | None:
         """締め日時が (now, now+within] に入る締め対象月があれば (締め日時, 対象月初日) を返す。"""
         now = self._current_now()
-        month_first = first_of_month(now.date())
+        month_first = first_of_month(local_date(now))
         for _ in range(_CANDIDATE_MONTH_LOOKBACK):
             close_datetime = self.organization.get_weeklyeffort_close_datetime(month_first)
             if now < close_datetime <= now + within:

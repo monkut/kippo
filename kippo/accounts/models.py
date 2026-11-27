@@ -9,7 +9,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from commons.definitions import SATURDAY, SUNDAY
-from commons.functions import last_of_month
+from commons.functions import last_of_month, local_date
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -262,7 +262,7 @@ class KippoOrganization(UserCreatedBaseModel):
             super().save(*args, **kwargs)
 
     def get_next_fiscal_year(self) -> timezone.datetime:
-        current = timezone.now()
+        current = timezone.localtime()
         while current.month != self.fiscalyear_start_month:
             current += timezone.timedelta(days=1)
         next_fiscal_year = current.replace(day=1)
@@ -590,7 +590,7 @@ class OrganizationInvite(UserCreatedBaseModel):
     def save(self, *args, **kwargs):
         if not self.expiration_date:
             # set expiration date to 7 days from now
-            self.expiration_date = (timezone.now() + timezone.timedelta(days=settings.ORGANIZATIONINVITE_EXPIRATION_DAYS)).date()
+            self.expiration_date = timezone.localdate() + timezone.timedelta(days=settings.ORGANIZATIONINVITE_EXPIRATION_DAYS)
         super().save(*args, **kwargs)
 
 
@@ -622,7 +622,7 @@ class PersonalHoliday(UserCreatedBaseModel):
         # "user": effort.user.display_name,
         # "hours": effort.hours,
         if not today:
-            today = timezone.now().date()
+            today = timezone.localdate()
         public_holidays = PublicHoliday.objects.filter(day__gte=today, country=self.user.holiday_country).values_list("day", flat=True)
         c = Counter()
         for day_count in range(self.duration):
@@ -729,7 +729,7 @@ class AttendanceRecord(UserCreatedBaseModel):
     def clean(self):
         # set date to entry_datetime date
         if self.entry_datetime:
-            self.date = self.entry_datetime.date()
+            self.date = local_date(self.entry_datetime)
 
     def get_duration_timedelta(self) -> timezone.timedelta:
         """Get the timedelta for the duration the current AttendanceRecord to it's related START/BREAK_START record."""

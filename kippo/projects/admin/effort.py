@@ -113,7 +113,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             self.message_user(request, _("No ProjectWeeklyEffort exists!"), level=messages.WARNING)
             return None
         # initiate creation
-        now = timezone.now()
+        now = timezone.localtime()
         filename = now.strftime("project-effort-%Y%m%d%H%M%S.csv")
         key = f"tmp/download/{filename}"
         selected_query_id = list(queryset.values_list("id", flat=True))
@@ -192,7 +192,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
 
         monthly_week_starts = []
         results = {}
-        now = timezone.now()
+        today = timezone.localdate()
         monthly_expected_hours_processed = False
         organizations = list(organizations)
         if not organizations:
@@ -202,16 +202,11 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         for org in organizations:
             user_weekstarts = defaultdict(list)
             results[org.name] = {}
-            if now.month < org.fiscalyear_start_month:
-                current_fiscal_year = timezone.datetime(now.year - 1, org.fiscalyear_start_month, 1, tzinfo=timezone.timezone.utc)
-            else:
-                current_fiscal_year = timezone.datetime(now.year, org.fiscalyear_start_month, 1, tzinfo=timezone.timezone.utc)
+            current_fiscal_year = org.current_fiscal_year_start()
             # get organization users
             # -- aggregate projectweeklyeffort per user per month
             users = org.get_membership_kippousers()
-            projectweeklyeffort = ProjectWeeklyEffort.objects.filter(
-                user__in=users, week_start__gte=current_fiscal_year.date(), project__organization=org
-            )
+            projectweeklyeffort = ProjectWeeklyEffort.objects.filter(user__in=users, week_start__gte=current_fiscal_year, project__organization=org)
             sum_index = 0
             flag_index = 1
             for effort in projectweeklyeffort:
@@ -226,12 +221,12 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             # -- calculate total workdays from fiscal start
             if not monthly_expected_hours:
                 current = current_fiscal_year
-                while current <= now:
+                while current <= today:
                     all_months.add(current.month)
                     if current.weekday() < SATURDAY:  # SAT=5, SUN=6
                         monthly_expected_hours[current.month] += 1
                     if current.weekday() == 0:
-                        monthly_week_starts.append(current.date())
+                        monthly_week_starts.append(current)
                     current += timezone.timedelta(days=1)
             # apply hours
             for month in monthly_expected_hours:
@@ -252,7 +247,7 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
             for org_key in results:  # noqa: PLC0206
                 for user_key in results[org_key].keys():  # noqa: PLC0206
                     if "missing" not in results[org_key][user_key]:
-                        this_week_start = now
+                        this_week_start = today
                         while this_week_start.weekday() != 0:
                             this_week_start -= timezone.timedelta(days=1)
 
@@ -260,12 +255,12 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
                         # add missing
                         user_missing_weekstarts = set(monthly_week_starts) - set(user_weekstarts[user_key])
                         results[org_key][user_key]["missing"] = [
-                            ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts) if d != this_week_start.date()),
+                            ", ".join(d.strftime("%m-%d") for d in sorted(user_missing_weekstarts) if d != this_week_start),
                             False,
                         ]  # noqa: PLC0206
 
         # -- calculate public holidays
-        for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year.date(), day__lte=now):
+        for holiday in PublicHoliday.objects.filter(day__gte=current_fiscal_year, day__lte=today):
             # -- subtract public holidays from current total
             monthly_expected_hours[holiday.day.month] -= 1 * org.day_workhours
 

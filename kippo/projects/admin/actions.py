@@ -217,7 +217,7 @@ def _start_of_next_month(today: datetime.date) -> datetime.date:
 
 
 def _build_continuation_prefill_params(project: KippoProject) -> dict[str, str]:
-    today = timezone.now().date()
+    today = timezone.localdate()
     # The follow-up is a 継続 (continuation) project: stamp lead_source, link the parent, and inherit
     # the parent's sourcing/context. category is left to the add form's default (その他).
     params = {
@@ -284,7 +284,7 @@ def close_kippoproject_action(modeladmin: admin.ModelAdmin, request: DjangoReque
             # confidence only when the phase actually changes).
             project.phase = PHASE_COMPLETED
             project.is_closed = True
-            project.actual_date = timezone.now().date()
+            project.actual_date = timezone.localdate()
             project.display_as_active = False
             project.display_in_project_report = False
             project.updated_by = request.user

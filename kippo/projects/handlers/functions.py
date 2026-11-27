@@ -63,7 +63,7 @@ def run_project_cost_reports(event: dict | None, context: dict | None) -> list: 
     )
 
     # Get current month (first day of month for comparison)
-    today = timezone.now().date()
+    today = timezone.localdate()
     current_month_start = today.replace(day=1)
 
     for monthly_cost in ProjectMonthlyCost.objects.filter(project__in=projects):
