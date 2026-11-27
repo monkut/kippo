@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from accounts.models import KippoOrganization, KippoUser, OrganizationMembership, PublicHoliday
+from accounts.models import KippoOrganization, KippoUser, OrganizationMembership
 from commons.fields import CommaSeparatedCharField
 from commons.functions import add_months, first_of_month, first_of_next_month, last_of_month
 from commons.models import TimestampedModel, UserCreatedBaseModel
@@ -44,6 +44,7 @@ from .definitions import (
 )
 from .exceptions import ProjectColumnSetError
 from .functions import previous_week_startdate
+from .services.progress import expected_effort_hours
 
 logger = logging.getLogger(__name__)
 
@@ -725,61 +726,16 @@ class KippoProject(UserCreatedBaseModel):
             total_effort_percentage = (actual_effort_hours / self.allocated_effort_hours) * 100
         return actual_effort_hours, self.allocated_effort_hours, total_effort_percentage
 
-    def get_expected_effort(self, at_date: datetime.date | None = None, holidays: object = _COMPUTE) -> tuple[int | None, int | None]:
-        """Calculate the expected effort hours for the project at a given date.
+    def get_expected_effort(self, at_date: datetime.date | None = None, holidays: object = _COMPUTE) -> tuple[int | None, float | None]:
+        """Expected effort (days, hours) for the project at `at_date` (default: today). Days is always None.
 
         `holidays` may be a precomputed collection of holiday `datetime.date`s (membership is
         all that is tested) to avoid a per-project PublicHoliday query in bulk/list contexts.
+        See `projects.services.progress.expected_effort_hours` for the rule.
         """
-        expected_effort_days = None
-        expected_effort_hours = None
-        # the budget, which is the entered 割当工数(人日) or the 納品/固定 contract estimate
-        total_project_hours = self.allocated_effort_hours
-        if self.start_date and self.target_date and total_project_hours:
-            if not at_date:
-                at_date = timezone.localdate()
-                logger.info(f"at_date not given, setting to: {at_date}")
-            if self.start_date <= at_date <= self.target_date or at_date > self.target_date:
-                # get weekdays - public holidays
-                if holidays is _COMPUTE:
-                    holidays = []
-                    if self.organization.default_holiday_country:
-                        holidays = list(
-                            PublicHoliday.objects.filter(
-                                country=self.organization.default_holiday_country, day__gte=self.start_date, day__lte=self.target_date
-                            ).values_list("day", flat=True)
-                        )
-
-                total_available_workdays = 0
-                available_workdays_at_date = None
-                current_date = self.start_date
-                saturday_weekday_number = 5
-                while current_date <= self.target_date:
-                    if current_date.weekday() < saturday_weekday_number and current_date not in holidays:
-                        total_available_workdays += 1
-                    if current_date == at_date:
-                        available_workdays_at_date = total_available_workdays
-                    current_date = current_date + timezone.timedelta(days=1)
-                if available_workdays_at_date is None and at_date > self.target_date:
-                    logger.warning(f"at_date({at_date}) > target_date({self.target_date}), setting available_workdays_at_date")
-                    # set to total available workdays
-                    available_workdays_at_date = total_available_workdays
-
-                if total_available_workdays:
-                    hours_per_day = total_project_hours / total_available_workdays
-                    expected_effort_hours = hours_per_day * available_workdays_at_date
-            else:
-                logger.warning(f"at_date({at_date}) is not between start_date({self.start_date}) and target_date({self.target_date})")
-        else:
-            logger.warning(
-                f"Project.start_date, Project.target_date and/or the project budget (割当工数(人日) or 納品/固定 contract) not set: "
-                f"project={self}, organization={self.organization}"
-            )
-            logger.warning(
-                f"start_date={self.start_date}, target_date={self.target_date}, "
-                f"allocated_staff_days={self.allocated_staff_days}, allocated_effort_hours={total_project_hours}"
-            )
-        return expected_effort_days, expected_effort_hours
+        at_date = at_date or timezone.localdate()
+        expected_hours = expected_effort_hours(self, [at_date], holidays=None if holidays is _COMPUTE else holidays)
+        return None, expected_hours[at_date]
 
     def get_projectprogressstatus_values(self, total_effort: object = _COMPUTE, holidays: object = _COMPUTE) -> ProjectProgressStatus:
         actual_effort_hours, allocated_effort_hours, total_effort_percentage = self.get_projecteffort_values(total_effort=total_effort)

@@ -1,5 +1,4 @@
 import datetime
-from collections.abc import Sequence
 from http import HTTPStatus
 from typing import Any
 
@@ -9,7 +8,7 @@ from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user,
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Prefetch, QuerySet, Sum
+from django.db.models import Exists, OuterRef, Prefetch, QuerySet
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -58,6 +57,7 @@ from .serializers import (
     ProjectParticipantSerializer,
     ProjectWeeklyEffortSerializer,
     ProjectWeeklyEffortUnlockSerializer,
+    build_project_batch_context,
 )
 from .services.autoassign import auto_create_future_assignments
 from .services.forecast import ProjectAssignmentForecastManager
@@ -254,11 +254,11 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
-            self._list_batch_context = self._build_batch_context(page)
+            self._list_batch_context = build_project_batch_context(page)
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
         objects = list(queryset)
-        self._list_batch_context = self._build_batch_context(objects)
+        self._list_batch_context = build_project_batch_context(objects)
         serializer = self.get_serializer(objects, many=True)
         return Response(serializer.data)
 
@@ -268,61 +268,6 @@ class KippoProjectViewSet(OrganizationFilterMixin, viewsets.ModelViewSet):
         if batch:
             context.update(batch)
         return context
-
-    def _build_batch_context(self, projects: Sequence[KippoProject]) -> dict:
-        """Build the per-page effort / survey / holiday lookups shared via serializer context.
-
-        Returns keys `project_effort_totals`, `project_user_efforts`, `project_survey_completed_users`
-        and `public_holidays_by_country`. A project absent from `project_effort_totals` has no logged
-        effort (matches KippoProject.get_total_effort() returning None).
-        """
-        from accounts.models import PublicHoliday
-
-        project_ids = [project.id for project in projects]
-        if not project_ids:
-            return {}
-
-        # One grouped ProjectWeeklyEffort aggregate for the whole page.
-        project_user_efforts: dict = {}
-        project_effort_totals: dict = {}
-        effort_rows = (
-            ProjectWeeklyEffort.objects.filter(project_id__in=project_ids)
-            .values("project_id", "user__id", "user__username", "user__first_name", "user__last_name")
-            .annotate(user_hours=Sum("hours"))
-        )
-        for row in effort_rows:
-            project_id = row["project_id"]
-            project_user_efforts.setdefault(project_id, []).append(
-                {
-                    "user__id": row["user__id"],
-                    "user__username": row["user__username"],
-                    "user__first_name": row["user__first_name"],
-                    "user__last_name": row["user__last_name"],
-                    "user_hours": row["user_hours"],
-                }
-            )
-            project_effort_totals[project_id] = (project_effort_totals.get(project_id) or 0) + (row["user_hours"] or 0)
-
-        # Survey completions per project.
-        project_survey_completed_users: dict = {}
-        for project_id, created_by_id in KippoProjectUserStatisfactionResult.objects.filter(project_id__in=project_ids).values_list(
-            "project_id", "created_by_id"
-        ):
-            project_survey_completed_users.setdefault(project_id, set()).add(created_by_id)
-
-        # Org public holidays fetched once per distinct country.
-        country_ids = {project.organization.default_holiday_country_id for project in projects if project.organization.default_holiday_country_id}
-        public_holidays_by_country: dict = {}
-        if country_ids:
-            for country_id, day in PublicHoliday.objects.filter(country_id__in=country_ids).values_list("country_id", "day"):
-                public_holidays_by_country.setdefault(country_id, set()).add(day)
-
-        return {
-            "project_effort_totals": project_effort_totals,
-            "project_user_efforts": project_user_efforts,
-            "project_survey_completed_users": project_survey_completed_users,
-            "public_holidays_by_country": public_holidays_by_country,
-        }
 
     def get_queryset(self):
         """Filter queryset based on query parameters and user's organization membership.

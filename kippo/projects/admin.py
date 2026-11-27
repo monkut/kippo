@@ -98,6 +98,7 @@ from .models import (
     participant_period_error,
 )
 from .services.participants import apply_defaults_to_remaining_months, create_remaining_assignments, remaining_months
+from .services.progress import public_holidays_by_country
 
 if TYPE_CHECKING:
     from .services.forecast import ForecastResult
@@ -2271,10 +2272,7 @@ class KippoProjectBaseAdmin(AllowIsStaffAdminMixin, nested_admin.NestedModelAdmi
         org_id = obj.organization_id
         if org_id not in cache:
             country_id = obj.organization.default_holiday_country_id
-            holidays: set = set()
-            if country_id:
-                holidays = set(PublicHoliday.objects.filter(country_id=country_id).values_list("day", flat=True))
-            cache[org_id] = holidays
+            cache[org_id] = public_holidays_by_country([country_id]).get(country_id, set())
         return cache[org_id]
 
 
@@ -2750,8 +2748,6 @@ class ProjectWeeklyEffortAdmin(AllowIsStaffAdminMixin, UserCreatedBaseModelAdmin
         return qs.filter(project__organization__in=request.user.organizations).order_by("project__organization")
 
     def get_fiscal_year_org_per_user_weeklyeffort(self, organizations: Iterable[KippoOrganization]) -> tuple:  # noqa: C901, PLR0912
-        from accounts.models import PublicHoliday
-
         all_months = set()
         monthly_expected_hours = Counter()
 

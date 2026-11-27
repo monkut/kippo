@@ -27,25 +27,6 @@ class ProjectSlackManager:
             raise ValueError("Slack channel reporting ('enable_slack_channel_reporting') is not enabled for this organization.")
         self.client = WebClient(token=organization.slack_api_token)
 
-    def __get_project_progress_emoji(self, project: ActiveKippoProject) -> str:
-        """Calculate the project progress emoji based on actual and expected effort hours."""
-        actual_effort_hours, allocated_effort_hours, total_effort_percentage = project.get_projecteffort_values()
-        _, expected_effort_hours = project.get_expected_effort()
-        logger.debug(
-            f"project={project.name}, allocated_effort_hours={allocated_effort_hours}, "
-            f"actual_effort_hours={actual_effort_hours}, expected_effort_hours={expected_effort_hours}"
-        )
-        project_progress_emoji = ":white_circle:"
-        if actual_effort_hours and expected_effort_hours:
-            if actual_effort_hours < expected_effort_hours:
-                project_progress_emoji = ":large_green_circle:"
-            else:
-                project_progress_emoji = ":large_yellow_circle:"
-                percentage_exceeding_expected = ((actual_effort_hours - expected_effort_hours) / expected_effort_hours) * 100
-                if percentage_exceeding_expected > settings.PROJECT_STATUS_REPORT_EXCEEDING_THRESHOLD:
-                    project_progress_emoji = ":red_circle:"
-        return project_progress_emoji
-
     def __get_project_progress_display(self, project: ActiveKippoProject) -> str:
         """Prepare the project progress display string"""
         progress_status_display = None
