@@ -1,6 +1,7 @@
 """API views for the projects app."""
 
 import logging
+from collections import defaultdict
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponseBadRequest, JsonResponse, request as DjangoRequest  # noqa: N812
@@ -8,6 +9,7 @@ from django.views.decorators.http import require_http_methods
 
 from .functions import get_user_session_organization
 from .models import KippoProject, ProjectWeeklyEffort
+from .services.progress import expected_effort_hours
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +51,6 @@ def project_status_api(request: DjangoRequest, project_id: str) -> JsonResponse:
     project_weekly_efforts = ProjectWeeklyEffort.objects.filter(project=project).order_by("week_start", "user__first_name", "user__last_name")
 
     # Prepare weekly effort data (cumulative per user)
-    from collections import defaultdict
-
     user_cumulative_hours = defaultdict(int)
     weekly_effort_data = []
     unique_dates = set()
@@ -69,13 +69,12 @@ def project_status_api(request: DjangoRequest, project_id: str) -> JsonResponse:
 
     # Calculate expected effort for each unique date
     expected_effort_by_date = []
-    for date in sorted(unique_dates):
-        expected_effort_days, expected_effort_hours = project.get_expected_effort(at_date=date)
+    for date, expected_hours in expected_effort_hours(project, sorted(unique_dates)).items():
         expected_effort_by_date.append(
             {
                 "date": date.isoformat(),
-                "expected_effort_days": expected_effort_days,
-                "expected_effort_hours": expected_effort_hours,
+                "expected_effort_days": None,
+                "expected_effort_hours": expected_hours,
             }
         )
 

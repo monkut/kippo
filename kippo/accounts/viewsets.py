@@ -5,7 +5,7 @@ from collections import defaultdict
 from http import HTTPStatus
 from typing import Any
 
-from commons.viewsets import OrganizationFilterMixin, organization_ids_for_user
+from commons.viewsets import OrganizationFilterMixin, user_can_access_organization
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
@@ -236,8 +236,7 @@ class OrganizationViewSet(OrganizationFilterMixin, ListModelMixin, RetrieveModel
         except KippoOrganization.DoesNotExist:
             return Response({"detail": "Not found."}, status=HTTPStatus.NOT_FOUND)
 
-        user = request.user
-        if not user.is_superuser and organization.id not in organization_ids_for_user(user):
+        if not user_can_access_organization(request.user, organization.id):
             return Response(
                 {"detail": "You are not a member of this organization."},
                 status=HTTPStatus.FORBIDDEN,

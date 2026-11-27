@@ -487,6 +487,10 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/",
+    # The phase choices back KippoProject.phase and the change log's previous_phase / new_phase.
+    # Without a fixed name drf-spectacular names the shared enum after one of the newer fields,
+    # which would rename the `PhaseEnum` that API clients already import.
+    "ENUM_NAME_OVERRIDES": {"PhaseEnum": "projects.models.VALID_PROJECT_PHASES"},
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
         "persistAuthorization": True,

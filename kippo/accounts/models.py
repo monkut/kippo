@@ -276,7 +276,7 @@ class KippoOrganization(UserCreatedBaseModel):
             super().save(*args, **kwargs)
 
     def get_next_fiscal_year(self) -> timezone.datetime:
-        current = timezone.now()
+        current = timezone.localtime()
         while current.month != self.fiscalyear_start_month:
             current += timezone.timedelta(days=1)
         next_fiscal_year = current.replace(day=1)
@@ -625,7 +625,7 @@ class OrganizationInvite(UserCreatedBaseModel):
     def save(self, *args, **kwargs):
         if not self.expiration_date:
             # set expiration date to 7 days from now
-            self.expiration_date = (timezone.now() + timezone.timedelta(days=settings.ORGANIZATIONINVITE_EXPIRATION_DAYS)).date()
+            self.expiration_date = timezone.localdate() + timezone.timedelta(days=settings.ORGANIZATIONINVITE_EXPIRATION_DAYS)
         super().save(*args, **kwargs)
 
 
@@ -657,7 +657,7 @@ class PersonalHoliday(UserCreatedBaseModel):
         # "user": effort.user.display_name,
         # "hours": effort.hours,
         if not today:
-            today = timezone.now().date()
+            today = timezone.localdate()
         public_holidays = PublicHoliday.objects.filter(day__gte=today, country=self.user.holiday_country).values_list("day", flat=True)
         c = Counter()
         for day_count in range(self.duration):

@@ -1,9 +1,10 @@
 import datetime
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from accounts.models import KippoOrganization, KippoUser
 from commons.fields import CommaSeparatedField
-from commons.viewsets import organization_ids_for_user
+from commons.viewsets import organization_ids_for_user, scope_to_user_organizations, user_can_access_organization
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
@@ -30,6 +31,7 @@ from .models import (
     KippoProjectBillingEntry,
     KippoProjectContract,
     KippoProjectOrganizationCategory,
+    KippoProjectPhaseConfidenceChange,
     KippoProjectStatus,
     KippoProjectUserStatisfactionResult,
     ProjectAssignmentRate,
@@ -40,6 +42,7 @@ from .models import (
     ProjectWeeklyEffort,
     ProjectWeeklyEffortUnlock,
 )
+from .services.progress import EFFORT_LEVELS, effort_level, public_holidays_by_country, user_effort_shares
 
 if TYPE_CHECKING:
     from accounts.models import OrganizationMembership
@@ -71,6 +74,11 @@ class ProjectProgressStatusInlineSerializer(serializers.Serializer):
         "because the project has no 割当工数(人日) entered.",
     )
     difference_percentage = serializers.FloatField(allow_null=True)
+    level = serializers.ChoiceField(
+        choices=EFFORT_LEVELS,
+        help_text="稼働状況 level from difference_percentage: neutral (no comparison), success (at or under expected), "
+        "warning (over expected), danger (over by more than the exceeding threshold).",
+    )
 
 
 class WeeklyEffortUserInlineSerializer(serializers.Serializer):
@@ -189,16 +197,11 @@ def _restrict_customer_field_to_user_organizations(serializer: serializers.Model
     field = serializer.fields.get(field_name)
     request = serializer.context.get("request")
     user = getattr(request, "user", None)
-    if field is None or user is None or getattr(user, "is_superuser", False) or not hasattr(user, "organizationmembership_set"):
+    if field is None or user is None:
         return
-    # Reuse the request-scoped org-id cache when warm, else the LAZY membership queryset so Django
-    # inlines it as a subquery (mirrors OrganizationFilterMixin.filter_by_organization). The field
-    # queryset is only evaluated for write validation / browsable-API choices — never on a JSON GET —
-    # so this adds no query to list/detail reads.
-    user_organizations = getattr(user, "_organization_ids_cache", None)
-    if user_organizations is None:
-        user_organizations = user.organizationmembership_set.values_list("organization", flat=True)
-    field.queryset = field.queryset.filter(organization__in=user_organizations)
+    # The field queryset is only evaluated for write validation / browsable-API choices — never on a
+    # JSON GET — so this adds no query to list/detail reads.
+    field.queryset = scope_to_user_organizations(field.queryset, user)
 
 
 class KippoProjectContractSerializer(serializers.ModelSerializer):
@@ -276,6 +279,13 @@ class KippoProjectContractSerializer(serializers.ModelSerializer):
         return None
 
 
+def _user_display_name(user: KippoUser | None) -> str | None:
+    """The user's first and last name, falling back to the username. None when there is no user."""
+    if not user:
+        return None
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username
+
+
 class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
     """A project's status comment (``KippoProjectStatus``, kippo#64), nested under
     ``/projects/{project_pk}/status-comments/``.
@@ -294,10 +304,42 @@ class KippoProjectStatusCommentSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_created_by_display_name(self, obj: KippoProjectStatus) -> str | None:
-        created_by = obj.created_by
-        if not created_by:
-            return None
-        return f"{created_by.first_name or ''} {created_by.last_name or ''}".strip() or created_by.username
+        return _user_display_name(obj.created_by)
+
+
+class KippoProjectPhaseConfidenceChangeSerializer(serializers.ModelSerializer):
+    """One フェーズ / 確度 change on a project (``KippoProjectPhaseConfidenceChange``, kippo#77), embedded
+    in the project response as ``phase_confidence_changes``. Read-only: KippoProject.save() writes the rows.
+
+    ``*_phase`` is the phase key and ``*_phase_display`` its label. The ``changed_by_*`` fields
+    follow the status-comment author fields; both are null when no user is recorded (the project
+    was saved with ``updated_by`` unset, or the user has since been deleted).
+    """
+
+    previous_phase_display = serializers.CharField(source="get_previous_phase_display", read_only=True)
+    new_phase_display = serializers.CharField(source="get_new_phase_display", read_only=True)
+    changed_by_username = serializers.CharField(source="changed_by.username", read_only=True, allow_null=True)
+    changed_by_display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KippoProjectPhaseConfidenceChange
+        fields = [
+            "id",
+            "previous_phase",
+            "previous_phase_display",
+            "new_phase",
+            "new_phase_display",
+            "previous_confidence",
+            "new_confidence",
+            "changed_by_username",
+            "changed_by_display_name",
+            "changed_datetime",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_changed_by_display_name(self, obj: KippoProjectPhaseConfidenceChange) -> str | None:
+        return _user_display_name(obj.changed_by)
 
 
 class KippoProjectBillingEntrySerializer(serializers.ModelSerializer):
@@ -393,6 +435,49 @@ class ProjectCategoryKeyField(serializers.Field):
         return data
 
 
+def build_project_batch_context(projects: Sequence[KippoProject]) -> dict:
+    """Effort / survey / holiday lookups for `projects`, shared through the KippoProjectSerializer context.
+
+    The list view builds it once per page; a detail or write response builds it for its one project
+    (see KippoProjectSerializer._batch_context), so the derived fields have a single code path.
+
+    Returns keys `project_effort_totals`, `project_user_efforts`, `project_survey_completed_users`
+    and `public_holidays_by_country`. A project absent from `project_effort_totals` has no logged
+    effort (matches KippoProject.get_total_effort() returning None).
+    """
+    project_ids = [project.id for project in projects]
+    if not project_ids:
+        return {}
+
+    # One grouped ProjectWeeklyEffort aggregate for all projects.
+    project_user_efforts: dict = {}
+    project_effort_totals: dict = {}
+    effort_rows = (
+        ProjectWeeklyEffort.objects.filter(project_id__in=project_ids)
+        .values("project_id", "user__id", "user__username", "user__first_name", "user__last_name")
+        .annotate(user_hours=Sum("hours"))
+    )
+    for row in effort_rows:
+        project_id = row.pop("project_id")
+        project_user_efforts.setdefault(project_id, []).append(row)
+        project_effort_totals[project_id] = (project_effort_totals.get(project_id) or 0) + (row["user_hours"] or 0)
+
+    # Survey completions per project.
+    project_survey_completed_users: dict = {}
+    for project_id, created_by_id in KippoProjectUserStatisfactionResult.objects.filter(project_id__in=project_ids).values_list(
+        "project_id", "created_by_id"
+    ):
+        project_survey_completed_users.setdefault(project_id, set()).add(created_by_id)
+
+    return {
+        "project_effort_totals": project_effort_totals,
+        "project_user_efforts": project_user_efforts,
+        "project_survey_completed_users": project_survey_completed_users,
+        # Org public holidays fetched once per distinct country.
+        "public_holidays_by_country": public_holidays_by_country(project.organization.default_holiday_country_id for project in projects),
+    }
+
+
 class KippoProjectSerializer(serializers.ModelSerializer):
     """Serializer for KippoProject model."""
 
@@ -435,6 +520,9 @@ class KippoProjectSerializer(serializers.ModelSerializer):
     has_requirements = serializers.SerializerMethodField()
     projectstatus_display = serializers.SerializerMethodField()
     latest_comment = serializers.SerializerMethodField()
+    # フェーズ / 確度 change log, newest first (kippo#79). Read-only: KippoProject.save() writes the rows,
+    # so a PATCH that changes phase or confidence returns the row it just added.
+    phase_confidence_changes = serializers.SerializerMethodField()
     weekly_effort_users = serializers.SerializerMethodField()
     survey_users = serializers.SerializerMethodField()
     github_repositories = serializers.SerializerMethodField()
@@ -522,6 +610,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "created_datetime",
@@ -550,6 +639,7 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "has_requirements",
             "projectstatus_display",
             "latest_comment",
+            "phase_confidence_changes",
             "weekly_effort_users",
             "survey_users",
             "github_repositories",
@@ -777,19 +867,27 @@ class KippoProjectSerializer(serializers.ModelSerializer):
 
         return ProjectProblemDefinition.objects.filter(project=obj).exists()
 
+    def _batch_context(self, obj: KippoProject) -> dict:
+        """The effort / survey / holiday lookups covering `obj` (see build_project_batch_context).
+
+        The list view supplies them for the whole page through the serializer context. Otherwise
+        (detail, create, update) they are built for this one project and kept for the remaining fields.
+        """
+        if "project_effort_totals" in self.context:
+            return self.context
+        single_project_contexts = self.__dict__.setdefault("_single_project_contexts", {})
+        if obj.id not in single_project_contexts:
+            single_project_contexts[obj.id] = build_project_batch_context([obj])
+        return single_project_contexts[obj.id]
+
     @extend_schema_field(ProjectProgressStatusInlineSerializer(allow_null=True))
     def get_projectstatus_display(self, obj: KippoProject) -> dict | None:
         """Get the project progress status display values."""
-        # In list context the effort total and org holidays are precomputed once per page
-        # (see KippoProjectViewSet); inject them to avoid a per-row aggregate + PublicHoliday query.
-        effort_totals = self.context.get("project_effort_totals")
-        if effort_totals is not None:
-            holidays = self.context["public_holidays_by_country"].get(obj.organization.default_holiday_country_id, set())
-            project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values(
-                total_effort=effort_totals.get(obj.id), holidays=holidays
-            )
-        else:
-            project_progress_status = obj.get_projectprogressstatus_values()
+        batch = self._batch_context(obj)
+        project_progress_status: ProjectProgressStatus = obj.get_projectprogressstatus_values(
+            total_effort=batch["project_effort_totals"].get(obj.id),
+            holidays=batch["public_holidays_by_country"].get(obj.organization.default_holiday_country_id, set()),
+        )
         if project_progress_status.allocated_effort_hours is None:
             return None
         return {
@@ -798,7 +896,19 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             "allocated_effort_hours": project_progress_status.allocated_effort_hours,
             "is_estimated_allocated_effort_hours": project_progress_status.is_estimated_allocated_effort_hours,
             "difference_percentage": project_progress_status.get_difference_percentage(),
+            "level": effort_level(project_progress_status),
         }
+
+    @extend_schema_field(KippoProjectPhaseConfidenceChangeSerializer(many=True))
+    def get_phase_confidence_changes(self, obj: KippoProject) -> list[dict]:
+        """The project's フェーズ / 確度 changes, newest first."""
+        # The viewset prefetches the log with changed_by. A response built without it (create,
+        # or update, which clears the prefetch cache) reads the log here in one query.
+        if "phase_confidence_changes" in getattr(obj, "_prefetched_objects_cache", {}):
+            changes = obj.phase_confidence_changes.all()
+        else:
+            changes = obj.phase_confidence_changes.select_related("changed_by")
+        return KippoProjectPhaseConfidenceChangeSerializer(changes, many=True).data
 
     @extend_schema_field(LatestCommentInlineSerializer(allow_null=True))
     def get_latest_comment(self, obj: KippoProject) -> dict | None:
@@ -812,77 +922,27 @@ class KippoProjectSerializer(serializers.ModelSerializer):
             latest_status = obj.get_latest_kippoprojectstatus()
         if latest_status:
             created_by = latest_status.created_by
-            display_name = None
-            username = None
-            if created_by:
-                username = created_by.username
-                first_name = created_by.first_name or ""
-                last_name = created_by.last_name or ""
-                display_name = f"{first_name} {last_name}".strip() or username
             return {
                 "comment": latest_status.comment,
-                "created_by_username": username,
-                "created_by_display_name": display_name,
+                "created_by_username": created_by.username if created_by else None,
+                "created_by_display_name": _user_display_name(created_by),
                 "created_datetime": latest_status.created_datetime,
             }
         return None
 
-    def _effort_context_rows(self, obj: KippoProject) -> tuple[int, list[dict]] | None:
-        """Return `(total_hours, user_effort_rows)` from the per-page batch context, or None.
-
-        The viewset precomputes one grouped `ProjectWeeklyEffort` aggregate per page and stores it
-        in serializer context, so the effort-derived fields share it instead of each re-scanning
-        the table. Returns None in detail/retrieve (no batch) so callers fall back to per-object queries.
-        """
-        user_efforts_by_project = self.context.get("project_user_efforts")
-        if user_efforts_by_project is None:
-            return None
-        total_hours = self.context["project_effort_totals"].get(obj.id) or 0
-        return total_hours, user_efforts_by_project.get(obj.id, [])
+    def _user_effort_shares(self, obj: KippoProject) -> list[dict]:
+        """Each user's hours and share of the project's logged effort. Empty when nothing is logged."""
+        batch = self._batch_context(obj)
+        total_hours = batch["project_effort_totals"].get(obj.id) or 0
+        if total_hours == 0:
+            return []
+        return user_effort_shares(batch["project_user_efforts"].get(obj.id, []), total_hours)
 
     @extend_schema_field(WeeklyEffortUserInlineSerializer(many=True))
     def get_weekly_effort_users(self, obj: KippoProject) -> list[dict]:
         """Get list of users with their weekly effort percentages for this project."""
-        batch = self._effort_context_rows(obj)
-        if batch is not None:
-            total_hours, user_efforts = batch
-            if total_hours == 0:
-                return []
-            user_efforts = sorted(user_efforts, key=lambda e: e["user_hours"], reverse=True)
-        else:
-            # Get total hours for the project
-            total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
-            total_hours = total_hours_result["total"] or 0
-
-            if total_hours == 0:
-                return []
-
-            # Get hours per user
-            user_efforts = (
-                ProjectWeeklyEffort.objects.filter(project=obj)
-                .values("user__id", "user__username", "user__first_name", "user__last_name")
-                .annotate(user_hours=Sum("hours"))
-                .order_by("-user_hours")
-            )
-
-        result = []
-        for effort in user_efforts:
-            first_name = effort["user__first_name"] or ""
-            last_name = effort["user__last_name"] or ""
-            display_name = f"{first_name} {last_name}".strip() or effort["user__username"]
-            user_hours = effort["user_hours"] or 0
-            percentage = (user_hours / total_hours) * 100 if total_hours > 0 else 0
-
-            result.append(
-                {
-                    "user_id": effort["user__id"],
-                    "username": effort["user__username"],
-                    "display_name": display_name,
-                    "hours": user_hours,
-                    "percentage": round(percentage, 2),
-                }
-            )
-        return result
+        shares = sorted(self._user_effort_shares(obj), key=lambda share: share["hours"], reverse=True)
+        return [{**share, "percentage": round(share["percentage"], 2)} for share in shares]
 
     @extend_schema_field(SurveyUserInlineSerializer(many=True))
     def get_survey_users(self, obj: KippoProject) -> list[dict]:
@@ -891,57 +951,19 @@ class KippoProjectSerializer(serializers.ModelSerializer):
         Returns users sorted alphabetically by username with their survey completion status.
         Only includes users with effort percentage > 3%.
         """
-        batch = self._effort_context_rows(obj)
-        if batch is not None:
-            total_hours, user_efforts = batch
-            if total_hours == 0:
-                return []
-            completed_user_ids = self.context["project_survey_completed_users"].get(obj.id, set())
-        else:
-            # Get total hours for the project
-            total_hours_result = ProjectWeeklyEffort.objects.filter(project=obj).aggregate(total=Sum("hours"))
-            total_hours = total_hours_result["total"] or 0
-
-            if total_hours == 0:
-                return []
-
-            # Get hours per user
-            user_efforts = (
-                ProjectWeeklyEffort.objects.filter(project=obj)
-                .values("user__id", "user__username", "user__first_name", "user__last_name")
-                .annotate(user_hours=Sum("hours"))
-            )
-
-            # Get users who have completed the survey for this project
-            completed_user_ids = set(KippoProjectUserStatisfactionResult.objects.filter(project=obj).values_list("created_by_id", flat=True))
-
-        result = []
-        for effort in user_efforts:
-            user_hours = effort["user_hours"] or 0
-            percentage = (user_hours / total_hours) * 100 if total_hours > 0 else 0
-
-            # Only include users with effort above threshold
-            if percentage <= SURVEY_EFFORT_THRESHOLD_PERCENTAGE:
-                continue
-
-            first_name = effort["user__first_name"] or ""
-            last_name = effort["user__last_name"] or ""
-            display_name = f"{first_name} {last_name}".strip() or effort["user__username"]
-            user_id = effort["user__id"]
-
-            result.append(
-                {
-                    "user_id": user_id,
-                    "username": effort["user__username"],
-                    "display_name": display_name,
-                    "percentage": round(percentage, 2),
-                    "survey_completed": user_id in completed_user_ids,
-                }
-            )
-
-        # Sort alphabetically by username
-        result.sort(key=lambda x: x["username"])
-        return result
+        completed_user_ids = self._batch_context(obj)["project_survey_completed_users"].get(obj.id, set())
+        survey_users = [
+            {
+                "user_id": share["user_id"],
+                "username": share["username"],
+                "display_name": share["display_name"],
+                "percentage": round(share["percentage"], 2),
+                "survey_completed": share["user_id"] in completed_user_ids,
+            }
+            for share in self._user_effort_shares(obj)
+            if share["percentage"] > SURVEY_EFFORT_THRESHOLD_PERCENTAGE
+        ]
+        return sorted(survey_users, key=lambda survey_user: survey_user["username"])
 
 
 class ProjectWeeklyEffortSerializer(serializers.ModelSerializer):
@@ -1090,10 +1112,8 @@ class ProjectWeeklyEffortUnlockSerializer(serializers.ModelSerializer):
         """申請者は所属する組織のアンロックのみ申請できる (superuser を除く)。"""
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if user is not None and not user.is_superuser:
-            member_org_ids = set(user.organizationmembership_set.values_list("organization_id", flat=True))
-            if organization.pk not in member_org_ids:
-                raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
+        if user is not None and not user_can_access_organization(user, organization.pk):
+            raise serializers.ValidationError("所属していない組織のアンロックは申請できません。")
         return organization
 
     def validate(self, attrs: dict) -> dict:

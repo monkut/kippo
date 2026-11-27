@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from commons.viewsets import user_can_access_organization
 from rest_framework import serializers
 
 from customers.functions import active_projects_contract_total
@@ -63,12 +64,9 @@ class KippoCustomerSerializer(serializers.ModelSerializer):
 
     def validate_organization(self, value: "KippoOrganization") -> "KippoOrganization":
         request = self.context.get("request")
-        if request is None or request.user.is_superuser:
+        if request is None or user_can_access_organization(request.user, value.id):
             return value
-        user_org_ids = set(request.user.organizationmembership_set.values_list("organization_id", flat=True))
-        if value.id not in user_org_ids:
-            raise serializers.ValidationError("You can only create/update customers in organizations you belong to.")
-        return value
+        raise serializers.ValidationError("You can only create/update customers in organizations you belong to.")
 
 
 class CustomerActiveProjectSerializer(serializers.Serializer):

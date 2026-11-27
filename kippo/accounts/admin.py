@@ -4,7 +4,9 @@ from commons.admin import (
     AllowIsStaffAdminMixin,
     AllowIsStaffReadonlyMixin,
     AllowIsSuperuserAdminMixin,
+    OrganizationAdminScopedAdminMixin,
     OrganizationQuerysetModelAdminMixin,
+    SuperuserViewOnlyAdminMixin,
     UserCreatedBaseModelAdmin,
 )
 from django import forms
@@ -96,7 +98,7 @@ class GithubAccessTokenAdminInline(admin.StackedInline):
 
 
 @admin.register(OrganizationMembership)
-class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
+class OrganizationMembershipAdmin(OrganizationAdminScopedAdminMixin, AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
     """Memberships are readable and writable only by superusers and organization admins, scoped to the organizations they administer.
 
     `is_admin` lives on this model, so scoping on plain membership would let an admin of one
@@ -119,42 +121,11 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
     ordering = ("organization", "user")
     search_fields = ["user__username", "user__github_login", "slack_username"]
 
-    @staticmethod
-    def _is_any_organization_admin(user: KippoUser) -> bool:
-        if not user.is_active or user.is_anonymous:
-            return False
-        return user.is_superuser or user.admin_organizations.exists()
-
-    def _may_write(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
-        user = request.user
-        if not user.is_active or user.is_anonymous:
-            return False
-        if user.is_superuser:
-            return True
-        if obj is None:
-            # changelist/add-button rendering: any administered organization is enough
-            return self._is_any_organization_admin(user)
-        return user.is_organization_admin_of(obj.organization)
-
     def has_view_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
         # deliberately does NOT fall through to the Django model permission: membership rows are
         # visible to superusers and organization admins only, regardless of any `view`/`change`
         # grant a group may carry.
         return self._may_write(request, obj)
-
-    def has_add_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
-        return self._may_write(request, obj)
-
-    def has_change_permission(self, request: DjangoRequest, obj: OrganizationMembership | None = None) -> bool:
-        return self._may_write(request, obj)
-
-    def get_queryset(self, request: DjangoRequest):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        # scoped to ADMINISTERED organizations, not merely joined ones -- this queryset also
-        # backs get_object(), so it bounds which memberships the change view can load.
-        return qs.filter(organization__in=request.user.admin_organizations)
 
     def formfield_for_foreignkey(self, db_field: Model, request: DjangoRequest, **kwargs):
         if db_field.name == "organization" and not request.user.is_superuser:
@@ -186,7 +157,7 @@ class OrganizationMembershipAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseMode
 
 
 @admin.register(OrganizationInvite)
-class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
+class OrganizationInviteAdmin(OrganizationAdminScopedAdminMixin, AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdmin):
     """Invites are visible and writable only to superusers and organization admins, scoped to the organizations they administer.
 
     Both the listed rows (`get_queryset`) and the organization selector
@@ -200,29 +171,6 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
     ordering = ("organization", "email")
     search_fields = ["email"]
 
-    @staticmethod
-    def _is_any_organization_admin(user: KippoUser) -> bool:
-        if not user.is_active or user.is_anonymous:
-            return False
-        return user.is_superuser or user.admin_organizations.exists()
-
-    def _may_write(self, request: DjangoRequest, obj: OrganizationInvite | None = None) -> bool:
-        user = request.user
-        if not user.is_active or user.is_anonymous:
-            return False
-        if user.is_superuser:
-            return True
-        if obj is None:
-            # changelist/add-button rendering: any administered organization is enough
-            return self._is_any_organization_admin(user)
-        return user.is_organization_admin_of(obj.organization)
-
-    def has_add_permission(self, request: DjangoRequest, obj: OrganizationInvite | None = None) -> bool:
-        return self._may_write(request, obj)
-
-    def has_change_permission(self, request: DjangoRequest, obj: OrganizationInvite | None = None) -> bool:
-        return self._may_write(request, obj)
-
     def has_delete_permission(self, request: DjangoRequest, obj: OrganizationInvite | None = None) -> bool:
         return self._may_write(request, obj)
 
@@ -233,14 +181,6 @@ class OrganizationInviteAdmin(AllowIsStaffReadonlyMixin, UserCreatedBaseModelAdm
         if self._is_any_organization_admin(request.user):
             return True
         return super().has_view_permission(request, obj)
-
-    def get_queryset(self, request: DjangoRequest):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        # scoped to ADMINISTERED organizations, not merely joined ones -- this queryset also
-        # backs get_object(), so it bounds which invites the change/delete views can load.
-        return qs.filter(organization__in=request.user.admin_organizations)
 
     def formfield_for_foreignkey(self, db_field: Model, request: DjangoRequest, **kwargs):
         if db_field.name == "organization" and not request.user.is_superuser:
@@ -497,7 +437,7 @@ class AttendanceRecordAdmin(AllowIsStaffReadonlyMixin, admin.ModelAdmin):
 
 
 @admin.register(LogEntry)
-class LogEntryAdmin(admin.ModelAdmin):
+class LogEntryAdmin(SuperuserViewOnlyAdminMixin, admin.ModelAdmin):
     date_hierarchy = "action_time"
     readonly_fields = [field.name for field in LogEntry._meta.get_fields()]
     list_filter = ["user", "content_type"]
@@ -512,11 +452,6 @@ class LogEntryAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request: DjangoRequest, obj: LogEntry | None = None) -> bool:
         return False
-
-    def has_view_permission(self, request: DjangoRequest, obj: LogEntry | None = None) -> bool:
-        # only for superusers, cannot return False, the module
-        # wouldn't be visible in admin
-        return request.user.is_superuser and request.method != "POST"
 
     def object_link(self, obj: LogEntry) -> str:
         if obj.action_flag == DELETION:

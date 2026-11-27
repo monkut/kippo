@@ -5,6 +5,7 @@ from collections.abc import Collection, Generator, Iterable
 from typing import Any
 
 from commons.definitions import PERSONAL_HOLIDAY_LOOKBACK_DAYS
+from commons.functions import local_date
 from django.utils import timezone
 
 from .exceptions import OrganizationInviteExpiredError
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 def get_personal_holidays_generator(from_datetime: timezone.datetime | None) -> Generator:
     qs = PersonalHoliday.objects.all()
     if from_datetime:
-        qs = qs.filter(day__gte=from_datetime.date())
+        qs = qs.filter(day__gte=local_date(from_datetime))
     for personal_holiday in qs:
         yield from personal_holiday.get_weeklyeffort_hours()
 
