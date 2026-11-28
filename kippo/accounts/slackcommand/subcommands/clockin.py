@@ -2,7 +2,6 @@ import logging
 
 from commons.definitions import SlackResponseTypes
 from commons.slackcommand.base import SubCommandBase
-from django.conf import settings
 from django.utils import timezone
 from django.utils.text import gettext_lazy as _
 from slack_sdk.web import SlackResponse, WebClient
@@ -29,6 +28,7 @@ class ClockInSubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Handle the clock-in command."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
         assert cls._is_valid_subcommand_alias(command.sub_command)
         assert command.user, f"user not defined for command: sub_command={command.sub_command}, text={command.text}"
@@ -52,7 +52,7 @@ class ClockInSubCommand(SubCommandBase):
             logger.warning(
                 f"INVALID category {latest_attendance_record.category} for user {command.user} in organization {command.organization} to `clock-in`"
             )
-            local_created_datetime = latest_attendance_record.created_datetime.astimezone(settings.JST)
+            local_created_datetime = latest_attendance_record.created_datetime.astimezone(member_timezone)
             local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
@@ -68,12 +68,12 @@ class ClockInSubCommand(SubCommandBase):
             ]
 
         else:
-            entry_datetime = cls._get_datetime_from_text(text_without_subcommand)
+            entry_datetime = cls._get_datetime_from_text(text_without_subcommand, member_timezone)
 
             send_channel_notification = False
             if not entry_datetime:
                 send_channel_notification = True
-                entry_datetime = timezone.localtime()
+                entry_datetime = timezone.localtime(timezone=member_timezone)
             logger.info(
                 f"Creating AttendanceRecord({AttendanceRecordCategory.START.value}) for user {command.user.username} "
                 f"in organization {command.organization.name} at {entry_datetime} ..."

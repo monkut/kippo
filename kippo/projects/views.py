@@ -372,6 +372,17 @@ class CurrentUserView(APIView):
                     "first_name": {"type": "string"},
                     "last_name": {"type": "string"},
                     "is_staff": {"type": "boolean"},
+                    "timezone_name": {
+                        "type": "string",
+                        "description": "KippoUser.timezone_name: the IANA timezone set on the user. Blank when not set (kippo#80).",
+                    },
+                    "effective_timezone_name": {
+                        "type": "string",
+                        "description": (
+                            "IANA timezone the user works in: timezone_name, else the holiday country's timezone "
+                            "(when the whole country keeps one time), else the user's first organization's, else Asia/Tokyo (kippo#80)."
+                        ),
+                    },
                 },
             },
         },
@@ -385,6 +396,9 @@ class CurrentUserView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "is_staff": user.is_staff,
+                "timezone_name": user.timezone_name,
+                # the same "first organization" the weekly-effort views use for a user's settings
+                "effective_timezone_name": user.get_timezone(user.organizations.first()).key,
             }
         )
 

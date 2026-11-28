@@ -9,7 +9,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from commons.definitions import SATURDAY, SUNDAY
-from commons.functions import last_of_month, local_date
+from commons.functions import last_of_month, timezone_name_for_country
 from commons.models import TimestampedModel, UserCreatedBaseModel
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -44,6 +44,31 @@ def validate_timezone(value: str) -> None:
     """Validate that ``value`` is a known IANA timezone name (e.g. 'Asia/Tokyo')."""
     if value not in zoneinfo.available_timezones():
         raise ValidationError(_("%(value)s is not a valid IANA timezone name."), params={"value": value})
+
+
+def zoneinfo_or_none(timezone_name: str | None) -> zoneinfo.ZoneInfo | None:
+    """The timezone called `timezone_name`, or None when the name is empty or unknown.
+
+    validate_timezone only runs on full_clean (admin forms), not on .save(), so a bad or empty
+    value can be persisted programmatically; callers fall back instead of raising on ZoneInfo().
+    """
+    if not timezone_name:
+        return None
+    try:
+        return zoneinfo.ZoneInfo(timezone_name)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def resolve_timezone(user: "KippoUser | None", organization: "KippoOrganization | None") -> zoneinfo.ZoneInfo:
+    """The timezone `user` works in within `organization`. Either may be None.
+
+    In order: the user's own timezone (KippoUser.get_own_timezone); the organization's; JST.
+    """
+    own_timezone = user.get_own_timezone() if user else None
+    if own_timezone:
+        return own_timezone
+    return organization.get_timezone() if organization else zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
 
 
 class KippoOrganization(UserCreatedBaseModel):
@@ -268,18 +293,16 @@ class KippoOrganization(UserCreatedBaseModel):
         next_fiscal_year = current.replace(day=1)
         return next_fiscal_year
 
+    def get_timezone(self) -> zoneinfo.ZoneInfo:
+        """The organization's timezone (timezone_name; JST when the stored value is empty or invalid)."""
+        return zoneinfo_or_none(self.timezone_name) or zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
+
     def current_fiscal_year_start(self) -> datetime.date:
         """Start date of this organization's current fiscal year — (fiscalyear_start_month, day 1) in
         the most recent year on or before today, where 'today' is the current date in the
         organization's timezone (timezone_name; falls back to JST if the stored value is invalid).
         """
-        # validate_timezone only runs on full_clean (admin forms), not on .save(); guard against a
-        # bad/empty value persisted programmatically so callers can't raise on ZoneInfo().
-        try:
-            tz = zoneinfo.ZoneInfo(self.timezone_name or DEFAULT_ORGANIZATION_TIMEZONE)
-        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
-            tz = zoneinfo.ZoneInfo(DEFAULT_ORGANIZATION_TIMEZONE)
-        today = timezone.localdate(timezone=tz)
+        today = timezone.localdate(timezone=self.get_timezone())
         year = today.year if today.month >= self.fiscalyear_start_month else today.year - 1
         return datetime.date(year, self.fiscalyear_start_month, 1)
 
@@ -459,6 +482,28 @@ class KippoUser(AbstractUser):
         blank=True,
         help_text=_("Country that user participates in holidays"),
     )
+    timezone_name = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_timezone],
+        verbose_name=_("タイムゾーン"),
+        help_text=_(
+            "IANA timezone the user works in (e.g. Asia/Tokyo). Leave blank to use the holiday country's "
+            "timezone (when the whole country keeps one time), otherwise the organization's."
+        ),
+    )
+
+    def get_own_timezone(self) -> zoneinfo.ZoneInfo | None:
+        """The user's timezone_name, else the holiday country's timezone when the whole country keeps one time. None when neither."""
+        own_timezone = zoneinfo_or_none(self.timezone_name)
+        if own_timezone or not self.holiday_country_id:
+            return own_timezone
+        return zoneinfo_or_none(timezone_name_for_country(self.holiday_country.alpha_2))
+
+    def get_timezone(self, organization: KippoOrganization | None = None) -> zoneinfo.ZoneInfo:
+        """The timezone this user works in: their own (get_own_timezone), else `organization`'s, else JST."""
+        return resolve_timezone(self, organization)
 
     @property
     def display_name(self):
@@ -726,10 +771,25 @@ class AttendanceRecord(UserCreatedBaseModel):
     def __str__(self) -> str:
         return f"AttendanceRecord({self.organization.github_organization_name}-{self.created_by.username} [{self.entry_datetime}] {self.category})"
 
+    def _set_date_from_entry_datetime(self) -> None:
+        """Set date to the entry's calendar date where the member (created_by) works."""
+        if not self.entry_datetime:
+            return
+        entry_datetime = self._meta.get_field("entry_datetime").to_python(self.entry_datetime)
+        if timezone.is_naive(entry_datetime):
+            entry_datetime = timezone.make_aware(entry_datetime)  # the instant Django stores for a naive value
+        member_timezone = resolve_timezone(self.created_by if self.created_by_id else None, self.organization if self.organization_id else None)
+        self.date = entry_datetime.astimezone(member_timezone).date()
+
     def clean(self):
-        # set date to entry_datetime date
-        if self.entry_datetime:
-            self.date = local_date(self.entry_datetime)
+        self._set_date_from_entry_datetime()
+
+    def save(self, *args, **kwargs):
+        # The Slack commands save without clean(), so date is derived when the row is created.
+        # Later saves leave it alone; an edit of entry_datetime in the admin goes through clean().
+        if self._state.adding:
+            self._set_date_from_entry_datetime()
+        super().save(*args, **kwargs)
 
     def get_duration_timedelta(self) -> timezone.timedelta:
         """Get the timedelta for the duration the current AttendanceRecord to it's related START/BREAK_START record."""

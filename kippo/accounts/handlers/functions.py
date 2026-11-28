@@ -1,3 +1,4 @@
+import datetime
 import logging
 from collections.abc import Iterable
 
@@ -11,23 +12,31 @@ logger = logging.getLogger(__name__)
 
 
 def _get_persionalholidays_for_date(
-    users: Iterable[KippoUser], read_behind_buffer_days: int = settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS
+    users: Iterable[KippoUser],
+    read_behind_buffer_days: int = settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
+    organization: KippoOrganization | None = None,
 ) -> list[tuple[KippoUser, PersonalHoliday]]:
     """
     Get PersonalHoliday entries from the last {read_behind_buffer_days} days that cover today and return,
-    a list of (KippoUser, PersonalHoliday) with one entry per user
+    a list of (KippoUser, PersonalHoliday) with one entry per user.
+
+    PersonalHoliday.day is a date on the holiday-taker's calendar, so "today" is each user's own
+    today (KippoUser.get_timezone(organization)).
     """
-    today = timezone.localdate()
-    search_start_date = today - timezone.timedelta(days=read_behind_buffer_days)
+    today_by_user_id = {user.pk: timezone.localdate(timezone=user.get_timezone(organization)) for user in users}
+    if not today_by_user_id:
+        return []
+    search_start_date = min(today_by_user_id.values()) - timezone.timedelta(days=read_behind_buffer_days)
     existing_personalholiday_entries = PersonalHoliday.objects.filter(
-        user__in=users,
+        user__in=today_by_user_id,
         day__gte=search_start_date,
-        day__lte=today,
+        day__lte=max(today_by_user_id.values()),
     ).select_related("user")
     personalholiday_by_user = {}
     for entry in existing_personalholiday_entries:
+        today = today_by_user_id[entry.user_id]
         # PersonalHoliday covers `duration` days starting from (and including) `day`
-        if entry.day + timezone.timedelta(days=entry.duration) <= today:
+        if entry.day > today or entry.day + timezone.timedelta(days=entry.duration) <= today:
             continue
         # a user may have multiple overlapping entries -- report once, full-day takes precedence over half-day
         existing_entry = personalholiday_by_user.get(entry.user)
@@ -37,18 +46,26 @@ def _get_persionalholidays_for_date(
 
 
 def _prepare_organization_user_status_blocks(
-    organization: KippoOrganization, web_client: WebClient, include_no_personalholidays: bool = False
+    organization: KippoOrganization, web_client: WebClient, include_no_personalholidays: bool = False, today: datetime.date | None = None
 ) -> tuple[list[dict], list[tuple[KippoUser, PersonalHoliday]]]:
+    """Blocks for the members on holiday today, each by their own calendar. `today` is only the date shown when nobody is."""
     from commons.slackcommand.base import SubCommandBase
 
-    # get organization members
-    organization_memberships = list(OrganizationMembership.objects.filter(organization=organization).order_by("user__last_name", "user__first_name"))
+    today = today or timezone.localdate()
+
+    # get organization members (holiday_country backs each member's timezone)
+    organization_memberships = list(
+        OrganizationMembership.objects.filter(organization=organization)
+        .select_related("user__holiday_country")
+        .order_by("user__last_name", "user__first_name")
+    )
     organization_users = [membership.user for membership in organization_memberships]
     organizationmembership_by_username = {membership.user.username: membership for membership in organization_memberships}
 
     user_persionalholidays = _get_persionalholidays_for_date(
         organization_users,
         read_behind_buffer_days=settings.PERSONALHOLIDAY_READ_BEHIND_BUFFER_DAYS,
+        organization=organization,
     )
     logger.info(f"Found {len(user_persionalholidays)} users with PersonalHoliday in organization {organization.name}")
     if not user_persionalholidays:
@@ -97,13 +114,13 @@ def _prepare_organization_user_status_blocks(
                 }
             )
     if not user_status_blocks and include_no_personalholidays:
-        logger.info(f"No PersonalHoliday entries found for organization {organization.name} on {timezone.localdate()}")
+        logger.info(f"No PersonalHoliday entries found for organization {organization.name} on {today}")
         user_status_blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"今日（{timezone.localdate()}）休む予定のメンバーはみつかりません。",
+                    "text": f"今日（{today}）休む予定のメンバーはみつかりません。",
                 },
             }
         )

@@ -338,7 +338,7 @@ class KippoUserAdmin(AllowIsStaffReadonlyMixin, OrganizationQuerysetModelAdminMi
     # limit displayed fields
     fieldsets = (
         (None, {"fields": ("username", "password")}),
-        (_("Personal info"), {"fields": ("first_name", "last_name", "github_login", "email", "holiday_country")}),
+        (_("Personal info"), {"fields": ("first_name", "last_name", "github_login", "email", "holiday_country", "timezone_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff", "is_superuser")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )

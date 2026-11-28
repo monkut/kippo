@@ -27,12 +27,14 @@ class AttendanceCancelSubCommand(SubCommandBase):
     @classmethod
     def handle(cls, command: SlackCommand) -> tuple[list[dict], SlackResponse | None, WebhookResponse]:
         """Cancel/Delete the latest (last 5 minutes) attendance record for the user."""
+        member_timezone = cls._member_timezone(command)
         web_send_response = None
 
         assert cls._is_valid_subcommand_alias(command.sub_command)
 
         # get latest attendance record for each user/organization for the today
-        min_datetime = timezone.localtime() - datetime.timedelta(minutes=settings.ATTENDANCECANCEL_SUBCOMMAND_MINUTES)
+        # elapsed time: subtract from the UTC instant (wall-clock arithmetic in the member's timezone is off by an hour across a DST change)
+        min_datetime = timezone.now() - datetime.timedelta(minutes=settings.ATTENDANCECANCEL_SUBCOMMAND_MINUTES)
         latest_user_attendance_record = (
             AttendanceRecord.objects.filter(
                 created_by=command.user,
@@ -45,7 +47,7 @@ class AttendanceCancelSubCommand(SubCommandBase):
 
         if latest_user_attendance_record:
             # Delete the latest attendance record
-            local_created_datetime = latest_user_attendance_record.created_datetime.astimezone(settings.JST)
+            local_created_datetime = latest_user_attendance_record.created_datetime.astimezone(member_timezone)
             local_created_datetime_display_str = local_created_datetime.strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
@@ -67,7 +69,7 @@ class AttendanceCancelSubCommand(SubCommandBase):
 
         else:
             logger.warning(f"No AttendenceRecord(s) found for organization {command.organization} on {min_datetime}")
-            min_datetime_display_str = min_datetime.astimezone(settings.JST).strftime("%-m/%-d %-H:%M")
+            min_datetime_display_str = min_datetime.astimezone(member_timezone).strftime("%-m/%-d %-H:%M")
             command_response_blocks = [
                 {
                     "type": "section",

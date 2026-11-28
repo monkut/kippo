@@ -46,6 +46,20 @@ class OrganizationMemberDetailSerializer(serializers.Serializer):
     slack_username = serializers.CharField(allow_blank=True)
     slack_user_id = serializers.CharField(allow_blank=True)
     slack_image_url = serializers.CharField(allow_blank=True)
+    # Optional in the schema (always present in the response) so clients generated from an older
+    # schema keep compiling.
+    timezone_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="KippoUser.timezone_name: the IANA timezone set on the user. Blank when not set (kippo#80).",
+    )
+    effective_timezone_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "IANA timezone the member works in: timezone_name, else the holiday country's timezone "
+            "(when the whole country keeps one time), else this organization's, else Asia/Tokyo (kippo#80)."
+        ),
+    )
     available_work_days = serializers.IntegerField(
         required=False,
         allow_null=True,

@@ -1,11 +1,21 @@
 import datetime
+import functools
+import importlib.resources
+import logging
+import pathlib
 import uuid
+import zoneinfo
 from calendar import monthrange
 
 from django.conf import settings
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 DECEMBER = 12
+# tz database table: one line per (country, zone) as "<ISO-3166 alpha-2>\t<coordinates>\t<zone name>[\t<comment>]"
+ZONE_TABLE_FILENAME = "zone.tab"
+ZONE_TABLE_MIN_FIELDS = 3
 
 
 def is_uuid(value: str) -> bool:
@@ -70,3 +80,59 @@ def add_months(reference: datetime.date, months: int) -> datetime.date:
     month_index = reference.year * 12 + reference.month - 1 + months
     year, month = divmod(month_index, 12)
     return datetime.date(year, month + 1, min(reference.day, monthrange(year, month + 1)[1]))
+
+
+def _read_zone_table() -> str:
+    """Text of the tz database's zone.tab, from the system tz database or else the `tzdata` package."""
+    for directory in zoneinfo.TZPATH:
+        path = pathlib.Path(directory) / ZONE_TABLE_FILENAME
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    try:
+        return importlib.resources.files("tzdata").joinpath("zoneinfo", ZONE_TABLE_FILENAME).read_text(encoding="utf-8")
+    except (ModuleNotFoundError, FileNotFoundError):
+        logger.warning(f"{ZONE_TABLE_FILENAME} not found in {zoneinfo.TZPATH} or the tzdata package: no timezone can be derived from a country")
+        return ""
+
+
+@functools.cache
+def country_timezone_names() -> dict[str, tuple[str, ...]]:
+    """ISO-3166 alpha-2 country code -> the tz database zones of that country."""
+    zones_by_country: dict[str, list[str]] = {}
+    for line in _read_zone_table().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < ZONE_TABLE_MIN_FIELDS:
+            continue  # not a "<country>\t<coordinates>\t<zone>" row
+        country_code, _coordinates, zone_name = fields[:ZONE_TABLE_MIN_FIELDS]
+        zones_by_country.setdefault(country_code, []).append(zone_name)
+    return {country_code: tuple(zone_names) for country_code, zone_names in zones_by_country.items()}
+
+
+def _keep_the_same_time(zone_names: tuple[str, ...], year: int) -> bool:
+    """True when every zone has the same UTC offset in both January and July of `year`."""
+    probes = (datetime.datetime(year, 1, 1, 12), datetime.datetime(year, 7, 1, 12))  # noqa: DTZ001 -- zone applied below
+    offsets = {tuple(probe.replace(tzinfo=zoneinfo.ZoneInfo(zone_name)).utcoffset() for probe in probes) for zone_name in zone_names}
+    return len(offsets) == 1
+
+
+@functools.cache
+def _timezone_name_for_country_in_year(country_code: str, year: int) -> str | None:
+    zone_names = country_timezone_names().get(country_code, ())
+    if not zone_names:
+        return None
+    try:
+        return zone_names[0] if _keep_the_same_time(zone_names, year) else None
+    except zoneinfo.ZoneInfoNotFoundError:
+        return None
+
+
+def timezone_name_for_country(alpha_2: str) -> str | None:
+    """The country's timezone, when the whole country keeps one time.
+
+    That is a country with one zone (JP -> Asia/Tokyo), or whose zones all share the same UTC offset
+    year-round (DE -> Europe/Berlin; its other zone, Europe/Busingen, keeps the same time). None for
+    a country spanning different times (US, AU, ES, ...) and for an unknown code.
+    """
+    return _timezone_name_for_country_in_year(alpha_2.upper(), timezone.localdate().year)

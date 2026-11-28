@@ -290,9 +290,14 @@ class OrganizationMembersAPITestCase(TestCase):
                 "slack_username",
                 "slack_user_id",
                 "slack_image_url",
+                "timezone_name",
+                "effective_timezone_name",
                 "available_work_days",
             },
         )
+        # No timezone set on the user and no holiday country: the organization's (default JST).
+        self.assertEqual(pm["timezone_name"], "")
+        self.assertEqual(pm["effective_timezone_name"], "Asia/Tokyo")
         # `available_work_days` is null when the `month` query parameter is not given.
         self.assertIsNone(pm["available_work_days"])
         # Slack/email fields come from OrganizationMembership, not KippoUser.
